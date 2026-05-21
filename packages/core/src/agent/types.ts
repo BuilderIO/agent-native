@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
 export interface ActionTool {
   description: string;
@@ -38,7 +39,9 @@ export type AgentChatStructuredContentPart =
   | {
       type: "tool-result";
       toolCallId: string;
+      /** Persisted for replay; omitted in older rows is backfilled server-side. */
       toolName?: string;
+      toolInput?: string;
       content: string;
       isError?: boolean;
     };
@@ -85,6 +88,12 @@ export interface AgentChatAttachment {
   text?: string;
 }
 
+export interface AgentChatScope {
+  type: string;
+  id: string;
+  label?: string;
+}
+
 export interface AgentChatRequest {
   message: string;
   /**
@@ -114,13 +123,22 @@ export interface AgentChatRequest {
   effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
+  /** Stable browser tab id so screen/url context and navigation commands are tab-scoped. */
+  browserTabId?: string;
+  /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
+  scope?: AgentChatScope | null;
 }
 
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "activity"; label: string; tool?: string }
   | { type: "tool_start"; tool: string; input: Record<string, string> }
-  | { type: "tool_done"; tool: string; result: string }
+  | {
+      type: "tool_done";
+      tool: string;
+      result: string;
+      mcpApp?: AgentMcpAppPayload;
+    }
   | {
       type: "agent_call";
       agent: string;

@@ -27,6 +27,10 @@ It's an open-source replacement for Amplitude, Mixpanel, and Looker — for team
 - **Maintain a living data dictionary** of metrics, tables, and SQL recipes so the agent uses the right column names every time (no more guessed `is_closed` when it's actually `hs_is_closed`).
 - **Share dashboards** with your team — private by default, shareable per-user or per-org with viewer / editor / admin roles.
 - **Connect to many sources** out of the box: BigQuery, GA4, Mixpanel, Amplitude, PostHog, HubSpot, Jira, Apollo, Pylon, Gong, Common Room, Twitter, plus app-specific SEO sources.
+- **Reuse workspace integrations** when a workspace has already connected and
+  granted a provider to Analytics. The shared integration stores provider
+  identity and credential refs; Analytics keeps app-specific source selection,
+  data dictionary entries, dashboard SQL, and analysis history.
 
 ## Getting started
 
@@ -143,7 +147,19 @@ Every BigQuery panel's SQL is dry-run against the warehouse before the dashboard
 
 ### Connecting data sources
 
-Open the **Data Sources** page (`/data-sources`) to connect providers. Each source exposes an env-key list, a walkthrough, and a **Test Connection** button. The page calls `/api/credential-status`, `/api/credentials`, and `/api/test-connection`.
+Open the **Data Sources** page (`/data-sources`) to connect providers. Each
+source exposes an env-key list, a walkthrough, and a **Test Connection** button.
+When Analytics is running in a workspace, `data-source-status` also reports
+granted reusable workspace connections for `appId=analytics` so the agent can
+ask for an app grant instead of another copy of the same provider key.
+For reusable providers such as Slack, HubSpot, Notion, and GitHub, the Data
+Sources UI shows the shared integration state directly: ready via workspace,
+needs grant, needs credentials, or local credentials.
+
+Reusable workspace integrations are the runtime direction for shared providers:
+the framework stores provider identity, account metadata, credential refs, and
+per-app grants once; Analytics stores data-source interpretation, source of
+truth choices, metric definitions, dashboards, and analyses.
 
 Credentials are stored via the framework's settings/env layer — no secrets in git. Production requires:
 

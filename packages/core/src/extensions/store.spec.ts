@@ -20,6 +20,7 @@ describe("extensions/store", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
       getDialect: () => "sqlite",
+      intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -68,6 +69,7 @@ describe("extensions/store", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
       getDialect: () => "sqlite",
+      intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -106,6 +108,7 @@ describe("extensions/store", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
       getDialect: () => "sqlite",
+      intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -143,6 +146,7 @@ describe("extensions/store", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
       getDialect: () => "sqlite",
+      intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
@@ -176,6 +180,60 @@ describe("extensions/store", () => {
     expect(insertedRows[0]).toMatchObject({ visibility: "private" });
   });
 
+  it("surfaces extension marker persistence failures", async () => {
+    const insertedRows: unknown[] = [];
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn(async (row: unknown) => {
+          insertedRows.push(row);
+        }),
+      })),
+    };
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+    const appStatePut = vi.fn(async () => {
+      throw new Error("marker unavailable");
+    });
+
+    vi.doMock("../application-state/store.js", () => ({
+      appStatePut,
+    }));
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      intType: () => "INTEGER",
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { createExtension } = await import("./store.js");
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        createExtension({
+          name: "Foobar",
+          content: "<div>Foobar</div>",
+        }),
+      ),
+    ).rejects.toThrow("marker unavailable");
+
+    expect(insertedRows).toHaveLength(1);
+    expect(appStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__extensions_change__",
+      expect.objectContaining({ owner: "owner@example.com" }),
+    );
+  });
+
   it("refuses to flip an existing extension to public visibility", async () => {
     // Defense in depth — the framework `set-resource-visibility` action
     // already rejects 'public' for extensions, but `updateExtension` is also
@@ -189,6 +247,7 @@ describe("extensions/store", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
       getDialect: () => "sqlite",
+      intType: () => "INTEGER",
       isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));

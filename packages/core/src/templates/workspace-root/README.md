@@ -33,6 +33,31 @@ Apps don't need any configuration to opt in. Discovery happens via the
 `agent-native.workspaceCore` field in this root `package.json`, which names
 the shared package (`@{{APP_NAME}}/shared`).
 
+The workspace root also links `.agents/skills` to the shared package so coding
+agents launched from the root can discover the same workspace-wide skills.
+
+Runtime-editable global resources live in Dispatch, not in `packages/shared`.
+Use Dispatch **Resources** for company context and guardrails that admins should
+change without a code deploy:
+
+- `AGENTS.md` or `instructions/<slug>.md` for instructions every app agent loads
+- `skills/<slug>/SKILL.md` for workspace skills
+- `context/<slug>.md` for personas, positioning, messaging, company facts, and brand guidelines
+- `agents/<slug>.md` for reusable custom agent profiles
+
+Set those resources to **All apps** when every workspace app should receive
+them; use selected-app grants for app-specific packs.
+
+Starter global resources:
+
+```text
+context/company.md              # company overview, ICP, products, canonical links
+context/brand.md                # brand voice, visual identity, spelling, terms to avoid
+context/messaging.md            # positioning, value props, proof points, objections
+instructions/guardrails.md      # compliance, escalation, and approval rules
+skills/company-voice/SKILL.md   # copywriting/review guidance for customer-facing work
+```
+
 ## Getting started
 
 ```bash
@@ -48,6 +73,13 @@ watches `apps/`, so newly-created apps are detected without restarting
 `pnpm dev`. App servers start lazily the first time you visit their path. App
 links should stay relative, such as `/starter` or `/<app-id>`; do not hardcode
 localhost or dev ports because the active gateway origin owns the port.
+
+Dispatch vault keys are workspace-wide by default: every saved vault key is
+available to every workspace app and can be synced from Dispatch. Switch the
+Vault page to manual access only when you need explicit per-app key grants.
+Dispatch resources are inherited rather than synced: All-app resources live
+once at workspace scope and every app agent reads them at runtime. Use selected
+resource grants only for genuinely app-specific context.
 
 ## Workspace org identity
 
@@ -74,6 +106,9 @@ pnpm exec agent-native create crm --template=starter
 The CLI detects the workspace root and scaffolds a minimal app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
+Starter is only the source scaffold: the finished app should use its own name,
+home screen, navigation, package metadata, and manifest rather than leaving
+starter or new-app UI in place.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
 app rather than adding files to `apps/starter`.
@@ -84,7 +119,7 @@ separate workspace app registry to edit. React Router apps must preserve
 For requests phrased as creating an "agent", classify the scope first: simple
 recurring Dispatch behavior can stay in Dispatch, while a robust app-like
 teammate should become a real workspace app listed with the rest of the apps.
-First-party apps such as Mail, Calendar, Analytics, and Dispatch should be
+First-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch should be
 treated as existing hosted or connected neighbors. If a new app needs access to
 their data or agents, link/delegate to those apps through the workspace/A2A
 path rather than creating wrapper apps, child apps, or cloned template copies

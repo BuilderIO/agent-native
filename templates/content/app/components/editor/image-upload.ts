@@ -3,6 +3,8 @@ import { agentNativePath } from "@agent-native/core/client";
 interface UploadResponse {
   url?: unknown;
   error?: unknown;
+  message?: unknown;
+  statusMessage?: unknown;
 }
 
 function isImageFile(file: File): boolean {
@@ -28,6 +30,22 @@ export function imageUploadErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Image upload failed.";
 }
 
+function uploadResponseMessage(
+  response: Response,
+  body: UploadResponse,
+): string {
+  for (const value of [body.error, body.message, body.statusMessage]) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return `Image upload failed (${response.status}).`;
+}
+
+function isBuilderReconnectError(serverMessage: string): boolean {
+  return /builder(?:\.io)?[^\n]*(auth|credential|token|upload failed|401|403|unauthorized|forbidden|invalid)/i.test(
+    serverMessage,
+  );
+}
+
 export async function uploadImageFile(file: File): Promise<string> {
   if (!isImageFile(file)) {
     throw new Error("Only image files can be uploaded.");
@@ -44,10 +62,12 @@ export async function uploadImageFile(file: File): Promise<string> {
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
 
   if (!response.ok) {
-    const serverMessage =
-      typeof body.error === "string"
-        ? body.error
-        : `Image upload failed (${response.status}).`;
+    const serverMessage = uploadResponseMessage(response, body);
+    if (isBuilderReconnectError(serverMessage)) {
+      throw new Error(
+        "Builder.io is connected, but the saved connection was rejected. Reconnect Builder.io in Settings -> File uploads, then try again.",
+      );
+    }
     if (
       response.status === 503 ||
       /file upload provider|storage provider|connect builder/i.test(

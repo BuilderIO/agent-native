@@ -22,6 +22,7 @@ import {
   setFrameworkSessionCookie,
 } from "./auth.js";
 import { getAppName } from "./app-name.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 
@@ -95,10 +96,26 @@ export function isMobile(event: H3Event): boolean {
 
 /**
  * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * deployment-known public URLs (`APP_URL`, `BETTER_AUTH_URL`, and the
- * workspace gateway). Each entry is normalised to `${proto}://${host}` (no
- * path). Duplicates collapse, invalid entries are dropped silently.
+ * deployment-known public URLs. Each entry is normalised to
+ * `${proto}://${host}` (no path). Duplicates collapse, invalid entries are
+ * dropped silently.
  */
+const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
+  "WORKSPACE_OAUTH_ORIGIN",
+  "VITE_WORKSPACE_OAUTH_ORIGIN",
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "URL",
+  "DEPLOY_URL",
+] as const;
+
+const WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS = [
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+] as const;
+
 function normalizeOrigin(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   try {
@@ -109,15 +126,37 @@ function normalizeOrigin(raw: string | undefined): string | undefined {
   }
 }
 
+function addNormalizedOrigin(
+  out: Set<string>,
+  raw: string | undefined,
+  options: { allowLoopback: boolean },
+): void {
+  const origin = normalizeOrigin(raw);
+  if (!origin) return;
+  if (!options.allowLoopback && isLoopbackOrigin(origin)) return;
+  out.add(origin);
+}
+
+function firstOriginFromEnv(
+  keys: readonly string[],
+  options: { allowLoopback: boolean },
+): string | undefined {
+  for (const key of keys) {
+    const origin = normalizeOrigin(process.env[key]);
+    if (!origin) continue;
+    if (!options.allowLoopback && isLoopbackOrigin(origin)) continue;
+    return origin;
+  }
+  return undefined;
+}
+
 function getConfiguredOriginAllowlist(): Set<string> {
   const out = new Set<string>();
-  for (const raw of [
-    process.env.APP_URL,
-    process.env.BETTER_AUTH_URL,
-    process.env.WORKSPACE_GATEWAY_URL,
-  ]) {
-    const origin = normalizeOrigin(raw);
-    if (origin) out.add(origin);
+  for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
+    addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
+  }
+  for (const key of WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS) {
+    addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
   }
   return out;
 }
@@ -127,15 +166,14 @@ function firstConfiguredOrigin(): string | undefined {
 }
 
 function getWorkspaceCallbackOrigin(): string | undefined {
-  const publicAuthOrigin =
-    normalizeOrigin(process.env.APP_URL) ??
-    normalizeOrigin(process.env.BETTER_AUTH_URL);
+  const publicAuthOrigin = firstOriginFromEnv(EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS, {
+    allowLoopback: true,
+  });
   if (publicAuthOrigin) return publicAuthOrigin;
 
-  const gatewayOrigin = normalizeOrigin(process.env.WORKSPACE_GATEWAY_URL);
-  if (gatewayOrigin && !isLoopbackOrigin(gatewayOrigin)) return gatewayOrigin;
-
-  return firstConfiguredOrigin();
+  return firstOriginFromEnv(WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS, {
+    allowLoopback: false,
+  });
 }
 
 function isLoopbackHost(host: string | undefined): boolean {
@@ -442,20 +480,23 @@ let _devStateSigningKey: string | undefined;
  * Resolution order:
  *   1. OAUTH_STATE_SECRET (preferred — dedicated to this purpose)
  *   2. BETTER_AUTH_SECRET (already used by Better Auth as a server secret)
- *   3. In dev only, an ephemeral random key (per-process)
+ *   3. Hosted workspace deploys derive a per-purpose key from A2A_SECRET
+ *   4. In dev only, an ephemeral random key (per-process)
  *
- * In production, throws if neither secret is set.
+ * In production, throws if no usable server secret is set.
  */
 function getStateSigningKey(): string {
   const secret =
-    process.env.OAUTH_STATE_SECRET || process.env.BETTER_AUTH_SECRET;
+    process.env.OAUTH_STATE_SECRET ||
+    process.env.BETTER_AUTH_SECRET ||
+    getWorkspaceA2ADerivedSecret("oauth-state");
   if (secret) return secret;
 
   const isProd = process.env.NODE_ENV === "production";
   if (isProd) {
     throw new Error(
       "OAuth state signing requires a server secret. " +
-        "Set OAUTH_STATE_SECRET or BETTER_AUTH_SECRET in production.",
+        "Set OAUTH_STATE_SECRET, BETTER_AUTH_SECRET, or A2A_SECRET in production workspace deploys.",
     );
   }
 

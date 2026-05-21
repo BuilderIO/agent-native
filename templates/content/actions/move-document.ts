@@ -6,6 +6,45 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+async function assertParentIsNotDescendant({
+  db,
+  ownerEmail,
+  id,
+  parentId,
+}: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  id: string;
+  parentId: string | null | undefined;
+}) {
+  if (!parentId) return;
+  const queue = [id];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const children = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.parentId, currentId),
+        ),
+      );
+
+    for (const child of children) {
+      if (child.id === parentId) {
+        throw new Error("A document cannot be moved under one of its children");
+      }
+      queue.push(child.id);
+    }
+  }
+}
+
 export default defineAction({
   description: "Move a document to a parent and/or position in the page tree.",
   schema: z.object({
@@ -50,6 +89,12 @@ export default defineAction({
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
           throw new Error("Parent document must belong to the same owner");
         }
+        await assertParentIsNotDescendant({
+          db,
+          ownerEmail,
+          id,
+          parentId: args.parentId,
+        });
       }
       updates.parentId = args.parentId;
     }

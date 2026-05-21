@@ -237,11 +237,11 @@ In the built-in agent chat, use the framework `manage-progress` tool for long-ru
 
 ### Reading & Searching
 
-| Action        | Args            | Purpose                        |
-| ------------- | --------------- | ------------------------------ |
-| `view-screen` |                 | See current UI state + context |
-| `list-decks`  | `[--compact]`   | List all decks with metadata   |
-| `get-deck`    | `--id <deckId>` | Get a deck with all slides     |
+| Action        | Args                                | Purpose                                                                      |
+| ------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
+| `view-screen` |                                     | See current UI state + context                                               |
+| `list-decks`  | `[--compact] [--createdBy all\|me]` | List all accessible decks, optionally only decks created by the current user |
+| `get-deck`    | `--id <deckId>`                     | Get a deck with all slides                                                   |
 
 ### Version History
 
@@ -401,7 +401,7 @@ Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share 
 | User request                          | What to do                                                                                                                              |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | "What am I looking at?"               | `pnpm action view-screen`                                                                                                               |
-| "List my decks"                       | `pnpm action list-decks`                                                                                                                |
+| "List my decks"                       | `pnpm action list-decks --createdBy me`                                                                                                 |
 | "Create a new deck about X"           | `create-deck --title "X" --slides '[]'` → `navigate --deckId=<returned-id>` → call `add-slide` once per slide, sequentially             |
 | "Fill this deck / add slides to this" | Read `deckId` from `<current-screen>`, then call `add-slide --deckId=<id>` once per slide, sequentially                                 |
 | "Add a slide about Y"                 | `add-slide --deckId <id> --content "<html>"` (new slide) or `update-slide --fullContent` (replace existing)                             |

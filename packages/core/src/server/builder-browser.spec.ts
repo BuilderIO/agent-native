@@ -1,19 +1,58 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { H3Event } from "h3";
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
+  BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
+  BUILDER_AGENT_NATIVE_FLOW_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
+  BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
   getBuilderBranchProjectId,
+  getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
+  getBuilderBrowserConnectUrlForOwner,
+  getBuilderBrowserOriginForEvent,
+  getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
+  resolveBuilderCallbackReturnUrl,
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
   verifyBuilderConnectToken,
   verifyBuilderCallbackState,
+  verifyBuilderCallbackStateAndGetOwner,
+  verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+
+function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
+  const requestHeaders = new Headers(headers);
+  return {
+    req: {
+      method: "GET",
+      url: "https://agent-workspace.builder.io/_agent-native/builder/status",
+      headers: requestHeaders,
+    },
+    url: new URL(
+      "https://agent-workspace.builder.io/_agent-native/builder/status",
+    ),
+    res: {
+      headers: new Headers(),
+      status: 200,
+    },
+    node: {
+      req: {
+        headers,
+        url: "/_agent-native/builder/status",
+        method: "GET",
+      },
+    },
+    headers: requestHeaders,
+    context: {},
+    path: "/_agent-native/builder/status",
+  } as unknown as H3Event;
+}
 
 describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
@@ -126,6 +165,14 @@ describe("Builder callback CSRF state", () => {
       expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(true);
     });
 
+    it("extracts the owner email from a valid callback state", () => {
+      const token = signBuilderCallbackState("alice@example.com");
+
+      expect(verifyBuilderCallbackStateAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
+
     it("rejects a token whose timestamp is far in the future", () => {
       const token = signBuilderCallbackState("alice@example.com");
       const [nonce, email, _ts, mac] = token.split(".");
@@ -207,15 +254,44 @@ describe("Builder callback CSRF state", () => {
       expect(token).toBeTruthy();
       expect(verifyBuilderConnectToken(token, "alice@example.com")).toBe(true);
     });
+
+    it("extracts the owner email from a valid connect token", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+
+      expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
+
+    it("does not extract an owner from a forged connect token", () => {
+      const token = signBuilderConnectToken("alice@example.com");
+      const parts = token.split(".");
+      parts[1] = Buffer.from("bob@example.com", "utf8").toString("base64url");
+
+      expect(verifyBuilderConnectTokenAndGetOwner(parts.join("."))).toBeNull();
+    });
+
+    it("builds an owner-signed connect URL for server-rendered cards", () => {
+      const connectUrl = getBuilderBrowserConnectUrlForOwner(
+        "https://alice.agent-native.com",
+        "alice@example.com",
+      );
+      const parsed = new URL(connectUrl);
+      const token = parsed.searchParams.get(BUILDER_CONNECT_PARAM);
+
+      expect(parsed.pathname).toBe("/_agent-native/builder/connect");
+      expect(token).toBeTruthy();
+      expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
+        "alice@example.com",
+      );
+    });
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    // The connect flow switched to server-side pending state (stored in the
-    // settings table) rather than embedding a signed _an_state token in the
-    // redirect_url query string.  Builder's /cli-auth page was stripping the
-    // existing query params from redirect_url when it appended p-key/api-key,
-    // so _an_state was always null when the callback fired.  The connect route
-    // now calls buildBuilderCliAuthUrl(origin, null) — no state in the URL.
+    // The callback state is optional because legacy /builder/connect clients
+    // can still rely on the server-side pending-connect row. New clients get a
+    // ready-to-open /cli-auth URL from /builder/status with _an_state embedded
+    // in redirect_url so the popup can skip the app trampoline entirely.
     it("builds a clean redirect_url (no _an_state) when state is null", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
@@ -276,8 +352,11 @@ describe("Builder callback CSRF state", () => {
         "https://alice.agent-native.com/",
       );
       const redirectUrl = new URL(cliAuthUrl).searchParams.get("redirect_url")!;
-      expect(redirectUrl).toBe(
-        "https://alice.agent-native.com/_agent-native/builder/callback",
+      const parsedRedirect = new URL(redirectUrl);
+      expect(parsedRedirect.origin).toBe("https://alice.agent-native.com");
+      expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
+      expect(parsedRedirect.searchParams.get(BUILDER_SIGNUP_SOURCE_PARAM)).toBe(
+        "agent-native",
       );
     });
 
@@ -287,12 +366,41 @@ describe("Builder callback CSRF state", () => {
         "https://alice.agent-native.com/",
       );
       const parsed = new URL(cliAuthUrl);
-      expect(parsed.searchParams.get("redirect_url")).toBe(
-        "https://alice.agent-native.com/docs/_agent-native/builder/callback",
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toBeTruthy();
+      const parsedRedirect = new URL(redirectUrl!);
+      expect(parsedRedirect.origin).toBe("https://alice.agent-native.com");
+      expect(parsedRedirect.pathname).toBe(
+        "/docs/_agent-native/builder/callback",
       );
       expect(parsed.searchParams.get("preview_url")).toBe(
         "https://alice.agent-native.com/docs",
       );
+    });
+
+    it("adds Agent Native signup attribution to cli-auth and callback URLs", () => {
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        "https://alice.agent-native.com",
+        signBuilderCallbackState("alice@example.com"),
+        {
+          tracking: {
+            agentNativeFlow: "background_agent",
+            agentNativeConnectSource: "connect_builder_card",
+          },
+        },
+      );
+      const parsed = new URL(cliAuthUrl);
+      const redirectUrl = new URL(parsed.searchParams.get("redirect_url")!);
+
+      for (const params of [parsed.searchParams, redirectUrl.searchParams]) {
+        expect(params.get(BUILDER_SIGNUP_SOURCE_PARAM)).toBe("agent-native");
+        expect(params.get(BUILDER_AGENT_NATIVE_FLOW_PARAM)).toBe(
+          "background_agent",
+        );
+        expect(params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM)).toBe(
+          "connect_builder_card",
+        );
+      }
     });
 
     it("preserves APP_BASE_PATH in the surfaced connect URL", () => {
@@ -301,6 +409,126 @@ describe("Builder callback CSRF state", () => {
         getBuilderBrowserConnectUrl("https://alice.agent-native.com/"),
       ).toBe(
         "https://alice.agent-native.com/docs/_agent-native/builder/connect",
+      );
+    });
+
+    it("uses a Builder-accepted gateway callback for preview-host cli-auth redirects", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.APP_URL = "https://agent-workspace.builder.io";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host":
+          "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      const previewOrigin = getBuilderBrowserOriginForEvent(event);
+      const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        callbackOrigin,
+        signBuilderCallbackState("alice@example.com"),
+        { previewOrigin },
+      );
+      const parsed = new URL(cliAuthUrl);
+
+      expect(callbackOrigin).toBe("https://agent-workspace.builder.io");
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toContain(
+        "https://agent-workspace.builder.io/dispatch/_agent-native/builder/callback",
+      );
+      // The callback origin (the part Builder validates against its allow-list)
+      // must be the gateway, not the preview host.
+      expect(new URL(redirectUrl!).origin).toBe(
+        "https://agent-workspace.builder.io",
+      );
+      // The original preview origin must still ride along inside the
+      // redirect_url query string so the callback can use it as the
+      // postMessage targetOrigin for the opener tab.
+      expect(new URL(redirectUrl!).searchParams.get("_an_opener")).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+      );
+      expect(parsed.searchParams.get("preview_url")).toBe(
+        "https://agent-workspace.builder.io/dispatch",
+      );
+    });
+
+    it("keeps Builder preview connect URLs on the preview deployment in workspace mode", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host":
+          "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
+      );
+    });
+
+    it("uses Fusion's public preview origin instead of a loopback gateway for Builder connect", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
+      process.env.FUSION_ENV_ORIGIN =
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      });
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+      );
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
+      );
+    });
+
+    it("returns users to the preview opener after a gateway callback", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.APP_URL = "https://agent-workspace.builder.io";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+      process.env.APP_BASE_PATH = "/dispatch";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "agent-workspace.builder.io",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(
+        resolveBuilderCallbackReturnUrl({
+          event,
+          openerOrigin:
+            "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
+          previewUrl: "https://agent-workspace.builder.io/dispatch",
+        }),
+      ).toBe(
+        "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch",
+      );
+    });
+
+    it("falls back to the configured public origin for untrusted hosts", () => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "attacker.example",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://agent-workspace.builder.io/_agent-native/builder/connect",
       );
     });
   });

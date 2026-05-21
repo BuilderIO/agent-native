@@ -1,6 +1,7 @@
 {
   "name": "starter",
-  "displayName": "Agent-Native Starter",
+  "displayName": "Blank app",
+  "description": "Blank agent-native app scaffold.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,7 +19,7 @@
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "node-pty": "^1.1.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@radix-ui/react-accordion": "^1.2.12",

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -104,6 +105,8 @@ const EMPTY_ENTRY: Partial<DictionaryEntry> = {
   knownGotchas: "",
   exampleUseCase: "",
   owner: "",
+  approved: true,
+  aiGenerated: false,
 };
 
 const DEPARTMENT_BADGE: Record<string, string> = {
@@ -286,15 +289,29 @@ export default function DataDictionary() {
                       {e.table}
                     </DictionaryBadge>
                   )}
-                  {e.approved && (
+                  {e.approved ? (
                     <Badge
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-green-500/10 text-green-600 dark:text-green-400 border-0`}
                     >
                       approved
                     </Badge>
+                  ) : e.aiGenerated ? (
+                    <Badge
+                      variant="outline"
+                      className={`${ENTRY_BADGE_CLASS} bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0`}
+                    >
+                      suggestion
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={`${ENTRY_BADGE_CLASS} bg-muted text-muted-foreground border-0`}
+                    >
+                      unreviewed
+                    </Badge>
                   )}
-                  {e.aiGenerated && (
+                  {e.aiGenerated && e.approved && (
                     <Badge
                       variant="outline"
                       className={`${ENTRY_BADGE_CLASS} bg-sky-500/10 text-sky-600 dark:text-sky-400 border-0`}
@@ -435,6 +452,40 @@ function EditEntryDialog({
                 placeholder="e.g. data-team@"
               />
             </Field>
+          </div>
+
+          <div className="grid gap-3 rounded-md border border-border p-3">
+            <label className="flex items-start gap-3 text-sm">
+              <Checkbox
+                checked={!!draft.approved}
+                onCheckedChange={(checked) => set("approved", checked === true)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">Approved</span>
+                <span className="block text-xs text-muted-foreground">
+                  Approved entries are treated as canonical by the agent.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm">
+              <Checkbox
+                checked={!!draft.aiGenerated}
+                onCheckedChange={(checked) =>
+                  set("aiGenerated", checked === true)
+                }
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">
+                  AI-generated suggestion
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Unapproved AI suggestions are visible for review but are not
+                  treated as truth.
+                </span>
+              </span>
+            </label>
           </div>
 
           <Field label="Source table(s)">

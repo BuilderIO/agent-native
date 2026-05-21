@@ -169,6 +169,161 @@ describe("buildUserContentWithAttachments", () => {
     ).toEqual([{ type: "text", text: "Can you read this SVG?" }]);
   });
 
+  it("preserves orphan tool-results as text so history is not lost before backfill", () => {
+    // No assistant tool-call ever exists for `t1`. Emitting a synthetic
+    // `tool-result` would be stripped later anyway; converting to text keeps
+    // the payload visible and lets `backfillEngineMessagesToolResults` run on
+    // the full engine message list consistently.
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "t1",
+              content: "stale tool output",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "(Omitted unmatched tool results from replayed history.) [tool_use_id=t1] stale tool output",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("appends a text note when a sibling tool-result is orphaned", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Here's some context." },
+            {
+              type: "tool-result",
+              toolCallId: "ghost",
+              content: "stale",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Here's some context." },
+          {
+            type: "text",
+            text: "(Omitted unmatched tool results from replayed history.) [tool_use_id=ghost] stale",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("coerces non-string tool_result fields from older DB JSON", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "99",
+              toolName: "search",
+              args: { q: "x" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: 99 as any,
+              toolName: "search",
+              content: { hits: 3 } as any,
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "99",
+            name: "search",
+            input: { q: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "99",
+            toolName: "search",
+            toolInput: '{"q":"x"}',
+            content: '{"hits":3}',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("synthesizes interrupted results for replayed tool calls without results", () => {
+    expect(
+      structuredHistoryToEngineMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "history_tc_1",
+              toolName: "chat-history",
+              args: { action: "search" },
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "history_tc_1",
+            name: "chat-history",
+            input: { action: "search" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "history_tc_1",
+            toolName: "chat-history",
+            toolInput: '{"action":"search"}',
+            content: "Interrupted before this tool returned a result.",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("normalizes structured chat history with tool calls and results", () => {
     expect(
       structuredHistoryToEngineMessages([
@@ -190,6 +345,7 @@ describe("buildUserContentWithAttachments", () => {
               type: "tool-result",
               toolCallId: "tc_1",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: '{"title":"Offsite rambles"}',
             },
           ],
@@ -214,6 +370,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "tool-result",
             toolCallId: "tc_1",
             toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
             content: '{"title":"Offsite rambles"}',
           },
         ],
@@ -223,8 +380,9 @@ describe("buildUserContentWithAttachments", () => {
 
   it("builds a plan-mode registry with only read-only tools", async () => {
     const registry = attachToolSearch({
-      "read-file": actionEntry({ readOnly: true }),
-      "write-file": actionEntry({ readOnly: false }),
+      read: actionEntry({ readOnly: true }),
+      write: actionEntry({ readOnly: false }),
+      bash: actionEntry({ readOnly: false }),
       "set-url-path": actionEntry({ readOnly: true }),
       resources: actionEntry({
         actions: ["list", "read", "write", "delete"],
@@ -234,7 +392,8 @@ describe("buildUserContentWithAttachments", () => {
     const planRegistry = createPlanModeActionRegistry(registry);
 
     expect(Object.keys(planRegistry).sort()).toEqual([
-      "read-file",
+      "bash",
+      "read",
       "resources",
       "tool-search",
     ]);
@@ -247,12 +406,21 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.resources.run({ action: "write" }),
     ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry.bash.run({ command: "rg button src" }),
+    ).resolves.toContain('"command":"rg button src"');
+    await expect(
+      planRegistry.bash.run({ command: "echo hi > notes.txt" }),
+    ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry.bash.run({ command: "rg button; node -e '1'" }),
+    ).resolves.toContain("Plan mode blocked");
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
     } as any);
     expect(searchResult.results.map((tool: any) => tool.name)).not.toContain(
-      "write-file",
+      "write",
     );
   });
 
@@ -267,6 +435,25 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+
+    const bashTool = actionEntry({ readOnly: false });
+    expect(
+      isPlanModeToolCallAllowed("bash", { command: "rg button src" }, bashTool),
+    ).toBe(true);
+    expect(
+      isPlanModeToolCallAllowed(
+        "bash",
+        { command: "echo hi > notes.txt" },
+        bashTool,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "bash",
+        { command: "rg button; node -e '1'" },
+        bashTool,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -595,6 +782,7 @@ describe("runAgentLoop", () => {
               type: "tool-result",
               toolCallId: "tool-original",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: '{"id":"doc-1","title":"Offsite rambles"}',
             },
           ],
@@ -697,6 +885,7 @@ describe("runAgentLoop", () => {
               type: "tool-result",
               toolCallId: "tool-original",
               toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
               content: "old result",
             },
           ],
@@ -1131,6 +1320,7 @@ describe("runAgentLoop", () => {
           type: "tool-result",
           toolCallId: "bad-call",
           toolName: "add-slide",
+          toolInput: expect.any(String),
           isError: true,
         },
       ],

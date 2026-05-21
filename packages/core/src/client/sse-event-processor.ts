@@ -1,4 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 
 export type ContentPart =
@@ -10,6 +11,7 @@ export type ContentPart =
       argsText: string;
       args: Record<string, string>;
       result?: string;
+      mcpApp?: AgentMcpAppPayload;
     };
 
 export interface SSEEvent {
@@ -19,6 +21,7 @@ export interface SSEEvent {
   label?: string;
   input?: Record<string, string>;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
   error?: string;
   seq?: number;
   agent?: string;
@@ -121,6 +124,7 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "permission_error" ||
     code === "http_401" ||
     code === "http_403" ||
+    code === "rate_limit_exceeded" ||
     code === "gateway_not_enabled" ||
     code === "missing_api_key" ||
     code === "missing_credentials" ||
@@ -163,6 +167,8 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (ev.recoverable === true) return true;
+
+  if (msg.includes("daily gateway request cap")) return false;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it
@@ -324,6 +330,7 @@ export function processEvent(
         part.result === undefined
       ) {
         part.result = ev.result ?? "";
+        if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         break;
       }
     }

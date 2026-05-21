@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
 import { bumpChangeVersion } from "./use-change-version.js";
+import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -35,6 +40,7 @@ function isDocumentHidden(): boolean {
 
 function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   if (sseUrl === false) return false;
+  if (isEmbedAuthActive()) return false;
   return agentNativePath(sseUrl ?? "/_agent-native/events");
 }
 
@@ -61,7 +67,10 @@ function eventVersion(event: SyncEvent): number {
 function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
   return events.some(
     (event) =>
-      event.source === "app-state" && (event.key === key || event.key === "*"),
+      event.source === "app-state" &&
+      (event.key === key ||
+        event.key === "*" ||
+        (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
   );
 }
 
@@ -99,11 +108,11 @@ async function fetchPollJson<T>(
  * SSE is the fast path; polling is the safety net.
  *
  * @param options.queryClient - The react-query QueryClient instance
- * @param options.queryKeys - **Deprecated and ignored.** The hook now
- *   invalidates every active query on any non-own change event, so templates
- *   no longer need to enumerate their keys. Kept in the type signature for
- *   backward compatibility — existing call sites that still pass this option
- *   keep working but the value has no effect.
+ * @param options.queryKeys - **Deprecated and ignored.** The hook uses
+ *   framework-owned fixed prefixes plus per-source change counters instead of
+ *   caller-supplied key lists. Kept in the type signature for backward
+ *   compatibility — existing call sites that still pass this option keep
+ *   working but the value has no effect.
  * @param options.pollUrl - Poll endpoint URL. Default: "/_agent-native/poll"
  * @param options.sseUrl - SSE endpoint URL. Default: "/_agent-native/events".
  *   Pass false to disable SSE and use polling only.
@@ -151,6 +160,12 @@ export function useDbSync(
   ignoreSourceRef.current = options.ignoreSource;
 
   useEffect(() => {
+    // Universal demo-mode redaction for the UI. Idempotent + browser-only +
+    // a no-op until demo mode is on. Lives here because every template root
+    // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureEmbedAuthFetchInterceptor();
+    ensureDemoModeFetchInterceptor();
+
     let versionRef = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
@@ -188,6 +203,17 @@ export function useDbSync(
       }
 
       if (relevant.length > 0 && queryClient) {
+        const hasActionEvent = relevant.some((evt) => evt.source === "action");
+        if (hasActionEvent) {
+          // Custom apps frequently start with raw `useQuery` calls before
+          // graduating to `useActionQuery` or source-versioned query keys.
+          // A successful mutating action is the core "agent changed app data"
+          // signal, so refresh active queries broadly as a compatibility
+          // safety net. Other event sources stay targeted to avoid request
+          // storms from noisy domain-specific writes.
+          queryClient.invalidateQueries();
+        }
+
         // Framework-level invalidate: a small, fixed list of query-key
         // prefixes the framework's own hooks/components use (action results,
         // extension state, application-state, the agent's `set-url` channel,

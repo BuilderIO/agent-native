@@ -33,12 +33,13 @@ The Images agent must mark delegated generations with `source: "a2a"` and
 `callerAppId: "slides"` when it calls `generate-image-batch` or `refine-image`.
 That keeps the Images audit log useful for design review.
 
-## Multi-slide parallel generation
+## Multi-slide image generation
 
-For a 5-slide deck where every slide needs a hero, fire 5 parallel `add-slide` calls; each one's image generation will run its own A2A call. Concurrency:
-
-- Gemini Tier 1 IPM = 10. The Images app caps internal concurrency at 4 in `generate-image-batch`, but cross-app A2A from slides is independent — 5 parallel slides → 5 parallel A2A calls → 5 parallel Gemini calls.
-- For decks larger than ~8 slides, batch into rounds of 5 to avoid IPM trips.
+Do not fire parallel `add-slide` calls into the same deck. Keep deck writes
+sequential: add one slide, wait for the result, then add the next slide. If a
+single slide needs several image variants, the image-generation action may
+request multiple variants internally, but the deck write itself should remain a
+single `add-slide` or `update-slide` call.
 
 ## Iteration
 

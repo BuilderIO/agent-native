@@ -10,7 +10,7 @@ Actions are the single source of truth for anything your app does. Define an act
 - **An agent tool** — the agent sees it with a zod-derived JSON Schema and can call it in chat.
 - **A typesafe React mutation** — `useActionMutation("name")` on the frontend, types inferred from the schema.
 - **An HTTP endpoint** — `POST /_agent-native/actions/<name>` (auto-mounted by the framework).
-- **An MCP tool** — exposed to Claude Desktop, ChatGPT remote-MCP, and any other MCP client.
+- **An MCP tool** — exposed to Claude, ChatGPT custom MCP apps, Claude Desktop/Code, Cursor, Codex, and any other MCP client.
 - **An A2A tool** — called by other agent-native apps over A2A.
 - **A CLI command** — `pnpm action <name>` for scripting and dev loops.
 
@@ -112,7 +112,7 @@ For actions that change state:
 ```tsx
 import { useActionMutation } from "@agent-native/core/client";
 
-const { mutate, isPending } = useActionMutation("replyToEmail");
+const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
   disabled={isPending}
@@ -122,7 +122,7 @@ const { mutate, isPending } = useActionMutation("replyToEmail");
 </Button>;
 ```
 
-On success, the framework emits a poll event so every `useActionQuery`/`useDbSync` consumer refetches automatically. See [Real-Time Sync](/docs/key-concepts#polling-sync).
+On success, the framework emits a change event with `source: "action"` so `useActionQuery` consumers and active query observers refetch automatically. See [Live Sync](/docs/key-concepts#polling-sync).
 
 ### `useActionQuery` {#use-action-query}
 
@@ -131,17 +131,17 @@ For read-only GET actions:
 ```ts
 import { useActionQuery } from "@agent-native/core/client";
 
-const { data, isLoading } = useActionQuery("getLead", { leadId });
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
-The query is cached under `["action", "getLead", { leadId }]` and auto-invalidated on any mutating action that completes.
+The query is cached under `["action", "get-lead", { leadId }]` and auto-invalidated on any mutating action that completes.
 
 ## Calling it from the CLI {#cli}
 
 Every action is runnable via `pnpm action`:
 
 ```bash
-pnpm action replyToEmail --emailId thread-123 --body "Thanks!"
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
 Flags are parsed into the shape your schema expects. Useful for agent-dev loops, scripts, and cron.
@@ -152,7 +152,45 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Any MCP client — Claude Desktop, ChatGPT remote MCP, etc. — can connect and see them as tools. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/static-token developer clients see the full connected action surface. OAuth app hosts that request `mcp:apps` get a compact catalog containing app-facing builtins, actions with `mcpApp`, and actions explicitly marked `publicAgent.expose`, so ChatGPT/Claude discovery stays small. See [MCP Protocol](/docs/mcp-protocol).
+
+For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
+Use the shared full-app embed helper when the action needs an inline experience.
+MCP Apps should embed the real React route; do not hand-write a separate plain
+HTML product UI.
+
+The pattern is the same focused link we already return for external agents:
+the action exposes the operation, `link` points at the route with the right URL
+or deep-link params, and `embedApp()` uses that same target as the inline app.
+This works for draft emails, filtered inboxes, calendar event drafts, full
+dashboards, saved analyses, extension routes, decks, design editors, and any
+other state the app can load from a route.
+
+When a whole app surface is too much, embed a narrow route that renders a real
+shared React component instead. For example, Analytics can render `/chart` with
+a compact `SqlPanel` URL payload so the MCP host shows one live chart while the
+implementation still reuses the dashboard chart component.
+
+```ts
+import { embedApp } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  link: ({ result }) => ({
+    label: "Open draft in Mail",
+    url: "/_agent-native/open?app=mail&view=inbox",
+  }),
+  mcpApp: {
+    resource: embedApp({ title: "Review draft", openLabel: "Open in Mail" }),
+  },
+});
+```
+
+This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
+
+The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
 
 ## Standard actions {#standard-actions}
 

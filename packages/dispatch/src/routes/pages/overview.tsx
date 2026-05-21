@@ -213,16 +213,22 @@ function WorkspaceAppsSection({
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {showSkeletons
-          ? Array.from({ length: 6 }).map((_, index) => (
-              <AppCardSkeleton key={index} />
-            ))
-          : visibleApps.map((app) => (
-              <WorkspaceAppCard key={app.id} app={app} className="min-h-32" />
-            ))}
-
-        {!showSkeletons ? <CreateAppPopover /> : null}
+      <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {showSkeletons ? (
+          Array.from({ length: 6 }).map((_, index) => (
+            <AppCardSkeleton key={index} />
+          ))
+        ) : visibleApps.length > 0 ? (
+          visibleApps.map((app) => (
+            <WorkspaceAppCard
+              key={app.id}
+              app={app}
+              className="h-full min-h-32"
+            />
+          ))
+        ) : (
+          <CreateAppPopover />
+        )}
       </div>
     </section>
   );
@@ -617,7 +623,7 @@ export default function OverviewRoute() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Vault secrets"
-            help="Credentials stored in the workspace vault. Grant them to apps from the Vault page."
+            help="Credentials stored in the workspace vault."
             value={data?.vault?.secretCount || 0}
             icon={IconKey}
             cta={
@@ -629,8 +635,16 @@ export default function OverviewRoute() {
             }
           />
           <StatCard
-            label="Active grants"
-            help="Secrets currently granted to apps. Sync them to push credentials."
+            label={
+              data?.vault?.accessMode === "manual"
+                ? "Active grants"
+                : "Accessible keys"
+            }
+            help={
+              data?.vault?.accessMode === "manual"
+                ? "Secrets currently granted to apps. Sync them to push credentials."
+                : "Vault keys available to every workspace app."
+            }
             value={data?.vault?.activeGrantCount || 0}
             icon={IconShieldCheck}
           />

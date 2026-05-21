@@ -212,6 +212,26 @@ describe("AgentEngine registry", () => {
       const fakeEngine = { name: "ai-sdk:openai" } as any;
       expect(await getStoredModelForEngine(fakeEngine)).toBe("gpt-4o");
     });
+
+    it("prefers a current app default model over the global model", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "owner@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) => {
+          if (key === "u:owner@example.com:agent-app-model-default:analytics") {
+            return { engine: "builder", model: "gemini-3-1-pro" };
+          }
+          return { engine: "builder", model: "claude-sonnet-4-6" };
+        }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("builder", { appId: "analytics" }),
+      ).toBe("gemini-3-1-pro");
+    });
   });
 
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
@@ -344,6 +364,136 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(fakeEngine);
   });
 
+  it("resolveEngine honors a usable app default before the global setting", async () => {
+    vi.doMock("../../server/request-context.js", () => ({
+      getRequestUserEmail: () => "owner@example.com",
+      getRequestOrgId: () => undefined,
+    }));
+    vi.doMock("../../settings/store.js", () => ({
+      getSetting: vi.fn(async (key: string) => {
+        if (key === "u:owner@example.com:agent-app-model-default:analytics") {
+          return { engine: "app-engine", model: "app-model" };
+        }
+        if (key === "agent-engine") {
+          return { engine: "global-engine", model: "global-model" };
+        }
+        return null;
+      }),
+    }));
+
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+
+    const appEngine = { name: "app-engine", stream: vi.fn() } as any;
+    const globalEngine = { name: "global-engine", stream: vi.fn() } as any;
+    const appCreate = vi.fn().mockReturnValue(appEngine);
+    const globalCreate = vi.fn().mockReturnValue(globalEngine);
+
+    registerAgentEngine({
+      name: "app-engine",
+      label: "App Engine",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "app-model",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: appCreate,
+    });
+    registerAgentEngine({
+      name: "global-engine",
+      label: "Global Engine",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "global-model",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: globalCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    });
+
+    const resolved = await resolveEngine({ appId: "analytics" });
+
+    expect(appCreate).toHaveBeenCalled();
+    expect(globalCreate).not.toHaveBeenCalled();
+    expect(resolved).toBe(appEngine);
+  });
+
+  it("resolveEngine ignores stored engines whose optional runtime packages are missing", async () => {
+    vi.doMock("../../settings/store.js", () => ({
+      getSetting: vi.fn().mockResolvedValue({
+        engine: "ai-sdk:openai",
+        model: "gpt-5.4",
+      }),
+    }));
+
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+
+    const openAiCreate = vi.fn().mockReturnValue({
+      name: "ai-sdk:openai",
+      stream: vi.fn(),
+    } as any);
+    const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+    const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: openAiCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: anthropicCreate,
+    });
+
+    const resolved = await resolveEngine({});
+
+    expect(openAiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).toHaveBeenCalled();
+    expect(resolved).toBe(anthropicEngine);
+  });
+
+  it("detectEngineFromEnv skips engines whose optional runtime packages are missing", async () => {
+    process.env.OPENAI_API_KEY = "sk-env"; // guard:allow-env-credential — fixture: package check should still prevent selection
+    const { detectEngineFromEnv, registerAgentEngine } =
+      await import("./registry.js");
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      installPackage: "@agent-native/definitely-missing-ai-provider",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    expect(detectEngineFromEnv()).toBeNull();
+  });
+
   describe("detectEngineFromUserSecrets", () => {
     beforeEach(() => {
       vi.resetModules();
@@ -361,6 +511,22 @@ describe("AgentEngine registry", () => {
       }));
       const { detectEngineFromUserSecrets } = await import("./registry.js");
       expect(await detectEngineFromUserSecrets()).toBeNull();
+    });
+
+    it("does not trace engine detection by default", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        vi.doMock("../../server/request-context.js", () => ({
+          getRequestUserEmail: () => undefined,
+          getRequestOrgId: () => undefined,
+        }));
+
+        const { detectEngineFromUserSecrets } = await import("./registry.js");
+        expect(await detectEngineFromUserSecrets()).toBeNull();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
     });
 
     it("returns null for the local-dev session", async () => {
@@ -484,6 +650,61 @@ describe("AgentEngine registry", () => {
       });
     });
 
+    it("picks the Builder engine from org credentials when the user has only a partial stale Builder row", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(
+        async ({
+          key,
+          scope,
+        }: {
+          key: string;
+          scope: "user" | "org" | "workspace";
+        }) => {
+          if (scope === "user" && key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "stale-user-private" };
+          }
+          if (scope === "org" && key === "BUILDER_PRIVATE_KEY") {
+            return { key, value: "org-private" };
+          }
+          if (scope === "org" && key === "BUILDER_PUBLIC_KEY") {
+            return { key, value: "org-public" };
+          }
+          return null;
+        },
+      );
+      vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+    });
+
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
@@ -534,6 +755,74 @@ describe("AgentEngine registry", () => {
       expect(builderCreate).toHaveBeenCalled();
       expect(anthropicCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(builderEngine);
+    });
+
+    it("does not treat Builder as usable from a stored engine when required keys only exist across mixed scopes", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "builder",
+          model: "m",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "member@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(
+          async ({
+            key,
+            scope,
+          }: {
+            key: string;
+            scope: "user" | "org" | "workspace";
+          }) => {
+            if (scope === "user" && key === "BUILDER_PRIVATE_KEY") {
+              return { key, value: "stale-user-private" };
+            }
+            if (scope === "org" && key === "BUILDER_PUBLIC_KEY") {
+              return { key, value: "org-public" };
+            }
+            return null;
+          },
+        ),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderCreate = vi.fn().mockReturnValue({
+        name: "builder",
+        stream: vi.fn(),
+      } as any);
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      const resolved = await resolveEngine({});
+      expect(builderCreate).not.toHaveBeenCalled();
+      expect(anthropicCreate).toHaveBeenCalled();
+      expect(resolved).toBe(anthropicEngine);
     });
 
     it("resolveEngine prefers connected Builder over a stale stored provider env key", async () => {

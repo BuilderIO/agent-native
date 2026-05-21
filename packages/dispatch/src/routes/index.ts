@@ -46,10 +46,12 @@ export const dispatchRoutes: RouteConfig = [
   route("approval", "./pages/approval.js"),
   route("approvals", "./pages/approvals.js"),
   route("audit", "./pages/audit.js"),
+  route("dreams", "./pages/dreams.js"),
   route("thread-debug", "./pages/thread-debug.js"),
   route("team", "./pages/team.js"),
   route("extensions", "./pages/extensions._index.js"),
   route("extensions/:id", "./pages/extensions.$id.js"),
+  route("extensions/:id/:slug", "./pages/extensions.$id.js"),
   // Catch-all for /:appId — bounces /dispatch/<appId> to /<appId> when the
   // segment names a workspace app sibling (e.g. Builder.io routing a "go to
   // /todo" call through Dispatch's mount). Declared last so React Router 7's

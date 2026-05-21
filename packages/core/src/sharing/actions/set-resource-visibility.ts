@@ -4,6 +4,10 @@ import { defineAction } from "../../action.js";
 import { getRequestOrgId } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import {
+  getExtensionShareChangeTargets,
+  notifyExtensionShareChanged,
+} from "./extension-change.js";
 
 export default defineAction({
   description:
@@ -28,6 +32,10 @@ export default defineAction({
       args.resourceId,
       "admin",
     );
+    const beforeExtensionTargets = await getExtensionShareChangeTargets(
+      args.resourceType,
+      args.resourceId,
+    );
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
     const currentOrgId = getRequestOrgId();
@@ -38,6 +46,11 @@ export default defineAction({
       .update(reg.resourceTable)
       .set(update)
       .where(eq(reg.resourceTable.id, args.resourceId));
+    await notifyExtensionShareChanged(
+      args.resourceType,
+      args.resourceId,
+      beforeExtensionTargets,
+    );
     return { ok: true, visibility: args.visibility };
   },
 });

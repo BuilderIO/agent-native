@@ -8,17 +8,22 @@
  * Built-in engines (anthropic, ai-sdk) are auto-registered by builtin.ts.
  */
 
+import { createRequire } from "node:module";
 import type {
   AgentEngine,
   EngineCapabilities,
   EngineStreamOptions,
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
+import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
+  resolveBuilderCredentials,
   resolveSecret,
 } from "../../server/credential-provider.js";
+
+const require = createRequire(import.meta.url);
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -42,6 +47,7 @@ export interface AgentEngineEntry {
 }
 
 const _registry = new Map<string, AgentEngineEntry>();
+const _packageAvailabilityCache = new Map<string, boolean>();
 
 /**
  * Register a custom agent engine. Called at server startup (e.g., from a
@@ -74,6 +80,45 @@ export function listAgentEngines(): AgentEngineEntry[] {
   return Array.from(_registry.values());
 }
 
+function packageNameFromInstallSpecifier(specifier: string): string | null {
+  const trimmed = specifier.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("-")) return null;
+  if (trimmed.startsWith("@")) {
+    const slashIndex = trimmed.indexOf("/");
+    if (slashIndex === -1) return trimmed;
+    const versionIndex = trimmed.indexOf("@", slashIndex + 1);
+    return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
+  }
+  const versionIndex = trimmed.indexOf("@");
+  return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
+}
+
+function canResolvePackage(packageName: string): boolean {
+  const cached = _packageAvailabilityCache.get(packageName);
+  if (cached !== undefined) return cached;
+  let available = false;
+  try {
+    require.resolve(packageName);
+    available = true;
+  } catch {
+    available = false;
+  }
+  _packageAvailabilityCache.set(packageName, available);
+  return available;
+}
+
+export function isAgentEnginePackageInstalled(
+  entry: AgentEngineEntry,
+): boolean {
+  const packageNames =
+    entry.installPackage
+      ?.split(/\s+/)
+      .map(packageNameFromInstallSpecifier)
+      .filter((name): name is string => Boolean(name)) ?? [];
+  return packageNames.every(canResolvePackage);
+}
+
 /**
  * First registered engine whose requiredEnvVars are all set. Registration
  * order controls priority — the Builder gateway is registered first so it
@@ -93,6 +138,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
+      if (!isAgentEnginePackageInstalled(entry)) continue;
       if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
         return entry;
       }
@@ -102,11 +148,20 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
+    if (!isAgentEnginePackageInstalled(entry)) continue;
     if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
       return entry;
     }
   }
   return null;
+}
+
+function shouldTraceEngineDetection(): boolean {
+  return /^(1|true)$/i.test(
+    process.env.AGENT_NATIVE_DEBUG_AGENT_ENGINE_DETECT ??
+      process.env.AGENT_NATIVE_DEBUG_CREDENTIAL_RESOLVE ??
+      "",
+  );
 }
 
 /**
@@ -132,6 +187,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  * chat engine picker must not disagree with that card.
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
+  const traceLookup = shouldTraceEngineDetection();
   let email: string | undefined;
   let orgId: string | null | undefined;
   try {
@@ -140,20 +196,29 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     email = getRequestUserEmail();
     orgId = getRequestOrgId();
   } catch {
-    console.log(
-      `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
-    );
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
+      );
+    }
     return null;
   }
   if (!email) {
-    console.log(
-      `[engine-detect] result=null reason=no-email email=(empty) orgId=${orgId ?? "(none)"}`,
-    );
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=null reason=no-email email=(empty) orgId=${orgId ?? "(none)"}`,
+      );
+    }
     return null;
   }
 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
+    if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
+    if (entry.name === "builder") {
+      const creds = await resolveBuilderCredentials();
+      return Boolean(creds.privateKey && creds.publicKey);
+    }
     for (const key of entry.requiredEnvVars) {
       try {
         if (!(await resolveSecret(key))) return false;
@@ -172,9 +237,11 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
       if (await hasAllKeys(entry)) {
-        console.log(
-          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
-        );
+        if (traceLookup) {
+          console.log(
+            `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
+          );
+        }
         return entry;
       }
     }
@@ -183,15 +250,19 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
 
   for (const entry of _registry.values()) {
     if (await hasAllKeys(entry)) {
-      console.log(
-        `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
-      );
+      if (traceLookup) {
+        console.log(
+          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
+        );
+      }
       return entry;
     }
   }
-  console.log(
-    `[engine-detect] result=null reason=no-engine-keys-found email=${email} orgId=${orgId ?? "(none)"}`,
-  );
+  if (traceLookup) {
+    console.log(
+      `[engine-detect] result=null reason=no-engine-keys-found email=${email} orgId=${orgId ?? "(none)"}`,
+    );
+  }
   return null;
 }
 
@@ -240,6 +311,7 @@ export function isStoredEngineUsable(
   stored: unknown,
   entry: AgentEngineEntry,
 ): boolean {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
   return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
@@ -257,8 +329,13 @@ export async function isStoredEngineUsableForRequest(
   stored: unknown,
   entry: AgentEngineEntry,
 ): Promise<boolean> {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
+  if (entry.name === "builder") {
+    const creds = await resolveBuilderCredentials();
+    return Boolean(creds.privateKey && creds.publicKey);
+  }
   for (const key of entry.requiredEnvVars) {
     try {
       if (await resolveSecret(key)) continue;
@@ -285,24 +362,27 @@ export interface ResolveEngineConfig {
   apiKey?: string;
   /** Model override (used as part of engine config) */
   model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
 }
 
 /**
- * Resolve an AgentEngine from options → explicit env → request credentials →
- * settings → env → default.
+ * Resolve an AgentEngine from options → explicit env → app default →
+ * request credentials → settings → env → default.
  *
  * Resolution order:
  * 1. Explicit `engineOption` from plugin options (string name, instance, or {name, config})
  * 2. Env var AGENT_ENGINE
- * 3. Current request's app_secrets; Builder wins by default when connected
- * 4. Settings store key "agent-engine" → { engine: string }, when usable
- * 5. Auto-detect deployment env credentials
- * 6. Default "anthropic" (requires ANTHROPIC_API_KEY)
+ * 3. Org/user app-template default, when usable
+ * 4. Current request's app_secrets; Builder wins by default when connected
+ * 5. Settings store key "agent-engine" → { engine: string }, when usable
+ * 6. Auto-detect deployment env credentials
+ * 7. Default "anthropic" (requires ANTHROPIC_API_KEY)
  */
 export async function resolveEngine(
   config: ResolveEngineConfig,
 ): Promise<AgentEngine> {
-  const { engineOption, apiKey, model: _model } = config;
+  const { engineOption, apiKey, model: _model, appId } = config;
 
   // 1. Explicit instance passed directly
   if (
@@ -346,6 +426,14 @@ export async function resolveEngine(
   if (envEngine) {
     const entry = _registry.get(envEngine);
     if (entry) return entry.create(engineCreateConfig(apiKey));
+  }
+
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(appId);
+  if (appDefault?.engine) {
+    const entry = _registry.get(appDefault.engine);
+    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
+      return entry.create(engineCreateConfig(apiKey));
+    }
   }
 
   let stored:
@@ -419,8 +507,24 @@ export async function resolveEngine(
  */
 export async function getStoredModelForEngine(
   engine: AgentEngine | string,
+  options: { appId?: string } = {},
 ): Promise<string | undefined> {
   const engineName = typeof engine === "string" ? engine : engine.name;
+  try {
+    const appDefault = await getAgentAppModelDefaultForCurrentRequest(
+      options.appId,
+    );
+    if (
+      appDefault?.engine === engineName &&
+      typeof appDefault.model === "string" &&
+      appDefault.model.length > 0
+    ) {
+      return appDefault.model;
+    }
+  } catch {
+    // Settings/request context may not be available — fall through.
+  }
+
   try {
     const stored = await getSetting("agent-engine");
     if (

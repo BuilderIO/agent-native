@@ -1,9 +1,15 @@
 import { defineAction } from "@agent-native/core";
-import { desc } from "drizzle-orm";
+import { buildDeepLink } from "@agent-native/core/server";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { getDeckUrl } from "./_app-url.js";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
+function slidesDeepLink(): string {
+  return buildDeepLink({ app: "slides", view: "list" });
+}
 
 export default defineAction({
   description: "List all decks from the database with metadata.",
@@ -12,14 +18,33 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe("Set to 'true' for compact output"),
+    createdBy: z
+      .enum(["all", "me"])
+      .optional()
+      .describe("Set to 'me' to list only decks created by the current user"),
   }),
   http: { method: "GET" },
+  link: () => ({
+    url: slidesDeepLink(),
+    label: "Open decks in Slides",
+    view: "list",
+  }),
   run: async (args) => {
     const db = getDb();
+    const ownerEmail = getRequestUserEmail();
+    if (args.createdBy === "me" && !ownerEmail) {
+      return { count: 0, decks: [] };
+    }
+
+    const visibleDecks = accessFilter(schema.decks, schema.deckShares);
+    const where =
+      args.createdBy === "me" && ownerEmail
+        ? and(visibleDecks, eq(schema.decks.ownerEmail, ownerEmail))
+        : visibleDecks;
     const rows = await db
       .select()
       .from(schema.decks)
-      .where(accessFilter(schema.decks, schema.deckShares))
+      .where(where)
       .orderBy(desc(schema.decks.updatedAt));
 
     if (rows.length === 0) {

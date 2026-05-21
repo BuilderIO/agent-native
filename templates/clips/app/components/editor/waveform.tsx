@@ -48,6 +48,32 @@ const getWaveColor = () => getBrandColorAlpha(0.55);
 const getWaveBg = () => getBrandColorAlpha(0.12);
 const EXCLUDED_FILL = "rgba(15, 23, 42, 0.72)";
 const EXCLUDED_STROKE = "rgba(148, 163, 184, 0.45)";
+const VISUAL_TARGET_PEAK = 0.78;
+const VISUAL_MAX_GAIN = 24;
+const VISUAL_GAIN_PERCENTILE = 0.95;
+const VISUAL_SILENCE_FLOOR = 0.001;
+
+function clampSample(value: number): number {
+  return Math.max(-1, Math.min(1, value));
+}
+
+function computeVisualGain(samples: number[]): number {
+  const amplitudes = samples
+    .map((value) => Math.abs(value))
+    .filter((value) => value > VISUAL_SILENCE_FLOOR)
+    .sort((a, b) => a - b);
+
+  if (amplitudes.length === 0) return 1;
+
+  const index = Math.min(
+    amplitudes.length - 1,
+    Math.floor(amplitudes.length * VISUAL_GAIN_PERCENTILE),
+  );
+  const reference = amplitudes[index] ?? amplitudes[amplitudes.length - 1];
+  if (!reference || reference >= VISUAL_TARGET_PEAK) return 1;
+
+  return Math.min(VISUAL_MAX_GAIN, VISUAL_TARGET_PEAK / reference);
+}
 
 /** Canvas-rendered waveform. Supports up to 50x zoom with horizontal scroll. */
 export function Waveform({
@@ -94,8 +120,10 @@ export function Waveform({
     );
 
     if (peaks && hasPeaks) {
-      // Map each x pixel to a bucket range. Use max abs so silent gaps stay visible.
+      // Map each x pixel to a bucket range. Use a visual-only auto-gain so
+      // quiet microphone recordings still read clearly in the trim track.
       const mid = height / 2;
+      const visualGain = computeVisualGain(peaks.peaks);
       ctx.strokeStyle = getWaveColor();
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -114,8 +142,16 @@ export function Waveform({
           if (lo < min) min = lo;
           if (hi > max) max = hi;
         }
-        const topY = mid + min * mid * 0.95;
-        const botY = mid + max * mid * 0.95;
+        let topY = mid + clampSample(min * visualGain) * mid * 0.95;
+        let botY = mid + clampSample(max * visualGain) * mid * 0.95;
+        if (
+          Math.max(Math.abs(min), Math.abs(max)) > VISUAL_SILENCE_FLOOR &&
+          botY - topY < 2
+        ) {
+          const centerY = (topY + botY) / 2;
+          topY = centerY - 1;
+          botY = centerY + 1;
+        }
         ctx.moveTo(x + 0.5, topY);
         ctx.lineTo(x + 0.5, botY);
       }

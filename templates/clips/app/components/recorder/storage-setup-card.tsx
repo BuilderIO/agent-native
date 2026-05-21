@@ -6,7 +6,11 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import { agentNativePath, appPath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appPath,
+  openBuilderConnectPopup,
+} from "@agent-native/core/client";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -65,14 +69,7 @@ export function StorageSetupCard({
     setConnecting(true);
     setErr(null);
 
-    window.open(
-      new URL(
-        agentNativePath("/_agent-native/builder/connect"),
-        window.location.origin,
-      ).toString(),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    openBuilderConnectPopup({ source: "clips_storage_setup_card" });
 
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;

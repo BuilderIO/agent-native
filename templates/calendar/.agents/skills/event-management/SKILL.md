@@ -2,8 +2,9 @@
 name: event-management
 description: >-
   How to create, search, list, update, and delete calendar events via Google
-  Calendar. Covers the list-events, search-events, create-event, update-event,
-  and delete-event scripts, date format patterns, and recurrence updates.
+  Calendar. Covers the list-events, search-events, create-event,
+  manage-event-draft, update-event, and delete-event scripts, date format
+  patterns, and recurrence updates.
 ---
 
 # Event Management
@@ -86,6 +87,40 @@ pnpm action create-event \
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
 
+Native Google Calendar status events are supported:
+
+```bash
+# Out of office
+pnpm action create-event \
+  --title "OOO" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T17:00:00 \
+  --eventType outOfOffice
+
+# Focus time
+pnpm action create-event \
+  --title "Focus time" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T11:00:00 \
+  --eventType focusTime
+
+# Working location
+pnpm action create-event \
+  --title "Working from home" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T17:00:00 \
+  --eventType workingLocation \
+  --workingLocationType homeOffice
+```
+
+Do not use `eventType` for Tasks or appointment schedules. Google Calendar
+Tasks are a separate product/API surface, and appointment schedules should use
+booking links or availability workflows instead.
+
+Use `--transparency opaque` for Busy and `--transparency transparent` for Free.
+Use `--visibility public` or `--visibility private` when the user asks for
+public/private visibility.
+
 Use only one generated video provider per event: `--addGoogleMeet=true` or `--addZoom=true`, not both. Zoom requires the user to connect Zoom in Settings first; check with `pnpm action get-zoom-status` when unsure.
 
 `--attendees` accepts a comma- or space-separated list of email addresses. When attendees are provided, Google sends email invitations automatically (`sendUpdates=all`). Use `--sendUpdates=none` to suppress emails.
@@ -99,6 +134,32 @@ Use `--colorId 1..11` for a Google Calendar event color. Use `update-calendar-vi
 Use `--attachments '[{"fileUrl":"https://drive.google.com/...","title":"Agenda"}]'` to attach Drive files, HTTPS file links, or files uploaded through the app's file upload storage. Google Calendar supports up to 25 attachments per event.
 
 The event is created directly on Google Calendar. Google Calendar must be connected first.
+
+### manage-event-draft
+
+Prepare an unsent calendar invite draft for user review. Use this when the user
+asks to draft, prepare, or review an invite before sending it, especially from
+an external agent flow.
+
+```bash
+pnpm action manage-event-draft \
+  --action create \
+  --title "Q2 planning" \
+  --start 2026-04-03T14:00:00 \
+  --end 2026-04-03T15:00:00 \
+  --attendees "alice@example.com,bob@example.com" \
+  --addGoogleMeet=true
+```
+
+`manage-event-draft` stores `calendar-draft-{id}` in application state and
+returns a "Review invite in Calendar" deep link. Opening the link shows the
+draft as a visible placeholder on the calendar with the native event detail
+editor open. Nothing is written to Google Calendar, and no guest is notified,
+until the user presses Create in the UI.
+
+Use `--action update --id <draft-id>` to revise a draft and `--action delete`
+to remove one. Draft fields match `create-event` for title, time, description,
+location, attendees, reminders, attachments, color, and video provider.
 
 ### update-event
 
@@ -161,6 +222,7 @@ When the user says:
 | "next Tuesday"                                 | `list-events --from <tuesday> --to <wednesday>`                              |
 | "meetings with Alice"                          | `search-events --query "Alice"`                                              |
 | "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
+| "draft an invite"                              | `manage-event-draft --action create --title ... --start ... --end ...`       |
 | "schedule a Zoom meeting"                      | `create-event --title ... --start ... --end ... --addZoom=true`              |
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
 | "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |

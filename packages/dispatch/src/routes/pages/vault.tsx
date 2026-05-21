@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   IconChevronDown,
   IconChevronRight,
+  IconEdit,
   IconEye,
   IconEyeOff,
   IconKey,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -60,6 +62,9 @@ const PROVIDERS = [
   "anthropic",
   "other",
 ];
+const PROVIDER_NONE_VALUE = "__none__";
+
+type VaultAccessMode = "all-apps" | "manual";
 
 export function meta() {
   return [{ title: "Vault — Dispatch" }];
@@ -174,6 +179,174 @@ function AddSecretDialog() {
   );
 }
 
+function EditSecretDialog({ secret }: { secret: any }) {
+  const [open, setOpen] = useState(false);
+  const [credentialKey, setCredentialKey] = useState(
+    secret.credentialKey || "",
+  );
+  const [name, setName] = useState(secret.name || "");
+  const [value, setValue] = useState(secret.value || "");
+  const [provider, setProvider] = useState(secret.provider || "");
+  const [description, setDescription] = useState(secret.description || "");
+  const [showValue, setShowValue] = useState(false);
+
+  const update = useActionMutation("update-vault-secret", {
+    onSuccess: () => {
+      toast.success("Secret updated");
+      setOpen(false);
+      setShowValue(false);
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+
+  const resetDraft = () => {
+    setCredentialKey(secret.credentialKey || "");
+    setName(secret.name || "");
+    setValue(secret.value || "");
+    setProvider(secret.provider || "");
+    setDescription(secret.description || "");
+    setShowValue(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) resetDraft();
+        setOpen(nextOpen);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <IconEdit size={14} className="mr-1" />
+          Edit secret
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit vault secret</DialogTitle>
+          <DialogDescription>
+            Update the stored key and metadata. Changes sync to the shared
+            credential store.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            update.mutate({
+              id: secret.id,
+              credentialKey,
+              name,
+              value,
+              provider: provider || null,
+              description: description || null,
+            });
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-name-${secret.id}`}>Name</Label>
+            <Input
+              id={`vault-secret-name-${secret.id}`}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-key-${secret.id}`}>
+              Credential key (env var name)
+            </Label>
+            <Input
+              id={`vault-secret-key-${secret.id}`}
+              value={credentialKey}
+              onChange={(e) => setCredentialKey(e.target.value)}
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-value-${secret.id}`}>Value</Label>
+            <div className="flex gap-2">
+              <Input
+                id={`vault-secret-value-${secret.id}`}
+                type={showValue ? "text" : "password"}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setShowValue((current) => !current)}
+                aria-label={
+                  showValue ? "Hide secret value" : "Show secret value"
+                }
+              >
+                {showValue ? <IconEyeOff size={15} /> : <IconEye size={15} />}
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Provider</Label>
+            <Select
+              value={provider || PROVIDER_NONE_VALUE}
+              onValueChange={(nextProvider) =>
+                setProvider(
+                  nextProvider === PROVIDER_NONE_VALUE ? "" : nextProvider,
+                )
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a provider..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PROVIDER_NONE_VALUE}>No provider</SelectItem>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`vault-secret-description-${secret.id}`}>
+              Description
+            </Label>
+            <Textarea
+              id={`vault-secret-description-${secret.id}`}
+              placeholder="What is this secret used for?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                !credentialKey.trim() ||
+                !name.trim() ||
+                !value ||
+                update.isPending
+              }
+            >
+              {update.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function GrantDialog({
   secretId,
   secretName,
@@ -241,7 +414,53 @@ function GrantDialog({
   );
 }
 
-function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
+function VaultAccessSettingsCard({ mode }: { mode: VaultAccessMode }) {
+  const update = useActionMutation("set-vault-access-settings", {
+    onSuccess: (next: any) =>
+      toast.success(
+        next?.mode === "manual"
+          ? "Manual vault access enabled"
+          : "All apps can use vault keys",
+      ),
+    onError: (err) => toast.error(String(err)),
+  });
+  const allApps = mode !== "manual";
+
+  return (
+    <div className="rounded-xl border bg-card px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <Label className="text-sm font-medium">
+            All apps can use vault keys
+          </Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {allApps
+              ? "Every workspace app can receive every saved key."
+              : "Only apps with explicit grants can receive saved keys."}
+          </p>
+        </div>
+        <Switch
+          checked={allApps}
+          disabled={update.isPending}
+          onCheckedChange={(checked) =>
+            update.mutate({ mode: checked ? "all-apps" : "manual" })
+          }
+          aria-label="Allow all workspace apps to use vault keys"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SecretRow({
+  secret,
+  grants,
+  accessMode,
+}: {
+  secret: any;
+  grants: any[];
+  accessMode: VaultAccessMode;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [showValue, setShowValue] = useState(false);
 
@@ -260,6 +479,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
   });
 
   const activeGrants = grants.filter((g) => g.status === "active");
+  const allApps = accessMode !== "manual";
 
   return (
     <div className="rounded-xl border bg-card">
@@ -290,7 +510,9 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs">
-            {activeGrants.length} grant{activeGrants.length !== 1 ? "s" : ""}
+            {allApps
+              ? "All apps"
+              : `${activeGrants.length} grant${activeGrants.length !== 1 ? "s" : ""}`}
           </Badge>
         </div>
       </button>
@@ -320,11 +542,17 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-foreground">
-                Grants
+                {allApps ? "Access" : "Grants"}
               </span>
-              <GrantDialog secretId={secret.id} secretName={secret.name} />
+              {!allApps && (
+                <GrantDialog secretId={secret.id} secretName={secret.name} />
+              )}
             </div>
-            {activeGrants.length > 0 ? (
+            {allApps ? (
+              <div className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
+                Available to every workspace app.
+              </div>
+            ) : activeGrants.length > 0 ? (
               <div className="space-y-1.5">
                 {activeGrants.map((grant: any) => (
                   <div
@@ -366,12 +594,13 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
               </div>
             ) : (
               <div className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
-                No grants yet. Grant this secret to an app to share it.
+                No grants yet.
               </div>
             )}
           </div>
 
-          <div className="flex justify-end border-t pt-3">
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <EditSecretDialog secret={secret} />
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -388,8 +617,8 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
                   <AlertDialogTitle>Delete this secret?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Removing “{secret.name}” revokes all of its grants. Apps
-                    that depended on this credential will lose access on the
-                    next sync. This cannot be undone.
+                    that depended on this credential can lose access on the next
+                    sync. This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -508,6 +737,12 @@ export default function VaultRoute() {
   const { data: grants } = useActionQuery("list-vault-grants", {});
   const { data: requests } = useActionQuery("list-vault-requests", {});
   const { data: audit } = useActionQuery("list-vault-audit", { limit: 20 });
+  const { data: accessSettings } = useActionQuery(
+    "get-vault-access-settings",
+    {},
+  );
+  const accessMode: VaultAccessMode =
+    (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
   const grantsBySecret = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -525,7 +760,7 @@ export default function VaultRoute() {
   return (
     <DispatchShell
       title="Vault"
-      description="Centralized secret management for your workspace. Store credentials once, grant them to apps."
+      description="Centralized secret management for your workspace. Store credentials once and sync them to apps."
     >
       <Tabs defaultValue="secrets">
         <TabsList>
@@ -547,6 +782,8 @@ export default function VaultRoute() {
         </TabsList>
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
+          <VaultAccessSettingsCard mode={accessMode} />
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <IconKey size={16} />
@@ -576,6 +813,7 @@ export default function VaultRoute() {
                   key={secret.id}
                   secret={secret}
                   grants={grantsBySecret[secret.id] || []}
+                  accessMode={accessMode}
                 />
               ))}
 

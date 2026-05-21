@@ -29,7 +29,11 @@ vi.mock("../agent/production-agent.js", () => ({
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
-  createAnthropicEngine: vi.fn(() => ({})),
+  getStoredModelForEngine: vi.fn(async () => undefined),
+  resolveEngine: vi.fn(async () => ({
+    name: "test-engine",
+    defaultModel: "test-model",
+  })),
 }));
 
 vi.mock("./condition-evaluator.js", () => ({

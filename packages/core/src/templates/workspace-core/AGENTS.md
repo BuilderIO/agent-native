@@ -11,12 +11,29 @@ agent should know.
 
 ## Shared Conventions
 
+- All AI/LLM behavior goes through the app's agent chat. UI and server code
+  must not call model providers, AI SDK `generateText()` / `streamText()`, or
+  other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
+  work, and read `.agents/skills/delegate-to-agent/SKILL.md` before building
+  agent-driven UI or "AI" features.
 - Put shared code in `packages/shared` only when multiple apps need it.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`.
 - Store shared runtime configuration in the workspace root `.env`; use
   `apps/<app>/.env` only for app-specific overrides.
 - Prefer framework defaults until the workspace has a real custom rule,
   component, plugin, action, or skill to share.
+- Keep the Workspace files view for user-authored or user-requested resources.
+  Agents may create hidden `agent_scratch` resources for temporary working
+  notes, scripts, task plans, or intermediate outputs, but should promote them
+  to normal workspace visibility only when the user explicitly asks to keep or
+  manage the file.
+- Runtime-editable global resources can be managed from Dispatch Resources.
+  Use `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles. Scope them to All apps when
+  every workspace app should inherit them. All-app resources are inherited at
+  runtime; do not copy or sync them into individual apps.
 
 ## Adding Apps
 
@@ -33,16 +50,32 @@ Do not implement a new app by adding a route, page, component, or file to
 `apps/starter` or another existing app unless the user explicitly asks to modify
 that existing app.
 
+Dispatch vault access is workspace-wide by default: every saved vault key is
+available to every workspace app. Only create or request per-app vault grants
+when Dispatch's vault access setting is switched to manual mode.
+
 Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
-separate workspace app registry to edit for Dispatch to list the app. Use
-relative workspace links like `/<app-name>` and never hardcode `localhost`,
-`127.0.0.1`, `8080`, `8100`, or any dev port in app cards, instructions,
-redirects, or navigation; the active workspace gateway/browser origin owns the
-port. React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
+separate workspace app registry to edit for Dispatch to list the app. Always
+save a concise, human-readable `description` there; Dispatch lists and A2A
+connected-agent context use the app name plus description so agents know what
+the app does. Use relative workspace links like `/<app-name>` and never
+hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
+cards, instructions, redirects, or navigation; the active workspace
+gateway/browser origin owns the port. React Router apps must preserve
+`APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
 `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
 mounted at `/<app-name>`. Use the framework/template UI stack for standard UI:
 shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
-another icon library.
+another icon library. Read `.agents/skills/shadcn-ui/SKILL.md` before adding,
+updating, or debugging shadcn components.
+
+Normal app data must flow through actions. For CRUD that the agent can perform,
+create `defineAction` files in `actions/`, mark reads with
+`http: { method: "GET" }`, and call them from React with `useActionQuery` /
+`useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*` for
+the same data unless the route is for uploads, streaming, webhooks, OAuth, or
+another route-only concern. Action-backed UI is what makes agent-created or
+agent-edited records appear without a manual refresh.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the
@@ -50,3 +83,9 @@ workspace root. In production, Dispatch posts new-app requests to Builder
 branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
+
+When using the starter template, treat it as scaffolding only. The finished app
+must be branded as the requested app, with its own home screen, navigation,
+package metadata, manifest, and domain workflow. Do not leave visible
+`Starter`, `Blank app`, `Start building`, or `New app` UI in a starter-derived
+app.

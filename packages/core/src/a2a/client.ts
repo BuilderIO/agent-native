@@ -39,7 +39,17 @@ export async function signA2AToken(
   email: string,
   orgDomain?: string,
   orgSecret?: string,
-  options?: { expiresIn?: string | number; preferGlobalSecret?: boolean },
+  options?: {
+    expiresIn?: string | number;
+    preferGlobalSecret?: boolean;
+    /**
+     * Extra JWT claims to merge alongside `sub` / `org_domain`. Used by the
+     * MCP connect flow to add a revocable `jti` and a `scope: "mcp-connect"`
+     * marker. Reserved claims (`sub`, `org_domain`) cannot be overridden —
+     * they are spread last so a caller can never spoof identity via this map.
+     */
+    extraClaims?: Record<string, unknown>;
+  },
 ): Promise<string> {
   const secret = options?.preferGlobalSecret
     ? process.env.A2A_SECRET || orgSecret
@@ -57,6 +67,9 @@ export async function signA2AToken(
     "http://localhost:3000";
 
   return new jose.SignJWT({
+    ...(options?.extraClaims ?? {}),
+    // `sub` / `org_domain` are spread AFTER extraClaims so a caller-supplied
+    // map can never override the verified identity claims.
     sub: email,
     ...(orgDomain ? { org_domain: orgDomain } : {}),
   })

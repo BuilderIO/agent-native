@@ -178,7 +178,7 @@ export default function ProjectsPage() {
 }
 ```
 
-Wire polling once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
+Wire live sync once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
 
 ```tsx
 import { useDbSync } from "@agent-native/core/client";
@@ -191,7 +191,7 @@ export function AppSync() {
 }
 ```
 
-**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook is auto-refetched on every change event the framework sees. If you reach for raw `useQuery` with a custom key (e.g. for a non-action HTTP endpoint, integration status, etc.), you must fold the per-source counter into the queryKey or agent writes will be silently invisible:
+**The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (e.g. for a non-action HTTP endpoint, integration status, etc.), fold the per-source counter into the queryKey for targeted refreshes:
 
 ```tsx
 import { useChangeVersions } from "@agent-native/core/client";
@@ -364,3 +364,19 @@ Community templates can be created from a GitHub repo:
 ```bash
 pnpm dlx @agent-native/core create my-app --template github:user/repo
 ```
+
+## Test Unpublished Framework Changes {#test-unpublished-framework-changes}
+
+When you are working inside the framework monorepo and need a generated
+workspace to use unpublished package or template changes, run create with the
+local-package flag:
+
+```bash
+AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
+```
+
+The generated workspace links the local `@agent-native/core` and
+`@agent-native/dispatch` packages, so changes to Core APIs, Dispatch workspace
+behavior, or first-party templates can be tested before publishing. The package
+`prepack` scripts build `dist` before linking, which keeps the generated
+workspace pointed at current build output.

@@ -40,3 +40,5 @@ export interface SlashCommand {
 }
 
 export type ComposerMode = "skill" | "job" | "automation" | "extension";
+
+export type AgentComposerLayoutVariant = "default" | "compact" | "hero";

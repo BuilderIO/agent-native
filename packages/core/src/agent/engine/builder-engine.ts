@@ -21,13 +21,15 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import {
-  engineMessagesToAnthropic,
+  engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
-  resolveBuilderAuthHeader,
-  resolveBuilderCredential,
+  clearBuilderCredentialAuthFailure,
+  resolveBuilderCredentials,
   getBuilderGatewayBaseUrl,
+  recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
 import {
   normalizeReasoningEffortForModel,
@@ -60,6 +62,7 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 // streaming + the soft-timeout continuation path in run-loop-with-resume.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 32768;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
@@ -119,11 +122,10 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const [authHeader, spaceId, builderUserId] = await Promise.all([
-      resolveBuilderAuthHeader(),
-      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
-      resolveBuilderCredential("BUILDER_USER_ID"),
-    ]);
+    const creds = await resolveBuilderCredentials();
+    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const spaceId = creds.publicKey;
+    const builderUserId = creds.userId;
     if (!authHeader || !spaceId) {
       yield {
         type: "stop",
@@ -134,7 +136,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
@@ -153,9 +155,7 @@ class BuilderEngine implements AgentEngine {
       messages,
       ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
       ...(tools.length > 0 ? { tools } : {}),
-      ...(opts.maxOutputTokens !== undefined
-        ? { max_tokens: opts.maxOutputTokens }
-        : {}),
+      max_tokens: opts.maxOutputTokens ?? DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
@@ -165,8 +165,7 @@ class BuilderEngine implements AgentEngine {
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
     gatewayUrl.searchParams.set("apiKey", spaceId);
-    const orgLabel =
-      (await resolveBuilderCredential("BUILDER_ORG_NAME")) || "unknown-org";
+    const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
       `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
@@ -186,6 +185,7 @@ class BuilderEngine implements AgentEngine {
             "Content-Type": "application/json",
             Authorization: authHeader,
             "x-builder-api-key": spaceId,
+            ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
           body: JSON.stringify(body),
@@ -219,6 +219,22 @@ class BuilderEngine implements AgentEngine {
       if (!response.ok) {
         yield* emitHttpError(response);
         return;
+      }
+
+      // A successful gateway call proves the connected credentials are valid
+      // again. Clear any prior auth-failure marker so status / chat-card
+      // surfaces stop flagging the connection as broken. This is the only
+      // self-healing path for workspace/env-managed credentials, which never
+      // flow through writeBuilderCredentials.
+      try {
+        const creds = await resolveBuilderCredentials();
+        await clearBuilderCredentialAuthFailure({
+          privateKey: creds.privateKey,
+          publicKey: creds.publicKey,
+        });
+      } catch {
+        // Marker clearing is best-effort; a stale marker just means the user
+        // sees "reconnect Builder" until the next successful call clears it.
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -295,6 +311,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     return;
   }
   if (status === 401 || code === "unauthorized") {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",
@@ -312,6 +329,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
       lowerMessage.includes("invalid_token") ||
       lowerMessage.includes("token invalid"))
   ) {
+    await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
       reason: "error",
@@ -329,9 +347,20 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     };
     return;
   }
+  if (code === "rate_limit_exceeded") {
+    yield {
+      type: "stop",
+      reason: "error",
+      error: message,
+      errorCode: code,
+    };
+    return;
+  }
   if (status === 429 || code === "too_many_concurrent_requests") {
     // Include "too many requests" in the message so production-agent's
-    // isRetryableError picks it up and retries the turn.
+    // isRetryableError picks up transient concurrency throttles and retries
+    // the turn. Daily gateway caps use `rate_limit_exceeded` above and must
+    // not loop.
     yield {
       type: "stop",
       reason: "error",
@@ -505,6 +534,28 @@ async function* parseJsonlStream(
               reason: "error",
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
               errorCode: "rate_limited",
+            };
+          } else if (reason === "invalid_request") {
+            // errorCode has no retry-trigger keywords, so isRetryableError
+            // won't loop on broken history.
+            const errMsg =
+              event.error ||
+              event.message ||
+              "Builder gateway rejected the request as malformed.";
+            const errCode =
+              typeof event.errorCode === "string"
+                ? event.errorCode
+                : typeof event.code === "string"
+                  ? event.code
+                  : "invalid_request";
+            console.warn(
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
+            );
+            yield {
+              type: "stop",
+              reason: "error",
+              error: errMsg,
+              errorCode: errCode,
             };
           } else if (reason === "error") {
             // Surface every diagnostic the gateway gave us so the user (and

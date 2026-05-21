@@ -3,11 +3,26 @@ import { readAppState } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
+import listWorkspaceConnections from "./list-workspace-connections.js";
 
 async function runDispatchAction(name: string, args: Record<string, unknown>) {
   const action = dispatchActions[name];
   if (!action) throw new Error(`Dispatch action not found: ${name}`);
-  return action.run(args as any);
+  return action.run(stripUndefined(args) as any);
+}
+
+function stripUndefined(args: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value !== undefined),
+  );
+}
+
+function optionalTimestamp(source: object, key: string) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
+  const value = (source as Record<string, unknown>)[key];
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
 }
 
 export default defineAction({
@@ -32,6 +47,14 @@ export default defineAction({
     }
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations ?? [];
+    }
+    if (navigation?.view === "agents") {
+      const [connectedAgents, mcpAccess] = await Promise.all([
+        runDispatchAction("list-connected-agents", {}),
+        runDispatchAction("list-mcp-app-access", {}),
+      ]);
+      screen.connectedAgents = connectedAgents;
+      screen.mcpAppAccess = mcpAccess;
     }
     if (
       navigation?.view === "overview" ||
@@ -84,6 +107,53 @@ export default defineAction({
         : [];
       screen.vaultPendingRequests = requests;
     }
+    if (navigation?.view === "integrations") {
+      try {
+        const integrations = await listWorkspaceConnections.run({
+          includeDisabled: true,
+        });
+        screen.workspaceIntegrations = {
+          providers: integrations.providers.map((provider) => ({
+            id: provider.id,
+            label: provider.label,
+            capabilities: provider.capabilities,
+            recommendedTemplateUses: provider.recommendedTemplateUses,
+            readiness: provider.readiness,
+          })),
+          connections: integrations.connections.map((connection) => {
+            const lastUsedAt = optionalTimestamp(connection, "lastUsedAt");
+            return {
+              id: connection.id,
+              provider: connection.provider,
+              label: connection.label,
+              accountLabel: connection.accountLabel,
+              status: connection.status,
+              scopes: connection.scopes,
+              allowedApps:
+                connection.allowedApps.length === 0
+                  ? "all-apps"
+                  : connection.allowedApps,
+              credentialRefs: connection.credentialRefs.map((ref) => ({
+                key: ref.key,
+                label: ref.label,
+                provider: ref.provider,
+                scope: ref.scope,
+              })),
+              lastCheckedAt: connection.lastCheckedAt,
+              ...(lastUsedAt !== undefined ? { lastUsedAt } : {}),
+              lastError: connection.lastError,
+            };
+          }),
+          grants: integrations.grants,
+          grantSummaries: integrations.grantSummaries,
+          suggestedApps: integrations.suggestedApps,
+          counts: integrations.counts,
+        };
+      } catch (error) {
+        screen.workspaceIntegrationsError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
     if (navigation?.view === "workspace" || navigation?.view === "new-app") {
       screen.workspaceResources = await runDispatchAction(
         "list-workspace-resource-options",
@@ -129,6 +199,38 @@ export default defineAction({
         }
       } catch (error) {
         screen.threadDebugError =
+          error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (navigation?.view === "dreams") {
+      try {
+        const nav = navigation as Record<string, any>;
+        const [sources, candidates, dreams, settings] = await Promise.all([
+          runDispatchAction("list-agent-thread-sources", {}),
+          runDispatchAction("list-dream-candidates", {
+            sourceId: nav.sourceId,
+            ownerEmail: nav.ownerEmail,
+            limit: 10,
+          }),
+          runDispatchAction("list-dreams", {
+            status: nav.status,
+            limit: 10,
+          }),
+          runDispatchAction("get-dream-settings", {}),
+        ]);
+        screen.dreamSources = sources;
+        screen.dreamCandidates = candidates;
+        screen.latestDreams = dreams;
+        screen.dreamSettings = settings;
+
+        const dreamId = nav.dreamId ?? nav.id;
+        if (dreamId) {
+          screen.dreamDetail = await runDispatchAction("get-dream", {
+            id: dreamId,
+          });
+        }
+      } catch (error) {
+        screen.dreamsError =
           error instanceof Error ? error.message : String(error);
       }
     }

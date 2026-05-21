@@ -7,7 +7,11 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
-import { useBuilderStatus } from "./useBuilderStatus.js";
+import {
+  useBuilderStatus,
+  withBuilderConnectTrackingParams,
+} from "./useBuilderStatus.js";
+import { trackEvent } from "../analytics.js";
 
 interface AgentsRunResult {
   branchName: string | null;
@@ -20,6 +24,13 @@ export function BackgroundAgentSection() {
   const { status: builder } = useBuilderStatus();
   const connected = builder?.configured ?? false;
   const cloudAgentsAvailable = !!builder?.builderEnabled;
+  const builderConnectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
+  const builderConnectHref = builderConnectUrl
+    ? withBuilderConnectTrackingParams(builderConnectUrl, {
+        source: "background_agent_settings",
+        flow: "background_agent",
+      })
+    : null;
 
   const [projectUrl, setProjectUrl] = useState("");
   const [running, setRunning] = useState(false);
@@ -68,9 +79,20 @@ export function BackgroundAgentSection() {
             Connect Builder to enable code changes from production. The agent
             will create branches and provide preview URLs.
           </p>
-          {builder?.connectUrl && (
+          {builderConnectHref && (
             <a
-              href={builder.connectUrl}
+              href={builderConnectHref}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                trackEvent("builder connect clicked", {
+                  feature: "builder",
+                  stage: "client",
+                  source: "background_agent_settings",
+                  flow: "background_agent",
+                  connect_url_kind: "provided",
+                });
+              }}
               className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
             >
               Connect Builder
@@ -89,7 +111,8 @@ export function BackgroundAgentSection() {
           </div>
           <p className="text-[10px] text-muted-foreground">
             You don't have access to Builder Cloud Agents for this workspace
-            yet. Use the desktop app or your local clone for code changes.
+            yet; they are not enabled from Builder org settings. Use the desktop
+            app or your local clone for code changes.
           </p>
           <a
             href="https://www.agent-native.com/download"

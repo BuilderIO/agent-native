@@ -55,7 +55,10 @@ export function ConnectBuilderCard({
   // The connect-poll state machine is shared — the tool-call result is
   // frozen at render time, so the hook's mount-time fetch + focus refresh
   // is what catches a flow the user completed in another tab.
-  const flow = useBuilderConnectFlow({ popupUrl: initialConnectUrl });
+  const flow = useBuilderConnectFlow({
+    popupUrl: initialConnectUrl,
+    trackingSource: "connect_builder_card",
+  });
   // Only use the server-rendered props until the hook's first status
   // fetch returns. After that, the hook is authoritative — including for
   // the disconnect case (where `flow.configured` flips back to `false`
@@ -188,7 +191,7 @@ export function ConnectBuilderCard({
   // so the render tree below stays flat.
   const connectedCapabilityText = builderEnabled
     ? "LLM access, browser automation, and cloud code changes are ready to use."
-    : "LLM access and browser automation are ready to use. Builder Cloud Agents for code changes are not enabled for this workspace yet.";
+    : "LLM access and browser automation are ready to use. Builder Cloud Agents for code changes are not available for this workspace yet.";
   let title: string;
   let subtitle: React.ReactNode;
   if (runResult) {
@@ -352,7 +355,7 @@ export function ConnectBuilderCard({
             ) : !configured ? (
               <button
                 type="button"
-                onClick={flow.start}
+                onClick={() => flow.start()}
                 disabled={connecting}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",

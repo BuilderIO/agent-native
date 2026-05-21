@@ -21,6 +21,8 @@ type DesktopAssetKind =
   | "mac-x64"
   | "windows-x64"
   | "windows-arm64"
+  | "linux-tar-x64"
+  | "linux-tar-arm64"
   | "linux-appimage-x64"
   | "linux-appimage-arm64"
   | "linux-deb-x64"
@@ -35,8 +37,8 @@ interface PlatformInfo {
   name: string;
   icon: typeof IconBrandApple;
   primary: DownloadOption;
-  secondary?: DownloadOption;
-  note: string;
+  alternatives?: readonly DownloadOption[];
+  note?: string;
 }
 
 const PLATFORMS: Record<Platform, PlatformInfo> = {
@@ -47,11 +49,12 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
       label: "Download for Apple Silicon",
       assetKinds: ["mac-arm64"],
     },
-    secondary: {
-      label: "Intel Mac",
-      assetKinds: ["mac-x64"],
-    },
-    note: "Signed and notarized macOS installers are available from the latest desktop release.",
+    alternatives: [
+      {
+        label: "Intel Mac",
+        assetKinds: ["mac-x64"],
+      },
+    ],
   },
   windows: {
     name: "Windows",
@@ -60,24 +63,32 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
       label: "Download for Windows",
       assetKinds: ["windows-x64"],
     },
-    secondary: {
-      label: "ARM64",
-      assetKinds: ["windows-arm64"],
-    },
+    alternatives: [
+      {
+        label: "ARM64",
+        assetKinds: ["windows-arm64"],
+      },
+    ],
     note: "Windows 10 or later.",
   },
   linux: {
     name: "Linux",
     icon: IconTerminal2,
     primary: {
-      label: "Download AppImage",
-      assetKinds: ["linux-appimage-x64", "linux-appimage-arm64"],
+      label: "Download Linux archive",
+      assetKinds: ["linux-tar-x64", "linux-tar-arm64"],
     },
-    secondary: {
-      label: "Download .deb",
-      assetKinds: ["linux-deb-x64", "linux-deb-arm64"],
-    },
-    note: "x64 and ARM64 builds are published when available.",
+    alternatives: [
+      {
+        label: "Download AppImage",
+        assetKinds: ["linux-appimage-x64", "linux-appimage-arm64"],
+      },
+      {
+        label: "Download .deb",
+        assetKinds: ["linux-deb-x64", "linux-deb-arm64"],
+      },
+    ],
+    note: "The archive works without FUSE. AppImage may require FUSE 2 on some distributions.",
   },
 };
 
@@ -139,13 +150,20 @@ export default function DownloadPage() {
   }, []);
 
   const info = PLATFORMS[platform];
-  const primaryAsset = useMemo(
-    () => pickAsset(manifest, info.primary),
-    [manifest, info.primary],
-  );
-  const secondaryAsset = useMemo(
-    () => (info.secondary ? pickAsset(manifest, info.secondary) : null),
-    [manifest, info.secondary],
+  const downloads = useMemo(() => {
+    const options = [info.primary, ...(info.alternatives ?? [])];
+    return options.map((option) => ({
+      option,
+      asset: pickAsset(manifest, option),
+    }));
+  }, [manifest, info]);
+  const primaryDownload =
+    downloads.find((download) => download.asset) ?? downloads[0];
+  const primaryAsset = primaryDownload?.asset ?? null;
+  const alternativeDownloads = downloads.filter(
+    (download) =>
+      download.option !== primaryDownload?.option &&
+      (download.asset || !manifest || manifestError),
   );
   const releaseStatus = manifest
     ? `Latest desktop release: ${manifest.version}`
@@ -214,7 +232,11 @@ export default function DownloadPage() {
           {primaryAsset || manifestError ? (
             <a
               href={primaryAsset?.url ?? RELEASES}
-              onClick={() => handleDownload(info.primary.label)}
+              onClick={() =>
+                handleDownload(
+                  primaryDownload?.option.label ?? info.primary.label,
+                )
+              }
               className={
                 isDesktopApp
                   ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
@@ -222,7 +244,9 @@ export default function DownloadPage() {
               }
             >
               <IconDownload size={18} />
-              {isDesktopApp ? "Download installer" : info.primary.label}
+              {isDesktopApp
+                ? "Download installer"
+                : primaryDownload?.option.label}
             </a>
           ) : (
             <button
@@ -239,43 +263,25 @@ export default function DownloadPage() {
           )}
         </div>
 
-        {info.secondary && (
-          <div className="mt-3">
-            <a
-              href={secondaryAsset?.url ?? RELEASES}
-              onClick={() => handleDownload(info.secondary!.label)}
-              className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
-            >
-              {info.secondary.label}
-            </a>
+        {alternativeDownloads.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
+            {alternativeDownloads.map(({ option, asset }) => (
+              <a
+                key={option.label}
+                href={asset?.url ?? RELEASES}
+                onClick={() => handleDownload(option.label)}
+                className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
+              >
+                {option.label}
+              </a>
+            ))}
           </div>
         )}
 
         <p className="mt-4 text-xs text-[var(--fg-secondary)]">
           {releaseStatus}
-          <span className="block mt-1">{info.note}</span>
+          {info.note && <span className="block mt-1">{info.note}</span>}
         </p>
-      </div>
-
-      {/* What's included */}
-      <div className="mt-20">
-        <h3 className="mb-6 text-center text-lg font-semibold">
-          What's included
-        </h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <FeatureItem
-            title="Built-in apps"
-            description="Calendar, Content, Slides, Analytics, Mail, Clips, Design, Dispatch, and Forms — all ready to use."
-          />
-          <FeatureItem
-            title="Auto-updates"
-            description="New versions download in the background and install on restart."
-          />
-          <FeatureItem
-            title="Dev mode"
-            description="Toggle any app to connect to your local dev server for development."
-          />
-        </div>
       </div>
 
       {/* Run from source */}
@@ -298,13 +304,6 @@ pnpm install && pnpm dev`}</code>
         </div>
       </div>
 
-      {/* Mobile teaser */}
-      <div className="mt-12 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
-        <p className="text-sm text-[var(--fg-secondary)]">
-          A mobile app for iOS and Android is in the works.
-        </p>
-      </div>
-
       {/* All releases link */}
       <div className="mt-12 text-center">
         <a
@@ -318,22 +317,5 @@ pnpm install && pnpm dev`}</code>
         </a>
       </div>
     </main>
-  );
-}
-
-function FeatureItem({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--docs-border)] p-5">
-      <h4 className="mb-1 text-sm font-semibold">{title}</h4>
-      <p className="text-xs leading-relaxed text-[var(--fg-secondary)]">
-        {description}
-      </p>
-    </div>
   );
 }

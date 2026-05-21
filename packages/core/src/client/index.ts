@@ -15,6 +15,33 @@ export {
   appBasePath,
   appPath,
 } from "./api-path.js";
+export {
+  ensureEmbedAuthFetchInterceptor,
+  getEmbedAuthToken,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
+export {
+  codeAgentTranscriptEventsToContent,
+  createCodeAgentChatAdapter,
+  type CodeAgentChatController,
+  type CodeAgentChatControlResult,
+  type CodeAgentChatFollowUpMode,
+  type CodeAgentChatTranscriptEvent,
+  type CreateCodeAgentChatAdapterOptions,
+} from "./code-agent-chat-adapter.js";
+export {
+  buildRepositoryFromCodeAgentTranscript,
+  type BuildRepositoryFromCodeAgentTranscriptOptions,
+  type CodeAgentThreadTranscriptEvent,
+} from "../agent/thread-data-builder.js";
+export {
+  compareCodeAgentTranscriptEvents,
+  getCodeAgentTranscriptSeq,
+  isCodeAgentRunActive,
+  mergeCodeAgentTranscriptEvents,
+  type CodeAgentRunStateLike,
+  type CodeAgentTranscriptOrderEvent,
+} from "../code-agents/transcript-order.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   useChatModels,
@@ -25,6 +52,25 @@ export {
   CodeRequiredDialog,
   type CodeRequiredDialogProps,
 } from "./components/CodeRequiredDialog.js";
+export {
+  AgentConversation,
+  AgentConversationMessageView,
+  normalizeCodeAgentTranscriptForConversation,
+  useNearBottomAutoscroll,
+  type CodeAgentConversationTranscriptEvent,
+  type CodeAgentConversationTranscriptEventType,
+  type NormalizeCodeAgentTranscriptOptions,
+  type AgentConversationArtifact,
+  type AgentConversationAttachment,
+  type AgentConversationMessage,
+  type AgentConversationMessagePart,
+  type AgentConversationMessageRole,
+  type AgentConversationNotice,
+  type AgentConversationNoticeTone,
+  type AgentConversationToolCall,
+  type AgentConversationToolState,
+} from "./conversation/index.js";
+export { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,
@@ -40,6 +86,16 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export {
+  buildDynamicAgentSuggestions,
+  dedupeSuggestions,
+  mergeAgentSuggestions,
+  normalizeAgentDynamicSuggestionsConfig,
+  useAgentDynamicSuggestions,
+  type AgentDynamicSuggestionContext,
+  type AgentDynamicSuggestionsConfig,
+  type AgentDynamicSuggestionsOption,
+} from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
 export { useSession, type AuthSession } from "./use-session.js";
@@ -62,6 +118,127 @@ export {
   sendToBuilderChat,
   type BuilderChatMessage,
 } from "./builder-frame.js";
+export {
+  AgentNative,
+  useAgentNativeScreenContext,
+  type AgentNativeCommandCallback,
+  type AgentNativeCommandCallbackInfo,
+  type AgentNativeProps,
+} from "./AgentNative.js";
+export {
+  AgentNativeEmbedded,
+  useAgentNativeEmbeddedBrowserSession,
+  type AgentNativeEmbeddedBrowserSessionOptions,
+  type AgentNativeEmbeddedCommandCallback,
+  type AgentNativeEmbeddedCommandCallbackInfo,
+  type AgentNativeEmbeddedProps,
+  type UseAgentNativeEmbeddedBrowserSessionOptions,
+} from "./AgentNativeEmbedded.js";
+export {
+  defineClientAction,
+  type AgentNativeClientActionDefinition,
+  type AgentNativeClientActionRunner,
+} from "./client-action.js";
+export {
+  AgentNativeFrame,
+  type AgentNativeFrameProps,
+} from "./AgentNativeFrame.js";
+export {
+  AgentNativeExtensionFrame,
+  AgentNativeExtensionSlot,
+  type AgentNativeExtensionFrameProps,
+  type AgentNativeExtensionPermissionList,
+  type AgentNativeExtensionSlotProps,
+  type AgentNativeExtensionStorageScopeList,
+} from "./extensions/AgentNativeExtensionFrame.js";
+export {
+  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
+  buildAgentNativeExtensionHtml,
+  createHttpAgentNativeExtensionStorage,
+  createLocalStorageAgentNativeExtensionStorage,
+  getAgentNativeExtensionManifest,
+  isAgentNativeExtensionAllowedInSlot,
+  normalizeAgentNativeExtensionSandbox,
+  type AgentNativeExtensionDefinition,
+  type AgentNativeExtensionManifest,
+  type AgentNativeExtensionMessageType,
+  type AgentNativeExtensionStorage,
+  type AgentNativeExtensionStorageContext,
+  type AgentNativeExtensionStorageOptions,
+  type AgentNativeExtensionStorageRow,
+  type AgentNativeExtensionStorageScope,
+  type BuildAgentNativeExtensionHtmlOptions,
+  type CreateHttpAgentNativeExtensionStorageOptions,
+} from "./extensions/portable-extension.js";
+export {
+  AGENT_NATIVE_HOST_BRIDGE_VERSION,
+  AGENT_NATIVE_HOST_MESSAGE_TYPES,
+  announceAgentNativeFrameReady,
+  createAgentNativeHostBridge,
+  defaultAgentNativeHostCommands,
+  onAgentNativeHostInit,
+  readAgentNativeScreenContext,
+  requestAgentNativeHostActions,
+  requestAgentNativeHostContext,
+  runAgentNativeHostAction,
+  sendAgentNativeHostCommand,
+  type AgentNativeActionAvailability,
+  type AgentNativeActionManifestEntry,
+  type AgentNativeClientAction,
+  type AgentNativeClientActionApprovalConfig,
+  type AgentNativeClientActionGetter,
+  type AgentNativeClientActionRuntime,
+  type AgentNativeClientActions,
+  type AgentNativeHostAuth,
+  type AgentNativeHostAuthPayload,
+  type AgentNativeHostBridge,
+  type AgentNativeHostBridgeEvent,
+  type AgentNativeHostBridgeOptions,
+  type AgentNativeHostCapabilities,
+  type AgentNativeHostCommandHandler,
+  type AgentNativeHostCommandHandlers,
+  type AgentNativeHostCommandRequest,
+  type AgentNativeHostContext,
+  type AgentNativeHostContextGetter,
+  type AgentNativeHostInit,
+  type AgentNativeHostMessageType,
+  type AgentNativeHostRequestOptions,
+  type AgentNativeHostResourceContext,
+  type AgentNativeHostRouteContext,
+  type AgentNativeHostSelectionContext,
+  type AgentNativeHostSession,
+  type AgentNativeJsonSchema,
+  type AgentNativeScreenSnapshot,
+  type AgentNativeScreenSnapshotOptions,
+  type BuiltInAgentNativeHostCommand,
+} from "./host-bridge.js";
+export {
+  AGENT_NATIVE_HOST_TOOL_NAMES,
+  createAgentNativeHostTools,
+  type AgentNativeHostToolDefinition,
+  type AgentNativeHostToolName,
+  type AgentNativeHostToolParameters,
+  type AgentNativeHostToolSet,
+  type CreateAgentNativeHostToolsOptions,
+  type RunAgentNativeHostActionToolInput,
+  type SendAgentNativeHostCommandToolInput,
+} from "./host-tools.js";
+export {
+  createAgentNativeBrowserSessionBridge,
+  startAgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridge,
+  type AgentNativeBrowserSessionBridgeOptions,
+} from "./browser-session-bridge.js";
+export type {
+  AgentNativeBrowserSession,
+  AgentNativeBrowserSessionAction,
+  AgentNativeBrowserSessionRecord,
+  AgentNativeBrowserSessionRequest,
+  AgentNativeBrowserSessionRequestStatus,
+  AgentNativeBrowserSessionRequestType,
+  CreateAgentNativeBrowserSessionRequestInput,
+  RegisterAgentNativeBrowserSessionInput,
+} from "../browser-sessions/types.js";
 export {
   NewWorkspaceAppFlow,
   type NewWorkspaceAppFlowProps,
@@ -87,11 +264,25 @@ export {
 } from "./use-run-stuck-detection.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
+  AgentComposerFrame,
+  type AgentComposerFrameProps,
   PromptComposer,
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+  escapePromptAttachmentAttribute,
+  formatPromptWithAttachments,
+  isInlineableAgentPromptFile,
+  readAgentPromptAttachment,
   type PromptComposerProps,
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
-} from "./composer/PromptComposer.js";
+  type AgentPromptAttachment,
+  type ReadAgentPromptAttachmentOptions,
+  type AgentComposerLayoutVariant,
+  type SlashCommand,
+  type SkillResult,
+} from "./composer/index.js";
+export type { TiptapComposerHandle } from "./composer/TiptapComposer.js";
 export {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -117,20 +308,31 @@ export {
   type ChatThreadData,
 } from "./use-chat-threads.js";
 export {
+  AgentChatSurface,
   AgentPanel,
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
+  type AgentChatSurfaceMode,
+  type AgentChatSurfaceProps,
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";
+export {
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+  type AgentSidebarStateMode,
+  type AgentSidebarStateSource,
+} from "./agent-sidebar-state.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";
 export {
+  openBuilderConnectPopup,
   useBuilderConnectFlow,
   type BuilderConnectFlow,
   type BuilderConnectFlowOptions,
+  type OpenBuilderConnectPopupOptions,
 } from "./settings/useBuilderStatus.js";
 // Deprecated — use AgentSidebar + AgentToggleButton instead
 export {

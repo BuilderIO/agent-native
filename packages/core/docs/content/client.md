@@ -102,6 +102,21 @@ sendToAgentChat({
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
 
+## Dynamic Suggestions {#dynamic-suggestions}
+
+`<AgentSidebar>`, `<AgentPanel>`, and `<AssistantChat>` merge static `suggestions` with context-aware suggestions by default. The framework reads `navigation`, `selection`, `pending-selection-context`, and the current URL from application state while an empty chat is visible, then offers prompt chips that match the current screen.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+Set `dynamicSuggestions={false}` to keep only static chips. Pass `getSuggestions` when an app wants deterministic domain-specific chips from the same application-state context.
+
 ## useAgentChatGenerating() {#useagentchatgenerating}
 
 React hook that wraps sendToAgentChat with loading state tracking:
@@ -131,7 +146,7 @@ function GenerateButton() {
 
 ## useDbSync(options?) {#usedbsync}
 
-React hook (formerly `useFileWatcher`) that polls for database changes and invalidates react-query caches:
+React hook (formerly `useFileWatcher`) that listens for database changes over SSE, falls back to polling, and invalidates the framework query caches that keep the UI aligned with agent writes:
 
 ```ts
 import { useDbSync } from "@agent-native/core";
@@ -142,7 +157,6 @@ function App() {
 
   useDbSync({
     queryClient,
-    queryKeys: ["files", "projects", "versionHistory"],
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -153,12 +167,50 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option        | Type             | Description                                                       |
-| ------------- | ---------------- | ----------------------------------------------------------------- |
-| `queryClient` | `QueryClient?`   | React-query client for cache invalidation                         |
-| `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
-| `pollUrl`     | `string?`        | Poll endpoint URL. Default: `"/_agent-native/poll"`               |
-| `onEvent`     | `(data) => void` | Optional callback when a poll detects a newer sync version        |
+| Option         | Type               | Description                                                                            |
+| -------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `queryClient`  | `QueryClient?`     | React-query client for cache invalidation                                              |
+| `queryKeys`    | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
+| `pollUrl`      | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
+| `sseUrl`       | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
+| `ignoreSource` | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
+| `onEvent`      | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
+
+For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+The framework uses change versions to sync React Query caches with changes made by background agents, cron jobs, or other users.
+
+When any server-side database mutation occurs, the server records a change event with a specific `source` key. The client's `useDbSync` listener receives these events and bumps the local change version counter for that source. By folding the version counter into your React Query keys, queries automatically refetch whenever the backend notifies the client of new activity.
+
+- **`useChangeVersion(source: string): number`** — returns a counter that increments whenever the specified `source` is mutated.
+- **`useChangeVersions(sources: readonly string[]): number`** — returns the sum of version counters for multiple sources.
+
+### Example: Syncing a raw query with the database
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client";
+
+function DashboardView({ id }) {
+  // Get version for dashboards domain source
+  const v = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, v], // Invalidate automatically when version bumps
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // Prevent layout flicker during refetch
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+### Latency Models & Invalidation Behavior
+
+- **UI-Initiated mutations:** When you execute an action from the UI using `useActionMutation`, the mutation immediately fires a local event with `source: "action"` on success. This triggers an **instant, optimistic refetch** of all query keys depending on that action, avoiding visual delay.
+- **Background or Agent Mutations:** When the AI agent, a webhook, or a background worker mutates data, the update is broadcast to the client. The client's `useDbSync` captures this either instantly over SSE (Server-Sent Events) or falls back to the **2-second polling tick**. The query key version then bumps, triggering a background refetch.
 
 ## cn(...inputs) {#cn}
 

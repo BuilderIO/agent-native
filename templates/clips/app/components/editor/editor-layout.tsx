@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentNativePath,
+  appBasePath,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
@@ -55,6 +56,11 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
 import { cn } from "@/lib/utils";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 import {
+  parsePlaybackSpeed,
+  readPlaybackSpeedPreference,
+  savePlaybackSpeedPreference,
+} from "@/lib/playback-speed";
+import {
   parseEdits,
   getExcludedRanges,
   formatMs,
@@ -77,6 +83,53 @@ export interface EditorLayoutProps {
 
 const WAVEFORM_HEIGHT = 120;
 
+function shouldProxyWaveformUrl(videoUrl: string): boolean {
+  try {
+    const parsed = new URL(
+      videoUrl,
+      typeof window === "undefined"
+        ? "http://local.test"
+        : window.location.href,
+    );
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    if (
+      typeof window !== "undefined" &&
+      parsed.origin === window.location.origin
+    ) {
+      return false;
+    }
+    return /^https?:\/\//i.test(videoUrl);
+  } catch {
+    return false;
+  }
+}
+
+function getWaveformMediaUrl({
+  recordingId,
+  videoUrl,
+  password,
+  role,
+}: {
+  recordingId: string;
+  videoUrl: string | null;
+  password?: string | null;
+  role?: string | null;
+}): string | null {
+  if (!videoUrl) return null;
+  if (!shouldProxyWaveformUrl(videoUrl)) {
+    return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
+  }
+
+  const params = new URLSearchParams();
+  if (password && role !== "owner") params.set("password", password);
+  const qs = params.toString();
+  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}${
+    qs ? `?${qs}` : ""
+  }`;
+}
+
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   // --- server state -------------------------------------------------------
   const playerDataQuery = useActionQuery(
@@ -89,6 +142,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const durationMs = recording?.durationMs ?? 0;
   const videoUrl: string | null = recording?.videoUrl ?? null;
   const videoFormat: "webm" | "mp4" = recording?.videoFormat ?? "webm";
+  const defaultPreviewSpeed = useMemo(
+    () => parsePlaybackSpeed(recording?.defaultSpeed) ?? 1.2,
+    [recording?.defaultSpeed],
+  );
 
   const edits: EditsJson = useMemo(
     () => parseEdits(recording?.editsJson),
@@ -133,6 +190,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playheadMs, setPlayheadMs] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(() =>
+    readPlaybackSpeedPreference(1.2),
+  );
   const [zoom, setZoom] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(800);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -181,6 +241,29 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
   }, [playing]);
 
+  // Load the clip's default speed (or the user's saved override) when a new
+  // recording enters the editor.
+  useEffect(() => {
+    if (!recording?.id) return;
+    const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
+    setPlaybackSpeed(next);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+  }, [defaultPreviewSpeed, recording?.id]);
+
+  // Keep the editor preview speed visible and in sync with the media element.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = playbackSpeed;
+  }, [playbackSpeed, videoUrl]);
+
+  const handlePlaybackSpeedChange = useCallback((rate: number) => {
+    const next = parsePlaybackSpeed(rate) ?? 1.2;
+    setPlaybackSpeed(next);
+    savePlaybackSpeedPreference(next);
+    if (videoRef.current) videoRef.current.playbackRate = next;
+  }, []);
+
   // Keep the playheadMs in sync with the element's currentTime.
   useEffect(() => {
     const v = videoRef.current;
@@ -195,15 +278,27 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     writeAppStateClient("editor-draft", {
       recordingId,
       playheadMs: Math.round(playheadMs),
+      playbackSpeed,
       zoom,
       editsJson: edits,
     });
-  }, [recordingId, playheadMs, zoom, edits]);
+  }, [recordingId, playheadMs, playbackSpeed, zoom, edits]);
 
   // --- waveform peaks, cached in application_state ------------------------
   const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
+  const waveformMediaUrl = useMemo(
+    () =>
+      getWaveformMediaUrl({
+        recordingId,
+        videoUrl,
+        password: recording?.password,
+        role: playerData?.role,
+      }),
+    [recording?.password, recordingId, playerData?.role, videoUrl],
+  );
+
   useEffect(() => {
-    if (!videoUrl) return;
+    if (!waveformMediaUrl) return;
     let cancelled = false;
     (async () => {
       // 1) Try cached peaks.
@@ -214,8 +309,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         if (!cancelled) setPeaks(cached);
         return;
       }
-      // 2) Compute from the video URL.
-      const result = await computePeaks(videoUrl);
+      // 2) Compute from the video URL. Cross-origin provider URLs go through
+      // the same-origin /api/video proxy so CDN CORS cannot blank the waveform.
+      const result = await computePeaks(waveformMediaUrl);
       if (cancelled) return;
       setPeaks(result);
       if (result) {
@@ -225,7 +321,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => {
       cancelled = true;
     };
-  }, [recordingId, videoUrl]);
+  }, [recordingId, waveformMediaUrl]);
 
   // --- actions ------------------------------------------------------------
   const trim = useActionMutation("trim-recording" as any);
@@ -352,6 +448,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         durationMs={durationMs}
         playing={playing}
         onPlayPause={() => setPlaying((p) => !p)}
+        playbackSpeed={playbackSpeed}
+        onPlaybackSpeedChange={handlePlaybackSpeedChange}
         zoom={zoom}
         onZoomChange={setZoom}
         edits={edits}
@@ -474,7 +572,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 {excludedRanges.length} trim(s) · {splitPoints.length} split(s)
               </span>
               <span className="truncate text-right">
-                zoom {zoom}x · selection {formatMs(effectiveSelection.startMs)}–
+                speed {playbackSpeed}x · zoom {zoom}x · selection{" "}
+                {formatMs(effectiveSelection.startMs)}–
                 {formatMs(effectiveSelection.endMs)}
               </span>
             </div>

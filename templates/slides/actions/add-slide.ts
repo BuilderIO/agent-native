@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +11,18 @@ import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
 } from "./_await-fit-check.js";
+import {
+  readAppStateForCurrentTab,
+  writeAppStateForCurrentTab,
+} from "./_tab-state.js";
+
+function deckDeepLink(deckId: string): string {
+  return buildDeepLink({
+    app: "slides",
+    view: "editor",
+    params: { deckId },
+  });
+}
 
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
@@ -135,12 +144,14 @@ export default defineAction({
       // IT (not whichever slide was previously selected). Only fires when an
       // editor is open on this deck; navigation state is a no-op if nobody
       // is watching.
-      const nav = (await readAppState("navigation").catch(() => null)) as {
+      const nav = (await readAppStateForCurrentTab("navigation", {
+        fallbackToGlobal: false,
+      }).catch(() => null)) as {
         view?: string;
         deckId?: string;
       } | null;
       if (nav?.view === "editor" && nav.deckId === deckId) {
-        await writeAppState("navigate", {
+        await writeAppStateForCurrentTab("navigate", {
           deckId,
           slideIndex: insertIndex,
           // Unique-per-write token. The UI's `use-navigation-state` hook
@@ -166,6 +177,7 @@ export default defineAction({
         slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
+        deepLink: deckDeepLink(deckId),
       };
 
       if (fit.status === "overflows") {
@@ -182,4 +194,19 @@ export default defineAction({
 
       return base;
     }),
+  link: ({ result, args }) => {
+    const deckId =
+      result && typeof result === "object"
+        ? ((result as { deckId?: string }).deckId ??
+          (typeof args.deckId === "string" ? args.deckId : undefined))
+        : typeof args.deckId === "string"
+          ? args.deckId
+          : undefined;
+    if (!deckId) return null;
+    return {
+      url: deckDeepLink(deckId),
+      label: "Open deck in Slides",
+      view: "editor",
+    };
+  },
 });

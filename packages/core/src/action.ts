@@ -47,6 +47,100 @@ export interface ActionHttpConfig {
   path?: string;
 }
 
+/** Explicit opt-in metadata for public agent protocols such as MCP or A2A. */
+export interface PublicAgentActionConfig {
+  expose: boolean;
+  readOnly: boolean;
+  requiresAuth?: boolean;
+  isConsequential?: boolean;
+  title?: string;
+  description?: string;
+}
+
+/** A deep link an external agent (MCP / A2A) can surface to the user so they
+ *  can open the produced/listed resource in the running app UI. */
+export interface ActionDeepLink {
+  /** App-relative path (e.g. `/_agent-native/open?app=mail&view=inbox&...`)
+   *  or an absolute URL. The MCP layer prefixes the request origin when this
+   *  is relative, and may rewrite it to the `agentnative://` desktop scheme. */
+  url: string;
+  /** Human-readable label, e.g. "Open draft in Mail". */
+  label: string;
+  /** Optional view hint (matches the `navigate` command `view`). */
+  view?: string;
+}
+
+/** Builds a deep link from an action's args + result so external agents can
+ *  surface an "Open in <app> →" link. MUST be pure and synchronous — no I/O,
+ *  no awaits. Best-effort: a throw or null is swallowed and never fails the
+ *  tool call. See the `external-agents` skill. */
+export type ActionLinkBuilder = (ctx: {
+  args: Record<string, any>;
+  result: any;
+}) => ActionDeepLink | null | undefined;
+
+export const MCP_APP_EXTENSION_ID = "io.modelcontextprotocol/ui" as const;
+export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app" as const;
+export const MCP_APP_RESOURCE_URI_META_KEY = "ui/resourceUri" as const;
+
+export interface ActionMcpAppCsp {
+  connectDomains?: string[];
+  resourceDomains?: string[];
+  frameDomains?: string[];
+  baseUriDomains?: string[];
+}
+
+export interface ActionMcpAppPermissions {
+  camera?: Record<string, never>;
+  microphone?: Record<string, never>;
+  geolocation?: Record<string, never>;
+  clipboardWrite?: Record<string, never>;
+}
+
+export interface ActionMcpAppResourceMeta {
+  csp?: ActionMcpAppCsp;
+  permissions?: ActionMcpAppPermissions;
+  domain?: string;
+  prefersBorder?: boolean;
+}
+
+export type ActionMcpAppHtmlBuilder = (ctx: {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}) => string;
+
+export interface ActionMcpAppResourceConfig {
+  /** `ui://` URI. Defaults to `ui://<app>/<action-name>`. */
+  uri?: string;
+  /** MCP resource name. Defaults to the action name. */
+  name?: string;
+  title?: string;
+  description?: string;
+  /**
+   * HTML5 document content for the MCP App resource. Keep this self-contained
+   * or declare any external origins in `csp`.
+   */
+  html: string | ActionMcpAppHtmlBuilder;
+  /** Defaults to the MCP Apps HTML MIME type. */
+  mimeType?: typeof MCP_APP_MIME_TYPE;
+  /** Extra resource/content metadata. `ui` is merged with the fields below. */
+  _meta?: Record<string, unknown>;
+  csp?: ActionMcpAppCsp;
+  permissions?: ActionMcpAppPermissions;
+  domain?: string;
+  prefersBorder?: boolean;
+}
+
+export interface ActionMcpAppConfig {
+  resource: ActionMcpAppResourceConfig;
+  /**
+   * MCP Apps tool visibility. Defaults to model + app so the LLM can call the
+   * action and the app iframe can call it back through the host bridge.
+   */
+  visibility?: Array<"model" | "app">;
+}
+
 /** Schema definition for a single action parameter (legacy JSON schema style). */
 export interface ParameterSchema {
   type: string;
@@ -79,7 +173,7 @@ interface DefineActionWithSchema<
     args: StandardSchemaV1.InferOutput<TSchema>,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
-  /** If true, the framework will NOT emit a screen-refresh poll event after a
+  /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
@@ -101,6 +195,19 @@ interface DefineActionWithSchema<
    *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Explicit public-agent exposure metadata. Public web routes never imply
+   *  public MCP/A2A/OpenAPI tool exposure. Actions must opt in here and public
+   *  protocol mounts must still filter for safe, route-appropriate tools. */
+  publicAgent?: PublicAgentActionConfig;
+  /** Optional deep-link builder. When set, MCP/A2A surfaces append an
+   *  "Open in <app> →" link built from the call's args + result so the
+   *  external agent can drop the user into the running app at the right
+   *  view/record. Pure + sync + best-effort. See the `external-agents` skill. */
+  link?: ActionLinkBuilder;
+  /** Optional MCP Apps UI resource for hosts that can render inline
+   *  interactive app iframes. Text/deep-link tool results remain the fallback
+   *  for CLI and non-UI hosts. */
+  mcpApp?: ActionMcpAppConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +228,7 @@ interface DefineActionWithParams<
   schema?: never;
   run: (args: InferParams<TParams>) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
-  /** If true, the framework will NOT emit a screen-refresh poll event after a
+  /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, the agent may execute this action concurrently with other
@@ -131,6 +238,12 @@ interface DefineActionWithParams<
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
   toolCallable?: boolean;
+  /** Explicit public-agent exposure metadata. See schema overload above. */
+  publicAgent?: PublicAgentActionConfig;
+  /** Optional deep-link builder. See schema overload above. */
+  link?: ActionLinkBuilder;
+  /** Optional MCP Apps UI resource. See schema overload above. */
+  mcpApp?: ActionMcpAppConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +319,7 @@ export function defineAction(options: any) {
   // Auto-infer readOnly from http.method === "GET" unless explicitly set.
   // GET actions are idempotent reads; their completion should NOT trigger a
   // screen refresh. Everything else is assumed to mutate — the dispatcher
-  // emits a poll event on success so the UI auto-refetches its queries.
+  // emits a change event on success so the UI auto-refetches its queries.
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
     httpConfig !== false &&
@@ -238,6 +351,25 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const publicAgent: PublicAgentActionConfig | undefined =
+    options.publicAgent &&
+    typeof options.publicAgent === "object" &&
+    !Array.isArray(options.publicAgent)
+      ? options.publicAgent
+      : undefined;
+  const link: ActionLinkBuilder | undefined =
+    typeof options.link === "function" ? options.link : undefined;
+  const mcpApp: ActionMcpAppConfig | undefined =
+    options.mcpApp &&
+    typeof options.mcpApp === "object" &&
+    !Array.isArray(options.mcpApp) &&
+    options.mcpApp.resource &&
+    typeof options.mcpApp.resource === "object" &&
+    !Array.isArray(options.mcpApp.resource) &&
+    (typeof options.mcpApp.resource.html === "string" ||
+      typeof options.mcpApp.resource.html === "function")
+      ? options.mcpApp
+      : undefined;
 
   return {
     tool: {
@@ -250,6 +382,9 @@ export function defineAction(options: any) {
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
+    ...(publicAgent ? { publicAgent } : {}),
+    ...(link ? { link } : {}),
+    ...(mcpApp ? { mcpApp } : {}),
   };
 }
 

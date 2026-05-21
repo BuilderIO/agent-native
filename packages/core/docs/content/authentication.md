@@ -13,6 +13,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
 - **`ACCESS_TOKEN`:** Simple shared token for production.
+- **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
 Local development uses the same Better Auth flow as production — there is no dev-mode shim. The first time you load a template, you'll be sent to the onboarding page to create an account. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
@@ -33,6 +34,27 @@ Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also
 - `POST /_agent-native/auth/login` — email/password or token login
 - `POST /_agent-native/auth/register` — create account
 - `POST /_agent-native/auth/logout` — sign out
+
+## Cookie Realms {#cookie-realms}
+
+Standalone apps keep their framework session cookie isolated by app when an
+app slug is available (`APP_NAME`, or the package name in local dev). Better
+Auth keeps its production standalone cookie prefix stable as `an` so existing
+sessions are not renamed casually.
+
+Workspace mode (`AGENT_NATIVE_WORKSPACE=1`) uses one shared session realm
+because workspace apps share an origin and database. Custom same-database
+subdomain deployments can opt into shared cookies with `COOKIE_DOMAIN`.
+
+First-party hosted apps at `*.agent-native.com` are different: each app has its
+own auth database, so `COOKIE_DOMAIN=.agent-native.com` is ignored by default
+and the app uses an isolated cookie namespace instead. Cross-app sign-in for
+those apps should go through [Cross-App SSO](/docs/cross-app-sso). First-party
+deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of
+falling back to the shared `an_session` name. If a first-party deployment
+intentionally shares one auth database across subdomains, set
+`AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
 
@@ -105,6 +127,20 @@ ACCESS_TOKENS=token1,token2,token3
 
 When access tokens are configured, users see a token login page. Sessions are cookie-based with 30-day expiry.
 
+## Remote MCP OAuth {#remote-mcp-oauth}
+
+Every app's MCP endpoint can act as a standard protected MCP resource. OAuth-capable clients can be configured with only the remote MCP URL:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+Unauthenticated MCP requests return a `WWW-Authenticate` challenge pointing at `/.well-known/oauth-protected-resource`. The client then discovers the app's OAuth metadata, dynamically registers a public client, opens the app's authorization page, and exchanges an authorization code with PKCE for access and refresh tokens.
+
+Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, and/or `mcp:apps` scopes, and are audience-bound to the exact MCP resource URL. Refresh tokens are stored only as hashes and rotate on every refresh. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
+
+`agent-native connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `agent-native connect --token <token>` fallback to write an explicit bearer-token entry.
+
 ## Bring Your Own Auth {#byoa}
 
 Pass a custom `getSession` callback to use any auth provider (Clerk, Auth0, Firebase, etc.):
@@ -123,6 +159,42 @@ export default createAuthPlugin({
   publicPaths: ["/api/webhooks"],
 });
 ```
+
+## Public Workspace Apps {#public-workspace-apps}
+
+Workspace apps are internal by default. To let anonymous visitors load a public
+site while keeping management pages behind auth, declare route access in
+`apps/<id>/package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+For the inverse shape, keep the default internal audience and expose only
+specific public pages:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+`publicPaths` and `protectedPaths` use prefix matching, so `"/admin"` also
+covers `"/admin/users"`. These settings open page navigation only. Framework
+routes (`/_agent-native/*`) and custom API routes (`/api/*`) still require auth
+unless the app explicitly adds those prefixes to
+`createAuthPlugin({ publicPaths: [...] })`.
 
 ## Session API {#session-api}
 
@@ -214,5 +286,5 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                                                               |
 | `ACCESS_TOKEN`                 | Simple shared token auth                                                                                                          |
 | `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                                                     |
+| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                |
 | `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |
-| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification                                                                  |

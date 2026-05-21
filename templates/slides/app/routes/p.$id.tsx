@@ -1,6 +1,10 @@
 import SharedPresentation from "@/pages/SharedPresentation";
 import { Spinner } from "@/components/ui/spinner";
-import type { SharedDeckResponse } from "@shared/api";
+import {
+  toSharedDeckSlide,
+  type SharedDeckResponse,
+  type SharedDeckSlide,
+} from "@shared/api";
 import { and, eq, or } from "drizzle-orm";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
@@ -12,15 +16,16 @@ type LoaderData =
   | { deck: SharedDeckResponse; error?: undefined }
   | { deck: null; error: string };
 
+/**
+ * Loose shape of the persisted deck JSON. Each slide is `Partial` because
+ * decks created across many template versions may be missing newer fields
+ * (\`transition\`, \`animations\`, \`splitByParagraph\`) and older decks may also
+ * lack \`id\` / \`content\`. \`toSharedDeckSlide\` validates and fills in
+ * defaults at runtime; the type just documents what consumers can expect.
+ */
 type DeckData = {
   title?: string;
-  slides?: Array<{
-    id?: string;
-    content?: string;
-    notes?: string;
-    layout?: string;
-    background?: string;
-  }>;
+  slides?: Array<Partial<SharedDeckSlide>>;
   aspectRatio?: SharedDeckResponse["aspectRatio"];
 };
 
@@ -32,13 +37,7 @@ function toSharedDeck(row: {
   return {
     title: row.title || data.title || "Untitled",
     slides: Array.isArray(data.slides)
-      ? data.slides.map((slide, index) => ({
-          id: slide.id || `slide-${index + 1}`,
-          content: slide.content || "",
-          notes: "",
-          layout: slide.layout || "content",
-          background: slide.background,
-        }))
+      ? data.slides.map((slide, index) => toSharedDeckSlide(slide, index))
       : [],
     aspectRatio: data.aspectRatio,
   };

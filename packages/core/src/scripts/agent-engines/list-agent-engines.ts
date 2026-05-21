@@ -9,9 +9,11 @@ import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
+import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -24,7 +26,7 @@ export const tool: ActionTool = {
   },
 };
 
-export async function run(): Promise<string> {
+export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
   const engines = listAgentEngines();
@@ -34,9 +36,9 @@ export async function run(): Promise<string> {
     : null;
 
   // Same priority chain resolveEngine uses after explicit request options:
-  // AGENT_ENGINE → Builder app_secrets → stored (if usable) → user BYOK
-  // app_secrets → env → anthropic. Gating stored on the request-aware helper
-  // keeps the picker in step with the runtime.
+  // AGENT_ENGINE → app default → Builder app_secrets → stored (if usable)
+  // → user BYOK app_secrets → env → anthropic. Gating stored/app defaults
+  // on the request-aware helper keeps the picker in step with the runtime.
   const storedEntry =
     typeof current?.engine === "string"
       ? getAgentEngineEntry(current.engine)
@@ -44,21 +46,33 @@ export async function run(): Promise<string> {
   const storedUsable =
     !!storedEntry &&
     (await isStoredEngineUsableForRequest(current, storedEntry));
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(args.appId);
+  const appDefaultEntry =
+    typeof appDefault?.engine === "string"
+      ? getAgentEngineEntry(appDefault.engine)
+      : undefined;
+  const appDefaultUsable =
+    !!appDefault &&
+    !!appDefaultEntry &&
+    (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
   const detectedFromUser = await detectEngineFromUserSecrets();
 
   const currentEntry =
     (process.env.AGENT_ENGINE
       ? getAgentEngineEntry(process.env.AGENT_ENGINE)
       : undefined) ??
+    (appDefaultUsable ? appDefaultEntry : undefined) ??
     (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
     (storedUsable ? storedEntry : undefined) ??
     detectedFromUser ??
     detectEngineFromEnv() ??
     undefined;
   const currentModel =
-    storedUsable && currentEntry?.name === current?.engine
-      ? current?.model
-      : undefined;
+    appDefaultUsable && currentEntry?.name === appDefault?.engine
+      ? appDefault?.model
+      : storedUsable && currentEntry?.name === current?.engine
+        ? current?.model
+        : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
 
   const result = {
@@ -71,6 +85,7 @@ export async function run(): Promise<string> {
       capabilities: e.capabilities,
       requiredEnvVars: e.requiredEnvVars,
       installPackage: e.installPackage,
+      packageInstalled: isAgentEnginePackageInstalled(e),
     })),
     current: {
       engine: currentEngineName,

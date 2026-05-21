@@ -24,6 +24,24 @@ interface MonthViewProps {
   onDateSelect: (date: Date) => void;
   onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
 }
 
@@ -47,6 +65,10 @@ export function MonthView({
   onDateSelect,
   onDeleteEvent,
   onEventDrop,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
   isLoading = false,
 }: MonthViewProps) {
   const isMobile = useIsMobile();
@@ -193,6 +215,10 @@ export function MonthView({
                       key={event.id}
                       event={event}
                       onDelete={onDeleteEvent ?? (() => {})}
+                      isDraft={draftEventIds.includes(event.id)}
+                      onDraftUpdate={onDraftUpdate}
+                      onDraftCreate={onDraftCreate}
+                      onDraftDiscard={onDraftDiscard}
                     >
                       <div onClick={(e) => e.stopPropagation()}>
                         <EventCard

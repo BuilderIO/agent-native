@@ -29,7 +29,7 @@ Most templates get A2A through the framework agent chat plugin. If you are mount
 import { mountA2A } from "@agent-native/core/a2a";
 
 export default defineNitroPlugin((nitro) => {
-  mountA2A(nitro.h3App, {
+  mountA2A(nitro, {
     name: "Analytics Agent",
     description: "Runs analytics queries and returns chart data",
     skills: [
@@ -105,6 +105,10 @@ All methods are called via `POST /_agent-native/a2a` with JSON-RPC 2.0 format:
 | `tasks/cancel`   | Cancel a running task                                                                                                 | `id`                          |
 
 When `message/send` is called with `async: true`, the JSON-RPC handler enqueues the task and self-fires a POST to an internal `/_agent-native/a2a/_process-task` route so the handler runs in a fresh function execution with its own full timeout. This route is authenticated with an HMAC token bound to the task ID (5-minute lifetime, signed with `A2A_SECRET`). It is mounted before the `/_agent-native/a2a` JSON-RPC route so h3's prefix matching does not swallow it.
+
+> [!IMPORTANT]
+> **Serverless Webhook & Gateway Timeouts:**
+> Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Pages) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
 
 Messages contain typed parts:
 

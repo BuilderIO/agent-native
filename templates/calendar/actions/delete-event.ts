@@ -2,6 +2,10 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
+  normalizeGuestNotificationMessage,
+  sendEventGuestNotificationNote,
+} from "../server/lib/event-guest-notifications.js";
+import {
   cliBoolean,
   normalizeGoogleEventId,
   requireActionUserEmail,
@@ -29,8 +33,13 @@ export default defineAction({
     sendUpdates: z
       .enum(["all", "none"])
       .optional()
-      .default("none")
       .describe("Whether Google should notify attendees"),
+    notificationMessage: z
+      .string()
+      .optional()
+      .describe(
+        "Optional note to send to guests as a companion email when notifying attendees about the cancellation. Google Calendar API cancellations only accept sendUpdates.",
+      ),
     removeOnly: cliBoolean
       .optional()
       .describe(
@@ -51,10 +60,19 @@ export default defineAction({
       args.accountEmail,
       ownerEmail,
     );
+    const guestNotificationMessage = normalizeGuestNotificationMessage(
+      args.notificationMessage,
+    );
+    const shouldNotifyGuests = !!guestNotificationMessage && !args.removeOnly;
     const options = {
       scope: args.scope,
-      sendUpdates: args.sendUpdates,
+      sendUpdates: args.removeOnly
+        ? "none"
+        : (args.sendUpdates ?? (shouldNotifyGuests ? "all" : "none")),
     };
+    const eventForNotification = shouldNotifyGuests
+      ? await googleCalendar.getEvent(googleEventId, accountEmail)
+      : undefined;
 
     if (args.removeOnly) {
       await googleCalendar.removeEventFromCalendar(
@@ -66,12 +84,24 @@ export default defineAction({
       await googleCalendar.deleteEvent(googleEventId, accountEmail, options);
     }
 
+    const guestNotification =
+      shouldNotifyGuests && guestNotificationMessage && eventForNotification
+        ? await sendEventGuestNotificationNote({
+            event: eventForNotification,
+            organizerEmail: ownerEmail,
+            message: guestNotificationMessage,
+            kind: "cancellation",
+            scope: args.scope,
+          })
+        : undefined;
+
     return {
       success: true,
       id: `google-${googleEventId}`,
       accountEmail,
       scope: args.scope,
       removedOnly: args.removeOnly ?? false,
+      ...(guestNotification ? { guestNotification } : {}),
     };
   },
 });

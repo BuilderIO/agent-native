@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import {
@@ -49,10 +49,11 @@ import {
   type AttendeeRecipient,
 } from "@/components/calendar/AttendeeAutocomplete";
 import { useCalendarContext } from "@/components/layout/AppLayout";
-import { useUpdateEvent } from "@/hooks/use-events";
+import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -65,20 +66,25 @@ import {
 } from "@/components/calendar/EventOptionControls";
 import {
   attachmentsToDrafts,
+  buildRecurrenceRules,
   buildReminderPayload,
   dateTimeInTimezoneToIso,
+  formatRecurrenceText,
   formatReminderText,
   formatTimezoneLabel,
   getEventEndValidationMessage,
   getLocalTimezone,
+  getRecurrencePreset,
   remindersToDraftState,
   type AttachmentDraft,
+  type RecurrencePreset,
   type ReminderDraft,
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { shortcutModifierLabel } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -196,6 +202,12 @@ type ReminderValue =
   | "1440"
   | "custom";
 
+type EventUpdatePatch = Partial<CalendarEvent> & {
+  addGoogleMeet?: boolean;
+  addZoom?: boolean;
+  scope?: UpdateEventScope;
+};
+
 function getReminderValue(event: CalendarEvent): ReminderValue {
   if (event.remindersUseDefault !== false) return "default";
   if (!event.reminders || event.reminders.length === 0) return "none";
@@ -214,47 +226,6 @@ function getReminderUpdate(value: ReminderValue): Partial<CalendarEvent> {
     remindersUseDefault: false,
     reminders: [{ method: "popup", minutes: Number(value) }],
   };
-}
-
-function formatRecurrence(recurrence?: string[]): string | null {
-  if (!recurrence || recurrence.length === 0) return null;
-  const rule = recurrence.find((r) => r.startsWith("RRULE:"));
-  if (!rule) return null;
-
-  const freq = rule.match(/FREQ=(\w+)/)?.[1];
-  const interval = parseInt(rule.match(/INTERVAL=(\d+)/)?.[1] || "1", 10);
-  const byDay = rule.match(/BYDAY=([^;]+)/)?.[1];
-
-  const dayMap: Record<string, string> = {
-    MO: "Mon",
-    TU: "Tue",
-    WE: "Wed",
-    TH: "Thu",
-    FR: "Fri",
-    SA: "Sat",
-    SU: "Sun",
-  };
-
-  switch (freq) {
-    case "DAILY":
-      return interval === 1 ? "Every day" : `Every ${interval} days`;
-    case "WEEKLY": {
-      const days = byDay
-        ?.split(",")
-        .map((d) => dayMap[d] || d)
-        .join(", ");
-      if (interval === 1) return days ? `Every week on ${days}` : "Every week";
-      return days
-        ? `Every ${interval} weeks on ${days}`
-        : `Every ${interval} weeks`;
-    }
-    case "MONTHLY":
-      return interval === 1 ? "Every month" : `Every ${interval} months`;
-    case "YEARLY":
-      return interval === 1 ? "Every year" : `Every ${interval} years`;
-    default:
-      return null;
-  }
 }
 
 /** Check if a string looks like a URL */
@@ -292,22 +263,45 @@ interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
   onDelete: (eventId: string) => void;
+  isDraft?: boolean;
   /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
   /** Called when the title is changed and should be persisted */
   onTitleSave?: (eventId: string, title: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
   onDismissNew?: (eventId: string) => void;
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
 }
 
 export function EventDetailPopover({
   event,
   children,
   onDelete,
+  isDraft = false,
   defaultOpen = false,
   onTitleSave,
   onDismissNew,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
 }: EventDetailPopoverProps) {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
     defaultOpen ? event.title : "",
@@ -353,11 +347,31 @@ export function EventDetailPopover({
     () => attachmentsToDrafts(event.attachments),
   );
   const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [editTimeScope, setEditTimeScope] =
+    useState<UpdateEventScope>("single");
+  const [editRecurrencePreset, setEditRecurrencePreset] =
+    useState<RecurrencePreset>(() => getRecurrencePreset(event.recurrence));
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
     "meet" | "zoom" | null
   >(null);
+  const isOverlay = !!event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
+  const masterEventId =
+    open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
+  const masterEvent = useEvent(masterEventId);
+  const recurrenceRules =
+    event.recurrence && event.recurrence.length > 0
+      ? event.recurrence
+      : masterEvent.data?.recurrence;
+  const isRecurringEvent = !!(
+    event.recurringEventId || recurrenceRules?.length
+  );
+  const recurrenceLoading =
+    isRecurringEvent && !recurrenceRules?.length && masterEvent.isLoading;
+  const canEditRecurrence = !isDraft && !isOverlay && !!recurrenceRules?.length;
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
@@ -380,6 +394,7 @@ export function EventDetailPopover({
     setEditReminderMode(reminderState.mode);
     setEditReminders(reminderState.reminders);
     setEditAttachments(attachmentsToDrafts(event.attachments));
+    setEditTimeScope("single");
   }, [
     event.id,
     event.description,
@@ -392,6 +407,10 @@ export function EventDetailPopover({
     event.remindersUseDefault,
     event.attachments,
   ]);
+
+  useEffect(() => {
+    setEditRecurrencePreset(getRecurrencePreset(recurrenceRules));
+  }, [recurrenceRules]);
 
   // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
@@ -434,15 +453,30 @@ export function EventDetailPopover({
 
   // Save a field update
   const saveField = useCallback(
-    (updates: Partial<CalendarEvent> & { addGoogleMeet?: boolean }) => {
+    (updates: EventUpdatePatch) => {
       if (!event.id) return;
-      updateEvent.mutate({
-        id: event.id,
-        accountEmail: event.accountEmail,
-        ...updates,
-      });
+      if (isDraft) {
+        const { scope: _scope, ...draftUpdates } = updates;
+        onDraftUpdate?.(event.id, draftUpdates);
+        return;
+      }
+      void (async () => {
+        const { scope: _scope, ...notificationUpdates } = updates;
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates: notificationUpdates,
+        });
+        if (!guestNotification) return;
+        updateEvent.mutate({
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
+      })();
     },
-    [event.id, event.accountEmail, updateEvent],
+    [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent],
   );
 
   const handleAvailabilityChange = useCallback(
@@ -520,41 +554,77 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
+    if (isDraft) {
+      onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
+      toast("Google Meet will be added when the event is created");
+      return;
+    }
     setPendingVideoProvider("meet");
-    updateEvent.mutate(
-      {
-        id: event.id,
-        accountEmail: event.accountEmail,
-        addGoogleMeet: true,
-      },
-      {
-        onSuccess: () => toast("Google Meet added"),
-        onError: () => toast.error("Failed to add Google Meet"),
-        onSettled: () => setPendingVideoProvider(null),
-      },
-    );
-  }, [event.id, event.accountEmail, updateEvent]);
+    void (async () => {
+      const updates = { addGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+      });
+      if (!guestNotification) {
+        setPendingVideoProvider(null);
+        return;
+      }
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onSuccess: () => toast("Google Meet added"),
+          onError: () => toast.error("Failed to add Google Meet"),
+          onSettled: () => setPendingVideoProvider(null),
+        },
+      );
+    })();
+  }, [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent]);
 
   const handleAddZoom = useCallback(() => {
     if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
 
     if (zoomStatus.data?.connected) {
+      if (isDraft) {
+        onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
+        toast("Zoom will be added when the event is created");
+        return;
+      }
       setPendingVideoProvider("zoom");
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          addZoom: true,
-        },
-        {
-          onSuccess: () => toast("Zoom added"),
-          onError: (error) =>
-            toast.error(
-              error instanceof Error ? error.message : "Failed to add Zoom",
-            ),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
+      void (async () => {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast("Zoom added"),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error ? error.message : "Failed to add Zoom",
+              ),
+            onSettled: () => setPendingVideoProvider(null),
+          },
+        );
+      })();
       return;
     }
 
@@ -572,8 +642,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     });
   }, [
     connectZoom,
-    event.accountEmail,
-    event.id,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
     updateEvent,
     zoomStatus.data?.configured,
     zoomStatus.data?.connected,
@@ -644,8 +716,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
         allDay: event.allDay,
         startTimeZone: event.allDay ? undefined : editTimezone,
         endTimeZone: event.allDay ? undefined : editTimezone,
+        scope: isRecurringEvent ? editTimeScope : "single",
       });
     }
+    setEditTimeScope("single");
     setEditingField(null);
   }, [
     editDate,
@@ -656,6 +730,30 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     event.start,
     event.end,
     event.allDay,
+    isRecurringEvent,
+    editTimeScope,
+    saveField,
+  ]);
+
+  const handleSaveRecurrence = useCallback(() => {
+    const recurrence = buildRecurrenceRules(
+      editRecurrencePreset,
+      masterEvent.data?.start || event.start,
+      masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
+    );
+    if (!recurrence) {
+      toast.error("Custom repeat schedules must be edited in Google Calendar.");
+      return;
+    }
+    saveField({ recurrence, scope: "all" });
+    setEditingField(null);
+  }, [
+    editRecurrencePreset,
+    editTimezone,
+    event.start,
+    event.startTimeZone,
+    masterEvent.data?.start,
+    masterEvent.data?.startTimeZone,
     saveField,
   ]);
 
@@ -700,10 +798,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
   const handleTriggerClick = useCallback(() => {
     setFocusedEvent(event);
-    if (eventDetailSidebar && !isNewEventRef.current) {
+    if (eventDetailSidebar && !isNewEventRef.current && !isDraft) {
       setSidebarEvent(event);
     }
-  }, [eventDetailSidebar, event, setSidebarEvent, setFocusedEvent]);
+  }, [eventDetailSidebar, event, isDraft, setSidebarEvent, setFocusedEvent]);
 
   const handlePinToSidebar = useCallback(
     (e: React.MouseEvent) => {
@@ -717,6 +815,20 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     },
     [event, setEventDetailSidebar, setSidebarEvent],
   );
+
+  const handleCreateDraft = useCallback(() => {
+    if (!onDraftCreate) return;
+    const updates =
+      isEditingTitle && editingTitle.trim()
+        ? { title: editingTitle.trim() }
+        : undefined;
+    if (updates) {
+      onTitleSave?.(event.id, updates.title);
+      setIsEditingTitle(false);
+      isNewEventRef.current = false;
+    }
+    onDraftCreate(event.id, updates);
+  }, [editingTitle, event.id, isEditingTitle, onDraftCreate, onTitleSave]);
 
   // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
@@ -740,7 +852,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
   const locationIsUrl = event.location ? isUrl(event.location) : false;
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
-  const recurrenceText = formatRecurrence(event.recurrence);
+  const recurrenceText = recurrenceLoading
+    ? "Loading repeat..."
+    : formatRecurrenceText(recurrenceRules) ||
+      (isRecurringEvent ? "Repeats" : null);
   // Show the browser's local timezone offset (this is what the user sees times in)
   const localOffsetMinutes = -new Date().getTimezoneOffset();
   const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
@@ -796,20 +911,21 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     ],
   );
 
-  const isOverlay = !!event.overlayEmail;
-
   return (
     <Popover
-      open={eventDetailSidebar && !isNewEventRef.current ? false : open}
+      open={
+        eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open
+      }
       onOpenChange={handleOpenChange}
     >
       <PopoverTrigger asChild onClick={handleTriggerClick}>
         {children}
       </PopoverTrigger>
       <PopoverContent
-        side="right"
-        align="start"
-        sideOffset={8}
+        align={isMobile ? "center" : "start"}
+        side={isMobile ? "bottom" : "right"}
+        sideOffset={isMobile ? 6 : 8}
+        collisionPadding={12}
         className="w-[calc(100vw-2rem)] sm:w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
@@ -836,25 +952,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              <span>Event</span>
+              <span>{isDraft ? "Draft event" : "Event"}</span>
               <IconChevronRight className="h-3 w-3" />
             </div>
             <div className="flex items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                    onClick={handlePinToSidebar}
-                  >
-                    <IconLayoutSidebarRight className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Open in sidebar</p>
-                </TooltipContent>
-              </Tooltip>
+              {!isDraft && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      onClick={handlePinToSidebar}
+                    >
+                      <IconLayoutSidebarRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Open in sidebar</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -987,6 +1105,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         onChange={setEditTimezone}
                       />
                     )}
+                    {isRecurringEvent && !isDraft && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Apply to
+                        </span>
+                        <Select
+                          value={editTimeScope}
+                          onValueChange={(value) =>
+                            setEditTimeScope(value as UpdateEventScope)
+                          }
+                        >
+                          <SelectTrigger className="h-7 flex-1 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">This event</SelectItem>
+                            <SelectItem value="all">All events</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="ghost"
@@ -1004,6 +1143,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           setEditTimezone(
                             event.startTimeZone || getLocalTimezone(),
                           );
+                          setEditTimeScope("single");
                           setEditingField(null);
                         }}
                       >
@@ -1072,14 +1212,79 @@ Write a short, useful meeting description. If I ask you to apply it, update this
               </div>
 
               {/* Recurrence */}
-              {recurrenceText && (
-                <div className="flex items-center gap-3 py-1.5">
+              {editingField === "recurrence" ? (
+                <div className="flex items-start gap-3 py-1.5">
+                  <IconRefresh className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 space-y-2">
+                    <Select
+                      value={editRecurrencePreset}
+                      onValueChange={(value) =>
+                        setEditRecurrencePreset(value as RecurrencePreset)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Does not repeat</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekdays">Every weekday</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                        {editRecurrencePreset === "custom" && (
+                          <SelectItem value="custom" disabled>
+                            Custom schedule
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          setEditRecurrencePreset(
+                            getRecurrencePreset(recurrenceRules),
+                          );
+                          setEditingField(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={handleSaveRecurrence}
+                        disabled={editRecurrencePreset === "custom"}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : recurrenceText ? (
+                <button
+                  type="button"
+                  className={`group flex w-full items-center gap-3 rounded-md py-1.5 text-left ${canEditRecurrence ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                  onClick={() => {
+                    if (!canEditRecurrence) return;
+                    setEditRecurrencePreset(
+                      getRecurrencePreset(recurrenceRules),
+                    );
+                    setEditingField("recurrence");
+                  }}
+                >
                   <IconRefresh className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {recurrenceText}
                   </span>
-                </div>
-              )}
+                  {canEditRecurrence && (
+                    <IconChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
+                  )}
+                </button>
+              ) : null}
             </div>
 
             {/* Separator */}
@@ -1674,16 +1879,27 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                 size="sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
                 onClick={() => {
-                  onDelete(event.id);
+                  if (isDraft) onDraftDiscard?.(event.id);
+                  else onDelete(event.id);
                   handleOpenChange(false);
                 }}
               >
-                Delete
+                {isDraft ? "Discard" : "Delete"}
               </Button>
+              {isDraft && (
+                <Button
+                  size="sm"
+                  className="ml-auto text-xs"
+                  onClick={handleCreateDraft}
+                >
+                  {event.attendees?.length ? "Create and send" : "Create event"}
+                </Button>
+              )}
             </div>
           )}
         </TooltipProvider>
       </PopoverContent>
+      {guestNotificationDialog}
     </Popover>
   );
 }

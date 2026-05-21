@@ -13,26 +13,52 @@ import {
   setResponseHeader,
   getMethod,
   getHeader,
+  getCookie,
+  setCookie,
+  deleteCookie,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
+import { createOpenRouteHandler } from "./open-route.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
+import { handleMcpConnect } from "../mcp/connect-route.js";
+import {
+  handleMcpOAuth,
+  handleMcpOAuthAuthorizationServerMetadata,
+  handleMcpOAuthProtectedResourceMetadata,
+} from "../mcp/oauth-route.js";
+import { handleIdentitySso } from "./identity-sso.js";
+import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { getAppName } from "./app-name.js";
 import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
+  BUILDER_OPENER_PARAM,
+  BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
+  builderConnectTrackingProperties,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderConnectTrackingParams,
+  getBuilderCliAuthCallbackOriginForEvent,
+  getBuilderBrowserOriginForEvent,
+  resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
   runBuilderAgent,
-  verifyBuilderConnectToken,
+  signBuilderCallbackState,
+  verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderCallbackStateAndGetOwner,
+  signBuilderConnectToken,
+  type BuilderConnectTrackingParams,
 } from "./builder-browser.js";
 import {
   getState,
@@ -51,7 +77,7 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import { getSession } from "./auth.js";
-import { getOrigin } from "./google-oauth.js";
+import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
 import {
@@ -77,6 +103,7 @@ import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { canUseDeployCredentialFallbackForRequest } from "./credential-provider.js";
 import {
   canUpdateAgentLoopSettings,
@@ -95,6 +122,8 @@ import {
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import { getOrgContext } from "../org/context.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -158,16 +187,22 @@ async function detectUsageEngineName(
   }
 }
 
-function trackBuilderLifecycle(
+async function trackBuilderLifecycle(
+  event: H3Event,
   name: string,
   userEmail: string | undefined | null,
   properties: Record<string, unknown> = {},
-): void {
+): Promise<void> {
   if (!userEmail) return;
+  const engine = await detectUsageEngineName(event, userEmail);
   track(
     name,
     {
       feature: "builder",
+      ...llmConnectionTrackingProperties({
+        configured: Boolean(engine),
+        engine,
+      }),
       ...properties,
     },
     { userId: userEmail },
@@ -191,6 +226,40 @@ function stripAppBasePath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function getBuilderConnectOwnerCookiePath(): string {
+  return getAppBasePath() || "/";
+}
+
+function readBuilderConnectOwnerCookie(event: H3Event): string | null {
+  return verifyBuilderConnectTokenAndGetOwner(
+    getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
+  );
+}
+
+function setBuilderConnectOwnerCookie(
+  event: H3Event,
+  ownerEmail: string,
+): void {
+  setCookie(
+    event,
+    BUILDER_CONNECT_OWNER_COOKIE,
+    signBuilderConnectToken(ownerEmail),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: getOrigin(event).startsWith("https://"),
+      path: getBuilderConnectOwnerCookiePath(),
+      maxAge: 10 * 60,
+    },
+  );
+}
+
+function clearBuilderConnectOwnerCookie(event: H3Event): void {
+  deleteCookie(event, BUILDER_CONNECT_OWNER_COOKIE, {
+    path: getBuilderConnectOwnerCookiePath(),
+  });
 }
 
 /**
@@ -242,6 +311,26 @@ export interface CoreRoutesPluginOptions {
   disablePing?: boolean;
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /** Disable the /_agent-native/open deep-link route. */
+  disableOpenRoute?: boolean;
+  /** Disable the /_agent-native/embed/start iframe session launcher. */
+  disableEmbedRoute?: boolean;
+  /**
+   * Disable the /_agent-native/mcp/connect routes (browser Connect page +
+   * CLI device-code flow that mints per-user, revocable MCP tokens) and the
+   * standard remote-MCP OAuth endpoints under /_agent-native/mcp/oauth.
+   * Enabled by default — the routes are session-gated where they approve user
+   * access; token endpoints are protected by single-use codes / refresh
+   * tokens.
+   */
+  disableMcpConnect?: boolean;
+  /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
+  mcpConnectAppId?: string;
+  /** Human app name shown on the MCP connect page. */
+  mcpConnectAppName?: string;
+  /** Per-template override mapping deep-link params → client SPA path.
+   *  See `createOpenRouteHandler`. */
+  resolveOpenPath?: import("./open-route.js").OpenRouteOptions["resolveOpenPath"];
   /** Env key configuration. Enables env-status and env-vars routes. */
   envKeys?: EnvKeyConfig[];
   /**
@@ -477,6 +566,35 @@ export function createCoreRoutesPlugin(
     const { createCsrfMiddleware } = await import("./csrf.js");
     getH3App(nitroApp).use(createCsrfMiddleware(P));
 
+    // Demo-mode status — read by the client fetch interceptor and the
+    // Demo mode settings toggle. `forced` reflects the DEMO_MODE env (a
+    // hosted demo deployment); `enabled` ORs that with the per-user
+    // application_state toggle. No request-context dependency: the env case
+    // needs nothing, and the per-user case resolves the session straight
+    // off the request cookie via getSession(event).
+    getH3App(nitroApp).use(
+      `${P}/demo/status`,
+      defineEventHandler(async (event) => {
+        const { isDemoModeForced } = await import("../demo/config.js");
+        const forced = isDemoModeForced();
+        if (forced) return { enabled: true, forced: true };
+        try {
+          const session = await getSession(event);
+          const email = (session as { user?: { email?: string } } | null)?.user
+            ?.email;
+          if (!email) return { enabled: false, forced: false };
+          const { appStateGet } = await import("../application-state/store.js");
+          const state = await appStateGet(email, "demo-mode");
+          return {
+            enabled: (state as { enabled?: boolean } | null)?.enabled === true,
+            forced: false,
+          };
+        } catch {
+          return { enabled: false, forced: false };
+        }
+      }),
+    );
+
     // Polling
     getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 
@@ -496,6 +614,8 @@ export function createCoreRoutesPlugin(
       );
     }
 
+    mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
+
     type BuilderOwnerContext = {
       email: string | undefined;
       session: Awaited<ReturnType<typeof getSession>> | null;
@@ -508,6 +628,49 @@ export function createCoreRoutesPlugin(
       const session = await getSession(event).catch(() => null);
       if (session?.email) {
         return { email: session.email, session, anonymous: false };
+      }
+
+      const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+      const queryStart = rawUrl.indexOf("?");
+      const rawPath = queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
+      const search = queryStart >= 0 ? rawUrl.slice(queryStart + 1) : "";
+      const path = stripAppBasePath(rawPath);
+
+      if (path === `${P}/builder/connect`) {
+        const ownerFromConnectToken = verifyBuilderConnectTokenAndGetOwner(
+          new URLSearchParams(search).get(BUILDER_CONNECT_PARAM),
+        );
+        if (ownerFromConnectToken) {
+          return {
+            email: ownerFromConnectToken,
+            session: null,
+            anonymous: false,
+          };
+        }
+      }
+
+      if (path === `${P}/builder/callback`) {
+        // Prefer the signed _an_state owner over the legacy
+        // an_builder_connect_owner cookie. The cookie can be stale on a
+        // shared browser — user A signed in earlier, user B starts a fresh
+        // callback with a signed state for B — and using the cookie first
+        // would mis-attribute B's Builder credentials to A. The signed
+        // state is per-flow and TTL-bounded, so it's authoritative when
+        // both are present.
+        const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
+          new URLSearchParams(search).get(BUILDER_STATE_PARAM),
+        );
+        if (ownerFromCallbackState) {
+          return {
+            email: ownerFromCallbackState,
+            session: null,
+            anonymous: false,
+          };
+        }
+        const ownerFromCookie = readBuilderConnectOwnerCookie(event);
+        if (ownerFromCookie) {
+          return { email: ownerFromCookie, session: null, anonymous: false };
+        }
       }
 
       const anonymousOwner = await options.anonymousOwner?.(event);
@@ -526,11 +689,33 @@ export function createCoreRoutesPlugin(
         const userEmail = ownerContext.email;
         const withConnectToken = <T extends { connectUrl: string }>(
           status: T,
-        ): T => {
+        ): T & { cliAuthUrl?: string } => {
           if (!userEmail) return status;
-          return {
+          const previewOrigin = getBuilderBrowserOriginForEvent(event);
+          const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(event);
+          const statusWithConnectToken = {
             ...status,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
+          } as T & { cliAuthUrl?: string };
+          // Direct cli-auth only works when the callback lands on the same
+          // deployment that minted the signed state. Builder/Fusion previews
+          // often need a gateway callback origin; in that case use the
+          // /builder/connect trampoline so it can write the pending-connect
+          // row that the gateway callback validates against.
+          if (
+            previewOrigin.replace(/\/+$/, "") !==
+            callbackOrigin.replace(/\/+$/, "")
+          ) {
+            return statusWithConnectToken;
+          }
+          const cliAuthUrl = buildBuilderCliAuthUrl(
+            callbackOrigin,
+            signBuilderCallbackState(userEmail),
+            { previewOrigin },
+          );
+          return {
+            ...statusWithConnectToken,
+            cliAuthUrl,
           };
         };
 
@@ -598,12 +783,35 @@ export function createCoreRoutesPlugin(
             const {
               resolveBuilderCredentials,
               resolveBuilderCredentialSource,
+              getBuilderCredentialAuthFailure,
             } = await import("./credential-provider.js");
             const [creds, credentialSource] = await Promise.all([
               resolveBuilderCredentials(),
               resolveBuilderCredentialSource(),
             ]);
-            if (creds.privateKey) {
+            const authFailure = await getBuilderCredentialAuthFailure(creds);
+            if (authFailure) {
+              return withConnectToken({
+                ...requestStatus,
+                configured: false,
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
+                credentialSource: credentialSource ?? undefined,
+                // Surface durable credential rejection separately from
+                // one-shot cli-auth callback failures. The reconnect UI keeps
+                // polling through authError while the user chooses a new
+                // Builder space; connectError means the active callback itself
+                // failed and should stop the flow.
+                authError: {
+                  message: authFailure.message,
+                  at: authFailure.at,
+                },
+              });
+            }
+            if (creds.privateKey && creds.publicKey) {
               return withConnectToken({
                 ...requestStatus,
                 configured: true,
@@ -671,7 +879,10 @@ export function createCoreRoutesPlugin(
       const fetchSite = getHeader(event, "sec-fetch-site");
       if (fetchSite === "same-origin" || fetchSite === "none") return true;
       if (fetchSite) return false; // browser told us it's cross-site/same-site
-      const expected = getOrigin(event).replace(/\/+$/, "");
+      const expected = getBuilderBrowserOriginForEvent(event).replace(
+        /\/+$/,
+        "",
+      );
       const origin = getHeader(event, "origin");
       if (origin) return origin.replace(/\/+$/, "") === expected;
       const referer = getHeader(event, "referer");
@@ -724,25 +935,61 @@ export function createCoreRoutesPlugin(
 
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
-          getOrigin(event),
+          getBuilderBrowserOriginForEvent(event),
         );
         const connectToken = requestUrl.searchParams.get(BUILDER_CONNECT_PARAM);
-        const hasValidConnectToken = verifyBuilderConnectToken(
-          connectToken,
-          ownerEmail,
+        const connectTokenOwner =
+          verifyBuilderConnectTokenAndGetOwner(connectToken);
+        const connectTracking = getBuilderConnectTrackingParams(
+          requestUrl.searchParams,
         );
+        // The token must both be well-formed AND minted for the current
+        // session owner. Without the owner check, an attacker holding any
+        // valid signed token could trick a victim into hitting this route
+        // with that token to bypass the cross-origin gate.
+        const hasValidConnectToken =
+          Boolean(connectTokenOwner) && connectTokenOwner === ownerEmail;
 
         // Same-origin gate. Sec-Fetch-Site remains the fast path; the signed
         // connect token is the compatibility path for legitimate embedded or
         // local desktop popups stamped as same-site/cross-site by the browser.
         if (!isSameOriginConnect(event) && !hasValidConnectToken) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "cross_origin",
-            stage: "connect",
-            has_connect_token: Boolean(connectToken),
+          const crossOriginMessage = connectToken
+            ? "This Builder connect link is expired or belongs to a different deployment. Close this popup and click Connect account again."
+            : "Builder connect opened without a fresh signed link. Close this popup and click Connect account again.";
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: "cross_origin",
+              stage: "connect",
+              has_connect_token: Boolean(connectToken),
+              has_valid_connect_token: false,
+              connect_token_owner_matches_context: false,
+              sec_fetch_site: getHeader(event, "sec-fetch-site") ?? null,
+            },
+          );
+          await putSetting(`builder-connect-error:${ownerEmail}`, {
+            message: crossOriginMessage,
+            at: Date.now(),
+          }).catch(() => {});
+          console.warn("[builder-connect] rejected cross-origin connect", {
+            hasConnectToken: Boolean(connectToken),
+            secFetchSite: getHeader(event, "sec-fetch-site") ?? null,
+            origin: getHeader(event, "origin") ?? null,
+            referer: getHeader(event, "referer") ?? null,
           });
           setResponseStatus(event, 403);
-          return { error: "Cross-origin connect requests are not allowed" };
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(crossOriginMessage, {
+            title: "Couldn't start Builder connection",
+            body: "The connect popup did not include a valid signed link for this app.",
+            closeHint:
+              "Close this popup, refresh the app, and try Connect account again.",
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
 
         // Clear any prior failure row from a previous attempt — otherwise
@@ -761,12 +1008,19 @@ export function createCoreRoutesPlugin(
         try {
           await putSetting(`builder-pending-connect:${ownerEmail}`, {
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
+            tracking: connectTracking,
           });
         } catch (err) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "pending_storage_unavailable",
-            stage: "connect",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: "pending_storage_unavailable",
+              stage: "connect",
+            },
+          );
           const msg =
             "Could not initiate Builder connect — storage unavailable. Try again.";
           console.error(
@@ -781,15 +1035,34 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 503);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: getBuilderBrowserOriginForEvent(event),
+          });
         }
-        trackBuilderLifecycle("builder connect started", ownerEmail, {
-          stage: "connect",
-        });
-        // Build the cli-auth URL without embedding state in redirect_url:
-        // Builder's /cli-auth appends params directly to redirect_url and
-        // does not preserve any pre-existing query string we put there.
-        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), null);
+        await trackBuilderLifecycle(
+          event,
+          "builder connect started",
+          ownerEmail,
+          {
+            ...builderConnectTrackingProperties(connectTracking),
+            stage: "connect",
+            connect_token_owner_matches_context:
+              !connectTokenOwner || connectTokenOwner === ownerEmail,
+          },
+        );
+        setBuilderConnectOwnerCookie(event, ownerEmail);
+        // The primary UI now opens the signed Builder /cli-auth URL directly
+        // from /builder/status. Keep this legacy trampoline working for older
+        // clients, but still send it to Builder immediately and include signed
+        // callback state so the callback does not depend on popup cookies.
+        const cliAuthUrl = buildBuilderCliAuthUrl(
+          getBuilderCliAuthCallbackOriginForEvent(event),
+          signBuilderCallbackState(ownerEmail),
+          {
+            previewOrigin: getBuilderBrowserOriginForEvent(event),
+            tracking: connectTracking,
+          },
+        );
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);
         return "";
@@ -887,9 +1160,14 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-        trackBuilderLifecycle("builder branch waitlist joined", session.email, {
-          stage: "waitlist",
-        });
+        await trackBuilderLifecycle(
+          event,
+          "builder branch waitlist joined",
+          session.email,
+          {
+            stage: "waitlist",
+          },
+        );
         return { ok: true };
       }),
     );
@@ -907,33 +1185,98 @@ export function createCoreRoutesPlugin(
         // /builder/connect) blocks CSRF and callback replay.
         const ownerContext = await resolveBuilderOwnerContext(event);
         const ownerEmail = ownerContext.email;
+        // Diagnostic: log the resolver's inputs for debugging "No active
+        // connect flow found" reports. Reveals session-vs-state owner
+        // mismatches and missing/forged _an_state without leaking the
+        // signed token itself.
+        try {
+          const debugSearch = new URLSearchParams(
+            (event.url?.search || "").replace(/^\?/, ""),
+          );
+          const stateRaw = debugSearch.get(BUILDER_STATE_PARAM);
+          const stateOwnerProbe =
+            verifyBuilderCallbackStateAndGetOwner(stateRaw);
+          const session = await getSession(event).catch(() => null);
+          console.log(
+            `[builder-callback] resolved-owner=${ownerEmail ?? "(none)"} session-email=${session?.email ?? "(none)"} state-owner=${stateOwnerProbe ?? "(none)"} state-present=${Boolean(stateRaw)} anon=${ownerContext.anonymous} host=${getHeader(event, "host") ?? "(none)"} sec-fetch-site=${getHeader(event, "sec-fetch-site") ?? "(none)"} origin=${getHeader(event, "origin") ?? "(none)"} referer=${getHeader(event, "referer") ?? "(none)"}`,
+          );
+        } catch {
+          // Diagnostic logging is best-effort; do not break the callback.
+        }
         if (!ownerEmail) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        clearBuilderConnectOwnerCookie(event);
 
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+        let connectTracking = getBuilderConnectTrackingParams(
+          requestUrl.searchParams,
+        );
+        // postMessage from the callback success/error pages must target the
+        // original preview opener, not the callback server. On the fallback
+        // path the callback is served from the env-configured gateway while
+        // the opener lives on the preview origin. Three sources of opener
+        // origin, in priority order:
+        //   1. `_an_opener` — written into the callback URL's query by
+        //      buildBuilderCliAuthUrl when cli-auth's allow-list forced
+        //      preview_url onto the gateway. Survives Builder's redirect
+        //      verbatim (Builder preserves redirect_url's query string).
+        //   2. `preview-url` — Builder echoes the top-level preview_url back
+        //      as a query param on the callback. Reflects the gateway on
+        //      the fallback path, but matches the opener on the happy path.
+        //   3. The event's own origin — last-resort fallback.
+        const openerOriginFromQuery =
+          requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
+        const callbackParentOrigin =
+          resolveSafePreviewUrl(openerOriginFromQuery, event) ||
+          resolveSafePreviewUrl(
+            requestUrl.searchParams.get("preview-url"),
+            event,
+          ) ||
+          getBuilderBrowserOriginForEvent(event);
+        const callbackStateOwner = verifyBuilderCallbackStateAndGetOwner(
+          requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+        );
+        const hasValidCallbackState = callbackStateOwner === ownerEmail;
 
-        // Verify and consume the server-side pending-connect row that the
-        // /builder/connect route stored. This replaces the old URL-embedded
-        // signed CSRF state (_an_state) which Builder's /cli-auth page was
-        // stripping from the redirect_url query string.
+        // Verify either:
+        //   1. the signed callback state embedded in redirect_url by
+        //      /builder/status (primary flow), or
+        //   2. the server-side pending-connect row written by the legacy
+        //      /builder/connect trampoline.
         //
-        // The delete must succeed before we proceed — otherwise a DB blip
+        // For the pending-row path, delete must succeed before we proceed;
+        // otherwise a DB blip
         // leaves the row in place and the same callback URL can be
         // replayed against the same session for up to 10 minutes (the
         // TTL window). Treat a delete failure as a hard failure: the
         // user retries, the next /builder/connect call rewrites the
         // pending row.
-        let pendingValid = false;
+        let pendingValid = hasValidCallbackState;
         let pendingError: string | null = null;
         try {
           const pending = (await getSetting(
             `builder-pending-connect:${ownerEmail}`,
-          )) as { expiresAt?: number } | null;
+          )) as {
+            expiresAt?: number;
+            tracking?: BuilderConnectTrackingParams;
+          } | null;
+          if (pending?.tracking) {
+            connectTracking = {
+              signupSource:
+                connectTracking.signupSource ?? pending.tracking.signupSource,
+              agentNativeFlow:
+                connectTracking.agentNativeFlow ??
+                pending.tracking.agentNativeFlow,
+              agentNativeConnectSource:
+                connectTracking.agentNativeConnectSource ??
+                pending.tracking.agentNativeConnectSource,
+            };
+          }
           if (
             pending &&
             typeof pending.expiresAt === "number" &&
@@ -943,12 +1286,14 @@ export function createCoreRoutesPlugin(
               await deleteSetting(`builder-pending-connect:${ownerEmail}`);
               pendingValid = true;
             } catch (err) {
-              pendingError =
-                "Could not consume pending-connect token (storage error). Please retry.";
-              console.error(
-                "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
-                (err as Error)?.message ?? err,
-              );
+              if (!hasValidCallbackState) {
+                pendingError =
+                  "Could not consume pending-connect token (storage error). Please retry.";
+                console.error(
+                  "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
+                  (err as Error)?.message ?? err,
+                );
+              }
             }
           }
         } catch {
@@ -956,10 +1301,16 @@ export function createCoreRoutesPlugin(
         }
 
         if (pendingError) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "pending_consume_storage_error",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: "pending_consume_storage_error",
+              stage: "callback",
+            },
+          );
           // Best-effort signal to the parent's poll loop, then render the
           // popup-friendly error page so the BroadcastChannel notify fires.
           await putSetting(`builder-connect-error:${ownerEmail}`, {
@@ -968,14 +1319,33 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 503);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(pendingError);
+          return createBuilderBrowserCallbackErrorPage(pendingError, {
+            parentOrigin: callbackParentOrigin,
+          });
         }
 
         if (!pendingValid) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "missing_pending_connect",
-            stage: "callback",
-          });
+          // Diagnostic: log the exact reason pendingValid is false so we can
+          // distinguish "state didn't validate" from "no pending row" in
+          // production "No active connect flow found" reports.
+          console.warn(
+            `[builder-callback] pending-invalid owner=${ownerEmail} has-state-param=${Boolean(requestUrl.searchParams.get(BUILDER_STATE_PARAM))} state-validated=${hasValidCallbackState} pending-error=${pendingError ?? "(none)"}`,
+          );
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: hasValidCallbackState
+                ? "callback_state_unexpectedly_rejected"
+                : "missing_pending_connect",
+              stage: "callback",
+              has_callback_state: Boolean(
+                requestUrl.searchParams.get(BUILDER_STATE_PARAM),
+              ),
+            },
+          );
           const msg =
             "No active connect flow found. Restart the Builder connect flow from Settings.";
           // Write an error signal so the polling loop in the parent tab
@@ -990,17 +1360,25 @@ export function createCoreRoutesPlugin(
           }
           setResponseStatus(event, 403);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: callbackParentOrigin,
+          });
         }
 
         const privateKey = requestUrl.searchParams.get("p-key");
         const publicKey = requestUrl.searchParams.get("api-key");
 
         if (!privateKey || !publicKey) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "missing_credentials",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: "missing_credentials",
+              stage: "callback",
+            },
+          );
           // Render the popup-friendly error page (and write a status row)
           // instead of bare JSON, so the parent tab's poll loop terminates
           // immediately via BroadcastChannel rather than hanging until the
@@ -1013,7 +1391,9 @@ export function createCoreRoutesPlugin(
           }).catch(() => {});
           setResponseStatus(event, 400);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(msg);
+          return createBuilderBrowserCallbackErrorPage(msg, {
+            parentOrigin: callbackParentOrigin,
+          });
         }
 
         const userId = requestUrl.searchParams.get("user-id");
@@ -1070,10 +1450,16 @@ export function createCoreRoutesPlugin(
         }
 
         if (writeError) {
-          trackBuilderLifecycle("builder connect failed", ownerEmail, {
-            reason: "credential_write_failed",
-            stage: "callback",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder connect failed",
+            ownerEmail,
+            {
+              ...builderConnectTrackingProperties(connectTracking),
+              reason: "credential_write_failed",
+              stage: "callback",
+            },
+          );
           // Best-effort signal to /builder/status. If putSetting also fails
           // (entire DB unreachable) the popup's postMessage still notifies
           // the parent. If both fail the parent times out at 5min as today.
@@ -1090,7 +1476,9 @@ export function createCoreRoutesPlugin(
           }
           setResponseStatus(event, 500);
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-          return createBuilderBrowserCallbackErrorPage(writeError);
+          return createBuilderBrowserCallbackErrorPage(writeError, {
+            parentOrigin: callbackParentOrigin,
+          });
         }
 
         // Clear any legacy disconnect flag and any prior connect-error row
@@ -1106,17 +1494,34 @@ export function createCoreRoutesPlugin(
           // No prior error row — fine
         }
 
-        const previewUrl = resolveSafePreviewUrl(
-          requestUrl.searchParams.get("preview-url"),
+        const previewUrl = resolveBuilderCallbackReturnUrl({
           event,
-        );
-        trackBuilderLifecycle("builder connect succeeded", ownerEmail, {
-          stage: "callback",
-          has_preview_url: Boolean(previewUrl),
-          org_kind: orgKind || undefined,
+          openerOrigin: openerOriginFromQuery,
+          previewUrl: requestUrl.searchParams.get("preview-url"),
         });
+        await trackBuilderLifecycle(
+          event,
+          "builder connect succeeded",
+          ownerEmail,
+          {
+            ...builderConnectTrackingProperties(connectTracking),
+            stage: "callback",
+            has_preview_url: Boolean(previewUrl),
+            org_kind: orgKind || undefined,
+          },
+        );
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-        return createBuilderBrowserCallbackPage(previewUrl);
+        // The parent (opener) is the original preview surface that started the
+        // connect flow, NOT the callback server's own origin — when the
+        // env-configured gateway is used as the callback fallback (because
+        // Builder rejects the preview host), the callback server and the
+        // opener live on different origins, and postMessage to the gateway
+        // origin would be dropped by the preview opener. callbackParentOrigin
+        // is the precomputed best-available opener origin (`_an_opener` →
+        // `preview-url` → event origin).
+        return createBuilderBrowserCallbackPage(previewUrl, {
+          parentOrigin: callbackParentOrigin,
+        });
       }),
     );
 
@@ -1160,9 +1565,14 @@ export function createCoreRoutesPlugin(
         try {
           await deleteBuilderCredentials(session.email, { orgId, role });
         } catch (err) {
-          trackBuilderLifecycle("builder disconnect failed", session.email, {
-            reason: "credential_delete_failed",
-          });
+          await trackBuilderLifecycle(
+            event,
+            "builder disconnect failed",
+            session.email,
+            {
+              reason: "credential_delete_failed",
+            },
+          );
           setResponseStatus(event, 500);
           return {
             ok: false,
@@ -1172,7 +1582,11 @@ export function createCoreRoutesPlugin(
           };
         }
 
-        trackBuilderLifecycle("builder disconnect succeeded", session.email);
+        await trackBuilderLifecycle(
+          event,
+          "builder disconnect succeeded",
+          session.email,
+        );
         return { ok: true };
       }),
     );
@@ -1215,7 +1629,7 @@ export function createCoreRoutesPlugin(
               return { error: "userMessage is required" };
             }
             const apiHost =
-              process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+              process.env.BUILDER_API_HOST || "https://api.builder.io";
             try {
               const res = await fetch(
                 `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
@@ -1446,11 +1860,15 @@ export function createCoreRoutesPlugin(
           }
           const stored = (await getSetting("agent-engine")) as {
             engine?: string;
+            model?: string;
           } | null;
           if (isAgentEngineSettingConfigured(stored)) {
+            const engine = (stored as { engine: string }).engine;
+            const entry = getAgentEngineEntry(engine);
             return {
               configured: true,
-              engine: (stored as { engine: string }).engine,
+              engine,
+              model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
               source: "settings" as const,
             };
           }
@@ -1466,6 +1884,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detectedFromUser.name,
+              model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
               source: "app_secrets" as const,
               envVar: detectedFromUser.requiredEnvVars[0],
             };
@@ -1481,6 +1900,7 @@ export function createCoreRoutesPlugin(
               return {
                 configured: true,
                 engine: stored.engine,
+                model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: entry.requiredEnvVars[0],
               };
@@ -1490,6 +1910,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detectedFromUser.name,
+              model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
               source: "app_secrets" as const,
               envVar: detectedFromUser.requiredEnvVars[0],
             };
@@ -1503,6 +1924,7 @@ export function createCoreRoutesPlugin(
             return {
               configured: true,
               engine: detected.name,
+              model: detected.defaultModel ?? DEFAULT_MODEL,
               source: "env" as const,
               envVar: detected.requiredEnvVars[0],
             };
@@ -2107,6 +2529,103 @@ export function createCoreRoutesPlugin(
         return { error: "Method not allowed" };
       }),
     );
+
+    if (!options.disableMcpConnect) {
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-protected-resource",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthProtectedResourceMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-authorization-server",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/openid-configuration",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        `${P}/mcp/oauth`,
+        defineEventHandler(async (event: H3Event) => {
+          const subpath = event.url?.pathname || "";
+          return handleMcpOAuth(event, subpath, {
+            appId: options.mcpConnectAppId,
+            appName: options.mcpConnectAppName ?? getAppName(),
+          });
+        }),
+      );
+
+      // Frictionless external-agent connection. A logged-in user mints a
+      // per-user, scoped, revocable MCP bearer token here — via the browser
+      // Connect page or the OAuth-style device-code flow a CLI drives — so
+      // they never copy a shared deployment secret. The handler resolves the
+      // browser session itself and serves its own login form (like /open)
+      // for the page + unauth device endpoints; the /token, /device/authorize,
+      // /tokens, /tokens/revoke subpaths require a session and 401 without it.
+      // The auth guard bypasses ONLY the page + device/start + device/poll
+      // (see createAuthGuardFn in auth.ts).
+      const mcpConnectOpts = {
+        appId: options.mcpConnectAppId,
+        appName: options.mcpConnectAppName ?? getAppName(),
+      };
+      getH3App(nitroApp).use(
+        `${P}/mcp/connect`,
+        defineEventHandler(async (event: H3Event) => {
+          // The framework strips the mount prefix from event.url.pathname,
+          // so what remains is the subpath after `/connect` (e.g. `/token`,
+          // `/device/start`, or `` for the page itself).
+          const subpath = event.url?.pathname || "";
+          return handleMcpConnect(event, subpath, mcpConnectOpts);
+        }),
+      );
+    }
+
+    // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Mounted
+    // ONLY when `AGENT_NATIVE_IDENTITY_HUB_URL` is set, so an unset env var
+    // means the route is never even registered: zero new surface, existing
+    // auth byte-for-byte unchanged. `/login` 302s to the identity hub;
+    // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
+    // links the verified email into this app's local Better Auth store. The
+    // handler 404s if disabled (defence in depth). The auth guard bypasses
+    // these two exact paths under the same env gate.
+    if (isIdentitySsoEnabled()) {
+      getH3App(nitroApp).use(
+        `${P}/identity`,
+        defineEventHandler(async (event: H3Event) => {
+          // Framework strips the mount prefix; what remains is the subpath
+          // after `/identity` (e.g. `/login`, `/callback`).
+          const subpath = event.url?.pathname || "";
+          return handleIdentitySso(event, subpath);
+        }),
+      );
+    }
+
+    if (!options.disableOpenRoute) {
+      // Stable deep-link route. External agents (MCP/A2A) surface
+      // `/_agent-native/open?app=…&view=…&<recordId>=…` links; this resolves
+      // the browser session, writes the one-shot `navigate` app-state command
+      // the UI already drains, and 302s to the rendered SPA view. The auth
+      // guard bypasses this exact path so it can serve its own login form.
+      getH3App(nitroApp).use(
+        `${P}/open`,
+        createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+      );
+    }
+
+    if (!options.disableEmbedRoute) {
+      // One-time ticket launcher for MCP Apps that embed the full React app.
+      // The ticket is minted by an authenticated MCP tool call and exchanged
+      // here for a short-lived browser session cookie + bearer fallback.
+      getH3App(nitroApp).use(
+        `${P}/embed/start`,
+        createEmbedStartRouteHandler({ getExistingSession: getSession }),
+      );
+    }
 
     if (!options.disableAppState) {
       // Compose draft routes (more specific path, mounted first so the

@@ -60,7 +60,16 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Stripe
   { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
   // HubSpot
-  { key: "HUBSPOT_ACCESS_TOKEN", label: "HubSpot", required: false },
+  {
+    key: "HUBSPOT_PRIVATE_APP_TOKEN",
+    label: "HubSpot private app token",
+    required: false,
+  },
+  {
+    key: "HUBSPOT_ACCESS_TOKEN",
+    label: "HubSpot access token (legacy)",
+    required: false,
+  },
   // Gong
   { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: false },
   { key: "GONG_ACCESS_SECRET", label: "Gong Access Secret", required: false },
@@ -68,7 +77,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
   // GitHub
-  { key: "GITHUB_TOKEN", label: "GitHub", required: false },
+  { key: "GITHUB_TOKEN", label: "GitHub token", required: false },
   // Jira
   { key: "JIRA_BASE_URL", label: "Jira Base URL", required: false },
   { key: "JIRA_USER_EMAIL", label: "Jira Email", required: false },
@@ -80,6 +89,15 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
   { key: "GRAFANA_API_TOKEN", label: "Grafana API Token", required: false },
+  // Prometheus
+  { key: "PROMETHEUS_URL", label: "Prometheus URL", required: false },
+  { key: "PROMETHEUS_USERNAME", label: "Prometheus Username", required: false },
+  { key: "PROMETHEUS_PASSWORD", label: "Prometheus Password", required: false },
+  {
+    key: "PROMETHEUS_BEARER_TOKEN",
+    label: "Prometheus Bearer Token",
+    required: false,
+  },
   // Slack
   { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", required: false },
   {
@@ -232,6 +250,16 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     requiredKeys: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
   },
   {
+    provider: "prometheus",
+    label: "Prometheus",
+    requiredKeys: ["PROMETHEUS_URL"],
+    optionalKeys: [
+      "PROMETHEUS_USERNAME",
+      "PROMETHEUS_PASSWORD",
+      "PROMETHEUS_BEARER_TOKEN",
+    ],
+  },
+  {
     provider: "gcloud",
     label: "Google Cloud",
     requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
@@ -282,16 +310,31 @@ const credentialAliases: Record<string, string[]> = {
   ga4: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   googleanalytics: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
   github: ["GITHUB_TOKEN"],
+  githubcode: ["GITHUB_TOKEN"],
+  repositories: ["GITHUB_TOKEN"],
+  repos: ["GITHUB_TOKEN"],
   gcloud: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
   gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
   grafana: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
-  hubspot: ["HUBSPOT_ACCESS_TOKEN"],
+  hubspot: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
   jira: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
   mixpanel: ["MIXPANEL_PROJECT_ID", "MIXPANEL_SERVICE_ACCOUNT"],
   notion: ["NOTION_API_KEY"],
   postgres: ["POSTGRES_URL"],
   postgresql: ["POSTGRES_URL"],
   posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+  prometheus: [
+    "PROMETHEUS_URL",
+    "PROMETHEUS_USERNAME",
+    "PROMETHEUS_PASSWORD",
+    "PROMETHEUS_BEARER_TOKEN",
+  ],
+  prom: [
+    "PROMETHEUS_URL",
+    "PROMETHEUS_USERNAME",
+    "PROMETHEUS_PASSWORD",
+    "PROMETHEUS_BEARER_TOKEN",
+  ],
   pylon: ["PYLON_API_KEY"],
   sentry: ["SENTRY_AUTH_TOKEN", "SENTRY_ORG_SLUG", "SENTRY_SERVER_TOKEN"],
   slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],

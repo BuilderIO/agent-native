@@ -54,6 +54,56 @@ describe("coding handoff helpers", () => {
     expect(markdown).toContain("```css\nbody { color: red; }\n```");
   });
 
+  it("injects resolved tweak tokens into the :root and a tokens block", () => {
+    const payload = buildDesignHandoffPayload({
+      exportedAt: "2026-05-06T12:00:00.000Z",
+      design: {
+        id: "design_123",
+        title: "Tuned Page",
+        projectType: "prototype",
+        data: JSON.stringify({ lastPrompt: "Make it" }),
+      },
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            "<head><style>:root { --color-accent: #0EA5E9; }</style></head><main>Hi</main>",
+        },
+      ],
+      resolvedCssVars: { "--color-accent": "#F97316", "--radius": "16px" },
+    });
+
+    const idx = payload.files[0].content;
+    // Original :root gets the override declarations appended before its `}`.
+    expect(idx).toContain(
+      "--color-accent: #F97316; /* applied-design-tokens */",
+    );
+    expect(idx).toContain("--radius: 16px; /* applied-design-tokens */");
+    expect(payload.appliedDesignTokens).toEqual({
+      "--color-accent": "#F97316",
+      "--radius": "16px",
+    });
+
+    const markdown = buildDesignHandoffMarkdown(payload);
+    expect(markdown).toContain("## Applied Design Tokens");
+    expect(markdown).toContain("--color-accent: #F97316;");
+  });
+
+  it("leaves files untouched when no resolved tokens are passed", () => {
+    const payload = buildDesignHandoffPayload({
+      design: { id: "d", title: "Plain", projectType: "prototype" },
+      files: [
+        { filename: "index.html", fileType: "html", content: "<main>x</main>" },
+      ],
+    });
+    expect(payload.files[0].content).toBe("<main>x</main>");
+    expect(payload.appliedDesignTokens).toBeUndefined();
+    expect(buildDesignHandoffMarkdown(payload)).not.toContain(
+      "## Applied Design Tokens",
+    );
+  });
+
   it("copies the raw URL into the coding prompt", () => {
     const prompt = buildCodingHandoffPrompt({
       rawUrl:

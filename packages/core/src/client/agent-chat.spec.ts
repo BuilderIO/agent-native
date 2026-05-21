@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
@@ -26,10 +26,17 @@ const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
 describe("sendToAgentChat", () => {
   beforeEach(() => {
     frameState.inBuilderFrame = false;
+    (window as unknown as { parent: unknown }).parent = {
+      postMessage: parentPostMessageSpy,
+    };
     parentPostMessageSpy.mockClear();
     selfPostMessageSpy.mockClear();
     dispatchEventSpy.mockClear();
     sendToBuilderChatMock.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns a non-empty tabId string", () => {
@@ -47,6 +54,31 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("hello");
   });
 
+  it("opens the local sidebar before posting to a top-level chat listener", () => {
+    vi.useFakeTimers();
+    (window as unknown as { parent: unknown }).parent = window;
+
+    const tabId = sendToAgentChat({
+      message: "fix the layout overflow",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = selfPostMessageSpy.mock.calls[0][0];
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("fix the layout overflow");
+  });
+
   it("reuses the provided tabId instead of generating a new one", () => {
     const tabId = sendToAgentChat({ message: "hi", tabId: "my-custom-id" });
     expect(tabId).toBe("my-custom-id");
@@ -55,6 +87,7 @@ describe("sendToAgentChat", () => {
   });
 
   it("keeps content prompts inside the embedded app when mounted in Builder", () => {
+    vi.useFakeTimers();
     frameState.inBuilderFrame = true;
 
     const tabId = sendToAgentChat({
@@ -64,6 +97,10 @@ describe("sendToAgentChat", () => {
 
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
     expect(selfPostMessageSpy).toHaveBeenCalledOnce();
     const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
     expect(targetOrigin).toBe("http://localhost:3000");
@@ -89,6 +126,30 @@ describe("sendToAgentChat", () => {
       context: "code context",
       submit: true,
     });
+  });
+
+  it("prepares the local sidebar for silent background sends without opening it", () => {
+    sendToAgentChat({
+      message: "refresh quietly",
+      submit: true,
+      openSidebar: false,
+    });
+
+    const eventTypes = dispatchEventSpy.mock.calls.map(([event]) => event.type);
+    expect(eventTypes).toContain("agent-panel:prepare");
+    expect(eventTypes).not.toContain("agent-panel:open");
+  });
+
+  it("prepares the local sidebar for background tabs without opening it", () => {
+    sendToAgentChat({
+      message: "run in the background",
+      submit: true,
+      background: true,
+    });
+
+    const eventTypes = dispatchEventSpy.mock.calls.map(([event]) => event.type);
+    expect(eventTypes).toContain("agent-panel:prepare");
+    expect(eventTypes).not.toContain("agent-panel:open");
   });
 
   it("generates distinct tabIds across calls", () => {

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -6,9 +6,60 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { getUserSetting } from "@agent-native/core/settings";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { appendSignatureToBody } from "../shared/signature.js";
+
+/**
+ * Cap for the base64url `compose=` query param. A full draft (recipients +
+ * subject + entire body) base64-encoded can be many KB, and browsers / inline
+ * webviews silently truncate or reject very long URLs. When the self-contained
+ * payload would exceed this, we fall back to an id-only deep link: the draft
+ * is already persisted as a `compose-{id}` app-state entry by this action, so
+ * the compose panel resurfaces it from the persisted row for the creator. The
+ * threshold is conservative (well under the ~8KB practical URL ceiling, with
+ * headroom for the rest of the query string and host prefix).
+ */
+const MAX_COMPOSE_PAYLOAD_BYTES = 1536;
+const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
+
+/** Base64url-encode a compose draft so `/_agent-native/open?compose=…`
+ *  decodes it back into a `compose-{id}` app-state entry the compose panel
+ *  auto-opens. */
+function encodeComposeDraft(draft: Record<string, string>): string {
+  return Buffer.from(JSON.stringify(draft)).toString("base64url");
+}
+
+/**
+ * Build the compact `compose=` payload. Prefer the full self-contained draft
+ * (so a small draft opens instantly with content even before app-state polls),
+ * but if encoding the whole draft would blow the URL size budget, fall back to
+ * an id-only payload. `manage-draft` always persists the full draft to the
+ * `compose-{id}` app-state key, so the compose panel still resurfaces the
+ * complete draft by id for the creator — the URL just stays short.
+ */
+function encodeComposePayload(draft: Record<string, string>): string {
+  const full = encodeComposeDraft(draft);
+  if (Buffer.byteLength(full, "utf8") <= MAX_COMPOSE_PAYLOAD_BYTES) {
+    return full;
+  }
+  // Keep the id (required to resurface the persisted draft) plus a tiny
+  // subject hint so the link is still self-describing; drop the heavy body.
+  const compact: Record<string, string> = { id: draft.id };
+  if (draft.subject) compact.subject = draft.subject.slice(0, 120);
+  return encodeComposeDraft(compact);
+}
+
+/** Deep link that reopens a compose draft in the Mail compose panel. */
+function composeDeepLink(draft: Record<string, string>): string {
+  return buildDeepLink({
+    app: "mail",
+    view: "inbox",
+    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
+    compose: encodeComposePayload(draft),
+    params: { composeDraftId: draft.id },
+  });
+}
 
 /** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
@@ -58,6 +109,17 @@ export default defineAction({
       .optional()
       .describe("The 'from' account email address to send from"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Review email draft",
+      description:
+        "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
+  },
   run: async (args) => {
     const action = args.action;
     if (!action)
@@ -95,7 +157,12 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       if (args.accountEmail) draft.accountEmail = args.accountEmail;
       await writeAppState(`compose-${id}`, draft);
-      return `Created draft ${id}`;
+      return {
+        id,
+        draft,
+        deepLink: composeDeepLink(draft),
+        message: `Created draft ${id}`,
+      };
     }
 
     if (action === "update") {
@@ -118,9 +185,25 @@ export default defineAction({
         if (args[key] !== undefined) (draft as any)[key] = args[key];
       }
       await writeAppState(`compose-${safeId}`, draft);
-      return `Updated draft ${safeId}`;
+      return {
+        id: safeId,
+        draft,
+        deepLink: composeDeepLink(draft as Record<string, string>),
+        message: `Updated draft ${safeId}`,
+      };
     }
 
     return `Error: Unknown action "${action}". Valid: create, update, delete, delete-all`;
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const draft = (result as { draft?: Record<string, string> }).draft;
+    const id = (result as { id?: string }).id;
+    if (!draft || !id) return null;
+    return {
+      url: composeDeepLink(draft),
+      label: "Open draft in Mail",
+      view: "inbox",
+    };
   },
 });

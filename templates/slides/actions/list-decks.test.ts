@@ -7,6 +7,7 @@ const deckRows = [
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
     visibility: "private",
     designSystemId: null,
+    ownerEmail: "alice@example.com",
     createdAt: "2026-05-03T00:00:00.000Z",
     updatedAt: "2026-05-03T00:00:00.000Z",
   },
@@ -21,9 +22,13 @@ const mockDb = { select: selectFn };
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: {
-    decks: { updatedAt: "updated_at_col" },
+    decks: { ownerEmail: "owner_email_col", updatedAt: "updated_at_col" },
     deckShares: {},
   },
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "alice@example.com",
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -31,7 +36,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...values: unknown[]) => ({ and: values }),
   desc: (value: unknown) => ({ desc: value }),
+  eq: (column: unknown, value: unknown) => ({ column, value }),
 }));
 
 import action from "./list-decks";
@@ -59,6 +66,17 @@ describe("list-decks", () => {
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
       url: "https://slides.agent.test/deck/deck_123",
+    });
+  });
+
+  it("can limit results to decks created by the current user", async () => {
+    await action.run({ createdBy: "me" });
+
+    expect(whereFn).toHaveBeenCalledWith({
+      and: [
+        { allowed: true },
+        { column: "owner_email_col", value: "alice@example.com" },
+      ],
     });
   });
 });

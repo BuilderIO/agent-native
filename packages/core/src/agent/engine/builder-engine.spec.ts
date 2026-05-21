@@ -12,6 +12,7 @@ const credentialState = vi.hoisted(() => ({
   builderPublicKey: "space-test" as string | null,
   builderUserId: "builder-user-123" as string | null,
   builderOrgName: null as string | null,
+  recordBuilderCredentialAuthFailure: vi.fn(async () => {}),
 }));
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
@@ -28,10 +29,19 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
       return null;
     }),
+    resolveBuilderCredentials: vi.fn(async () => ({
+      privateKey: credentialState.builderPrivateKey,
+      publicKey: credentialState.builderPublicKey,
+      userId: credentialState.builderUserId,
+      orgName: credentialState.builderOrgName,
+      orgKind: null,
+    })),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
     }),
+    recordBuilderCredentialAuthFailure:
+      credentialState.recordBuilderCredentialAuthFailure,
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
   };
 });
@@ -78,6 +88,7 @@ describe("createBuilderEngine", () => {
     credentialState.builderPublicKey = "space-test";
     credentialState.builderUserId = "builder-user-123";
     credentialState.builderOrgName = null;
+    credentialState.recordBuilderCredentialAuthFailure.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -115,10 +126,16 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
-  it("short-circuits with missing-credentials when resolveBuilderAuthHeader returns null", async () => {
-    const { resolveBuilderAuthHeader } =
+  it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
+    const { resolveBuilderCredentials } =
       await import("../../server/credential-provider.js");
-    vi.mocked(resolveBuilderAuthHeader).mockResolvedValueOnce(null);
+    vi.mocked(resolveBuilderCredentials).mockResolvedValueOnce({
+      privateKey: null,
+      publicKey: "space-test",
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
 
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -170,13 +187,34 @@ describe("createBuilderEngine", () => {
     expect(init.headers["Content-Type"]).toBe("application/json");
     expect(init.headers["x-builder-api-key"]).toBe("space-test");
     expect(init.headers["x-builder-user-id"]).toBe("builder-user-123");
+    expect(init.headers["x-client-name"]).toBe("@agent-native/core");
+    expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
+    expect(body.max_tokens).toBe(32768);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
+  });
+
+  it("honors an explicit max output token override", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, maxOutputTokens: 1024 }));
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.max_tokens).toBe(1024);
   });
 
   it("streams text-delta events and emits assistant-content + stop(end_turn)", async () => {
@@ -374,6 +412,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 401,
+      code: "unauthorized",
+      message: "Invalid key",
+    });
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {
@@ -393,6 +438,13 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
     expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid token",
+    });
   });
 
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
@@ -459,6 +511,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("too_many_concurrent_requests");
     // Must contain "too many requests" so production-agent's isRetryableError triggers.
     expect(stop?.error?.toLowerCase()).toContain("too many requests");
+  });
+
+  it("maps daily gateway caps to a non-retryable error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(429, {
+          code: "rate_limit_exceeded",
+          message:
+            "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("rate_limit_exceeded");
+    expect(stop?.error).toBe(
+      "Daily gateway request cap reached (cap: 5000). Please try again tomorrow.",
+    );
   });
 
   it("aborts hung gateway requests before the host function timeout", async () => {
@@ -575,6 +650,36 @@ describe("createBuilderEngine", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("rate_limited");
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
+  });
+
+  it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_bad_history",
+            error:
+              "messages.87: `tool_use` ids were found without `tool_result` blocks immediately after: history_tc_80.",
+            errorCode: "tool_message_shape_invalid",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("tool_message_shape_invalid");
+    expect(stop?.error).toContain("history_tc_80");
+    // No retry-trigger keywords (see production-agent's isRetryableError).
+    expect(stop?.error?.toLowerCase()).not.toMatch(
+      /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
+    );
   });
 
   it("marks no-detail gateway stop errors as retryable gateway errors", async () => {

@@ -9,6 +9,7 @@ const DEFAULT_A2A_CALLER_TOKEN_TTL = "30m";
 export interface A2ACallerAuth {
   apiKey?: string;
   userEmail?: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   metadata: Record<string, unknown>;
@@ -51,7 +52,7 @@ export async function resolveA2ACallerAuth(options?: {
     await attachGoogleTokenMetadata(metadata, userEmail);
   }
 
-  return { apiKey, userEmail, orgDomain, orgSecret, metadata };
+  return { apiKey, userEmail, orgId, orgDomain, orgSecret, metadata };
 }
 
 async function attachGoogleTokenMetadata(

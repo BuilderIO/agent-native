@@ -2,7 +2,7 @@
 
 This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
 
-This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with polling for real-time sync. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` (auto-covered) or fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys. See the `real-time-sync` and `adding-a-feature` skills.
+This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with SSE for in-process live sync and polling as the cross-process/serverless fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 
 ## Resources
 
@@ -30,20 +30,38 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 | State Key    | Purpose                                   | Direction                  |
 | ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view (`home` or `new-app`)        | UI -> Agent (read-only)    |
+| `navigation` | Current view (`home`, `extensions`, etc.) | UI -> Agent (read-only)    |
 | `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
 
-## Workspace App Creation
+## Starter Customization
 
-The `/new-app` route lets the user prompt a new workspace app and choose which Dispatch vault keys it should receive. When loaded inside Builder, code prompts are delegated to Builder chat; in local dev, they go to the agent-native code agent. In production, app creation is only enabled when Builder branching is explicitly configured.
+This app is a blank scaffold for the app the user actually wants. When the user
+asks to build, make, create, or customize this app from the starter, edit this
+app in place and make it feel like their app:
 
-When the user asks to create, build, make, scaffold, or generate a new app from this flow, create a separate workspace app. If they ask for an "agent", classify the ask first: simple reminders, digests, monitors, routing rules, saved instructions, or recurring workflows can stay in Dispatch; robust unique products or teammates with their own UI, data model, actions, integrations, or domain workflow should become a separate workspace app. Keep new apps under `apps/<app-id>`, mount them at `/<app-id>`, use the shared workspace database/hosting model, and namespace any new domain tables so apps do not collide.
+- Replace generic home, navigation, page titles, package metadata, manifest
+  text, and any starter-only copy with the requested product's real name and
+  workflow.
+- Do not leave visible `Starter`, `Blank app`, or app-creation affordances in a
+  finished starter-derived app.
+- Keep extension creation inside this app for one-off widgets or panels, but do
+  not expose a `New app` route/button from this app.
 
-Do not satisfy a new-app request by adding a route, page, component, or file inside this starter app. Only edit `apps/starter` when the user explicitly asks to change the starter app itself.
+If the user explicitly asks for a separate workspace app instead of customizing
+this app, create it from Dispatch or the workspace root. Keep separate workspace
+apps under `apps/<app-id>`, mount them at `/<app-id>`, use the shared workspace
+database/hosting model, and namespace any new domain tables so apps do not
+collide. Save a concise generated description in `apps/<app-id>/package.json`
+so Dispatch and A2A connected-agent context can describe what the app does.
 
 ## Mounted Workspace Routing
 
-This app is mounted at `/starter` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/new-app">` and `navigate("/new-app")`, not `/starter/new-app`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/starter/starter/new-app`.
+This app may be mounted at a workspace path such as `/starter` or the generated
+app id. Inside app source, React Router paths are app-local: use
+`<Link to="/review">` and `navigate("/review")`, not
+`/<app-id>/review`. The workspace gateway and `APP_BASE_PATH` add the mounted
+prefix in the browser; hardcoding it inside React Router links causes doubled
+URLs such as `/<app-id>/<app-id>/review`.
 
 For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for `/api/*`, and `agentNativePath()` for `/_agent-native/*`.
 
@@ -81,6 +99,7 @@ cd templates/starter && pnpm action <name> [args]
 | `actions`             | Before creating or modifying actions                                              |
 | `self-modifying-code` | Before editing source, components, or styles                                      |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
 
 ## When Adding Features
 
@@ -89,7 +108,7 @@ cd templates/starter && pnpm action <name> [args]
 1. **Add navigation state entries** — extend `use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** — make the view-screen action return relevant context for the new view
 3. **Create domain actions** — add actions for CRUD operations on new data models
-4. **Wire UI for auto-refresh** — use `useActionQuery` (auto-covered) OR fold `useChangeVersions([<source>, "action"])` into raw `useQuery` keys with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
+4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
 5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
 6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks
 

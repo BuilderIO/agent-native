@@ -26,7 +26,9 @@ export async function getPostgresClient(): Promise<any> {
   if (cached) return cached;
   {
     try {
-      // @ts-expect-error -- postgres is an optional dependency, installed by user
+      // @ts-ignore -- postgres is an optional dependency, installed by user;
+      // its types may or may not resolve depending on the install, so this
+      // suppression must not itself error when the module does resolve.
       const pg = await import("postgres");
       const postgres = pg.default;
       const client = postgres(url, {

@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
+import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +67,7 @@ export function Layout({ children }: LayoutProps) {
               <span className="text-base font-bold tracking-tight">Images</span>
             </div>
             {!hideHeader && <Header />}
+            <InvitationBanner />
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
         </div>

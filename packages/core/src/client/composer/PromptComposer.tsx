@@ -4,11 +4,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
+  type ReactNode,
 } from "react";
 import {
   AssistantRuntimeProvider,
-  ComposerPrimitive,
   ThreadPrimitive,
   useAui,
   useComposer,
@@ -27,9 +28,21 @@ import {
 } from "@assistant-ui/react";
 import { IconX } from "@tabler/icons-react";
 import { cn } from "../utils.js";
-import { TiptapComposer, type TiptapComposerHandle } from "./TiptapComposer.js";
-import type { Reference } from "./types.js";
-import { useChatModels } from "../use-chat-models.js";
+import { AgentComposerFrame } from "./AgentComposerFrame.js";
+import {
+  TiptapComposer,
+  type ComposerSubmitIntent,
+  type TiptapComposerHandle,
+  type TiptapComposerSubmitOptions,
+} from "./TiptapComposer.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+  SkillResult,
+  SlashCommand,
+} from "./types.js";
+import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
+import { TooltipProvider } from "../components/ui/tooltip.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
@@ -48,6 +61,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  intent?: ComposerSubmitIntent;
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
@@ -65,6 +79,9 @@ export interface PromptComposerProps {
   disabled?: boolean;
   autoFocus?: boolean;
   className?: string;
+  style?: CSSProperties;
+  rootClassName?: string;
+  rootStyle?: CSSProperties;
   /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
   /** Keep the submitted prompt in the editor. Default: false. */
@@ -75,8 +92,55 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /**
+   * Controls the shared "+" affordance. Defaults to upload-only for standalone
+   * prompt forms; chat surfaces can opt into the full sidebar menu.
+   */
+  plusMenuMode?: "full" | "upload-only" | "hidden";
+  /** Programmatically seed the composer with plain text. */
+  initialText?: string;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
+  initialTextKey?: string | number;
+  /** Optional host-owned control rendered directly after the "+" button. */
+  modeControl?: ReactNode;
+  /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
+  toolbarSlot?: ReactNode;
+  /** Custom action button to render instead of the default send button. */
+  actionButton?: ReactNode;
+  /** Extra button rendered alongside the default send button. */
+  extraActionButton?: ReactNode;
+  /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
+  layoutVariant?: AgentComposerLayoutVariant;
+  /** Additional slash commands surfaced in the shared / menu. */
+  slashCommands?: SlashCommand[];
+  /** Additional slash skills surfaced in the shared / menu. */
+  slashSkills?: SkillResult[];
+  /** Include built-in sidebar slash commands like /clear and /help. Default true. */
+  includeDefaultSlashCommands?: boolean;
+  /** Include app-discovered skills from the default agent endpoint. Default true. */
+  includeDefaultSlashSkills?: boolean;
+  /** Called when a slash command from the shared / menu is executed. */
+  onSlashCommand?: (command: string) => void;
+  /** External model list for hosts that already resolve models outside the app. */
+  availableModels?: EngineModelGroup[];
+  selectedModel?: string;
+  selectedEngine?: string;
+  selectedEffort?: ReasoningEffort;
+  onModelChange?: (model: string, engine: string) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void;
+  /**
+   * Enable server-backed model/provider status checks. Defaults off when the
+   * host supplies model state and callbacks, otherwise on.
+   */
+  modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /**
+   * Override the Builder.io connect action in the model picker. When provided,
+   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * Used by the Electron desktop app to route through the native IPC handler.
+   */
+  onConnectProvider?: () => void;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
@@ -304,7 +368,7 @@ function AttachmentChip({
           type="button"
           onClick={() => setPreviewOpen(true)}
           aria-label={`Preview ${attachment.name}`}
-          className="group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+          className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
         >
           <img
             src={src}
@@ -343,7 +407,7 @@ function AttachmentChip({
   }
 
   return (
-    <div className="group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
+    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background text-[9px] font-semibold uppercase text-muted-foreground">
         {attachment.name.split(".").pop() || "file"}
       </div>
@@ -373,7 +437,7 @@ function PromptAttachmentStrip() {
 
   if (attachments.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-2 pt-2">
+    <div className="agent-composer-attachment-strip flex flex-wrap gap-2 px-2 pt-2">
       {attachments.map((attachment) => (
         <AttachmentChip
           key={attachment.id}
@@ -391,17 +455,66 @@ function PromptComposerInner({
   disabled,
   autoFocus,
   className,
+  style,
+  rootClassName,
+  rootStyle,
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
   voiceEnabled = true,
   attachmentsEnabled = true,
+  plusMenuMode,
+  initialText,
+  initialTextKey,
+  modeControl,
+  toolbarSlot,
+  actionButton,
+  extraActionButton,
+  layoutVariant,
+  slashCommands,
+  slashSkills,
+  includeDefaultSlashCommands,
+  includeDefaultSlashSkills,
+  onSlashCommand,
+  availableModels,
+  selectedModel,
+  selectedEngine,
+  selectedEffort,
+  onModelChange,
+  onEffortChange,
+  modelStatusChecksEnabled,
   onTextChange,
+  onConnectProvider,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
-  const models = useChatModels();
+  const hostManagedModels = Boolean(
+    availableModels && selectedModel && onModelChange,
+  );
+  const resolvedModelStatusChecksEnabled =
+    modelStatusChecksEnabled ?? !hostManagedModels;
+  const models = useChatModels({
+    enabled: showModelSelector && resolvedModelStatusChecksEnabled,
+  });
+  const composerModel = showModelSelector
+    ? (selectedModel ?? models.selectedModel)
+    : undefined;
+  const composerEngine = showModelSelector
+    ? (selectedEngine ?? models.selectedEngine)
+    : undefined;
+  const composerEffort = showModelSelector
+    ? (selectedEffort ?? models.selectedEffort)
+    : undefined;
+  const composerModelGroups = showModelSelector
+    ? (availableModels ?? models.availableModels)
+    : undefined;
+  const handleModelChange = showModelSelector
+    ? (onModelChange ?? models.onModelChange)
+    : undefined;
+  const handleEffortChange = showModelSelector
+    ? (onEffortChange ?? models.onEffortChange)
+    : undefined;
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -420,6 +533,7 @@ function PromptComposerInner({
       text: string,
       references: Reference[],
       attachments?: ReadonlyArray<unknown>,
+      submitOptions?: TiptapComposerSubmitOptions,
     ) => {
       // PromptComposer hosts (NewWorkspaceAppFlow, create-extension, create-deck,
       // …) submit a single string prompt — they don't run the assistant-ui
@@ -432,49 +546,57 @@ function PromptComposerInner({
         attachments,
       });
       onSubmit(finalText, files, references, {
-        model: showModelSelector ? models.selectedModel : undefined,
-        engine: showModelSelector ? models.selectedEngine : undefined,
-        effort: showModelSelector ? models.selectedEffort : undefined,
+        intent: submitOptions?.intent ?? "immediate",
+        model: composerModel,
+        engine: composerEngine,
+        effort: composerEffort,
       });
     },
-    [
-      models.selectedEffort,
-      models.selectedEngine,
-      models.selectedModel,
-      onSubmit,
-      showModelSelector,
-    ],
+    [composerEffort, composerEngine, composerModel, onSubmit],
   );
 
   return (
-    <div
-      className={cn(
-        "agent-composer-area flex flex-col rounded-lg border border-input bg-background text-left focus-within:ring-1 focus-within:ring-ring",
-        className,
-      )}
+    <AgentComposerFrame
+      className={cn("text-left", className)}
+      rootClassName={rootClassName}
+      style={style}
+      rootStyle={rootStyle}
+      layoutVariant={layoutVariant}
     >
-      <ComposerPrimitive.Root className="flex flex-col">
-        <PromptAttachmentStrip />
-        <TiptapComposer
-          focusRef={handleRef}
-          disabled={disabled}
-          placeholder={placeholder}
-          onSubmit={handleSubmit}
-          clearOnSubmit={!preserveDraftOnSubmit}
-          plusMenuMode={attachmentsEnabled ? "upload-only" : "hidden"}
-          voiceEnabled={voiceEnabled}
-          onTextChange={onTextChange}
-          draftScope={draftScope}
-          selectedModel={showModelSelector ? models.selectedModel : undefined}
-          selectedEffort={showModelSelector ? models.selectedEffort : undefined}
-          availableModels={
-            showModelSelector ? models.availableModels : undefined
-          }
-          onModelChange={showModelSelector ? models.onModelChange : undefined}
-          onEffortChange={showModelSelector ? models.onEffortChange : undefined}
-        />
-      </ComposerPrimitive.Root>
-    </div>
+      <PromptAttachmentStrip />
+      <TiptapComposer
+        focusRef={handleRef}
+        disabled={disabled}
+        placeholder={placeholder}
+        initialText={initialText}
+        initialTextKey={initialTextKey}
+        onSubmit={handleSubmit}
+        clearOnSubmit={!preserveDraftOnSubmit}
+        plusMenuMode={
+          plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+        }
+        modeControl={modeControl}
+        toolbarSlot={toolbarSlot}
+        actionButton={actionButton}
+        extraActionButton={extraActionButton}
+        layoutVariant={layoutVariant}
+        slashCommands={slashCommands}
+        slashSkills={slashSkills}
+        includeDefaultSlashCommands={includeDefaultSlashCommands}
+        includeDefaultSlashSkills={includeDefaultSlashSkills}
+        onSlashCommand={onSlashCommand}
+        voiceEnabled={voiceEnabled}
+        onTextChange={onTextChange}
+        draftScope={draftScope}
+        selectedModel={composerModel}
+        selectedEffort={composerEffort}
+        availableModels={composerModelGroups}
+        onModelChange={handleModelChange}
+        onEffortChange={handleEffortChange}
+        providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+        onConnectProvider={onConnectProvider}
+      />
+    </AgentComposerFrame>
   );
 }
 
@@ -504,10 +626,15 @@ export function PromptComposer(props: PromptComposerProps) {
   });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="contents">
-        <PromptComposerInner {...props} />
-      </ThreadPrimitive.Root>
-    </AssistantRuntimeProvider>
+    <TooltipProvider delayDuration={200}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ThreadPrimitive.Root
+          className="contents"
+          style={{ display: "contents" }}
+        >
+          <PromptComposerInner {...props} />
+        </ThreadPrimitive.Root>
+      </AssistantRuntimeProvider>
+    </TooltipProvider>
   );
 }

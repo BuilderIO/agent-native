@@ -633,11 +633,15 @@ export default function RecordRoute() {
   const { isDesktopApp } = useDesktopPromo();
   const storageQuery = useVideoStorageStatus();
 
-  // When the user clicks "Record for this space", the empty-state CTA appends
-  // ?spaceId=... so the new recording lands in that space.
+  // When the user clicks "Record for this space/folder", the empty-state CTA
+  // appends ?spaceId or ?folderId so the new recording lands there.
   const spaceIdFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("spaceId") || null;
+  }, [location.search]);
+  const folderIdFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("folderId") || null;
   }, [location.search]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
@@ -667,6 +671,7 @@ export default function RecordRoute() {
   );
 
   const liveTranscription = useLiveTranscription();
+  const stopLiveTranscription = liveTranscription.stop;
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -866,7 +871,11 @@ export default function RecordRoute() {
         });
 
         const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
-        if (wantsMic && liveTranscription.supported) {
+        // Web Speech does not let us pin a microphone device. If the user
+        // chose a specific mic, do not start a parallel system-default mic
+        // session for instant transcription; the recorded audio still uses
+        // the exact selected device and can be transcribed after upload.
+        if (wantsMic && !opts.micDeviceId && liveTranscription.supported) {
           liveTranscription.start();
         }
 
@@ -898,6 +907,7 @@ export default function RecordRoute() {
               hasAudio: wantsMic,
               visibility: "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+              folderId: folderIdFromUrl ?? undefined,
             }),
           },
         );
@@ -1165,6 +1175,7 @@ export default function RecordRoute() {
               width: meta.width,
               height: meta.height,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+              folderId: folderIdFromUrl ?? undefined,
             }),
           },
         );
@@ -1313,7 +1324,7 @@ export default function RecordRoute() {
       setUiState("error");
       showRecordingErrorToast(message);
     }
-  }, [liveTranscription, showRecordingErrorToast]);
+  }, [showRecordingErrorToast]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
@@ -1597,6 +1608,34 @@ export default function RecordRoute() {
   // effect loses Chrome's transient user activation and looks like a fake
   // permission failure even when Camera and Microphone are already allowed.
 
+  useEffect(() => {
+    let released = false;
+    const releaseCapture = () => {
+      if (released) return;
+      released = true;
+      startSessionRef.current += 1;
+      if (fileUploadAbortRef.current) {
+        fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
+        fileUploadAbortRef.current = null;
+      }
+      stopLiveTranscription();
+      const engine = engineRef.current;
+      engineRef.current = null;
+      pendingRef.current = null;
+      setCameraStream(null);
+      setPreviewStream(null);
+      void engine?.cancel();
+    };
+
+    window.addEventListener("pagehide", releaseCapture);
+    window.addEventListener("beforeunload", releaseCapture);
+    return () => {
+      window.removeEventListener("pagehide", releaseCapture);
+      window.removeEventListener("beforeunload", releaseCapture);
+      releaseCapture();
+    };
+  }, [stopLiveTranscription]);
+
   // -------------------------------------------------------------------------
   // Render.
   // -------------------------------------------------------------------------
@@ -1705,16 +1744,19 @@ export default function RecordRoute() {
       )}
 
       {/* Preview (camera-only mode renders camera full-screen; screen modes
-          rely on the browser's "currently sharing" native pill). */}
-      {recordingMode === "camera" && showRecordingUi && (
-        <video
-          ref={previewVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="fixed inset-0 h-full w-full object-cover [transform:scaleX(-1)]"
-        />
-      )}
+          rely on the browser's "currently sharing" native pill). Also visible
+          during the countdown so users can frame themselves before recording
+          begins. */}
+      {recordingMode === "camera" &&
+        (showRecordingUi || uiState === "countdown") && (
+          <video
+            ref={previewVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="fixed inset-0 h-full w-full object-cover [transform:scaleX(-1)]"
+          />
+        )}
 
       {recordingMode !== "camera" && showRecordingUi && (
         <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-[#1a1a2e] via-[#16213e] to-[#0f0f1a] opacity-95">
@@ -1734,16 +1776,16 @@ export default function RecordRoute() {
         </div>
       )}
 
-      {/* Camera bubble — only visible while actively recording. During
-          uploading/compressing the overlay is semi-transparent (bg-black/70),
-          so a still-visible bubble in the corner makes it look like recording
-          is ongoing. */}
+      {/* Camera bubble — visible during countdown (so the user can frame
+          themselves) and while actively recording. Hidden during
+          uploading/compressing so the save overlay isn't confused with an
+          ongoing recording. */}
       {showCameraBubble && (
         <CameraBubble
           stream={cameraStream}
           size={cameraSize}
           onSizeChange={setCameraSize}
-          hidden={uiState !== "recording"}
+          hidden={uiState !== "recording" && uiState !== "countdown"}
         />
       )}
 

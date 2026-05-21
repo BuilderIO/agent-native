@@ -6,6 +6,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
+  appId: "videos",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
 });

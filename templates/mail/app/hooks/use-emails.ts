@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   useQuery,
   useInfiniteQuery,
@@ -593,23 +593,21 @@ export function useMarkThreadRead() {
   const qc = useQueryClient();
   // Per-thread pending entries — using a Map so concurrent mutations for different
   // threads don't overwrite each other's pending entries.
-  const pendingByThread = new Map<
-    string,
-    { id: string; accountEmail?: string }[]
-  >();
+  const pendingByThread = useRef(
+    new Map<string, { id: string; accountEmail?: string }[]>(),
+  );
   return useMutation({
     mutationFn: async (threadId: string) => {
-      const entries = pendingByThread.get(threadId) ?? [];
-      pendingByThread.delete(threadId);
+      const entries = pendingByThread.current.get(threadId) ?? [];
+      pendingByThread.current.delete(threadId);
       if (entries.length > 0) {
-        await Promise.all(
-          entries.map(({ id, accountEmail }) =>
-            apiFetch(`/api/emails/${id}/read`, {
-              method: "PATCH",
-              body: JSON.stringify({ isRead: true, accountEmail }),
-            }),
-          ),
-        );
+        await apiFetch(`/api/threads/${threadId}/read`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            isRead: true,
+            accountEmail: entries[0]?.accountEmail,
+          }),
+        });
       }
     },
     onMutate: async (threadId) => {
@@ -623,7 +621,7 @@ export function useMarkThreadRead() {
       const unreadEntries = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
-      pendingByThread.set(threadId, unreadEntries);
+      pendingByThread.current.set(threadId, unreadEntries);
       const unreadIds = unreadEntries.map((e) => e.id);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
@@ -712,14 +710,16 @@ export function useArchiveEmail() {
       id,
       accountEmail,
       removeLabel,
+      threadId,
     }: {
       id: string;
       accountEmail?: string;
       removeLabel?: string;
+      threadId?: string;
     }) =>
       apiFetch(`/api/emails/${id}/archive`, {
         method: "PATCH",
-        body: JSON.stringify({ accountEmail, removeLabel }),
+        body: JSON.stringify({ accountEmail, removeLabel, threadId }),
       }),
     onMutate: async ({
       id,
@@ -727,6 +727,7 @@ export function useArchiveEmail() {
       id: string;
       accountEmail?: string;
       removeLabel?: string;
+      threadId?: string;
     }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<InfiniteEmails>({

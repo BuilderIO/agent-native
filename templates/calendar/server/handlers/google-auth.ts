@@ -1,7 +1,6 @@
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -30,6 +29,16 @@ import {
 import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";
+
+function oauthRedirectResponse(url: string) {
+  // h3 v2 sendRedirect returns an object the framework shim can stringify as
+  // "[object Object]" in production auth-url popups. Native Response stays a
+  // real 302 across the stack.
+  return new Response(null, {
+    status: 302,
+    headers: { Location: url },
+  });
+}
 
 function googleOAuthErrorPayload(
   error: any,
@@ -119,7 +128,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     });
     const url = getAuthUrl(undefined, redirectUri, state);
     if (q.redirect === "1") {
-      return sendRedirect(event, url, 302);
+      return oauthRedirectResponse(url);
     }
     return { url };
   } catch (error: any) {
@@ -245,7 +254,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       });
       const url = getAuthUrl(undefined, redirectUri, state);
       if (q.redirect === "1") {
-        return sendRedirect(event, url, 302);
+        return oauthRedirectResponse(url);
       }
       return { url };
     } catch (error: any) {

@@ -8,15 +8,34 @@ import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 import * as Sentry from "@sentry/node";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  DEFAULT_WORKSPACE_APP_AUDIENCE,
+  workspaceAppAudienceFromPackageJson,
+  workspaceAppRouteAccessFromPackageJson,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
 
 export interface WorkspaceApp {
   id: string;
   name: string;
+  description: string;
+  audience: WorkspaceAppAudience;
+  publicPaths: string[];
+  protectedPaths: string[];
   dir: string;
   port: number;
   process?: ChildProcess;
   restartTimer?: NodeJS.Timeout;
   restartAttempts?: number;
+  lastFailure?: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    at: number;
+    installing: boolean;
+    output: string;
+    nextRetryAt: number;
+  };
+  outputTail?: string;
   installing?: boolean;
   installAttempted?: boolean;
   /**
@@ -52,6 +71,8 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
+const APP_OUTPUT_TAIL_BYTES = 8_000;
+const POLLING_WATCH_INTERVAL_MS = "1000";
 
 function normalizeOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -90,6 +111,94 @@ export function shouldEagerStartWorkspaceApps(
     env.WORKSPACE_EAGER === "1" ||
     env.WORKSPACE_EAGER === "true"
   );
+}
+
+function readBooleanEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+export type PollingFileWatcherMode =
+  | "enable"
+  | "disable-explicit"
+  | "disable-default";
+
+/**
+ * Three-way classification of the polling-watcher decision so callers can
+ * tell apart "the user explicitly turned this off" (where we want to override
+ * any inherited chokidar/TSC env vars from the parent shell) from "we just
+ * didn't auto-detect a Builder/Codespaces/Gitpod container" (where the user's
+ * own watcher vars should pass through untouched).
+ */
+export function pollingFileWatcherMode(
+  env: NodeJS.ProcessEnv = process.env,
+  root = process.cwd(),
+): PollingFileWatcherMode {
+  const explicit =
+    readBooleanEnv(env.AGENT_NATIVE_DEV_USE_POLLING) ??
+    readBooleanEnv(env.WORKSPACE_USE_POLLING_WATCHER);
+  if (explicit === true) return "enable";
+  if (explicit === false) return "disable-explicit";
+
+  const chokidarExplicit = readBooleanEnv(env.CHOKIDAR_USEPOLLING);
+  if (chokidarExplicit === true) return "enable";
+  if (chokidarExplicit === false) return "disable-explicit";
+
+  const autoEnable = Boolean(
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.BUILDER_WORKSPACE_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER ||
+    root.startsWith("/root/app/"),
+  );
+  return autoEnable ? "enable" : "disable-default";
+}
+
+export function shouldUsePollingFileWatcher(
+  env: NodeJS.ProcessEnv = process.env,
+  root = process.cwd(),
+): boolean {
+  return pollingFileWatcherMode(env, root) === "enable";
+}
+
+function devWatcherEnv(
+  env: NodeJS.ProcessEnv,
+  mode: PollingFileWatcherMode,
+): NodeJS.ProcessEnv {
+  if (mode === "enable") {
+    return {
+      ...env,
+      CHOKIDAR_USEPOLLING: "1",
+      CHOKIDAR_INTERVAL: env.CHOKIDAR_INTERVAL ?? POLLING_WATCH_INTERVAL_MS,
+      TSC_WATCHFILE: env.TSC_WATCHFILE ?? "DynamicPriorityPolling",
+      TSC_WATCHDIRECTORY: env.TSC_WATCHDIRECTORY ?? "DynamicPriorityPolling",
+    };
+  }
+  if (mode === "disable-explicit") {
+    // The user explicitly turned polling off (AGENT_NATIVE_DEV_USE_POLLING=0
+    // / WORKSPACE_USE_POLLING_WATCHER=0 / CHOKIDAR_USEPOLLING=0). Strip the
+    // watcher vars from the child env so an inherited parent-shell
+    // CHOKIDAR_USEPOLLING=1 (or stale TSC_WATCH* override) can't silently
+    // re-enable polling against the user's explicit wish.
+    const {
+      CHOKIDAR_USEPOLLING: _polling,
+      CHOKIDAR_INTERVAL: _interval,
+      TSC_WATCHFILE: _watchFile,
+      TSC_WATCHDIRECTORY: _watchDir,
+      ...rest
+    } = env;
+    return rest;
+  }
+  // mode === "disable-default": no explicit signal either way. Pass the env
+  // through unchanged so legitimate user overrides like
+  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
+  return env;
 }
 
 export function initialWorkspaceAppIds(
@@ -138,9 +247,16 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
       const dir = path.join(appsDir, entry.name);
       const pkg = readJson(path.join(dir, "package.json"));
       if (!pkg) return null;
+      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || pkg.name || entry.name,
+        description: typeof pkg.description === "string" ? pkg.description : "",
+        audience:
+          workspaceAppAudienceFromPackageJson(pkg) ??
+          DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: routeAccess.publicPaths ?? [],
+        protectedPaths: routeAccess.protectedPaths ?? [],
         dir,
         port: appPortStart,
       } satisfies WorkspaceApp;
@@ -162,17 +278,37 @@ function isChildDevServerUrlLine(line: string): boolean {
   );
 }
 
-function pipeAppOutput(
-  prefix: string,
-  chunk: unknown,
-  write: (value: string) => void,
-): void {
+function formatAppOutput(chunk: unknown): string {
   const lines = String(chunk)
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((line) => !isChildDevServerUrlLine(line));
-  if (lines.length === 0) return;
-  write(lines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+  return lines.length === 0 ? "" : lines.join("\n") + "\n";
+}
+
+function appendAppOutputTail(app: WorkspaceApp, output: string): void {
+  if (!output) return;
+  const next = `${app.outputTail ?? ""}${output}`;
+  app.outputTail =
+    next.length > APP_OUTPUT_TAIL_BYTES
+      ? next.slice(-APP_OUTPUT_TAIL_BYTES)
+      : next;
+}
+
+function pipeAppOutput(
+  prefix: string,
+  chunk: unknown,
+  write: (value: string) => void,
+): string {
+  const output = formatAppOutput(chunk);
+  if (!output) return "";
+  const prefixed = output
+    .trimEnd()
+    .split(/\n/)
+    .map((line) => `${prefix} ${line}`)
+    .join("\n");
+  write(`${prefixed}\n`);
+  return output;
 }
 
 function firstPathSegment(url: string | undefined): string | null {
@@ -191,6 +327,11 @@ function appRestartDelay(attempts: number): number {
     1_000 * 2 ** Math.max(0, attempts - 1),
     APP_RESTART_MAX_DELAY_MS,
   );
+}
+
+function formatProxyReadyTimeout(timeoutMs: number): string {
+  const seconds = timeoutMs / 1_000;
+  return Number.isInteger(seconds) ? `${seconds}s` : `${timeoutMs}ms`;
 }
 
 function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
@@ -228,34 +369,54 @@ function wantsHtml(req: http.IncomingMessage): boolean {
 
 function renderStartingApp(app: WorkspaceApp): string {
   const escapedName = escapeHtml(app.name || app.id);
-  const message = app.installing
-    ? "The workspace gateway is installing this app's dependencies before starting it."
-    : "The workspace gateway is waking this app's dev server.";
+  const failure = app.lastFailure;
+  const retryDelayMs = failure
+    ? Math.max(1_000, failure.nextRetryAt - Date.now() + 250)
+    : 900;
+  const refreshSeconds = failure
+    ? Math.max(1, Math.ceil(retryDelayMs / 1_000))
+    : 1;
+  const refreshScriptDelay = failure ? retryDelayMs : 900;
+  const title = failure
+    ? `${failure.installing ? "Install failed" : "App failed to start"}: ${escapedName}`
+    : `Starting ${escapedName}`;
+  const message = failure
+    ? `The workspace gateway will retry in ${Math.max(
+        1,
+        Math.ceil((failure.nextRetryAt - Date.now()) / 1_000),
+      )}s. Fix the error below or stop the server with Ctrl+C.`
+    : app.installing
+      ? "The workspace gateway is installing this app's dependencies before starting it."
+      : "The workspace gateway is waking this app's dev server.";
+  const failureOutput = failure?.output.trim();
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="1" />
-    <title>Starting ${escapedName}</title>
+    <meta http-equiv="refresh" content="${refreshSeconds}" />
+    <title>${title}</title>
     <meta name="color-scheme" content="light dark" />
     <style>
-      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; } }
+      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; --danger: #dc2626; --code-bg: #171717; --code-fg: #fafafa; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; --danger: #f87171; --code-bg: #171717; --code-fg: #f5f5f5; } }
       body { min-height: 100vh; margin: 0; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
-      main { width: min(420px, calc(100vw - 48px)); }
+      main { width: min(680px, calc(100vw - 48px)); }
       .bar { height: 3px; overflow: hidden; border-radius: 999px; background: var(--bar-bg); }
       .bar::before { content: ""; display: block; height: 100%; width: 42%; border-radius: inherit; background: var(--bar-fill); animation: load 1s ease-in-out infinite; }
+      main.failed .bar::before { width: 100%; background: var(--danger); animation: none; }
       p { color: var(--muted); }
+      pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), 900);</script>
+    <script>setTimeout(() => window.location.reload(), ${JSON.stringify(refreshScriptDelay)});</script>
   </head>
   <body>
-    <main>
+    <main class="${failure ? "failed" : ""}">
       <div class="bar"></div>
-      <h1>Starting ${escapedName}</h1>
+      <h1>${title}</h1>
       <p>${escapeHtml(message)}</p>
+      ${failureOutput ? `<pre>${escapeHtml(failureOutput)}</pre>` : ""}
     </main>
   </body>
 </html>`;
@@ -344,6 +505,8 @@ export async function runWorkspaceDev(
   );
   const forceVite = env.WORKSPACE_VITE_FORCE === "1";
   const eager = shouldEagerStartWorkspaceApps(args, env);
+  const pollingMode = pollingFileWatcherMode(env, root);
+  const usePollingFileWatcher = pollingMode === "enable";
   const proxyReadyTimeoutMs = Number(
     env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
   );
@@ -411,6 +574,12 @@ export async function runWorkspaceDev(
   let shuttingDown = false;
   let workspaceStarted = false;
 
+  if (usePollingFileWatcher) {
+    stdout.write(
+      `[workspace] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid remote-container inotify limits.\n`,
+    );
+  }
+
   let readyResolve: (value: { port: number; url: string }) => void;
   const ready = new Promise<{ port: number; url: string }>((resolve) => {
     readyResolve = resolve;
@@ -421,7 +590,11 @@ export async function runWorkspaceDev(
       apps.map((workspaceApp) => ({
         id: workspaceApp.id,
         name: workspaceApp.name,
+        description: workspaceApp.description,
         path: `/${workspaceApp.id}`,
+        audience: workspaceApp.audience,
+        publicPaths: workspaceApp.publicPaths,
+        protectedPaths: workspaceApp.protectedPaths,
       })),
     );
   }
@@ -432,6 +605,10 @@ export async function runWorkspaceDev(
       const existing = appById.get(app.id);
       if (existing) {
         existing.name = app.name;
+        existing.description = app.description;
+        existing.audience = app.audience;
+        existing.publicPaths = app.publicPaths;
+        existing.protectedPaths = app.protectedPaths;
         existing.dir = app.dir;
         continue;
       }
@@ -481,10 +658,9 @@ export async function runWorkspaceDev(
 
   function startApp(app: WorkspaceApp): void {
     if (app.process && !app.process.killed) return;
-    if (app.restartTimer) {
-      clearTimeout(app.restartTimer);
-      app.restartTimer = undefined;
-    }
+    if (app.restartTimer) return;
+    app.lastFailure = undefined;
+    app.outputTail = undefined;
 
     const basePath = `/${app.id}`;
     const shouldInstall =
@@ -513,19 +689,37 @@ export async function runWorkspaceDev(
     const child = spawnProcess("pnpm", childArgs, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...env,
-        APP_NAME: app.id,
-        AGENT_NATIVE_WORKSPACE: "1",
-        AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
-        APP_BASE_PATH: basePath,
-        VITE_AGENT_NATIVE_WORKSPACE: "1",
-        VITE_APP_BASE_PATH: basePath,
-        VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
-        VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
-        PORT: String(app.port),
-        WORKSPACE_GATEWAY_URL: gatewayUrl,
-      },
+      env: devWatcherEnv(
+        {
+          ...env,
+          APP_NAME: app.id,
+          AGENT_NATIVE_WORKSPACE: "1",
+          AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
+          AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+            app.publicPaths,
+          ),
+          AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+            app.protectedPaths,
+          ),
+          APP_BASE_PATH: basePath,
+          VITE_AGENT_NATIVE_WORKSPACE: "1",
+          VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
+          VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
+            app.publicPaths,
+          ),
+          VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
+            app.protectedPaths,
+          ),
+          VITE_APP_BASE_PATH: basePath,
+          VITE_WORKSPACE_OAUTH_ORIGIN: workspaceOAuthOrigin(env, gatewayUrl),
+          VITE_WORKSPACE_GATEWAY_URL: gatewayUrl,
+          PORT: String(app.port),
+          WORKSPACE_GATEWAY_URL: gatewayUrl,
+        },
+        pollingMode,
+      ),
     });
     app.process = child;
     app.installing = shouldInstall;
@@ -537,18 +731,25 @@ export async function runWorkspaceDev(
     stableTimer.unref();
 
     child.stdout?.on("data", (chunk) => {
-      pipeAppOutput(prefix, chunk, (value) => stdout.write(value));
+      appendAppOutputTail(
+        app,
+        pipeAppOutput(prefix, chunk, (value) => stdout.write(value)),
+      );
     });
     child.stderr?.on("data", (chunk) => {
-      pipeAppOutput(prefix, chunk, (value) => stderr.write(value));
+      appendAppOutputTail(
+        app,
+        pipeAppOutput(prefix, chunk, (value) => stderr.write(value)),
+      );
     });
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       clearTimeout(stableTimer);
       const wasInstalling = app.installing;
       app.process = undefined;
       app.installing = false;
       app.ready = false;
       app.readinessProbe = undefined;
+      if (app.restartTimer) return;
       if (code === 0 || shuttingDown) {
         if (wasInstalling && code === 0 && !shuttingDown) {
           app.installAttempted = true;
@@ -557,19 +758,70 @@ export async function runWorkspaceDev(
         return;
       }
       if (wasInstalling) app.installAttempted = false;
-      app.restartAttempts = (app.restartAttempts ?? 0) + 1;
-      const delay = appRestartDelay(app.restartAttempts);
-      stderr.write(
-        `${prefix} exited with code ${code}; retrying in ${Math.round(
-          delay / 1000,
-        )}s\n`,
-      );
-      app.restartTimer = setTimeout(() => {
-        app.restartTimer = undefined;
-        startApp(app);
-      }, delay);
-      app.restartTimer.unref();
+      scheduleAppRestart(app, {
+        code,
+        signal,
+        installing: wasInstalling,
+        output: app.outputTail ?? "",
+        logMessage: `exited with code ${code}`,
+      });
     });
+  }
+
+  function scheduleAppRestart(
+    app: WorkspaceApp,
+    input: {
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      installing: boolean;
+      output: string;
+      logMessage: string;
+    },
+  ): void {
+    if (shuttingDown || app.restartTimer) return;
+    if (input.installing) app.installAttempted = false;
+    app.restartAttempts = (app.restartAttempts ?? 0) + 1;
+    const delay = appRestartDelay(app.restartAttempts);
+    const nextRetryAt = Date.now() + delay;
+    app.lastFailure = {
+      code: input.code,
+      signal: input.signal,
+      at: Date.now(),
+      installing: input.installing,
+      output: input.output,
+      nextRetryAt,
+    };
+    stderr.write(
+      `[${app.id}] ${input.logMessage}; retrying in ${Math.round(
+        delay / 1000,
+      )}s\n`,
+    );
+    app.restartTimer = setTimeout(() => {
+      app.restartTimer = undefined;
+      startApp(app);
+    }, delay);
+    app.restartTimer.unref();
+  }
+
+  function failAppStartupTimeout(app: WorkspaceApp): void {
+    if (app.installing || app.ready || app.restartTimer) return;
+    const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
+    const message =
+      `Timed out waiting ${timeout} for /${app.id} to accept ` +
+      `connections on 127.0.0.1:${app.port}.`;
+    const output = [message, app.outputTail?.trim()]
+      .filter(Boolean)
+      .join("\n\nLast child output:\n");
+    app.ready = false;
+    app.readinessProbe = undefined;
+    scheduleAppRestart(app, {
+      code: null,
+      signal: null,
+      installing: false,
+      output,
+      logMessage: message,
+    });
+    app.process?.kill("SIGTERM");
   }
 
   function forwardedProto(req: http.IncomingMessage): string {
@@ -608,10 +860,14 @@ export async function runWorkspaceDev(
   }
 
   function ensureReadinessProbe(app: WorkspaceApp): void {
-    if (app.ready || app.readinessProbe) return;
+    if (app.ready || app.readinessProbe || app.installing) return;
     app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
       .then((ready) => {
-        if (ready) app.ready = true;
+        if (ready) {
+          app.ready = true;
+          return;
+        }
+        failAppStartupTimeout(app);
       })
       .finally(() => {
         app.readinessProbe = undefined;
@@ -678,6 +934,7 @@ export async function runWorkspaceDev(
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
+          failAppStartupTimeout(app);
           if (!res.headersSent) {
             res.writeHead(502, { "content-type": "text/plain" });
             res.end(
@@ -704,6 +961,7 @@ export async function runWorkspaceDev(
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
+          failAppStartupTimeout(app);
           socket.destroy();
           return;
         }
@@ -835,7 +1093,11 @@ export async function runWorkspaceDev(
           apps.map((app) => ({
             id: app.id,
             name: app.name,
+            description: app.description,
             path: `/${app.id}`,
+            audience: app.audience,
+            publicPaths: app.publicPaths,
+            protectedPaths: app.protectedPaths,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),

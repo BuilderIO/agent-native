@@ -58,7 +58,7 @@ export default function ApprovalsRoute() {
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {hasOrg
-                    ? "Applies to saved destinations and dispatch settings today."
+                    ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
                     : "Requires a team workspace. Set one up on the Team page."}
                 </div>
               </div>

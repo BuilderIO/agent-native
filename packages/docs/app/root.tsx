@@ -18,6 +18,8 @@ import { defaultSocialImageMeta } from "./seo";
 
 import appCss from "./global.css?url";
 
+const SITE_URL = "https://www.agent-native.com";
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -31,21 +33,38 @@ const GA_SCRIPT = `window.dataLayer=window.dataLayer||[];function gtag(){dataLay
 
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Agent-Native",
-  applicationCategory: "DeveloperApplication",
-  operatingSystem: "Cross-platform",
-  description:
-    "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
-  url: "https://agent-native.com",
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  license: "https://opensource.org/licenses/MIT",
-  sourceOrganization: {
-    "@type": "Organization",
-    name: "Builder.io",
-    url: "https://builder.io",
-  },
-  codeRepository: "https://github.com/BuilderIO/agent-native",
+  "@graph": [
+    {
+      "@type": "Organization",
+      name: "Builder.io",
+      url: "https://builder.io",
+      sameAs: ["https://github.com/BuilderIO/agent-native"],
+    },
+    {
+      "@type": "WebSite",
+      name: "Agent-Native",
+      url: SITE_URL,
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Agent-Native",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Cross-platform",
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+      url: SITE_URL,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      license: "https://opensource.org/licenses/MIT",
+      sourceOrganization: {
+        "@type": "Organization",
+        name: "Builder.io",
+        url: "https://builder.io",
+      },
+      codeRepository: "https://github.com/BuilderIO/agent-native",
+    },
+  ],
 });
 
 export const links = () => [
@@ -72,14 +91,25 @@ export const meta = () => [
       "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: "https://agent-native.com" },
+  { property: "og:url", content: SITE_URL },
   { property: "og:site_name", content: "Agent-Native" },
 ];
+
+// Aliases that serve the same content under multiple paths. Both surfaces
+// link rel=canonical to the primary path so search engines don't see them
+// as duplicates. Keep in sync with the alias mapping in
+// `packages/docs/server/routes/[...page].get.ts` (currently /docs serves
+// docs/getting-started.md, so /docs/getting-started canonicalizes to /docs).
+const CANONICAL_ALIASES: Record<string, string> = {
+  "/docs/getting-started": "/docs",
+};
+const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
 
 function CanonicalLink() {
   const location = useLocation();
   const path = location.pathname.replace(/\/$/, "") || "/";
-  const canonical = `https://agent-native.com${path}`;
+  const canonicalPath = CANONICAL_ALIASES[path] ?? path;
+  const canonical = `${SITE_URL}${canonicalPath}`;
   return <link rel="canonical" href={canonical} />;
 }
 
@@ -120,14 +150,43 @@ function scrollElementIntoContainerView(target: HTMLElement) {
   });
 }
 
+function getManagedScrollTop(): number | null {
+  if (typeof document === "undefined") return null;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return null;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) return window.scrollY;
+  return (scrollContainer as HTMLElement).scrollTop;
+}
+
+function setManagedScrollTop(top: number) {
+  if (typeof document === "undefined") return;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) {
+    window.scrollTo(0, top);
+  } else {
+    (scrollContainer as HTMLElement).scrollTop = top;
+  }
+}
+
 // AgentSidebar wraps content in an overflow-auto div, so the window usually
 // does not scroll. Keep both normal route changes and hash links pointed at
 // that real scroll container.
-function ScrollManager({ mounted }: { mounted: boolean }) {
+function ScrollManager() {
   const { pathname, hash } = useLocation();
   const ref = useRef<HTMLSpanElement>(null);
+  const isInitialEffectRef = useRef(true);
 
   useEffect(() => {
+    const isInitialEffect = isInitialEffectRef.current;
+    isInitialEffectRef.current = false;
+
     if (hash) {
       const id = decodeURIComponent(hash.slice(1));
       let raf = 0;
@@ -148,6 +207,8 @@ function ScrollManager({ mounted }: { mounted: boolean }) {
       };
     }
 
+    if (isInitialEffect) return;
+
     let parent: HTMLElement | null = ref.current?.parentElement ?? null;
     while (parent) {
       const overflowY = getComputedStyle(parent).overflowY;
@@ -158,8 +219,15 @@ function ScrollManager({ mounted }: { mounted: boolean }) {
       parent = parent.parentElement;
     }
     window.scrollTo(0, 0);
-  }, [pathname, hash, mounted]);
-  return <span ref={ref} aria-hidden style={{ display: "none" }} />;
+  }, [pathname, hash]);
+  return (
+    <span
+      ref={ref}
+      data-docs-scroll-manager-marker
+      aria-hidden
+      style={{ display: "none" }}
+    />
+  );
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -199,11 +267,39 @@ export default function Root() {
       }),
   );
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const pendingHydrationScrollTopRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingHydrationScrollTopRef.current = window.location.hash
+      ? null
+      : getManagedScrollTop();
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const top = pendingHydrationScrollTopRef.current;
+    pendingHydrationScrollTopRef.current = null;
+    if (!top || top <= 0) return;
+
+    let raf = 0;
+    let secondRaf = 0;
+    const timer = window.setTimeout(() => setManagedScrollTop(top), 100);
+    raf = window.requestAnimationFrame(() => {
+      setManagedScrollTop(top);
+      secondRaf = window.requestAnimationFrame(() => setManagedScrollTop(top));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(secondRaf);
+      window.clearTimeout(timer);
+    };
+  }, [mounted]);
 
   const content = (
     <>
-      <ScrollManager mounted={mounted} />
+      <ScrollManager />
       <Header />
       <Outlet />
       <Footer />

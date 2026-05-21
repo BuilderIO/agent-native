@@ -38,6 +38,7 @@ export default function Root() {
         "Draft a reply to the latest email",
         "Show me yesterday's signup numbers",
       ]}
+      dynamicSuggestions
       defaultSidebarWidth={420}
       position="right"
     >
@@ -57,6 +58,7 @@ That's it. The user now has a toggleable agent on every page — with chat histo
 - **`children`** — your app. Rendered in the main area; the sidebar overlays from the chosen side.
 - **`emptyStateText`** — greeting shown when the chat has no messages. Default: `"How can I help you?"`.
 - **`suggestions`** — starter prompts rendered as clickable chips when empty.
+- **`dynamicSuggestions`** — context-aware prompt chips merged with `suggestions`. Enabled by default; pass `false` to show only static suggestions, or `{ max, includeStatic, getSuggestions }` to customize.
 - **`defaultSidebarWidth`** — initial pixel width (mount-only; user resize and saved value override). Default: `380`.
 - **`position`** — `"left"` or `"right"`. Default: `"right"`.
 - **`defaultOpen`** — whether the sidebar starts open (desktop only). Default: `false`.
@@ -146,7 +148,7 @@ Type-safe arguments come from the zod schema in your `defineAction()`. See [Acti
 
 ## Selection + cursor awareness {#selection}
 
-The agent can see what the user has selected — text, cells, slides, contacts — via the `navigation` and `selection` keys in application state. If you'd like Cmd-I (or similar) to send a selected range into the chat as context, see [Context Awareness](/docs/context-awareness).
+The agent can see what the user has selected — text, cells, slides, contacts — via the `navigation` and `selection` keys in application state. The empty chat also uses those keys to offer dynamic suggestions such as "Summarize this selection" or "Improve this slide" when the current screen makes them relevant. If you'd like Cmd-I (or similar) to send a selected range into the chat as context, see [Context Awareness](/docs/context-awareness).
 
 ## Putting it all together {#putting-it-together}
 

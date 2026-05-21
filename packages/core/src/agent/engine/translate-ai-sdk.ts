@@ -13,6 +13,7 @@ import type {
   EngineContentPart,
   EngineEvent,
 } from "./types.js";
+import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 
 // ---------------------------------------------------------------------------
 // EngineTool → AI SDK tool definition
@@ -83,7 +84,7 @@ export function engineMessageToAISDK(msg: EngineMessage): any[] {
         toolResultParts.push({
           type: "tool-result",
           toolCallId: part.toolCallId,
-          toolName: part.toolName ?? "",
+          toolName: part.toolName,
           output: part.isError
             ? { type: "error-text", value: part.content }
             : { type: "text", value: part.content },
@@ -149,7 +150,9 @@ export function engineMessageToAISDK(msg: EngineMessage): any[] {
 }
 
 export function engineMessagesToAISDK(messages: EngineMessage[]): any[] {
-  return messages.flatMap(engineMessageToAISDK);
+  return backfillEngineMessagesToolResults(messages).flatMap(
+    engineMessageToAISDK,
+  );
 }
 
 // ---------------------------------------------------------------------------

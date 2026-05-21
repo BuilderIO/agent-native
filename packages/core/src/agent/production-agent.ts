@@ -25,6 +25,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  backfillEngineMessagesToolResults,
+  stringifyToolUseInputForGateway,
+  unmatchedToolResultReplayText,
+} from "./engine/translate-anthropic.js";
+import {
   resolveEngine,
   registerBuiltinEngines,
   getStoredModelForEngine,
@@ -32,6 +37,8 @@ import {
 import { userFacingLlmCredentialError } from "./engine/credential-errors.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import {
   startRun,
   subscribeToRun,
@@ -42,12 +49,15 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import {
   getRequestRunContext,
+  ensureRequestRunContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
@@ -69,6 +79,48 @@ import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function normalizeBrowserTabId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function normalizeChatScope(
+  value: unknown,
+): { type: string; id: string; label?: string } | null | undefined {
+  if (value == null) return null;
+  if (typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.trim() : "";
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  if (!type || !id || type.length > 64 || id.length > 256) {
+    return undefined;
+  }
+  const label =
+    typeof record.label === "string" && record.label.trim().length > 0
+      ? record.label.trim().slice(0, 256)
+      : undefined;
+  return { type, id, ...(label ? { label } : {}) };
+}
+
+function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
+  return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+async function readAppStateForBrowserTab<T>(
+  key: string,
+  browserTabId?: string,
+): Promise<T | null> {
+  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
+  if (tabKey !== key) {
+    const scoped = (await readAppState(tabKey).catch(() => null)) as T | null;
+    if (scoped) return scoped;
+  }
+  return (await readAppState(key)) as T | null;
+}
 
 /**
  * Look up a user's persisted API key for the given provider. Returns
@@ -213,7 +265,10 @@ export interface ActionEntry {
   ) => Promise<any>;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
   http?: import("../action.js").ActionHttpConfig | false;
-  /** If true, completion does NOT trigger a screen-refresh poll event.
+  /** Explicit opt-in metadata for public agent protocols. Public routes never
+   *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
+  publicAgent?: import("../action.js").PublicAgentActionConfig;
+  /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, this action can run concurrently with other same-turn
@@ -227,6 +282,14 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Optional deep-link builder. When set, MCP/A2A surfaces append an
+   *  "Open in <app> →" link built from the call's args + result. Pure, sync,
+   *  best-effort. See `defineAction` and the `external-agents` skill. */
+  link?: import("../action.js").ActionLinkBuilder;
+  /** Optional MCP Apps UI resource for hosts that support inline interactive
+   *  app iframes. CLI/non-UI hosts still receive the normal tool result and
+   *  any deep link from `link`. */
+  mcpApp?: import("../action.js").ActionMcpAppConfig;
 }
 
 /** @deprecated Use `ActionEntry` instead */
@@ -239,7 +302,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -336,12 +399,23 @@ export function isPlanModeToolCallAllowed(
     return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
   }
 
+  if (name === "bash") {
+    return isPlanModeReadOnlyBashCall(input);
+  }
+
   const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
   if (allowedActions) {
     return allowedActions.includes(getToolAction(name, input));
   }
 
   return entry.readOnly === true;
+}
+
+function isPlanModeReadOnlyBashCall(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const command = (input as Record<string, unknown>).command;
+  if (typeof command !== "string") return false;
+  return isReadOnlyShellCommand(command);
 }
 
 function createPlanModeGuardedAction(
@@ -392,6 +466,23 @@ function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
   };
 }
 
+function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
+    },
+    run: async (args, context) => {
+      if (!isPlanModeReadOnlyBashCall(args)) {
+        return planModeBlockedMessage("bash", "command is not read-only");
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
 export function createPlanModeActionRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -409,6 +500,11 @@ export function createPlanModeActionRegistry(
 
     if (name === "web-request") {
       filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (name === "bash") {
+      filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
@@ -440,6 +536,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
+  /** App/template id used for org-scoped per-app model defaults. */
+  appId?: string;
   /** Default reasoning effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -590,6 +688,11 @@ function isRetryableError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return false;
+  if (
+    code === "rate_limit_exceeded" ||
+    msg.includes("daily gateway request cap")
+  )
+    return false;
   return (
     code === "builder_gateway_error" ||
     code === "builder_gateway_network_error" ||
@@ -742,10 +845,35 @@ export function buildUserContentWithAttachments(opts: {
   return userContent;
 }
 
+function coerceStructuredToolResultWire(part: {
+  toolCallId?: unknown;
+  content?: unknown;
+}): { toolCallId: string; content: string } {
+  const toolCallId =
+    typeof part.toolCallId === "string"
+      ? part.toolCallId.trim()
+      : part.toolCallId === undefined || part.toolCallId === null
+        ? ""
+        : String(part.toolCallId).trim();
+  let content = "";
+  if (typeof part.content === "string") {
+    content = part.content;
+  } else if (part.content !== undefined && part.content !== null) {
+    try {
+      content = JSON.stringify(part.content);
+    } catch {
+      content = String(part.content);
+    }
+  }
+  return { toolCallId, content };
+}
+
 export function structuredHistoryToEngineMessages(
   history: AgentChatStructuredMessage[] | undefined,
 ): EngineMessage[] | null {
   if (!Array.isArray(history)) return null;
+
+  const toolUseById = new Map<string, { name: string; input: unknown }>();
 
   const messages: EngineMessage[] = [];
   for (const message of history) {
@@ -781,29 +909,61 @@ export function structuredHistoryToEngineMessages(
               ? part.toolName
               : "";
         if (!id || !name) continue;
+        const input = part.input ?? part.args ?? {};
+        toolUseById.set(id, { name, input });
         content.push({
           type: "tool-call",
           id,
           name,
-          input: part.input ?? part.args ?? {},
+          input,
         });
         continue;
       }
 
       if (part.type === "tool-result" && message.role === "user") {
-        if (
-          typeof part.toolCallId !== "string" ||
-          typeof part.content !== "string"
-        ) {
+        const wire = coerceStructuredToolResultWire(part);
+        const lookup =
+          wire.toolCallId.length > 0
+            ? toolUseById.get(wire.toolCallId)
+            : undefined;
+        const toolName =
+          typeof part.toolName === "string" && part.toolName.trim().length > 0
+            ? part.toolName
+            : lookup?.name;
+        if (!toolName?.trim()) {
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId:
+                wire.toolCallId.length > 0 ? wire.toolCallId : "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
           continue;
         }
+        if (!wire.toolCallId) {
+          // Named tool but no id — cannot emit a valid paired `tool-result`.
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId: "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
+          continue;
+        }
+        const toolInput =
+          typeof part.toolInput === "string" && part.toolInput.length > 0
+            ? part.toolInput
+            : stringifyToolUseInputForGateway(lookup?.input);
         content.push({
           type: "tool-result",
-          toolCallId: part.toolCallId,
-          ...(typeof part.toolName === "string"
-            ? { toolName: part.toolName }
-            : {}),
-          content: part.content,
+          toolCallId: wire.toolCallId,
+          toolName,
+          toolInput,
+          content: wire.content,
           ...(part.isError ? { isError: true } : {}),
         });
       }
@@ -814,7 +974,9 @@ export function structuredHistoryToEngineMessages(
     }
   }
 
-  return messages.length > 0 ? messages : null;
+  return messages.length > 0
+    ? backfillEngineMessagesToolResults(messages)
+    : null;
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -846,7 +1008,7 @@ function enrichMessage(
         skillRefs
           .map(
             (r) =>
-              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+              `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read"}`,
           )
           .join("\n"),
     );
@@ -1484,6 +1646,7 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      const wireToolInput = JSON.stringify(toolCall.input ?? {});
       toolCallHistory.push({
         name: toolCall.name,
         input: normalizeToolCallInputForHistory(toolCall.input),
@@ -1509,6 +1672,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1544,6 +1708,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
         };
       }
@@ -1567,6 +1732,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1583,6 +1749,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1592,6 +1759,9 @@ export async function runAgentLoop(opts: {
       const TOOL_TIMEOUT_MS = 60_000;
       let result: string;
       let isError = false;
+      let mcpApp:
+        | import("../mcp-client/app-result.js").AgentMcpAppPayload
+        | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
         const raw = await Promise.race([
@@ -1602,8 +1772,36 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
+        const mcpResult = isMcpActionResult(raw) ? raw : null;
+        const rawForAgent = mcpResult ? mcpResult.text : raw;
+        mcpApp = mcpResult?.mcpApp;
+        // Demo mode: the agent must see the same fake data the UI shows, so
+        // it can't read out a real name/email on a live screen share. Redact
+        // the structured result (not the JSON string) so IDs/dates/URLs stay
+        // intact and follow-up tool calls still work. Gated — the expensive
+        // walk only runs when demo mode is on.
+        let redacted: unknown = rawForAgent;
+        const demoMode = await isDemoModeEnabled();
+        if (demoMode) {
+          mcpApp = undefined;
+          if (typeof rawForAgent === "string") {
+            try {
+              redacted = JSON.stringify(
+                redactDemoData(JSON.parse(rawForAgent)),
+                null,
+                2,
+              );
+            } catch {
+              redacted = redactDemoString(rawForAgent);
+            }
+          } else {
+            redacted = redactDemoData(rawForAgent);
+          }
+        }
         let resultStr =
-          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          typeof redacted === "string"
+            ? redacted
+            : JSON.stringify(redacted, null, 2);
         if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
           const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
@@ -1626,19 +1824,18 @@ export async function runAgentLoop(opts: {
 
       // Auto-refresh the UI after a successful mutating tool call. Any action
       // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a poll event with source:"action" and
+      // useDbSync listener sees a change event with source:"action" and
       // invalidates ["action"] queries so list-* / get-* refetch. This makes
       // refresh after agent writes reliable without the model needing to
       // remember to call `refresh-screen` itself.
       if (!isError && actionEntry.readOnly !== true) {
         try {
-          const { recordChange } = await import("../server/poll.js");
+          const { notifyActionChange } =
+            await import("../server/action-change.js");
           const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
           const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          recordChange({
-            source: "action",
-            type: "change",
-            key: toolCall.name,
+          await notifyActionChange({
+            actionName: toolCall.name,
             ...(owner ? { owner } : {}),
             ...(orgId ? { orgId } : {}),
           });
@@ -1647,7 +1844,12 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      send({ type: "tool_done", tool: toolCall.name, result });
+      send({
+        type: "tool_done",
+        tool: toolCall.name,
+        result,
+        ...(mcpApp ? { mcpApp } : {}),
+      });
       recordToolResult(result, isError);
       if (!isError) {
         if (cacheKey) {
@@ -1661,6 +1863,7 @@ export async function runAgentLoop(opts: {
         type: "tool-result" as const,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        toolInput: wireToolInput,
         content: result,
         ...(isError ? { isError } : {}),
       };
@@ -1771,7 +1974,16 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
+      browserTabId,
+      scope,
     } = body;
+    const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
+    const requestChatScope = normalizeChatScope(scope);
+    const requestRunCtx = ensureRequestRunContext();
+    if (requestRunCtx) {
+      requestRunCtx.browserTabId = requestBrowserTabId;
+      requestRunCtx.chatScope = requestChatScope;
+    }
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
@@ -1879,10 +2091,12 @@ export function createProductionAgentHandler(
         engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
         model: configuredModel,
+        appId: options.appId,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        appId: options.appId,
       });
     }
 
@@ -1894,7 +2108,7 @@ export function createProductionAgentHandler(
     const model =
       requestModel ??
       configuredModel ??
-      (await getStoredModelForEngine(engine)) ??
+      (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -1966,7 +2180,10 @@ export function createProductionAgentHandler(
             return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
           }
         } else {
-          const navigation = await readAppState("navigation");
+          const navigation = await readAppStateForBrowserTab(
+            "navigation",
+            requestBrowserTabId,
+          );
           if (navigation) {
             return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
           }
@@ -1979,7 +2196,10 @@ export function createProductionAgentHandler(
 
     const urlContextPromise = (async (): Promise<string> => {
       try {
-        const url = (await readAppState("__url__")) as {
+        const url = (await readAppStateForBrowserTab(
+          "__url__",
+          requestBrowserTabId,
+        )) as {
           pathname?: string;
           search?: string;
           hash?: string;
@@ -2228,6 +2448,8 @@ export function createProductionAgentHandler(
       runId,
       threadId ?? runId,
       async (send, signal) => {
+        send({ type: "activity", label: "Starting agent" });
+
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
           await options.onRunStart(send, threadId ?? runId);
@@ -2517,6 +2739,8 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
         };
+
+        send({ type: "activity", label: "Contacting model" });
 
         let loopUsage: AgentLoopUsage;
         let instrumented = false;

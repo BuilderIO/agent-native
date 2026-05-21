@@ -7,6 +7,10 @@ import {
   appPath,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
+import {
+  ApprovalValueBlock,
+  parseApprovalValue,
+} from "@/components/approval-value-block";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -168,10 +172,12 @@ export default function ApprovalPreviewRoute() {
   }
 
   const isPending = approval.status === "pending";
+  const beforeValue = parseApprovalValue(approval.beforeValue);
+  const afterValue = parseApprovalValue(approval.afterValue);
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-background p-6">
-      <div className="w-full max-w-md space-y-4">
+      <div className="w-full max-w-2xl space-y-4">
         <div className="rounded-2xl border bg-card p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-muted text-foreground">
@@ -223,6 +229,13 @@ export default function ApprovalPreviewRoute() {
               </div>
             )}
           </div>
+
+          {(beforeValue !== null || afterValue !== null) && (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <ApprovalValueBlock label="Before" value={beforeValue} />
+              <ApprovalValueBlock label="After" value={afterValue} />
+            </div>
+          )}
 
           {isPending && (
             <div className="mt-4 flex gap-2">

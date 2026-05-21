@@ -6,6 +6,7 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
@@ -20,14 +21,17 @@ export function useNavigationState() {
   // Sync current route to application state
   useEffect(() => {
     const state: NavigationState = {
-      view: location.pathname.startsWith("/new-app") ? "new-app" : "home",
+      view: viewForPath(location.pathname),
       path: appPath(location.pathname),
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
       body: JSON.stringify(state),
     }).catch(() => {});
   }, [location.pathname]);
@@ -56,17 +60,38 @@ export function useNavigationState() {
     // Delete the one-shot command AFTER reading it
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
+      headers: {
+        "X-Agent-Native-CSRF": "1",
+        "X-Request-Source": TAB_ID,
+      },
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = routerPath(
-      cmd.path || (cmd.view === "new-app" ? "/new-app" : "/"),
-    );
+    const path = routerPath(cmd.path || pathForView(cmd.view));
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function viewForPath(pathname: string): string {
+  if (pathname.startsWith("/extensions")) return "extensions";
+  if (pathname.startsWith("/observability")) return "observability";
+  if (pathname.startsWith("/team")) return "team";
+  return "home";
+}
+
+function pathForView(view?: string): string {
+  switch (view) {
+    case "extensions":
+      return "/extensions";
+    case "observability":
+      return "/observability";
+    case "team":
+      return "/team";
+    default:
+      return "/";
+  }
 }
 
 function routerPath(path: string): string {

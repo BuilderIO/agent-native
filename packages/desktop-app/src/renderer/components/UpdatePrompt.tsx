@@ -42,7 +42,7 @@ export default function UpdatePrompt() {
           Update ready
         </div>
         <div className="update-prompt-subtitle">
-          Version {status.version} has been downloaded. Restart Agent Native to
+          Version {status.version} has been downloaded. Relaunch Agent Native to
           finish installing.
         </div>
       </div>
@@ -62,7 +62,7 @@ export default function UpdatePrompt() {
           onClick={installNow}
         >
           <IconRefresh size={14} strokeWidth={2} />
-          Restart now
+          Relaunch now
         </button>
       </div>
       <button

@@ -3,6 +3,34 @@
 These instructions apply at the workspace root. App-specific behavior belongs
 in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 `packages/shared/AGENTS.md` or `packages/shared/.agents/skills/`.
+The root `.agents/skills` path points at the shared package's skills so local
+coding agents can discover the same workspace-wide guidance from the root.
+
+## Core Agent Rule
+
+- All AI/LLM behavior goes through the app's agent chat. UI and server code
+  must not call model providers, AI SDK `generateText()` / `streamText()`, or
+  other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
+  work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
+  before building agent-driven UI or "AI" features.
+
+## Workspace Resources
+
+- The Workspace files view is for user-authored or user-requested resources
+  they intentionally add, edit, or manage.
+- Agents may use hidden `agent_scratch` resources for temporary working notes,
+  scripts, task plans, or intermediate outputs. Keep those scratch files hidden
+  by default and promote them only when the user explicitly asks to keep or
+  manage the file.
+- Durable instructions, skills, jobs, memories, custom agents, and files the
+  user explicitly asked to save belong in normal workspace visibility.
+- Runtime-editable global resources are managed from Dispatch Resources. Use
+  `AGENTS.md` or `instructions/<slug>.md` for always-on guardrails,
+  `skills/<slug>/SKILL.md` for workspace skills, `context/<slug>.md` for
+  personas/positioning/messaging/company facts/brand guidelines, and
+  `agents/<slug>.md` for custom agent profiles.
+- Set Dispatch resources to All apps when every workspace app should inherit
+  them. Use selected-app grants only for resources that should not be global.
 
 ## Workspace Scope
 
@@ -26,24 +54,36 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
   `/<app-id>`.
 - When a user explicitly asks for a new app or workspace app, create the
   separate workspace app.
+- Dispatch vault access is workspace-wide by default: every saved vault key is
+  available to every workspace app. Only create or request per-app vault grants
+  when Dispatch's vault access setting is switched to manual mode.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
-- Treat first-party apps such as Mail, Calendar, Analytics, and Dispatch as
+- Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as
   existing hosted/connected neighbors available through links and A2A/default
-  connected agents. For example, Mail, Calendar, and Analytics already exist at
+  connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at
   `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and
-  `https://analytics.agent-native.com`.
-- If a new app needs to use Mail, Calendar, Analytics, or similar first-party
+  `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party
   data/agents, build only the genuinely new workflow and delegate/link to those
   existing apps. Do not create wrapper apps, child apps, nested template copies,
-  or cloned Mail/Calendar/Analytics implementations inside the new app just to
+  or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to
   provide access.
 - Only create a first-party app copy when the user explicitly asks for a
   customized fork/copy of that app. Otherwise prefer the hosted/shared app so
   base template improvements continue to flow automatically.
 - Workspace apps are discovered from `apps/<app-id>/package.json`. There is no
   separate workspace app registry to edit for Dispatch to list the app.
+- Always save a concise, human-readable `description` in the generated app's
+  `apps/<app-id>/package.json`. Dispatch lists and A2A connected-agent context
+  use the app name plus this description so other agents understand what the app
+  does. Dispatch users can later edit the displayed name/description from the
+  Apps page without changing source.
+- All sibling workspace apps are accessible by default over A2A through
+  `call-agent`. Agents receive a compact list of available app names and
+  descriptions in prompt context; use tool search or app-specific actions only
+  when more detail is needed.
 - Use relative workspace links like `/<app-id>`. Never hardcode
   `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app cards,
   instructions, redirects, or navigation; the active workspace gateway/browser
@@ -53,12 +93,26 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
   when mounted at `/<app-id>`.
 - Use the framework/template UI stack for standard UI: shadcn/ui components and
   `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
+  Read `packages/shared/.agents/skills/shadcn-ui/SKILL.md` before adding,
+  updating, or debugging shadcn components.
+- Normal app data must flow through actions. For CRUD that the agent can
+  perform, create `defineAction` files in `actions/`, mark reads with
+  `http: { method: "GET" }`, and call them from React with `useActionQuery` /
+  `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*`
+  for the same data unless the route is for uploads, streaming, webhooks,
+  OAuth, or another route-only concern. Action-backed UI is what makes
+  agent-created or agent-edited records appear without a manual refresh.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch
   should still create the separate workspace app, not patch starter. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
+- When using the starter template, treat it as scaffolding only. The finished
+  app must be branded as the requested app, with its own home screen,
+  navigation, package metadata, manifest, and domain workflow. Do not leave
+  visible `Starter`, `Blank app`, `Start building`, or `New app` UI in a
+  starter-derived app.
 
 ## Workspace Identity
 

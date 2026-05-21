@@ -1,5 +1,152 @@
 # @agent-native/dispatch
 
+## 0.8.7
+
+### Patch Changes
+
+- bbaa675: Make Dispatch visible as an MCP app target and route Dispatch extension embeds through the local app session helper.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Scope pending Builder app placeholders to the creating branch context, hide stale entries, and let workspace users edit app display metadata.
+
+## 0.8.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Tighten the Dispatch apps grid layout and progressively disclose template and hidden-app sections.
+
+## 0.8.5
+
+### Patch Changes
+
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+
+## 0.8.4
+
+### Patch Changes
+
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
+## 0.8.3
+
+### Patch Changes
+
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Add Dispatch Vault UI controls for editing existing secrets.
+
+## 0.8.2
+
+### Patch Changes
+
+- 3eb86c8: Allow extensions to resolve vault-backed keys from the active workspace and mirror Dispatch vault saves into the shared credential store.
+
+## 0.8.1
+
+### Patch Changes
+
+- dbf8db4: Make the Dispatch source health column migration idempotent on temp workspace boot.
+
+## 0.8.0
+
+### Minor Changes
+
+- 79a0eb9: Add Dispatch dreaming backend tables, actions, proposals, and safe recurring dream job setup.
+
+### Patch Changes
+
+- 79a0eb9: Expose package-provided actions through template action runners and add a full Dispatch Dreams settings editor.
+- 79a0eb9: Expose Dispatch shadcn UI primitives for workspace-owned Dispatch template routes.
+- 79a0eb9: Link the local Dispatch package during framework-development workspace creation and build Dispatch before local packing.
+- 79a0eb9: Inherit Dispatch-managed workspace instructions, skills, and reference resources at runtime; seed and restore starter company, brand, messaging, guardrail, and voice resources; show and inspect each app's effective workspace context stack; gate All-app resource edits through Dispatch approvals when enabled; preview global impact and overrides before save; and expose read-only inherited workspace resources in app panels.
+- 79a0eb9: Remove legacy workspace-resource sync actions and clarify runtime inheritance docs.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Route Telegram `/code` commands from Dispatch to the remote code-agent relay.
+
+## 0.7.0
+
+### Minor Changes
+
+- f400c81: Add `create-pylon-ticket` action to Dispatch for escalating blockers, unmatched `#customer-*` routing, or follow-ups that need tracking — uses `PYLON_API_KEY` from the Vault. Instrument the agent chat with Sentry captures when the auth-error card stays visible past auto-recovery (`auth_error_card_stuck`) and when SSE reconnect times out (`reconnect_no_progress`) so we can chase the "occasional Reload UI required" symptom.
+- ffd3d00: Add first-class workspace app audience metadata with route-level public/protected page access.
+
+### Patch Changes
+
+- d1a90ac: CLI + dispatch shell fixes from create-workflow feedback:
+  - `create`: scaffold `packages/pinpoint` when the user selects `slides` or
+    `videos`. Their `package.json` declares `@agent-native/pinpoint:
+workspace:*`, but the templates-meta entries were missing
+    `requiredPackages: ["pinpoint"]`, so `pnpm install` blew up with
+    `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`. The existing e2e test now covers
+    every template with `@agent-native/*` workspace deps so a regression
+    surfaces in CI instead of on the user's machine.
+  - `create`: per-template progress messages during scaffolding
+    (`Scaffolding Slides (3/4)...`, `Adding shared packages...`) and a
+    concrete "this is done" stop message, replacing the single static
+    "Working... no action needed" line that made a multi-app workspace
+    feel hung.
+  - `create`: detect `pnpm` on PATH before printing the outro. If it's
+    missing, the next-steps block now leads with `npm install -g pnpm`
+    instead of dumping the user at `zsh: command not found: pnpm`.
+  - `create`: Dispatch is now always scaffolded into a new workspace
+    rather than being a recommended-but-optional pick. The picker only
+    lists the optional apps; the workspace note explains that Dispatch is
+    always included as the control plane. `--template=forms` (or any
+    non-Dispatch list) still works — Dispatch gets unioned in. New
+    regression test asserts this.
+  - Auth guard: local-dev convenience for `NODE_ENV=development`. When
+    the `user` table has no real users yet, the first unauthenticated
+    page GET transparently signs up (and signs in) a `dev@local` account
+    and 302s back to the requested URL, instead of showing the sign-up
+    form. A developer running `pnpm dev` lands straight in the app. Once
+    any real account exists the auto-create short-circuit fires and the
+    regular login flow takes over. Opt out with
+    `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`. Production is unaffected.
+  - `DispatchShell`: page-title info icon is now a click-driven Popover
+    instead of a hover-only Tooltip, and the trigger button has a
+    proper hover background so it reads as clickable. Clicking the icon
+    (the natural gesture, and the only available one on touch) did
+    nothing before.
+  - `create`: clean up the partially-scaffolded directory when scaffolding
+    fails (e.g. flaky network during the template download). Without this
+    the first failure left the workspace dir on disk, and the next
+    `agent-native create <name>` rejected the same name with "Directory
+    already exists" — forcing a manual `rm -rf` before retrying.
+  - Dispatch apps list: filter dotfile directories (e.g.
+    `.agent-native-tmp-*` extraction sidecars) when reading the
+    workspace's `apps/` directory. The temp dir is a sibling of the
+    target so it appeared at the top of the apps grid mid-scaffold,
+    looking like a stray entry.
+  - Dispatch onboarding: register a "Create your first app" step at order
+    5 so it sits above the Slack/Telegram secret-onboarding steps. A
+    brand-new workspace was leading with "Connect Slack" before the user
+    had even added an app, which felt confusing.
+  - Agent system prompt (chat-in-browser-on-localdev): when a user asks to
+    scaffold a new workspace app from a localhost browser tab, point them
+    at \`npx @agent-native/core add-app\` first since they're already in
+    that terminal. The desktop / Claude Code / Codex / Builder.io
+    alternatives still follow for general source-editing work.
+
+- 97ca0db: Dispatch's catch-all `/$appId` route now falls back to first-party template deploy URLs (e.g. `http://localhost:8084` for forms in dev, `https://forms.agent-native.com` in prod) when no workspace manifest is loaded. Previously, visiting `/forms` on hosted dispatch — or in framework dev where each template runs on its own port — forced the auth guard, then dropped the user on dispatch's "Page not found" pane after the post-login reload. Now the catch-all reads the built-in agent registry and redirects to the real app.
+- f80dc8c: Fix two bugs in `resolveCatchAllTarget` (the `/dispatch/<appId>` fallback resolver, used when no explicit dispatch route matches):
+  - Honour `app.url` from the workspace manifest. Workspaces can point at externally-hosted apps via an absolute URL on the manifest entry; the resolver was ignoring that field and falling through to the local path. `app.url` now takes precedence over `app.path`.
+  - Normalize `app.path` instead of silently rewriting to `/${appId}`. When the manifest path doesn't start with a slash (`path: "my-forms"`) the previous code returned `/${appId}`, which routed to the wrong app whenever an entry's mounted path differed from its id. Now the leading slash is just prepended, preserving the path.
+
+  Both surfaced by the Builder PR-review bot on #651.
+
+- b5b6f22: `resolveCatchAllTarget` now validates `app.url` is an absolute http(s) URL before letting it take precedence over `app.path`. Previously any non-empty string would win — including bare hostnames like `"forms.example.com"` (no protocol, browser would treat the redirect as a relative path inside the gateway and 404) or `javascript:` schemes (phishing vector). Mirrors the validation in `normalizeWorkspaceAppUrl` (deploy CLI), inlined to avoid pulling that module into the runtime path. 3 new spec cases (bare hostname rejected, non-http(s) scheme rejected, trailing slash stripped). Flagged by the Builder bot review on #652.
+- d1a90ac: Integrations page: long connector names now truncate cleanly inside the tile and reveal the full name on hover. Previously the label could overflow past the tile edge on narrow grid columns.
+- d1a90ac: Operations → Messaging tile layout cleanup. The Docs / "Open Slack apps" / "Open BotFather" header links now share a single ghost-button style with consistent external-link icons. Each tile gets a divider before its action footer so the Enable / Set up webhook buttons sit in a clear footer row. The disabled Enable button now explains _why_ via a tooltip, replacing the redundant "Save the required credentials before enabling…" helper paragraph.
+- d1a90ac: Several feedback fixes:
+  - **Dispatch back-button to `/dispatch/dispatch/overview`.** `dispatchNavLinkTarget` (the helper that decides whether NavLink should manually prepend the workspace mount prefix) read `window.__reactRouterContext.basename` to detect the router's basename. If that global wasn't set yet at render time, the helper double-prefixed the `to` prop, the router then prepended its own basename, and the resulting `/dispatch/dispatch/<route>` landed in browser history — clicking back from any dispatch page later took the user to that 404. The helper now mirrors `entry.client.tsx`'s basename calculation directly from `window.location.pathname`, removing the context-global race. `routerPath` (in both the package and the template copy) also iteratively strips the basename so any doubly-prefixed path that snuck into `application_state.navigate` doesn't get partially-stripped here and re-prefixed by the router back to the bad URL.
+  - **"Use Builder" CTA stuck after connect (web).** The Builder upsell CTA in `AgentPanel` opens Builder in a `<a target="_blank">` tab, not a popup, so it never started the `useBuilderConnectFlow` polling loop — `useBuilderConnectUrl` was fetched once on mount and never refreshed, leaving the CTA in the "Use Builder" state after the user came back to the original tab. The callback success HTML now posts a `builder-connect-success` BroadcastChannel + window.opener message (mirroring the existing error-path broadcast), and `useBuilderConnectUrl` listens on BroadcastChannel + `window.message` + `focus` + `visibilitychange` + the existing `agent-engine:configured-changed` event, refetching `/builder/status` on any of them. Also dispatches `agent-engine:configured-changed` when status first reports configured so the rest of the chat tree updates without a full reload.
+  - **Firebase `auth/popup-blocked` in desktop Builder connect.** Builder's `/cli-auth` page signs into Google via `signInWithPopup`, which calls `window.open()`. Inside the Electron OAuth `BrowserWindow` we create for the Builder flow, there was no `setWindowOpenHandler`, so Electron's default silently blocked the popup — Firebase reported `auth/popup-blocked`, the parent OAuth window never received the result, and the user saw a blank screen that then closed. The OAuth window now returns `action: "allow"` for https child popups and constructs the child as another `BrowserWindow` sharing the same `session` so Firebase's `window.opener.postMessage` handshake reaches back.
+  - **`resolveScopedBuilderCredential` tracing.** The Builder credential lookup walked user → org → workspace silently; when "I connected Builder but chat says use Builder" reports come in, there was no way to tell which scope answered or whether none did. Each branch now logs the scope, email, orgId, and hit/miss outcome (matching the existing always-on tracing in `resolveSecret` for BUILDER\_\* keys).
+
+- ce9e355: Default Dispatch vault access to all workspace apps, add manual grant mode, sync vault keys into encrypted app secrets, and fix org-scoped vault listing.
+- ce9e355: Save generated workspace app descriptions, make Dispatch app metadata editable, and include workspace app names/descriptions in A2A agent context.
+
 ## 0.6.1
 
 ### Patch Changes

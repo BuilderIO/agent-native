@@ -7,13 +7,17 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import type { McpServer } from "./use-mcp-servers.js";
+import {
+  mcpBuiltinVirtualId,
+  type BuiltinCapability,
+} from "./use-builtin-capabilities.js";
 
 /**
  * Extended resource kind that includes virtual entries injected into the
  * Workspace tree — MCP servers live in the settings store, not the
  * resources table, but they render as a folder inside each scope.
  */
-export type ResourceKind = StoredResourceKind | "mcp-server";
+export type ResourceKind = StoredResourceKind | "mcp-server" | "mcp-builtin";
 
 export interface Resource {
   id: string;
@@ -24,6 +28,12 @@ export interface Resource {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: "user" | "agent" | "system";
+  visibility: "workspace" | "agent_scratch";
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
 }
 
 export interface ResourceMeta {
@@ -34,6 +44,12 @@ export interface ResourceMeta {
   size: number;
   createdAt: number;
   updatedAt: number;
+  createdBy: "user" | "agent" | "system";
+  visibility: "workspace" | "agent_scratch";
+  threadId: string | null;
+  runId: string | null;
+  expiresAt: number | null;
+  metadata: string | null;
 }
 
 export interface JobMetadata {
@@ -59,9 +75,33 @@ export interface TreeNode {
   remoteAgentMeta?: RemoteAgentManifest;
   /** Attached when `kind === "mcp-server"` — virtual tree entry. */
   mcpServerMeta?: McpServer;
+  /** Attached when `kind === "mcp-builtin"` — virtual built-in MCP entry. */
+  mcpBuiltinMeta?: BuiltinCapability & {
+    scope: "user" | "org";
+    scopeEnabled: boolean;
+  };
 }
 
-export type ResourceScope = "personal" | "shared" | "all";
+export type ResourceScope = "personal" | "shared" | "workspace" | "all";
+export type EffectiveResourceScope = "workspace" | "shared" | "personal";
+
+export interface EffectiveResourceLayer {
+  scope: EffectiveResourceScope;
+  label: string;
+  owner: string;
+  resource: ResourceMeta | null;
+  exists: boolean;
+  effective: boolean;
+  overridden: boolean;
+  canWrite: boolean;
+}
+
+export interface EffectiveResourceContext {
+  path: string;
+  effectiveResource: ResourceMeta | null;
+  effectiveScope: EffectiveResourceScope | null;
+  layers: EffectiveResourceLayer[];
+}
 
 /**
  * Inject a virtual `mcp-servers/` folder into a scope's resource tree.
@@ -80,10 +120,19 @@ export type ResourceScope = "personal" | "shared" | "all";
 export function withMcpServersFolder(
   tree: TreeNode[],
   servers: McpServer[],
-  opts?: { alwaysShow?: boolean },
+  opts?: {
+    alwaysShow?: boolean;
+    builtins?: Array<{
+      capability: BuiltinCapability;
+      scope: "user" | "org";
+    }>;
+  },
 ): TreeNode[] {
   const alwaysShow = opts?.alwaysShow ?? false;
-  if (servers.length === 0 && !alwaysShow) return tree;
+  const builtins = opts?.builtins ?? [];
+  if (servers.length === 0 && builtins.length === 0 && !alwaysShow) {
+    return tree;
+  }
 
   // Filter out any real `mcp-servers/` entries so the virtual folder is
   // authoritative. (Shouldn't happen today, but guards against collisions
@@ -110,9 +159,45 @@ export function withMcpServersFolder(
         size: 0,
         createdAt: s.createdAt,
         updatedAt: s.createdAt,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: null,
       },
     };
   });
+
+  for (const { capability, scope } of builtins) {
+    const scopeEnabled = capability.enabled[scope];
+    const virtualId = mcpBuiltinVirtualId(scope, capability.id);
+    const path = `mcp-servers/${capability.id}.json`;
+    children.push({
+      name: `${capability.name}.json`,
+      path,
+      type: "file",
+      kind: "mcp-builtin",
+      mcpBuiltinMeta: { ...capability, scope, scopeEnabled },
+      resource: {
+        id: virtualId,
+        path,
+        owner: scope,
+        mimeType: "application/json",
+        size: 0,
+        createdAt: 0,
+        updatedAt: scopeEnabled ? now : 0,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: null,
+      },
+    });
+  }
+
+  children.sort((a, b) => a.name.localeCompare(b.name));
 
   const folder: TreeNode = {
     name: "mcp-servers",
@@ -147,16 +232,29 @@ export function withMcpServersFolder(
  * keeps them visible (so the user can inspect or delete) without making
  * them look like first-class personal files.
  */
-export function withAgentScratchFolder(tree: TreeNode[]): TreeNode[] {
+function isTopLevelAgentScratchNode(node: TreeNode): boolean {
+  return (
+    node.resource?.visibility === "agent_scratch" ||
+    (node.type === "folder" &&
+      (node.name === "scripts" || node.name === "tasks"))
+  );
+}
+
+export function withAgentScratchFolder(
+  tree: TreeNode[],
+  opts?: { show?: boolean },
+): TreeNode[] {
+  const show = opts?.show ?? true;
   const scratch: TreeNode[] = [];
   const rest: TreeNode[] = [];
   for (const n of tree) {
-    if (n.type === "folder" && (n.name === "scripts" || n.name === "tasks")) {
+    if (isTopLevelAgentScratchNode(n)) {
       scratch.push(n);
     } else {
       rest.push(n);
     }
   }
+  if (!show) return rest;
   if (scratch.length === 0) return tree;
   const folder: TreeNode = {
     name: "agent-scratch",
@@ -181,23 +279,29 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 export function useResources(scope: ResourceScope = "personal") {
+  const query = new URLSearchParams({ scope });
   return useQuery<ResourceMeta[]>({
     queryKey: ["resources", "list", scope],
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
-        agentNativePath(`/_agent-native/resources?scope=${scope}`),
+        agentNativePath(`/_agent-native/resources?${query.toString()}`),
       );
       return data.resources ?? [];
     },
   });
 }
 
-export function useResourceTree(scope: ResourceScope = "personal") {
+export function useResourceTree(
+  scope: ResourceScope = "personal",
+  opts?: { includeAgentScratch?: boolean },
+) {
   return useQuery<TreeNode[]>({
-    queryKey: ["resources", "tree", scope],
+    queryKey: ["resources", "tree", scope, opts?.includeAgentScratch ?? false],
     queryFn: async () => {
+      const query = new URLSearchParams({ scope });
+      if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");
       const data = await fetchJson<{ tree: TreeNode[] }>(
-        agentNativePath(`/_agent-native/resources/tree?scope=${scope}`),
+        agentNativePath(`/_agent-native/resources/tree?${query.toString()}`),
       );
       return data.tree ?? [];
     },
@@ -209,6 +313,19 @@ export function useResource(id: string | null) {
     queryKey: ["resource", id],
     queryFn: () => fetchJson(agentNativePath(`/_agent-native/resources/${id}`)),
     enabled: !!id,
+  });
+}
+
+export function useEffectiveResourceContext(path: string | null) {
+  return useQuery<EffectiveResourceContext>({
+    queryKey: ["resources", "effective", path],
+    queryFn: async () => {
+      const query = new URLSearchParams({ path: path ?? "" });
+      return fetchJson<EffectiveResourceContext>(
+        agentNativePath(`/_agent-native/resources/effective?${query}`),
+      );
+    },
+    enabled: !!path,
   });
 }
 
