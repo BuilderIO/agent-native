@@ -7,6 +7,7 @@ import {
 
 let installed = false;
 let memoryToken: string | null = null;
+const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
 
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
@@ -36,16 +37,33 @@ function readTokenFromUrl(win: Window): string | null {
   }
 }
 
-function storeToken(token: string): void {
+function storedToken(win: Window): string | null {
+  try {
+    return win.sessionStorage?.getItem(EMBED_TOKEN_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function storeToken(token: string, win: Window): void {
   memoryToken = token;
+  try {
+    win.sessionStorage?.setItem(EMBED_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // Session storage may be unavailable in some sandboxed hosts. The
+    // in-memory fallback still covers the normal single-page boot path.
+  }
 }
 
 export function getEmbedAuthToken(): string | null {
   const win = browserWindow();
   if (!win) return null;
   const fromUrl = readTokenFromUrl(win);
-  if (fromUrl) return fromUrl;
-  return memoryToken;
+  if (fromUrl) {
+    storeToken(fromUrl, win);
+    return fromUrl;
+  }
+  return memoryToken ?? storedToken(win);
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -245,7 +263,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {
-    storeToken(urlToken);
+    storeToken(urlToken, win);
     stripTokenFromUrl(win);
   }
 

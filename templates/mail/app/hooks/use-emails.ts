@@ -35,6 +35,12 @@ function isAuthFailure(error: unknown): boolean {
   );
 }
 
+function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new Error(error);
+  return new Error("Request failed");
+}
+
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -507,7 +513,7 @@ export function useEmails(
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
     isError: q.isError && !q.data,
-    error: q.isError && !q.data ? q.error : null,
+    error: q.isError && !q.data ? toError(q.error) : null,
     refetch: q.refetch,
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
