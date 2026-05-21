@@ -21,13 +21,12 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import {
-  engineMessagesToAnthropic,
+  engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
   clearBuilderCredentialAuthFailure,
-  resolveBuilderAuthHeader,
-  resolveBuilderCredential,
   resolveBuilderCredentials,
   getBuilderGatewayBaseUrl,
   recordBuilderCredentialAuthFailure,
@@ -123,11 +122,10 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const [authHeader, spaceId, builderUserId] = await Promise.all([
-      resolveBuilderAuthHeader(),
-      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
-      resolveBuilderCredential("BUILDER_USER_ID"),
-    ]);
+    const creds = await resolveBuilderCredentials();
+    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const spaceId = creds.publicKey;
+    const builderUserId = creds.userId;
     if (!authHeader || !spaceId) {
       yield {
         type: "stop",
@@ -138,7 +136,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
@@ -167,8 +165,7 @@ class BuilderEngine implements AgentEngine {
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
     gatewayUrl.searchParams.set("apiKey", spaceId);
-    const orgLabel =
-      (await resolveBuilderCredential("BUILDER_ORG_NAME")) || "unknown-org";
+    const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
       `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
@@ -188,6 +185,7 @@ class BuilderEngine implements AgentEngine {
             "Content-Type": "application/json",
             Authorization: authHeader,
             "x-builder-api-key": spaceId,
+            ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
           body: JSON.stringify(body),

@@ -1,23 +1,23 @@
 ---
 title: "Starter Template"
-description: "The minimal agent-native scaffold — agent chat, actions, application state, polling, auth — wired up, with no domain code. Build from scratch."
+description: "The minimal agent-native scaffold — agent chat, actions, application state, live sync, auth — wired up, with no domain code. Build from scratch."
 ---
 
 # Starter
 
-Starter is the minimum viable agent-native app. You get the six-rules architecture, the agent sidebar, the workspace tab, polling sync, auth, and exactly one example action. Nothing else. Build from there.
+Starter is the minimum viable agent-native app. You get the six-rules architecture, the agent sidebar, the workspace tab, live sync, auth, and exactly one example action. Nothing else. Build from there.
 
 <!-- screenshot:
   app: starter
   view: /
-  shows: Blank-slate app with sidebar (Starter brand, Home / New App / Observability), centered "Blank app" card with Start building prompt button + 3 quick-action tiles (New app / Documentation / Theme), agent chat panel on the right
+  shows: Blank-slate app with sidebar (Blank app brand, Home / Observability), centered "Blank app" card with Start building prompt button + quick-action tiles for Documentation and Theme, agent chat panel on the right
   account: screenshot-account (no domain data needed — starter ships with no seed schema)
   capture: 1400x800 viewport, cropped 90px from bottom (final 1400x710)
 -->
 
 ![Starter scaffold with the agent sidebar and a clean blank-slate UI](/screenshots/starter.png)
 
-Pick Starter when you're not sure which domain template fits, or when you want to learn the framework by doing — there's almost nothing to delete.
+Pick Starter when you're not sure which domain template fits, or when you want to learn the framework by doing. It is scaffolding for your app, not a launcher for more apps, so starter-derived apps should be renamed and reshaped into the actual product.
 
 ## What's in it {#whats-in-it}
 
@@ -26,7 +26,7 @@ Pick Starter when you're not sure which domain template fits, or when you want t
 - **Auth** via Better Auth — login, signup, sessions, organizations. The same flow runs locally and in production; in development email verification is skipped so signup is just an email + password.
 - **Actions directory** with one example (`actions/hello-world.ts`) and the `view-screen` / `navigate` standard actions wired up.
 - **Drizzle schema** with the framework's core tables (application_state, settings, oauth_tokens, sessions, resources).
-- **Polling sync** (`useDbSync`) already wired so UI auto-refreshes when the agent writes to the database.
+- **Live sync** (`useDbSync`) already wired so UI auto-refreshes when the agent writes to the database.
 - **AGENTS.md** with the framework-wide rules the agent reads on every turn.
 - **One route** at `/` that says hi and renders the sidebar toggle. That's it.
 

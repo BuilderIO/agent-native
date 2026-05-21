@@ -21,6 +21,8 @@ import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { TAB_ID } from "@/lib/tab-id";
+import { APP_TITLE } from "@/lib/app-config";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -57,7 +59,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
-        <meta name="apple-mobile-web-app-title" content="Starter" />
+        <meta name="apple-mobile-web-app-title" content={APP_TITLE} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
@@ -72,14 +74,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
   useDbSync({
     queryClient: qc,
-    queryKeys: ["files", "data"],
     ignoreSource: TAB_ID,
   });
   return null;

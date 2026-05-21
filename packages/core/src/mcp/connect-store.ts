@@ -39,7 +39,7 @@ export const MCP_CONNECT_SCOPE = "mcp-connect";
 export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 
 /** Default minted-token lifetime. Configurable per-request 1–365 days. */
-export const DEFAULT_TOKEN_TTL_DAYS = 90;
+export const DEFAULT_TOKEN_TTL_DAYS = 365;
 export const MIN_TOKEN_TTL_DAYS = 1;
 export const MAX_TOKEN_TTL_DAYS = 365;
 

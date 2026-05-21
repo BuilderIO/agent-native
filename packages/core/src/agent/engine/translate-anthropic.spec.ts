@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
+  engineMessagesToBuilderGatewayAnthropic,
   anthropicContentToEngine,
+  backfillEngineMessagesToolResults,
 } from "./translate-anthropic.js";
 import type { EngineTool, EngineMessage } from "./types.js";
 
@@ -45,7 +47,7 @@ describe("engineMessagesToAnthropic", () => {
     expect(textPart?.text ?? content).toBe("Hello");
   });
 
-  it("converts assistant message with tool-call", () => {
+  it("converts assistant message with tool-call and appends a replay-safe interrupted result", () => {
     const messages: EngineMessage[] = [
       {
         role: "assistant",
@@ -62,13 +64,19 @@ describe("engineMessagesToAnthropic", () => {
     ];
 
     const result = engineMessagesToAnthropic(messages);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     const content = result[0].content as any[];
     const tc = content.find((p: any) => p.type === "tool_use");
     expect(tc).toBeDefined();
     expect(tc.id).toBe("tc-1");
     expect(tc.name).toBe("my-tool");
     expect(tc.input).toEqual({ msg: "hi" });
+    const replay = result[1].content as any[];
+    expect(replay[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tc-1",
+      content: "Interrupted before this tool returned a result.",
+    });
   });
 
   it("converts PDF file parts to Anthropic document blocks", () => {
@@ -99,14 +107,71 @@ describe("engineMessagesToAnthropic", () => {
     });
   });
 
-  it("converts user message with tool-result", () => {
+  it("includes tool_name, tool_input, and tool_use_id on tool_result for Builder gateway / Gemini", () => {
     const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "ping" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "t1",
+            name: "generate-image-batch",
+            input: {},
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "t1",
+            toolName: "generate-image-batch",
+            toolInput: "{}",
+            content: "ok",
+          },
+        ],
+      },
+    ];
+
+    const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
+    const wire = JSON.stringify(anthropic);
+    expect(wire).toContain('"tool_name":"generate-image-batch"');
+    expect(wire).not.toContain('"tool_name":""');
+    expect(wire).not.toMatch(/"tool_name"\s*:\s*null/);
+
+    const userTurn = anthropic[2];
+    const parts = userTurn!.content as any[];
+    const tr = parts.find((p: any) => p.type === "tool_result");
+    expect(tr.tool_use_id).toBe("t1");
+    expect(tr.tool_name).toBe("generate-image-batch");
+    expect(tr.tool_input).toBe("{}");
+    expect(tr.content).toBe("ok");
+  });
+
+  it("omits tool_name and tool_input on tool_result for native Anthropic API", () => {
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc-1",
+            name: "my-tool",
+            input: { msg: "x" },
+          },
+        ],
+      },
       {
         role: "user",
         content: [
           {
             type: "tool-result",
             toolCallId: "tc-1",
+            toolName: "my-tool",
+            toolInput: '{"msg":"x"}',
             content: "Tool output",
           },
         ],
@@ -114,11 +179,115 @@ describe("engineMessagesToAnthropic", () => {
     ];
 
     const result = engineMessagesToAnthropic(messages);
-    const content = result[0].content as any[];
-    const tr = content.find((p: any) => p.type === "tool_result");
-    expect(tr).toBeDefined();
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
     expect(tr.tool_use_id).toBe("tc-1");
     expect(tr.content).toBe("Tool output");
+    expect(tr).not.toHaveProperty("tool_name");
+    expect(tr).not.toHaveProperty("tool_input");
+  });
+
+  it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "ping" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "t1",
+            name: "generate-image-batch",
+            input: { slots: ["a"] },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "t1",
+            toolName: "",
+            toolInput: "",
+            content: "ok",
+          },
+        ],
+      },
+    ];
+
+    const filled = backfillEngineMessagesToolResults(messages);
+    const tr = (filled[2] as any).content[0];
+    expect(tr.toolName).toBe("generate-image-batch");
+    expect(JSON.parse(tr.toolInput)).toEqual({ slots: ["a"] });
+
+    const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
+    const trWire = (anthropic[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(trWire.tool_name).toBe("generate-image-batch");
+    expect(JSON.parse(trWire.tool_input)).toEqual({ slots: ["a"] });
+  });
+
+  it("adds missing tool_results before the next user content for Builder gateway history replay", () => {
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "search first" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "history_tc_1",
+            name: "chat-history",
+            input: { action: "search" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Actually, try another route." }],
+      },
+    ];
+
+    const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
+    const replay = anthropic[2].content as any[];
+
+    expect(replay[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "history_tc_1",
+      tool_name: "chat-history",
+      tool_input: '{"action":"search"}',
+      content: "Interrupted before this tool returned a result.",
+    });
+    expect(replay[1]).toMatchObject({
+      type: "text",
+      text: "Actually, try another route.",
+    });
+  });
+
+  it("turns orphan tool_result blocks into replay text when no tool_use matches", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "ghost",
+            toolName: "",
+            toolInput: "",
+            content: "orphan",
+          },
+        ],
+      },
+    ];
+
+    const out = backfillEngineMessagesToolResults(messages);
+    expect(out[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringMatching(
+        /\(Omitted unmatched tool results from replayed history\.\) \[tool_use_id=ghost\] orphan/,
+      ),
+    });
   });
 });
 

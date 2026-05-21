@@ -2,6 +2,10 @@ import { defineAction } from "@agent-native/core";
 import { and, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import {
+  documentDiscoveryFilter,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import { z } from "zod";
 
 function escapeLike(s: string): string {
@@ -45,12 +49,14 @@ export default defineAction({
         title: schema.documents.title,
         icon: schema.documents.icon,
         content: schema.documents.content,
+        hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          documentDiscoveryFilter(),
           sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
@@ -71,6 +77,7 @@ export default defineAction({
         icon: doc.icon,
         snippet: makeSnippet(doc.content, query),
         contentLength: doc.content.length,
+        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,
       })),
     };

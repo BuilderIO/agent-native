@@ -15,6 +15,13 @@ export {
 } from "./EmbeddedExtension.js";
 export { ExtensionSlot, type ExtensionSlotProps } from "./ExtensionSlot.js";
 export {
+  EXTENSION_SLUG_MAX_LENGTH,
+  extensionIdFromPathname,
+  extensionNameToSlug,
+  extensionPath,
+  isExtensionPathname,
+} from "../../extensions/path.js";
+export {
   AgentNativeExtensionFrame,
   AgentNativeExtensionSlot,
   type AgentNativeExtensionFrameProps,

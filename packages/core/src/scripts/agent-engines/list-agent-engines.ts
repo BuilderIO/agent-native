@@ -9,6 +9,7 @@ import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   getAgentEngineEntry,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../../agent/default-model.js";
@@ -55,17 +56,20 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     !!appDefaultEntry &&
     (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
   const detectedFromUser = await detectEngineFromUserSecrets();
+  const envEntry = process.env.AGENT_ENGINE
+    ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+    : undefined;
+  const envUnavailable = !!envEntry && !isAgentEnginePackageInstalled(envEntry);
 
-  const currentEntry =
-    (process.env.AGENT_ENGINE
-      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
-      : undefined) ??
-    (appDefaultUsable ? appDefaultEntry : undefined) ??
-    (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
-    (storedUsable ? storedEntry : undefined) ??
-    detectedFromUser ??
-    detectEngineFromEnv() ??
-    undefined;
+  const currentEntry = envUnavailable
+    ? undefined
+    : (envEntry ??
+      (appDefaultUsable ? appDefaultEntry : undefined) ??
+      (detectedFromUser?.name === "builder" ? detectedFromUser : undefined) ??
+      (storedUsable ? storedEntry : undefined) ??
+      detectedFromUser ??
+      detectEngineFromEnv() ??
+      undefined);
   const currentModel =
     appDefaultUsable && currentEntry?.name === appDefault?.engine
       ? appDefault?.model
@@ -84,11 +88,14 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       capabilities: e.capabilities,
       requiredEnvVars: e.requiredEnvVars,
       installPackage: e.installPackage,
+      packageInstalled: isAgentEnginePackageInstalled(e),
     })),
-    current: {
-      engine: currentEngineName,
-      model: currentModel ?? currentEntry?.defaultModel ?? DEFAULT_MODEL,
-    },
+    current: envUnavailable
+      ? null
+      : {
+          engine: currentEngineName,
+          model: currentModel ?? currentEntry?.defaultModel ?? DEFAULT_MODEL,
+        },
   };
 
   return JSON.stringify(result, null, 2);

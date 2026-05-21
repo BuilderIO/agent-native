@@ -931,14 +931,17 @@ export function MultiTabAssistantChat({
             if (firstGroup) firstGroup.models.unshift(currentModel);
           }
         } else {
-          // No Builder connection — show SDK engines that have API keys.
+          // No Builder connection — show SDK engines this app can run.
           const allowedEngines = new Set([
             "anthropic",
             "ai-sdk:openai",
             "ai-sdk:google",
           ]);
           groups = enginesData.engines
-            .filter((e: any) => allowedEngines.has(e.name))
+            .filter(
+              (e: any) =>
+                allowedEngines.has(e.name) && e.packageInstalled !== false,
+            )
             .map((e: any) => {
               const models = [...e.supportedModels];
               if (

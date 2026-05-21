@@ -13,9 +13,11 @@ import {
   set,
   addDays,
   addMinutes,
+  min,
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import { RsvpStatusIcon } from "@/lib/rsvp-status";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -40,6 +42,24 @@ interface WeekViewProps {
   quickEditEventId?: string | null;
   onQuickEditSave?: (eventId: string, title: string) => void;
   onQuickEditCancel?: (eventId: string) => void;
+  draftEventIds?: string[];
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
 }
 
@@ -103,29 +123,35 @@ interface LayoutInfo {
  * indent per nesting depth and stack on top with opaque backgrounds.
  * Text at the top stays readable; the card beneath is covered.
  */
-function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
+function computeLayout(
+  dayEvents: CalendarEvent[],
+  day: Date,
+): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
-  // Sort: earliest start first, then longest duration first (background)
+  const dayStartMs = startOfDay(day).getTime();
+  const dayEndMs = addDays(startOfDay(day), 1).getTime();
+
+  // Cap each event's times to this day's boundaries once, reuse in sort + overlap
+  const times = new Map(
+    dayEvents.map((ev) => [
+      ev.id,
+      {
+        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
+        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
+      },
+    ]),
+  );
+
   const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = parseISO(a.start).getTime();
-    const bStart = parseISO(b.start).getTime();
-    if (aStart !== bStart) return aStart - bStart;
-    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
+    const ta = times.get(a.id)!;
+    const tb = times.get(b.id)!;
+    if (ta.start !== tb.start) return ta.start - tb.start;
+    return tb.end - ta.end; // later end first when starts are equal
   });
 
-  const times = new Map<string, { start: number; end: number }>();
-  for (const ev of sorted) {
-    times.set(ev.id, {
-      start: parseISO(ev.start).getTime(),
-      end: parseISO(ev.end).getTime(),
-    });
-  }
-
-  // Each event is full-width minus a small indent per overlap depth.
-  // Depth = how many earlier events in the sorted list overlap with this one.
-  const INDENT_PX = 16; // pixels per nesting level
+  const INDENT_PX = 16;
 
   for (const ev of sorted) {
     let depth = 0;
@@ -137,8 +163,8 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     }
 
     result.set(ev.id, {
-      left: depth * INDENT_PX, // pixels, not percentage
-      width: 0, // signal to use calc(100% - left)
+      left: depth * INDENT_PX,
+      width: 0,
       col: depth,
       totalCols: depth + 1,
     });
@@ -182,6 +208,10 @@ export function WeekView({
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
+  draftEventIds = [],
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
   isLoading = false,
 }: WeekViewProps) {
   const { setFocusedEvent } = useCalendarContext();
@@ -252,24 +282,30 @@ export function WeekView({
     return spans;
   }, [allDayEvents, days]);
 
-  // Pre-compute timed events per day with layout
+  // Pre-compute timed events per day with layout — include events spanning into this day
   const dayData = useMemo(() => {
     return days.map((day) => {
-      const dayEvents = timedEvents.filter((e) =>
-        isSameDay(parseISO(e.start), day),
-      );
-      const layout = computeLayout(dayEvents);
+      const dayStart = startOfDay(day);
+      const dayEnd = addDays(dayStart, 1);
+      const dayEvents = timedEvents.filter((e) => {
+        const evStart = parseISO(e.start);
+        const evEnd = parseISO(e.end);
+        return evStart < dayEnd && evEnd > dayStart;
+      });
+      const layout = computeLayout(dayEvents, day);
       return { day, events: dayEvents, layout };
     });
   }, [days, timedEvents]);
 
-  function getEventStyle(event: CalendarEvent) {
-    const start = parseISO(event.start);
-    const end = parseISO(event.end);
-    const dayStart = set(startOfDay(start), { hours: START_HOUR });
-    const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
-    const durationMinutes = Math.max(15, differenceInMinutes(end, start));
-
+  function getSegmentStyle(event: CalendarEvent, day: Date) {
+    const evStart = parseISO(event.start);
+    const evEnd = parseISO(event.end);
+    const dayBase = set(startOfDay(day), { hours: START_HOUR });
+    const dayEnd = addDays(dayBase, 1);
+    const segStart = evStart > dayBase ? evStart : dayBase;
+    const segEnd = min([evEnd, dayEnd]);
+    const topMinutes = Math.max(0, differenceInMinutes(segStart, dayBase));
+    const durationMinutes = Math.max(15, differenceInMinutes(segEnd, segStart));
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -547,6 +583,13 @@ export function WeekView({
                     key={event.id}
                     event={event}
                     onDelete={onDeleteEvent}
+                    isDraft={draftEventIds.includes(event.id)}
+                    defaultOpen={quickEditEventId === event.id}
+                    onTitleSave={onQuickEditSave}
+                    onDismissNew={onQuickEditCancel}
+                    onDraftUpdate={onDraftUpdate}
+                    onDraftCreate={onDraftCreate}
+                    onDraftDiscard={onDraftDiscard}
                   >
                     <button
                       className="absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80"
@@ -568,6 +611,10 @@ export function WeekView({
                           className="shrink-0 text-current opacity-70"
                         />
                       )}
+                      <RsvpStatusIcon
+                        status={event.responseStatus}
+                        className="shrink-0"
+                      />
                       <span className="truncate">{event.title}</span>
                     </button>
                   </EventDetailPopover>
@@ -724,6 +771,12 @@ export function WeekView({
                     };
                     const overrides = getDragOverrides(event.id);
                     const isBeingDragged = dragEventId === event.id;
+                    const start = parseISO(event.start);
+                    const end = parseISO(event.end);
+                    const dayBase = startOfDay(day);
+                    const segDayEnd = addDays(dayBase, 1);
+                    const isStart = isSameDay(start, day);
+                    const isEnd = end <= segDayEnd;
 
                     // Hide from original column if dragged to a different day
                     if (
@@ -734,19 +787,23 @@ export function WeekView({
                     ) {
                       return null;
                     }
+                    // Hide continuation segments during active drag to avoid ghost overlap
+                    if (isBeingDragged && isDragging && !isStart) {
+                      return null;
+                    }
 
                     const style = overrides
                       ? {
                           top: `${overrides.top}px`,
                           height: `${overrides.height}px`,
                         }
-                      : getEventStyle(event);
+                      : getSegmentStyle(event, day);
                     const color = getEventDisplayColor(event, prefs);
-                    const start = parseISO(event.start);
-                    const end = parseISO(event.end);
+                    const segStart = isStart ? start : dayBase;
+                    const segEnd = min([end, segDayEnd]);
                     const durationMin = overrides
                       ? (overrides.height / HOUR_HEIGHT) * 60
-                      : differenceInMinutes(end, start);
+                      : differenceInMinutes(segEnd, segStart);
                     // Compute display times (use drag overrides if active)
                     const displayStart = overrides
                       ? addMinutes(
@@ -772,6 +829,7 @@ export function WeekView({
                           setFocusedEventId(event.id);
                           setFocusedEvent(event);
                           if (
+                            isStart &&
                             canDrag &&
                             !(e.target as HTMLElement).dataset.resizeHandle
                           ) {
@@ -785,7 +843,9 @@ export function WeekView({
                           }
                         }}
                         className={cn(
-                          "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
+                          "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
+                          isStart ? "rounded-t-md" : "rounded-t-none",
+                          isEnd ? "rounded-b-md" : "rounded-b-none",
                           durationMin <= 30
                             ? "justify-center"
                             : "justify-start",
@@ -794,7 +854,7 @@ export function WeekView({
                           isBeingDragged &&
                             isDragging &&
                             "ring-2 ring-primary/40",
-                          canDrag && "cursor-grab",
+                          canDrag && isStart && "cursor-grab",
                           isBeingDragged && isDragging && "cursor-grabbing",
                         )}
                         style={{
@@ -815,6 +875,13 @@ export function WeekView({
                               ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
                               : (color ?? "hsl(var(--primary))")
                           }`,
+                          borderTop: !isStart
+                            ? `2px dashed ${
+                                isPast || isDeclined
+                                  ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                                  : `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 60%, transparent)`
+                              }`
+                            : undefined,
                           opacity:
                             isBeingDragged && isDragging ? 0.9 : undefined,
                         }}
@@ -827,6 +894,10 @@ export function WeekView({
                                 className="shrink-0 text-current opacity-70 relative top-[1px]"
                               />
                             )}
+                            <RsvpStatusIcon
+                              status={event.responseStatus}
+                              className="relative top-[1px] shrink-0"
+                            />
                             <span
                               className={cn(
                                 "truncate leading-tight",
@@ -839,21 +910,23 @@ export function WeekView({
                             >
                               {event.title}
                             </span>
-                            <span
-                              className={cn(
-                                "shrink-0 text-[10px] leading-tight",
-                                isPast || isDeclined
-                                  ? "text-muted-foreground/50"
-                                  : "text-foreground/60",
-                              )}
-                            >
-                              {format(
-                                displayStart,
-                                displayStart.getMinutes() === 0
-                                  ? "h a"
-                                  : "h:mm a",
-                              )}
-                            </span>
+                            {isStart && (
+                              <span
+                                className={cn(
+                                  "shrink-0 text-[10px] leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground/50"
+                                    : "text-foreground/60",
+                                )}
+                              >
+                                {format(
+                                  displayStart,
+                                  displayStart.getMinutes() === 0
+                                    ? "h a"
+                                    : "h:mm a",
+                                )}
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <>
@@ -873,22 +946,28 @@ export function WeekView({
                                   className="shrink-0 text-current opacity-70"
                                 />
                               )}
+                              <RsvpStatusIcon
+                                status={event.responseStatus}
+                                className="shrink-0"
+                              />
                               <span className="truncate">{event.title}</span>
                             </div>
-                            <div
-                              className={cn(
-                                "mt-0.5 truncate text-[9px] leading-tight",
-                                isPast || isDeclined
-                                  ? "text-muted-foreground/50"
-                                  : "text-foreground/60",
-                              )}
-                            >
-                              {formatEventTime(displayStart, displayEnd)}
-                            </div>
+                            {isStart && (
+                              <div
+                                className={cn(
+                                  "mt-0.5 truncate text-[9px] leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground/50"
+                                    : "text-foreground/60",
+                                )}
+                              >
+                                {formatEventTime(displayStart, displayEnd)}
+                              </div>
+                            )}
                           </>
                         )}
                         {/* Top resize handle */}
-                        {canDrag && (
+                        {canDrag && isStart && (
                           <div
                             data-resize-handle="true"
                             onPointerDown={(e) => {
@@ -899,8 +978,8 @@ export function WeekView({
                             style={{ touchAction: "none" }}
                           />
                         )}
-                        {/* Bottom resize handle */}
-                        {canDrag && (
+                        {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
+                        {canDrag && isEnd && isStart && (
                           <div
                             data-resize-handle="true"
                             onPointerDown={(e) => {
@@ -928,9 +1007,13 @@ export function WeekView({
                         key={event._tempId ?? event.id}
                         event={event}
                         onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={quickEditEventId === event.id}
                         onTitleSave={onQuickEditSave}
                         onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
                       >
                         {eventButton}
                       </EventDetailPopover>

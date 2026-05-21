@@ -73,6 +73,14 @@ navigate(`/inbox/${threadId}`);
 
 Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.
 
+When the app route is running inside an MCP App embed created with `embedApp()`,
+auto-submitted messages (`submit` omitted or `true`) are forwarded to the MCP
+App wrapper, which asks the containing host to add hidden context and send the
+visible user turn. `context` is sent as model context before the visible
+message, so it stays model-visible without being posted as user-facing chat.
+`submit: false` keeps the local prefill/review behavior because MCP Apps do not
+define a standard draft-prefill API.
+
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 
@@ -101,6 +109,41 @@ sendToAgentChat({
 | `projectSlug`         | `string?`   | Optional project slug for structured context   |
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
+
+## MCP App Host Bridge {#mcp-app-host-bridge}
+
+Routes embedded by `embedApp()` should be URL-first: load the current artifact
+from path/query params, render the real React route or a focused shared
+component, and use host bridge messages only for host-owned behavior.
+
+The wire contract is:
+
+| Direction       | Message type                             | Purpose                                           |
+| --------------- | ---------------------------------------- | ------------------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | Push host context such as theme/display mode      |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | Add hidden model context                          |
+| route → wrapper | `agentNative.mcpHost.openLink`           | Ask the host to open a URL                        |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Ask for `inline`, `fullscreen`, or `pip`          |
+| wrapper → route | `agentNative.mcpHost.response`           | Resolve or reject a request by matching requestId |
+
+Use the exported helpers from `@agent-native/core/client` inside embedded
+routes:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client";
+```
+
+`getMcpAppHostContext()` reads the latest pushed host context snapshot;
+`useMcpAppHostContext()` subscribes React components to changes. The request
+helpers return `false` outside an embedded MCP App frame, or
+`Promise<boolean>` inside a frame. `sendToAgentChat()` uses the same bridge for
+auto-submitted prompts from embedded routes.
 
 ## Dynamic Suggestions {#dynamic-suggestions}
 
@@ -146,7 +189,7 @@ function GenerateButton() {
 
 ## useDbSync(options?) {#usedbsync}
 
-React hook (formerly `useFileWatcher`) that polls for database changes and invalidates react-query caches:
+React hook (formerly `useFileWatcher`) that listens for database changes over SSE, falls back to polling, and invalidates the framework query caches that keep the UI aligned with agent writes:
 
 ```ts
 import { useDbSync } from "@agent-native/core";
@@ -157,7 +200,6 @@ function App() {
 
   useDbSync({
     queryClient,
-    queryKeys: ["files", "projects", "versionHistory"],
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -168,12 +210,50 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option        | Type             | Description                                                       |
-| ------------- | ---------------- | ----------------------------------------------------------------- |
-| `queryClient` | `QueryClient?`   | React-query client for cache invalidation                         |
-| `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: `["file", "fileTree"]` |
-| `pollUrl`     | `string?`        | Poll endpoint URL. Default: `"/_agent-native/poll"`               |
-| `onEvent`     | `(data) => void` | Optional callback when a poll detects a newer sync version        |
+| Option         | Type               | Description                                                                            |
+| -------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `queryClient`  | `QueryClient?`     | React-query client for cache invalidation                                              |
+| `queryKeys`    | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
+| `pollUrl`      | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
+| `sseUrl`       | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
+| `ignoreSource` | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
+| `onEvent`      | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
+
+For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+The framework uses change versions to sync React Query caches with changes made by background agents, cron jobs, or other users.
+
+When any server-side database mutation occurs, the server records a change event with a specific `source` key. The client's `useDbSync` listener receives these events and bumps the local change version counter for that source. By folding the version counter into your React Query keys, queries automatically refetch whenever the backend notifies the client of new activity.
+
+- **`useChangeVersion(source: string): number`** — returns a counter that increments whenever the specified `source` is mutated.
+- **`useChangeVersions(sources: readonly string[]): number`** — returns the sum of version counters for multiple sources.
+
+### Example: Syncing a raw query with the database
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client";
+
+function DashboardView({ id }) {
+  // Get version for dashboards domain source
+  const v = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, v], // Invalidate automatically when version bumps
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev, // Prevent layout flicker during refetch
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+### Latency Models & Invalidation Behavior
+
+- **UI-Initiated mutations:** When you execute an action from the UI using `useActionMutation`, the mutation immediately fires a local event with `source: "action"` on success. This triggers an **instant, optimistic refetch** of all query keys depending on that action, avoiding visual delay.
+- **Background or Agent Mutations:** When the AI agent, a webhook, or a background worker mutates data, the update is broadcast to the client. The client's `useDbSync` captures this either instantly over SSE (Server-Sent Events) or falls back to the **2-second polling tick**. The query key version then bumps, triggering a background refetch.
 
 ## cn(...inputs) {#cn}
 

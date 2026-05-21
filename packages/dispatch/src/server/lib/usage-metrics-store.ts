@@ -51,6 +51,7 @@ export interface AppAccessMetric {
   name: string;
   path: string;
   status: WorkspaceAppSummary["status"];
+  statusLabel?: string;
   isDispatch: boolean;
   accessModel: "workspace" | "solo";
   accessLabel: string;
@@ -587,6 +588,7 @@ export async function listDispatchUsageMetrics(input: {
       name: app.name,
       path: app.path,
       status: app.status,
+      statusLabel: app.statusLabel,
       isDispatch: app.isDispatch,
       accessModel,
       accessLabel,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
-function sseResponse(events: unknown[]): Response {
+function sseResponse(events: unknown[], runId = "run-qa"): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -15,7 +15,7 @@ function sseResponse(events: unknown[]): Response {
       status: 200,
       headers: {
         "Content-Type": "text/event-stream",
-        "X-Run-Id": "run-qa",
+        "X-Run-Id": runId,
       },
     },
   );
@@ -196,6 +196,7 @@ describe("createAgentChatAdapter", () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("/_agent-native/agent-chat");
     expect(init.method).toBe("POST");
+    expect(init.headers["x-agent-native-surface"]).toBe("app");
 
     const body = JSON.parse(init.body);
     expect(body).toMatchObject({
@@ -477,6 +478,31 @@ describe("createAgentChatAdapter", () => {
         },
       ],
     });
+  });
+
+  it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      surface: "dev-frame",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Add a feature" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["x-agent-native-surface"]).toBe("dev-frame");
   });
 
   it("truncates large outbound text attachments before posting", async () => {
@@ -1030,6 +1056,7 @@ describe("createAgentChatAdapter", () => {
             type: "tool-result",
             toolCallId: expect.stringMatching(/^continuation_tc_/),
             toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
             content: '{"id":"doc-1","title":"Offsite rambles"}',
           },
         ],
@@ -1611,6 +1638,277 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "The agent connection kept failing",
     );
+  });
+
+  it("does not count prior tool progress against the empty recovery cap", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse(
+          [
+            {
+              type: "tool_start",
+              tool: "list-extensions",
+              input: { search: "GitHub Stars", includeContent: "true" },
+            },
+            {
+              type: "tool_done",
+              tool: "list-extensions",
+              result: "loaded GitHub Stars extension content",
+            },
+          ],
+          "run-with-tool-progress",
+        );
+      }
+      if (postCount === 2) {
+        return emptySseResponse("run-empty-after-progress");
+      }
+      return sseResponse(
+        [
+          { type: "text", text: "finished after a quiet retry" },
+          { type: "done" },
+        ],
+        "run-final",
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-empty-after-progress",
+      threadId: "thread-empty-after-progress",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "update the extension" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    expect(postCount).toBe(3);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "list-extensions",
+        result: "loaded GitHub Stars extension content",
+      }),
+      { type: "text", text: "finished after a quiet retry" },
+    ]);
+  });
+
+  it("keeps recovering stale runs when each retry completes a tool", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+
+      postCount += 1;
+      if (postCount <= 5) {
+        const tool = `update-step-${postCount}`;
+        return sseResponse(
+          [
+            { type: "tool_start", tool, input: { step: String(postCount) } },
+            { type: "tool_done", tool, result: `saved step ${postCount}` },
+            {
+              type: "error",
+              error:
+                "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+              errorCode: "stale_run",
+              recoverable: true,
+            },
+          ],
+          `run-stale-progress-${postCount}`,
+        );
+      }
+
+      return sseResponse(
+        [
+          { type: "text", text: "finished after stale-run recovery" },
+          { type: "done" },
+        ],
+        "run-stale-final",
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-stale-progress",
+      threadId: "thread-stale-progress",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish the extension update" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(3000);
+    const results = await promise;
+
+    expect(postCount).toBe(6);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content).toEqual([
+      ...Array.from({ length: 5 }, (_, index) =>
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: `update-step-${index + 1}`,
+          result: `saved step ${index + 1}`,
+        }),
+      ),
+      { type: "text", text: "finished after stale-run recovery" },
+    ]);
+  });
+
+  it("sends protocol-safe structured history for interrupted tool calls", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse(
+          [
+            {
+              type: "tool_start",
+              tool: "list-extensions",
+              input: { search: "GitHub Stars" },
+            },
+          ],
+          "run-interrupted-tool",
+        );
+      }
+      return sseResponse([{ type: "done" }], "run-after-interrupted-tool");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-interrupted-tool",
+      threadId: "thread-interrupted-tool",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "inspect extension" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(2);
+    const secondBody = JSON.parse(chatPosts[1][1].body as string);
+    expect(secondBody.structuredHistory).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "inspect extension" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "continuation_tc_1",
+            toolName: "list-extensions",
+            args: { search: "GitHub Stars" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "continuation_tc_1",
+            toolName: "list-extensions",
+            toolInput: '{"search":"GitHub Stars"}',
+            content: "Interrupted before this tool returned a result.",
+          },
+        ],
+      },
+    ]);
   });
 
   it("does not exhaust stalled recovery attempts while each continuation makes progress", async () => {

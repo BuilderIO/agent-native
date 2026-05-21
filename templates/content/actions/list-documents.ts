@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  documentDiscoveryFilter,
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import {
   accessFilter,
   ROLE_RANK,
@@ -46,7 +50,12 @@ export default defineAction({
     const documents = await db
       .select()
       .from(schema.documents)
-      .where(accessFilter(schema.documents, schema.documentShares))
+      .where(
+        and(
+          accessFilter(schema.documents, schema.documentShares),
+          documentDiscoveryFilter(),
+        ),
+      )
       .orderBy(asc(schema.documents.position));
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
@@ -122,6 +131,7 @@ export default defineAction({
         icon: d.icon,
         position: d.position,
         isFavorite: parseDocumentFavorite(d.isFavorite),
+        hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
         visibility: d.visibility,
         accessRole,
         canEdit: canEditRole(accessRole),

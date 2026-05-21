@@ -10,6 +10,11 @@
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
   sendToBuilderChat,
@@ -100,6 +105,16 @@ export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function isMcpAppChatBridgeEnabled(): boolean {
+  if (typeof window === "undefined" || window.parent === window) return false;
+  const params = new URLSearchParams(window.location.search || "");
+  return (
+    params.get(EMBED_MODE_QUERY_PARAM) === "1" &&
+    params.has(EMBED_TOKEN_QUERY_PARAM) &&
+    params.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM) === "1"
+  );
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  */
@@ -123,11 +138,13 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: { ...opts, tabId },
   };
-  const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
-  if (!isCodeRequest && !shouldOpenSidebar) {
-    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+    window.parent.postMessage(payload, getFrameOrigin() || "*");
+    return tabId;
   }
+
+  const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
   const targetSelf = !isCodeRequest && isInBuilderFrame();
   const target = targetSelf
@@ -138,12 +155,6 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const targetOrigin = targetSelf
     ? window.location.origin
     : getFrameOrigin() || window.location.origin;
-  target.postMessage(payload, targetOrigin);
-
-  // Surface the sidebar so the user sees the response. Callers can opt out
-  // via `openSidebar: false` for background/silent sends. AgentSidebar
-  // listens for this event; the parent-frame case is handled by whoever
-  // owns that sidebar receiving the postMessage above.
   if (shouldOpenSidebar) {
     window.dispatchEvent(
       new CustomEvent("agent-panel:set-mode", {
@@ -151,6 +162,19 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       }),
     );
     window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  } else if (!isCodeRequest) {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
+
+  const postToTarget = () => target.postMessage(payload, targetOrigin);
+
+  // When the local app owns the chat surface, opening/preparing the sidebar
+  // may mount the MessageEvent listener that receives this payload. Defer the
+  // post one tick so a closed sidebar cannot drop the prompt while mounting.
+  if (!isCodeRequest && target === window) {
+    setTimeout(postToTarget, 0);
+  } else {
+    postToTarget();
   }
   return tabId;
 }

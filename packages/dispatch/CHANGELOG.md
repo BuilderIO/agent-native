@@ -1,5 +1,47 @@
 # @agent-native/dispatch
 
+## 0.8.8
+
+### Patch Changes
+
+- 0ba051e: Prevent Dispatch workspace app card text from collapsing at intermediate grid widths.
+
+## 0.8.7
+
+### Patch Changes
+
+- bbaa675: Make Dispatch visible as an MCP app target and route Dispatch extension embeds through the local app session helper.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Scope pending Builder app placeholders to the creating branch context, hide stale entries, and let workspace users edit app display metadata.
+
+## 0.8.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Tighten the Dispatch apps grid layout and progressively disclose template and hidden-app sections.
+
+## 0.8.5
+
+### Patch Changes
+
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+
+## 0.8.4
+
+### Patch Changes
+
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
+## 0.8.3
+
+### Patch Changes
+
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Add Dispatch Vault UI controls for editing existing secrets.
+
 ## 0.8.2
 
 ### Patch Changes

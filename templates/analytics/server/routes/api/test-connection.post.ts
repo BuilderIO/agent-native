@@ -221,6 +221,13 @@ export default defineEventHandler(async (event) => {
           return { ok: true };
         }
 
+        case "prometheus": {
+          const url = await resolveCredential("PROMETHEUS_URL", ctx);
+          if (!url) return { ok: false, error: "Missing Prometheus URL" };
+          const { testConnection } = await import("../../lib/prometheus");
+          return await testConnection();
+        }
+
         default:
           return { ok: false, error: `Unknown source: ${source}` };
       }

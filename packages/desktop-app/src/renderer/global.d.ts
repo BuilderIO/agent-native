@@ -473,6 +473,22 @@ type DesktopOpenRequest = {
   runId?: string;
 };
 
+type LocalAppFolderInfo = {
+  path: string;
+  name: string;
+  devUrl: string;
+  devPort: number;
+  devCommand: string;
+  packageManager?: string;
+  warning?: string;
+};
+
+type LocalAppFolderSelectResult = {
+  ok: boolean;
+  folder?: LocalAppFolderInfo;
+  error?: string;
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -595,6 +611,7 @@ interface ElectronAPI {
       updates: Partial<import("@agent-native/shared-app-config").AppConfig>,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     reset(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    chooseLocalFolder(): Promise<LocalAppFolderSelectResult>;
   };
 }
 

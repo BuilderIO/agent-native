@@ -42,6 +42,8 @@ export interface AppConfig {
   devUrl?: string;
   /** Optional shell command to start the dev server */
   devCommand?: string;
+  /** Optional local folder used to configure this dev app */
+  localPath?: string;
   /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
   color?: string;
   colorRgb?: string;

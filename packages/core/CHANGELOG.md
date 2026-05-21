@@ -1,5 +1,158 @@
 # @agent-native/core
 
+## 0.22.15
+
+### Patch Changes
+
+- 0ba051e: Relay `sendToAgentChat()` submissions from MCP App embeds to compatible chat hosts.
+- 0ba051e: Prevent HEAD probes from consuming one-time MCP app embed tickets before iframe navigation.
+- 0ba051e: Add client helpers for MCP App host integration.
+- 0ba051e: Add an embedRoute helper that pairs action deep links with MCP App resources.
+- 0ba051e: Add a ShareButton hook for hiding organization-link resources from discovery.
+
+## 0.22.14
+
+### Patch Changes
+
+- b09db79: Prevent unavailable optional agent engines from being selected by chat model pickers or explicit runtime overrides.
+
+## 0.22.13
+
+### Patch Changes
+
+- 0b4ade2: Use the official Gemini 3.5 Flash model ID for the Google provider.
+- 9482ec9: Harden serverless database pool cleanup and chat thread conflict retries.
+- 54f295b: Make MCP App embeds launch real app routes reliably and keep web-host discovery compact.
+
+## 0.22.12
+
+### Patch Changes
+
+- c43d534: Fix MCP App full-app embed launching through open routes and keep app-host discovery compact.
+
+## 0.22.11
+
+### Patch Changes
+
+- e3b219b: Emit compact MCP Apps tool catalogs for OAuth app hosts and include ChatGPT-compatible widget metadata for real app embeds.
+
+## 0.22.10
+
+### Patch Changes
+
+- ce325de: Include chat session context in feedback submissions and harden chat debug clipboard actions.
+
+## 0.22.9
+
+### Patch Changes
+
+- e834a27: Improve MCP App embed startup reliability.
+
+## 0.22.8
+
+### Patch Changes
+
+- bbaa675: Allow MCP App frame CSP sources emitted by the built-in app embed helper so local and HTTPS app frames render correctly, and expose the helper through the browser-safe core entry used by template actions.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Prevent replayed chat history with interrupted tool calls from sending malformed tool-use messages to model gateways.
+
+## 0.22.7
+
+### Patch Changes
+
+- 2fcecb9: Fix `backfillEngineMessagesToolResults` so a `tool-result` is only paired with `tool-call`s from assistant messages that appeared earlier in the conversation. The previous global lookup overwrote earlier entries when ids collided (e.g. reused `continuation_tc_*` ids after adapter recreation), causing older history to be backfilled with the wrong `tool_name` / `tool_input` and sent that way to the Builder LLM gateway.
+- 2fcecb9: Include `tool_name` and `tool_input` on every `tool_result` sent to the Builder LLM gateway (Gemini compatibility), backfill from prior `tool_use` when replaying history, add gateway client identification headers, and require `toolName`/`toolInput` on engine tool-result parts. Preserve unmatched structured-history tool results as text (then run `backfillEngineMessagesToolResults`) so replay never drops that payload before backfill runs. `backfillEngineMessagesToolResults` now turns orphan engine `tool-result` parts into the same replay text (instead of silently dropping them), and structured history coerces legacy non-string `toolCallId` / `content` shapes from stored JSON.
+
+## 0.22.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Add MCP App full-app embedding with short-lived browser sessions.
+- 789ba7d: Ignore test files when discovering and generating runtime action registries.
+- 789ba7d: Skip stored AI SDK agent engines when their optional runtime packages are not installed.
+
+## 0.22.5
+
+### Patch Changes
+
+- 7873242: Clear the chat attachment drop overlay when editor-level drops consume the drop event.
+- 7873242: Resolve Builder assistant credentials from a single complete user/org/workspace scope so partial personal rows do not hide org-shared connections.
+- 7873242: Start fresh chats on new browser/project surfaces instead of auto-opening the latest server thread.
+- 7873242: Sanitize resent email verification callback URLs before forwarding to Better Auth.
+
+## 0.22.4
+
+### Patch Changes
+
+- b5fc3b7: `/_agent-native/mcp/connect` now leads with the no-CLI path: the remote MCP URL is shown with a copy button, and a Claude/ChatGPT/Cursor/Claude Code/Codex/Other tab strip walks users through each host (paste-the-URL for OAuth hosts, one-line `claude mcp add` / `npx @agent-native/core connect` snippets for CLI hosts) so non-developers can connect a chat host without ever opening a terminal. The static-token mint flow and connections list keep their existing endpoints; tests cover the new sections.
+
+## 0.22.3
+
+### Patch Changes
+
+- 5a5b620: Isolate local dev auth cookies per app and stop first-party hosted apps from sharing incompatible agent-native.com session cookies.
+- 5a5b620: Derive production workspace auth and OAuth signing secrets from A2A_SECRET when explicit auth secrets are not configured.
+
+## 0.22.2
+
+### Patch Changes
+
+- 4a35c70: Preserve MCP Apps metadata during static action discovery and write hosted Codex MCP installs as HTTP server entries.
+
+## 0.22.1
+
+### Patch Changes
+
+- 570923a: Respect the persisted agent chat sidebar state inside Builder frames.
+- 570923a: Persist mutating action change markers so child-process actions refresh custom app UIs.
+
+## 0.22.0
+
+### Minor Changes
+
+- 819cf59: Add standard remote MCP OAuth discovery, authorization-code + PKCE, refresh-token rotation, scoped MCP access tokens, and OAuth-native `agent-native connect` config for Claude Code clients.
+
+### Patch Changes
+
+- 819cf59: Improve custom app action sync defaults and starter guidance.
+- 819cf59: Honor collapsed agent-sidebar deep links when an already-mounted app receives the URL hint.
+- 819cf59: Mount the local agent sidebar before delivering programmatic chat submissions so prompts are not dropped when the sidebar starts closed.
+- 819cf59: Address MCP app route hardening and Dispatch vault cleanup edge cases from review.
+- 819cf59: Fix dev-mode agent feedback issues around connection-reset overlays, request-scoped shell identity, and assistant markdown rendering.
+- 819cf59: Sign Builder connect URLs rendered in chat cards and return gateway callbacks to the preview opener.
+- 819cf59: Add granular extension content edits with marker/section operations and optional Prettier formatting.
+
+## 0.21.0
+
+### Minor Changes
+
+- 65d43fd: Add host-side MCP Apps rendering support for connected MCP tools.
+
+### Patch Changes
+
+- 65d43fd: Add `agent-native connect dev` and `agent-native connect prod` for switching first-party MCP entries between hosted apps and local dev-lazy gateways.
+- 65d43fd: Add optional MCP Apps UI resources for action tools while preserving deep-link fallbacks.
+- 15d9967: Clean up synced Dispatch vault secrets on delete and make DB timeout cleanup awaitable.
+
+## 0.20.9
+
+### Patch Changes
+
+- 482e9db: Make agent chat recovery continue after useful tool progress instead of prematurely surfacing connection failures.
+- 482e9db: Add an interactive hosted-app picker when `agent-native connect` is run without a URL, and default connect-minted MCP tokens to a 365-day lifetime.
+- 482e9db: Bound every DB init/query op with a timeout (`withDbTimeout`, `DB_OP_TIMEOUT_MS`, default 8s on serverless). A frozen→thawed serverless instance could leave the Neon WebSocket hung mid-query so the promise never settled and never errored — `retryOnConnectionError` only retries thrown errors, so authenticated requests (which run a session lookup on every navigation) hung until the platform killed the function (~30s on Netlify), surfacing as "the site won't load". The timeout reports as a retryable `CONNECT_TIMEOUT`, so the existing retry and reject-reset paths recover and the cached session-table init promise no longer stays poisoned. Also drop a failed/hung `getDbExec` init promise so the next call retries a fresh connection instead of re-awaiting a permanently rejected/pending one.
+- 482e9db: Add SEO-friendly extension URLs with generated name slugs and extension page titles.
+- 482e9db: Keep auth endpoints responsive when agent chat startup stalls, and expose framework session cookie helpers for custom auth plugins.
+
+## 0.20.8
+
+### Patch Changes
+
+- a07d19c: Fix session.orgId always being undefined
+
 ## 0.20.7
 
 ### Patch Changes

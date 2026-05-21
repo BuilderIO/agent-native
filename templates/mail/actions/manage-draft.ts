@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -21,6 +21,7 @@ import { appendSignatureToBody } from "../shared/signature.js";
  * headroom for the rest of the query string and host prefix).
  */
 const MAX_COMPOSE_PAYLOAD_BYTES = 1536;
+const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 /** Base64url-encode a compose draft so `/_agent-native/open?compose=…`
  *  decodes it back into a `compose-{id}` app-state entry the compose panel
@@ -54,7 +55,9 @@ function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
+    to: `/inbox?${COMPOSE_FULLSCREEN_PARAM}=1`,
     compose: encodeComposePayload(draft),
+    params: { composeDraftId: draft.id },
   });
 }
 
@@ -106,6 +109,17 @@ export default defineAction({
       .optional()
       .describe("The 'from' account email address to send from"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Review email draft",
+      description:
+        "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
+      height: 900,
+    }),
+  },
   run: async (args) => {
     const action = args.action;
     if (!action)

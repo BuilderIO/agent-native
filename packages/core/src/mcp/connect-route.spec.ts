@@ -37,7 +37,7 @@ const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
-  DEFAULT_TOKEN_TTL_DAYS: 90,
+  DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
   DEVICE_CODE_TTL_MS: 600_000,
@@ -176,11 +176,26 @@ describe("handleMcpConnect", () => {
       expect(body).toContain("Connect an external agent");
       expect(body).toContain("u@example.com");
       expect(body).not.toContain("Allow Claude Code, Codex, or Cowork");
-      expect(body).not.toContain("https://mail.agent-native.com");
       expect(body).toContain('<details id="connections" class="connections">');
       expect(body).not.toContain("connectionsEl.open = true");
       // The page never embeds a token.
       expect(body).not.toContain("Bearer ey");
+      // The new non-dev flow surfaces the remote MCP URL + a per-host picker
+      // (Claude / ChatGPT / Cursor / Claude Code / Codex / Other) so users can
+      // connect without copying a token. Display the live host MCP URL rather
+      // than a hardcoded one.
+      expect(body).toContain("https://mail.agent-native.com/_agent-native/mcp");
+      expect(body).toContain('data-tab="claude"');
+      expect(body).toContain('data-tab="chatgpt"');
+      expect(body).toContain('data-tab="claude-code"');
+      expect(body).toContain('data-tab="codex"');
+      expect(body).toContain("Your MCP URL");
+      expect(body).toContain(
+        "claude mcp add --transport http agent-native-mail",
+      );
+      expect(body).toContain(
+        "npx @agent-native/core connect https://mail.agent-native.com",
+      );
     });
 
     it("shows the device user_code when present and well-formed", async () => {
@@ -240,6 +255,19 @@ describe("handleMcpConnect", () => {
         label: "laptop",
         jti: payload.jti,
       });
+    });
+
+    it("defaults token lifetime to 365 days", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      const { token } = await res.json();
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode(SECRET),
+      );
+      const lifetimeDays =
+        ((payload.exp as number) - (payload.iat as number)) / 86400;
+      expect(Math.round(lifetimeDays)).toBe(365);
     });
 
     it("clamps ttlDays into the 1-365 range", async () => {
@@ -455,6 +483,9 @@ describe("handleMcpConnect", () => {
       );
       expect(payload.sub).toBe("u@example.com");
       expect(payload.scope).toBe("mcp-connect");
+      const lifetimeDays =
+        ((payload.exp as number) - (payload.iat as number)) / 86400;
+      expect(Math.round(lifetimeDays)).toBe(365);
 
       // poll again → consumed (single-use, no second token)
       res = await handleMcpConnect(

@@ -32,12 +32,16 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+} from "./agent-chat-adapter.js";
 import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
@@ -50,10 +54,12 @@ import {
 } from "./sse-event-processor.js";
 import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
+import { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import {
   Tooltip,
@@ -536,6 +542,18 @@ function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
   return true;
 }
 
+function cloneContentParts(content: ContentPart[]): ContentPart[] {
+  return content.map((part) =>
+    part.type === "text"
+      ? { ...part }
+      : {
+          ...part,
+          args: { ...part.args },
+          ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+        },
+  );
+}
+
 function clearPendingSelection() {
   fetch(
     agentNativePath(
@@ -981,7 +999,9 @@ function MarkdownText() {
   }, []);
   return (
     <MarkdownTextPrimitive
-      smooth
+      // assistant-ui's smooth renderer can briefly read past its token tap
+      // cache while React is reconciling streamed messages.
+      smooth={false}
       className="agent-markdown break-words"
       remarkPlugins={[remarkGfm]}
       components={markdownComponents}
@@ -1297,10 +1317,11 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
 
   const copyValue = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(payload.copyText);
-      setCopied(true);
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      if (await writeClipboardText(payload.copyText)) {
+        setCopied(true);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      }
     } catch {
       // Clipboard failures should not interrupt chat rendering.
     }
@@ -1451,12 +1472,14 @@ function ToolCallDisplay({
   argsText,
   args,
   result,
+  mcpApp,
   isRunning,
 }: {
   toolName: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  mcpApp?: AgentMcpAppPayload;
   isRunning: boolean;
 }) {
   const streamRef = useRef<HTMLDivElement>(null);
@@ -1557,6 +1580,7 @@ function ToolCallDisplay({
 
   return (
     <div className="my-1 overflow-hidden">
+      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
@@ -1620,7 +1644,8 @@ function ToolCallFallback({
   args,
   argsText,
   result,
-}: ToolCallMessagePartProps) {
+  ...rest
+}: ToolCallMessagePartProps & { mcpApp?: AgentMcpAppPayload }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning = result === undefined && chatRunning;
   return (
@@ -1635,6 +1660,7 @@ function ToolCallFallback({
             ? JSON.stringify(result)
             : undefined
       }
+      mcpApp={rest.mcpApp}
       isRunning={isRunning}
     />
   );
@@ -1680,6 +1706,7 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
                 argsText={part.argsText}
                 args={part.args}
                 result={part.result}
+                mcpApp={part.mcpApp}
                 isRunning={part.result === undefined && chatRunning}
               />
             );
@@ -2095,12 +2122,14 @@ function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    navigator.clipboard.writeText(text);
-    setCopied("message");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied("message");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
@@ -2122,12 +2151,14 @@ function MessageActionsMenu({
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
-    navigator.clipboard.writeText(runId);
-    setCopied("id");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(runId).then((ok) => {
+      if (!ok) return;
+      setCopied("id");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleForkChat = useCallback(() => {
@@ -2730,9 +2761,11 @@ function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -3165,6 +3198,7 @@ export interface AssistantChatAdapterContext {
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
+  surface: AgentChatSurfaceKind;
 }
 
 export interface AssistantChatProps {
@@ -3178,6 +3212,11 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /**
+   * Identifies which surface hosts this chat. Defaults to "app", which keeps
+   * dev filesystem/bash code-editing tools out of in-product sidebars.
+   */
+  agentChatSurface?: AgentChatSurfaceKind;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3423,6 +3462,11 @@ const AssistantChatInner = forwardRef<
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
     if (dropDepthRef.current === 0) setDropActive(false);
+  }, []);
+  const handleChatDropCapture = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = 0;
+    setDropActive(false);
   }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
@@ -4383,6 +4427,68 @@ const AssistantChatInner = forwardRef<
     }
   }, [isReconnecting, forceStopped]);
 
+  const materializeFrozenReconnectContent = useCallback(() => {
+    if (!reconnectFrozen || reconnectContent.length === 0) return;
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const messages = getRepoMessages(repo);
+      const lastEntry = messages[messages.length - 1];
+      const lastMessage = getRepoMessage(lastEntry);
+      const parentId =
+        typeof repo.headId === "string"
+          ? repo.headId
+          : typeof lastMessage?.id === "string"
+            ? lastMessage.id
+            : null;
+      const runId = runErrorInfo?.runId ?? reconnectRunIdRef.current;
+      const id = `reconnect-${runId ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      repo.messages = [
+        ...messages,
+        {
+          parentId,
+          message: {
+            id,
+            role: "assistant",
+            createdAt: new Date(),
+            content: cloneContentParts(reconnectContent),
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              custom: {
+                reconnectFrozen: true,
+                ...(runId ? { runId } : {}),
+              },
+            },
+          },
+        },
+      ];
+      repo.headId = id;
+
+      threadRuntime.import(ensureMessageMetadata(repo));
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "materialize-reconnect-content",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+          reconnectParts: reconnectContent.length,
+        },
+      });
+    }
+  }, [
+    reconnectFrozen,
+    reconnectContent,
+    runErrorInfo?.runId,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4392,6 +4498,7 @@ const AssistantChatInner = forwardRef<
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
     ) => {
+      materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
@@ -4454,7 +4561,7 @@ const AssistantChatInner = forwardRef<
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [execMode, isRunning, threadRuntime],
+    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
   );
 
   // Expose imperative handle
@@ -4616,6 +4723,7 @@ const AssistantChatInner = forwardRef<
             onDragEnter={handleChatDragEnter}
             onDragOver={handleChatDragOver}
             onDragLeave={handleChatDragLeave}
+            onDropCapture={handleChatDropCapture}
             onDrop={handleChatDrop}
           >
             {dropActive && (
@@ -5073,6 +5181,7 @@ export const AssistantChat = forwardRef<
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
   scopeRef.current = contextScope;
+  const surface = props.agentChatSurface ?? "app";
   const createAdapterRef = useRef(props.createAdapter);
   createAdapterRef.current = props.createAdapter;
 
@@ -5088,6 +5197,7 @@ export const AssistantChat = forwardRef<
         execModeRef,
         browserTabId,
         scopeRef,
+        surface,
       };
       const createAdapter = createAdapterRef.current;
       return createAdapter
@@ -5097,7 +5207,7 @@ export const AssistantChat = forwardRef<
     // Adapter factories must be memoized and use refs for changing values.
     // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
     // transport identity can change without changing tab/thread ids.
-    [apiUrl, tabId, threadId, browserTabId, props.adapterReloadKey],
+    [apiUrl, tabId, threadId, browserTabId, surface, props.adapterReloadKey],
   );
   const attachmentAdapter = useMemo(
     () =>

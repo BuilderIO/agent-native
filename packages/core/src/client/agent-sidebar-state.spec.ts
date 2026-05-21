@@ -1,18 +1,13 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
-
-vi.mock("./builder-frame.js", () => ({
-  isInBuilderFrame: () => frameState.inBuilderFrame,
-}));
-
 const {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
   getInitialAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
   SIDEBAR_STATE_CHANGE_EVENT,
+  subscribeAgentSidebarUrlChanges,
 } = await import("./agent-sidebar-state.js");
 
 function stubMatchMedia(matches: boolean) {
@@ -33,7 +28,6 @@ function stubMatchMedia(matches: boolean) {
 
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
-    frameState.inBuilderFrame = false;
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
@@ -55,13 +49,6 @@ describe("getInitialAgentSidebarOpen", () => {
   it("starts closed on mobile even with a saved open preference", () => {
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
     stubMatchMedia(true);
-
-    expect(getInitialAgentSidebarOpen(true)).toBe(false);
-  });
-
-  it("starts closed in Builder even with a saved open preference", () => {
-    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
-    frameState.inBuilderFrame = true;
 
     expect(getInitialAgentSidebarOpen(true)).toBe(false);
   });
@@ -90,6 +77,26 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(window.location.pathname).toBe("/inbox");
     expect(window.location.search).toBe("?threadId=t1");
     expect(window.location.hash).toBe("#message");
+  });
+
+  it("reacts when an already-mounted app shell receives the closed hint", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
+    const seen: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seen.push(consumeAgentSidebarUrlOpenOverride());
+    });
+
+    window.history.pushState(
+      null,
+      "",
+      "/inbox?threadId=t1&agentSidebar=closed",
+    );
+
+    unsubscribe();
+    expect(seen).toContain(false);
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBe("false");
+    expect(window.location.pathname).toBe("/inbox");
+    expect(window.location.search).toBe("?threadId=t1");
   });
 });
 

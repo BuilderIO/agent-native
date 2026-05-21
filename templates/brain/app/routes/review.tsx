@@ -89,6 +89,9 @@ export default function ReviewRoute() {
   const [canonicalChoices, setCanonicalChoices] = useState<
     Record<string, boolean>
   >({});
+  const [editingProposalIds, setEditingProposalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
   const [canonicalPreview, setCanonicalPreview] =
     useState<CanonicalPreviewData | null>(null);
@@ -269,6 +272,15 @@ export default function ReviewRoute() {
     }));
   }
 
+  function toggleProposalEditing(proposalId: string) {
+    setEditingProposalIds((current) => {
+      const next = new Set(current);
+      if (next.has(proposalId)) next.delete(proposalId);
+      else next.add(proposalId);
+      return next;
+    });
+  }
+
   function handleProposalShortcut(
     event: KeyboardEvent<HTMLElement>,
     proposal: ReviewItem,
@@ -327,6 +339,7 @@ export default function ReviewRoute() {
               const hasChanges = hasDraftChanges(proposal);
               const publishCanonical = canonicalChoice(proposal);
               const selected = selectedProposalId === proposal.id;
+              const editing = editingProposalIds.has(proposal.id);
               return (
                 <Card
                   key={proposal.id}
@@ -386,107 +399,120 @@ export default function ReviewRoute() {
                       ) : null}
                     </div>
                   </CardHeader>
-                  <CardContent className="grid gap-5">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-                      <div className="grid gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-title-${proposal.id}`}>
-                            Title
-                          </Label>
-                          <Input
-                            id={`proposal-title-${proposal.id}`}
-                            value={draftValue(proposal, "title")}
-                            disabled={!canReview || pendingMutation}
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                title: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-body-${proposal.id}`}>
-                            Proposed memory
-                          </Label>
-                          <Textarea
-                            id={`proposal-body-${proposal.id}`}
-                            className="min-h-36"
-                            value={draftValue(proposal, "body")}
-                            disabled={!canReview || pendingMutation}
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                body: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-rationale-${proposal.id}`}>
-                            Rationale
-                          </Label>
-                          <Textarea
-                            id={`proposal-rationale-${proposal.id}`}
-                            className="min-h-24"
-                            value={draftValue(proposal, "rationale")}
-                            disabled={!canReview || pendingMutation}
-                            placeholder="Why this should become durable knowledge"
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                rationale: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
+                  <CardContent className="grid gap-4">
+                    <div className="grid gap-3">
+                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                        {draftValue(proposal, "body") || "No proposed memory."}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{insight.target.label}</Badge>
+                        <Badge variant="outline">
+                          {privacySummary(insight.privacyFlags)}
+                        </Badge>
+                        {evidence.length ? (
+                          <Badge variant="outline">
+                            {evidence.length} source{" "}
+                            {evidence.length === 1 ? "snippet" : "snippets"}
+                          </Badge>
+                        ) : null}
                       </div>
+                    </div>
 
-                      <div className="grid content-start gap-4 rounded-md border border-border bg-muted/30 p-4">
-                        <div className="grid gap-3">
-                          <SignalRow
-                            icon={IconInfoCircle}
-                            label="Queued because"
-                            value={insight.queueReason}
-                          />
-                          <SignalRow
-                            icon={IconGitMerge}
-                            label="Target"
-                            value={insight.target.label}
-                            detail={insight.target.detail}
-                          />
-                          <SignalRow
-                            icon={IconShieldCheck}
-                            label="Privacy"
-                            value={privacySummary(insight.privacyFlags)}
-                            detail={privacyDetail(insight.privacyFlags)}
-                          />
+                    {evidence.length ? (
+                      <EvidencePreview
+                        evidence={evidence}
+                        proposalId={proposal.id}
+                      />
+                    ) : null}
+
+                    {editing ? (
+                      <div className="grid gap-4 rounded-md border border-border bg-muted/20 p-4">
+                        <div className="grid gap-4">
+                          <div className="grid gap-2">
+                            <Label htmlFor={`proposal-title-${proposal.id}`}>
+                              Title
+                            </Label>
+                            <Input
+                              id={`proposal-title-${proposal.id}`}
+                              value={draftValue(proposal, "title")}
+                              disabled={!canReview || pendingMutation}
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  title: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`proposal-body-${proposal.id}`}>
+                              Proposed memory
+                            </Label>
+                            <Textarea
+                              id={`proposal-body-${proposal.id}`}
+                              className="min-h-32"
+                              value={draftValue(proposal, "body")}
+                              disabled={!canReview || pendingMutation}
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  body: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label
+                              htmlFor={`proposal-rationale-${proposal.id}`}
+                            >
+                              Rationale
+                            </Label>
+                            <Textarea
+                              id={`proposal-rationale-${proposal.id}`}
+                              className="min-h-20"
+                              value={draftValue(proposal, "rationale")}
+                              disabled={!canReview || pendingMutation}
+                              placeholder="Why this should become durable knowledge"
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  rationale: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`reviewer-notes-${proposal.id}`}>
+                              Reviewer notes
+                            </Label>
+                            <Textarea
+                              id={`reviewer-notes-${proposal.id}`}
+                              className="min-h-20"
+                              value={
+                                notes[proposal.id] ??
+                                proposal.reviewerNotes ??
+                                ""
+                              }
+                              disabled={!canReview || pendingMutation}
+                              placeholder="Optional context for this decision"
+                              onChange={(event) =>
+                                setNotes((current) => ({
+                                  ...current,
+                                  [proposal.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
                         </div>
+
                         {canReview ? (
-                          <div className="rounded-md border border-border bg-background p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <Label
-                                  htmlFor={`canonical-${proposal.id}`}
-                                  className="flex items-center gap-2 text-sm font-medium"
-                                >
-                                  <IconBook className="size-4 text-muted-foreground" />
-                                  Publish as company context
-                                </Label>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                  Mirrors the approved memory into
-                                  context/company-brain for ambient Dispatch and
-                                  cross-app agent context.
-                                </p>
-                              </div>
-                              <Switch
-                                id={`canonical-${proposal.id}`}
-                                checked={publishCanonical}
-                                disabled={pendingMutation}
-                                onCheckedChange={(checked) =>
-                                  setCanonicalChoice(proposal.id, checked)
-                                }
-                              />
-                            </div>
-                            {publishCanonical ? (
-                              <div className="mt-3">
+                          <div className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <Label
+                              htmlFor={`canonical-${proposal.id}`}
+                              className="flex items-center gap-2 text-sm font-medium"
+                            >
+                              <IconBook className="size-4 text-muted-foreground" />
+                              Publish as company context
+                            </Label>
+                            <div className="flex items-center gap-3">
+                              {publishCanonical ? (
                                 <Button
                                   type="button"
                                   size="sm"
@@ -497,17 +523,32 @@ export default function ReviewRoute() {
                                   }
                                 >
                                   <IconFileText className="size-4" />
-                                  Preview Markdown
+                                  Preview
                                 </Button>
-                              </div>
-                            ) : null}
+                              ) : null}
+                              <Switch
+                                id={`canonical-${proposal.id}`}
+                                checked={publishCanonical}
+                                disabled={pendingMutation}
+                                onCheckedChange={(checked) =>
+                                  setCanonicalChoice(proposal.id, checked)
+                                }
+                              />
+                            </div>
                           </div>
                         ) : null}
-                        <Separator />
-                        <EvidencePreview
-                          evidence={evidence}
-                          proposalId={proposal.id}
-                        />
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {canReview
+                          ? hasChanges
+                            ? "Approval saves wording edits first."
+                            : "Approve durable, sourced memories; reject anything too narrow or uncertain."
+                          : reviewedSummary(proposal)}
+                      </p>
+                      <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <ProposalDetailsSheet
                           proposal={proposal}
                           insight={insight}
@@ -518,53 +559,28 @@ export default function ReviewRoute() {
                           draftRationale={draftValue(proposal, "rationale")}
                           hasDraftChanges={hasChanges}
                         />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
-                      <div className="grid gap-2">
-                        <Label htmlFor={`reviewer-notes-${proposal.id}`}>
-                          Reviewer notes
-                        </Label>
-                        <Textarea
-                          id={`reviewer-notes-${proposal.id}`}
-                          className="min-h-20"
-                          value={
-                            notes[proposal.id] ?? proposal.reviewerNotes ?? ""
-                          }
-                          disabled={!canReview || pendingMutation}
-                          placeholder="Add context for the approval or rejection"
-                          onChange={(event) =>
-                            setNotes((current) => ({
-                              ...current,
-                              [proposal.id]: event.target.value,
-                            }))
-                          }
-                        />
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          {canReview
-                            ? hasChanges
-                              ? "Approval saves wording edits first; rejection records only the notes."
-                              : "A approves, R rejects, and S saves wording when this card is focused."
-                            : reviewedSummary(proposal)}
-                        </p>
-                      </div>
-                      <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            !canReview ||
-                            pendingMutation ||
-                            !hasDraftChanges(proposal)
-                          }
-                          onClick={() => void saveDraft(proposal)}
-                        >
-                          <IconPencil className="size-4" />
-                          Save wording
-                        </Button>
+                        {canReview ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={pendingMutation}
+                            onClick={() => toggleProposalEditing(proposal.id)}
+                          >
+                            <IconPencil className="size-4" />
+                            {editing ? "Hide editing" : "Edit"}
+                          </Button>
+                        ) : null}
+                        {editing && canReview ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pendingMutation || !hasChanges}
+                            onClick={() => void saveDraft(proposal)}
+                          >
+                            <IconPencil className="size-4" />
+                            Save wording
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="outline"
@@ -572,7 +588,7 @@ export default function ReviewRoute() {
                           onClick={() => void reject(proposal)}
                         >
                           <IconX className="size-4" />
-                          Reject proposal
+                          Reject
                         </Button>
                         <Button
                           size="sm"
@@ -592,7 +608,7 @@ export default function ReviewRoute() {
         ) : (
           <EmptyActionState
             title={`No ${status} proposals`}
-            detail="Demo and low-confidence distillation proposals appear here before they become company memory."
+            detail="New source captures appear here when Brain needs a reviewer before turning them into company memory."
           />
         )}
 
@@ -1081,7 +1097,7 @@ function ProposalDetailsSheet({
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button size="sm" variant="outline" className="w-full">
+        <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <IconListDetails className="size-4" />
           Review details
         </Button>

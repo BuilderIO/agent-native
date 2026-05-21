@@ -322,8 +322,28 @@ function tomlQuote(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+function codexMcpHeader(name: string): string {
+  return `[mcp_servers.${tomlQuote(name)}]`;
+}
+
+function legacyCodexMcpHeader(name: string): string | null {
+  return /^[A-Za-z0-9_-]+$/.test(name) ? `[mcp_servers.${name}]` : null;
+}
+
 function buildCodexBlock(name: string, i: ServerEntryInputs): string {
-  const lines: string[] = [`[mcp_servers.${name}]`];
+  const lines: string[] = [codexMcpHeader(name)];
+  if (i.hostedUrl) {
+    lines.push(`url = ${tomlQuote(i.hostedUrl)}`);
+    if (i.token) {
+      lines.push(
+        `http_headers = { "Authorization" = ${tomlQuote(
+          `Bearer ${i.token}`,
+        )} }`,
+      );
+    }
+    return lines.join("\n") + "\n";
+  }
+
   const args = ["mcp", "serve"];
   if (i.appId) args.push("--app", i.appId);
   if (i.standalone) args.push("--standalone");
@@ -358,14 +378,18 @@ function writeCodexBlock(
     content = "";
   }
 
-  const header = `[mcp_servers.${name}]`;
+  const headers = new Set(
+    [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
+      Boolean,
+    ) as string[],
+  );
   const lines = content.split(/\r?\n/);
   const out: string[] = [];
   let i = 0;
   let removed = false;
   while (i < lines.length) {
     const line = lines[i];
-    if (line.trim() === header) {
+    if (headers.has(line.trim())) {
       // Skip this block entirely (header + body until next table header).
       removed = true;
       i++;
@@ -394,9 +418,12 @@ function writeCodexBlock(
 function codexHasBlock(file: string, name: string): boolean {
   try {
     const content = fs.readFileSync(file, "utf-8");
-    return new RegExp(`^\\s*\\[mcp_servers\\.${name}\\]\\s*$`, "m").test(
-      content,
+    const headers = new Set(
+      [codexMcpHeader(name), legacyCodexMcpHeader(name)].filter(
+        Boolean,
+      ) as string[],
     );
+    return content.split(/\r?\n/).some((line) => headers.has(line.trim()));
   } catch {
     return false;
   }

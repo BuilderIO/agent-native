@@ -352,6 +352,7 @@ function toolContentPartForCodeAgentTranscriptItem(
     ...(item.result !== undefined
       ? { result: previewValue(item.result) ?? "" }
       : {}),
+    ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
   };
 }
 

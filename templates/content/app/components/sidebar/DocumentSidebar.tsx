@@ -1,6 +1,21 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import type { Document, DocumentTreeNode } from "@shared/api";
 import {
   IconPlus,
@@ -48,9 +63,6 @@ interface DocumentSidebarProps {
   width?: number;
   onResize?: (width: number) => void;
 }
-
-type MoveDirection = "up" | "down";
-type MoveAvailability = { up: boolean; down: boolean };
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -110,6 +122,14 @@ export function DocumentSidebar({
   const collapsedIds = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -144,35 +164,10 @@ export function DocumentSidebar({
   const privateTree = tree.filter((node) => node.visibility !== "org");
   const organizationTree = tree.filter((node) => node.visibility === "org");
   const favorites = documents.filter((d) => d.isFavorite);
-  const moveAvailability = useMemo(() => {
-    const availability = new Map<string, MoveAvailability>();
-    const siblingsByParent = new Map<string, Document[]>();
-
-    for (const doc of documents) {
-      const key = doc.parentId ?? "__root__";
-      const siblings = siblingsByParent.get(key);
-      if (siblings) {
-        siblings.push(doc);
-      } else {
-        siblingsByParent.set(key, [doc]);
-      }
-    }
-
-    for (const siblings of siblingsByParent.values()) {
-      const ordered = [...siblings].sort(compareDocumentsByPosition);
-      ordered.forEach((doc, index) => {
-        const previous = ordered[index - 1];
-        const next = ordered[index + 1];
-        const canEdit = doc.canEdit !== false;
-        availability.set(doc.id, {
-          up: Boolean(canEdit && previous && previous.canEdit !== false),
-          down: Boolean(canEdit && next && next.canEdit !== false),
-        });
-      });
-    }
-
-    return availability;
-  }, [documents]);
+  const parentByDocumentId = useMemo(
+    () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
+    [documents],
+  );
 
   // Build expanded set: all document IDs except those explicitly collapsed
   const expandedIds = new Set(
@@ -207,6 +202,7 @@ export function DocumentSidebar({
         icon: null,
         position: 9999,
         isFavorite: false,
+        hideFromSearch: false,
         visibility: "private",
         accessRole: "owner",
         canEdit: true,
@@ -318,25 +314,26 @@ export function DocumentSidebar({
     [activeDocumentId, deleteDocument, documents, navigate, queryClient],
   );
 
-  const handleMovePage = useCallback(
-    async (id: string, direction: MoveDirection) => {
+  const handleReorderPage = useCallback(
+    async (id: string, overId: string) => {
+      if (id === overId) return;
       const current = documents.find((doc) => doc.id === id);
-      if (!current) return;
+      const target = documents.find((doc) => doc.id === overId);
+      if (!current || !target) return;
+      if (current.parentId !== target.parentId) {
+        return;
+      }
 
       const siblings = documents
         .filter((doc) => doc.parentId === current.parentId)
         .sort(compareDocumentsByPosition);
       const currentIndex = siblings.findIndex((doc) => doc.id === id);
-      const nextIndex =
-        direction === "up" ? currentIndex - 1 : currentIndex + 1;
-      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) {
+      const nextIndex = siblings.findIndex((doc) => doc.id === overId);
+      if (currentIndex < 0 || nextIndex < 0 || currentIndex === nextIndex) {
         return;
       }
 
-      const reordered = [...siblings];
-      const [moved] = reordered.splice(currentIndex, 1);
-      reordered.splice(nextIndex, 0, moved);
-
+      const reordered = arrayMove(siblings, currentIndex, nextIndex);
       const nextPositionById = new Map(
         reordered.map((doc, index) => [doc.id, index]),
       );
@@ -344,6 +341,12 @@ export function DocumentSidebar({
         (doc) => doc.position !== nextPositionById.get(doc.id),
       );
       if (changed.length === 0) return;
+      if (changed.some((doc) => doc.canEdit === false)) {
+        toast.error("Cannot reorder pages", {
+          description: "One of the affected pages is read-only.",
+        });
+        return;
+      }
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
         const cachedDocs: Document[] =
@@ -380,6 +383,20 @@ export function DocumentSidebar({
     [documents, moveDocument, queryClient],
   );
 
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      const activeId = String(active.id);
+      const overId = over ? String(over.id) : null;
+      if (!overId || activeId === overId) return;
+      if (parentByDocumentId.get(activeId) !== parentByDocumentId.get(overId)) {
+        return;
+      }
+      void handleReorderPage(activeId, overId);
+    },
+    [handleReorderPage, parentByDocumentId],
+  );
+
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
       updateDocument.mutate({ id, isFavorite });
@@ -393,26 +410,30 @@ export function DocumentSidebar({
       )
     : null;
 
-  const renderDocumentTree = (nodes: DocumentTreeNode[]) =>
-    nodes.map((node) => (
-      <DocumentTreeItem
-        key={node.id}
-        node={node}
-        depth={0}
-        activeId={activeDocumentId}
-        expandedIds={expandedIds}
-        onToggleExpanded={handleToggleExpanded}
-        onSelect={(id) => {
-          navigateToDocument(id);
-          onNavigate?.();
-        }}
-        onCreateChild={(parentId) => handleCreatePage(parentId)}
-        onDelete={handleDelete}
-        onMove={handleMovePage}
-        moveAvailability={moveAvailability}
-        onToggleFavorite={handleToggleFavorite}
-      />
-    ));
+  const renderDocumentTree = (nodes: DocumentTreeNode[]) => (
+    <SortableContext
+      items={nodes.map((node) => node.id)}
+      strategy={verticalListSortingStrategy}
+    >
+      {nodes.map((node) => (
+        <DocumentTreeItem
+          key={node.id}
+          node={node}
+          depth={0}
+          activeId={activeDocumentId}
+          expandedIds={expandedIds}
+          onToggleExpanded={handleToggleExpanded}
+          onSelect={(id) => {
+            navigateToDocument(id);
+            onNavigate?.();
+          }}
+          onCreateChild={(parentId) => handleCreatePage(parentId)}
+          onDelete={handleDelete}
+          onToggleFavorite={handleToggleFavorite}
+        />
+      ))}
+    </SortableContext>
+  );
 
   const renderNewPageButton = () => (
     <button
@@ -527,7 +548,7 @@ export function DocumentSidebar({
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="w-full py-2 pr-2">
+        <div className="min-w-full w-max py-2 pr-2">
           {/* IconSearch results */}
           {filteredDocuments ? (
             <>
@@ -607,28 +628,34 @@ export function DocumentSidebar({
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Private
                 </div>
-                {isLoading ? (
-                  <div className="space-y-1 px-3 py-1">
-                    {[70, 55, 85, 60, 45].map((w, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 px-1 py-1.5"
-                      >
-                        <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  {isLoading ? (
+                    <div className="space-y-1 px-3 py-1">
+                      {[70, 55, 85, 60, 45].map((w, i) => (
                         <div
-                          className="h-3.5 rounded bg-muted animate-pulse"
-                          style={{ width: `${w}%` }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : privateTree.length === 0 ? (
-                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No private pages yet
-                  </div>
-                ) : (
-                  renderDocumentTree(privateTree)
-                )}
+                          key={i}
+                          className="flex items-center gap-2 px-1 py-1.5"
+                        >
+                          <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
+                          <div
+                            className="h-3.5 rounded bg-muted animate-pulse"
+                            style={{ width: `${w}%` }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : privateTree.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                      No private pages yet
+                    </div>
+                  ) : (
+                    renderDocumentTree(privateTree)
+                  )}
+                </DndContext>
               </div>
 
               {/* New page button — private pages are the default */}
@@ -639,13 +666,19 @@ export function DocumentSidebar({
                   <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Organization
                   </div>
-                  {organizationTree.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                      No organization pages yet
-                    </div>
-                  ) : (
-                    renderDocumentTree(organizationTree)
-                  )}
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    {organizationTree.length === 0 ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        No organization pages yet
+                      </div>
+                    ) : (
+                      renderDocumentTree(organizationTree)
+                    )}
+                  </DndContext>
                 </div>
               )}
             </>

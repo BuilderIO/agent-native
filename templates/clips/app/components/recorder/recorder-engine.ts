@@ -114,6 +114,22 @@ export interface RecorderFinalizeResult {
 const DEFAULT_CHUNK_MS = 2000;
 type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
 
+const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
+  channelCount: { ideal: 1 },
+};
+
+function voiceFocusedAudioConstraints(
+  deviceId?: string | null,
+): MediaTrackConstraints {
+  return {
+    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+}
+
 function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
 }
@@ -432,9 +448,7 @@ export class RecorderEngine {
       if (wantsMic) {
         try {
           this.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: this.opts.micDeviceId
-              ? { deviceId: { exact: this.opts.micDeviceId } }
-              : true,
+            audio: voiceFocusedAudioConstraints(this.opts.micDeviceId),
             video: false,
           });
         } catch (err) {

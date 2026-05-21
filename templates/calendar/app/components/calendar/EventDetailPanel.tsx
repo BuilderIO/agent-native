@@ -187,18 +187,18 @@ export function EventDetailPanel({
     <TooltipProvider>
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm 2xl:hidden"
           onClick={onClose}
         />
       )}
       <div
         className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden md:static md:z-auto md:max-w-none md:shrink-0",
-          isOpen ? "md:w-80" : "w-0 md:w-0",
+          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden 2xl:static 2xl:z-auto 2xl:max-w-none 2xl:shrink-0",
+          isOpen ? "2xl:w-80" : "w-0 2xl:w-0",
           !isOpen && "pointer-events-none",
         )}
       >
-        <div className="h-full w-full border-l border-border bg-card flex flex-col md:w-80">
+        <div className="flex h-full w-full flex-col border-l border-border bg-card 2xl:w-80">
           {event && (
             <>
               {/* Header */}
@@ -418,6 +418,23 @@ export function EventDetailPanel({
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     Delete
                   </Button>
+                  {event.htmlLink && (
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto"
+                    >
+                      <a
+                        href={safeUrl(event.htmlLink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        Google Calendar
+                      </a>
+                    </Button>
+                  )}
                 </div>
               )}
             </>

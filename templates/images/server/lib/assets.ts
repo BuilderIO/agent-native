@@ -45,15 +45,22 @@ export async function createAssetFromBuffer(input: {
   const info = await imageInfo(input.buffer);
   const thumb = await makeThumbnail(input.buffer);
   const ext = extFromMime(input.mimeType);
-  const objectKey = `libraries/${input.libraryId}/assets/${id}/original.${ext}`;
-  const thumbnailObjectKey = `libraries/${input.libraryId}/assets/${id}/thumb.webp`;
-  await putObject({
-    key: objectKey,
+  const originalFilename = `libraries/${input.libraryId}/assets/${id}/original.${ext}`;
+  const thumbnailFilename = `libraries/${input.libraryId}/assets/${id}/thumb.webp`;
+  // putObject returns the *opaque* storage key — a URL when a provider
+  // accepted the upload, or `local:<path>` when the dev-only local-fs
+  // fallback ran. Persist the returned key (not the filename hint) so
+  // getObject can dispatch on the real storage shape on read-back.
+  // Storing the bare filename here is what caused thumb.webp 500s when
+  // BUILDER_PRIVATE_KEY was set — bytes lived at the provider URL but the
+  // DB still pointed at a non-existent local file.
+  const { key: objectKey } = await putObject({
+    key: originalFilename,
     body: input.buffer,
     contentType: input.mimeType,
   });
-  await putObject({
-    key: thumbnailObjectKey,
+  const { key: thumbnailObjectKey } = await putObject({
+    key: thumbnailFilename,
     body: thumb.buffer,
     contentType: thumb.mimeType,
   });

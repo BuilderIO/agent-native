@@ -540,6 +540,16 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
   return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
 }
 
+export function getBuilderBrowserConnectUrlForOwner(
+  origin: string,
+  ownerEmail: string | null | undefined,
+): string {
+  const connectUrl = getBuilderBrowserConnectUrl(origin);
+  return ownerEmail
+    ? appendBuilderConnectToken(connectUrl, ownerEmail)
+    : connectUrl;
+}
+
 function firstHeaderValue(value: string | undefined): string | undefined {
   return value?.split(",")[0]?.trim() || undefined;
 }
@@ -738,6 +748,21 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
+}
+
+export function resolveBuilderCallbackReturnUrl(options: {
+  event: H3Event;
+  openerOrigin?: string | null;
+  previewUrl?: string | null;
+}): string {
+  const openerOrigin =
+    options.openerOrigin && isAllowedBrowserReturnUrl(options.openerOrigin)
+      ? options.openerOrigin
+      : null;
+  if (openerOrigin) {
+    return new URL(getAppBasePath() || "/", openerOrigin).toString();
+  }
+  return resolveSafePreviewUrl(options.previewUrl, options.event);
 }
 
 /**

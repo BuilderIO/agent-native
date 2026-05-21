@@ -93,6 +93,46 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
     expect(root).not.toContain('app: "agent-native-starter"');
   });
 
+  it("brands a generated starter app as the generated app, not the starter", async () => {
+    await createApp("test-app", { template: "starter" });
+
+    const appConfig = fs.readFileSync(
+      path.join(tmpDir, "test-app", "app", "lib", "app-config.ts"),
+      "utf-8",
+    );
+    const sidebar = fs.readFileSync(
+      path.join(
+        tmpDir,
+        "test-app",
+        "app",
+        "components",
+        "layout",
+        "Sidebar.tsx",
+      ),
+      "utf-8",
+    );
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, "test-app", "public", "manifest.json"),
+        "utf-8",
+      ),
+    );
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+
+    expect(appConfig).toContain('rawAppName = "test-app"');
+    expect(appConfig).toContain('rawAppTitle = "Test App"');
+    expect(sidebar).not.toContain("New App");
+    expect(
+      fs.existsSync(
+        path.join(tmpDir, "test-app", "app", "routes", "new-app.tsx"),
+      ),
+    ).toBe(false);
+    expect(manifest.name).toBe("Test App");
+    expect(manifest.short_name).toBe("Test App");
+    expect(manifest.description).toBe("Workspace app for Test App.");
+    expect(pkg.description).toBe("Workspace app for Test App.");
+  });
+
   it("resolves all workspace:* deps for standalone install", async () => {
     await createApp("test-app", { template: "starter" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
@@ -281,6 +321,20 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
     expect(wsYaml).toContain("catalog:");
     expect(wsYaml).toContain("tailwindcss");
+  });
+
+  it("keeps the default workspace starter app branded as a blank app", async () => {
+    await createApp("my-ws", { template: "starter,dispatch" });
+    const wsDir = path.join(tmpDir, "my-ws");
+    const appConfig = fs.readFileSync(
+      path.join(wsDir, "apps", "starter", "app", "lib", "app-config.ts"),
+      "utf-8",
+    );
+    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+
+    expect(appConfig).toContain('rawAppTitle = "Blank app"');
+    expect(appPkg.displayName).toBe("Blank app");
+    expect(appPkg.description).toBe("Blank agent-native app scaffold.");
   });
 
   it("resolves @agent-native/core in workspacified apps", async () => {

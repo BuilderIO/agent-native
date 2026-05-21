@@ -1,5 +1,6 @@
 import { useTheme } from "next-themes";
 import { IconLoader2 } from "@tabler/icons-react";
+import { useActionQuery } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "{{APP_TITLE}}" }];
@@ -20,6 +21,7 @@ export function HydrateFallback() {
 export default function IndexPage() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const { data } = useActionQuery("hello", { name: "{{APP_TITLE}}" });
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6">
@@ -37,6 +39,15 @@ export default function IndexPage() {
         </div>
 
         <div className="h-px bg-border" />
+
+        <div className="rounded-lg border border-border/50 px-4 py-3 text-left">
+          <p className="text-[13px] font-medium text-foreground">
+            Action-backed data
+          </p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            {data?.message ?? "Loading action result..."}
+          </p>
+        </div>
 
         <div className="grid grid-cols-2 gap-3 text-left">
           <a

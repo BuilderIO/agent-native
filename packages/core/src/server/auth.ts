@@ -13,6 +13,8 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { EMBED_START_PATH } from "../shared/embed-auth.js";
+import { resolveEmbedSessionFromRequest } from "./embed-session.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -94,6 +96,7 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
@@ -260,7 +263,8 @@ export interface AuthOptions {
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
- * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ * When an isolated app slug is resolved, suffix the cookie so each app gets
+ * its own slot.
  *
  * Workspace exception: in workspace mode (`AGENT_NATIVE_WORKSPACE=1`),
  * every app shares the same origin AND the same DB, and cross-app SSO is
@@ -271,41 +275,27 @@ export interface AuthOptions {
  * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
  * is recognised by every app in the workspace.
  *
- * Cross-subdomain exception: when `COOKIE_DOMAIN` is set (e.g.
- * `.agent-native.com` for first-party deploys where each app is its own
- * subdomain — mail.agent-native.com, calendar.agent-native.com, …),
- * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so
- * the cookie is shared across every subdomain. Signing into one app
- * signs the user into all of them. Per-app suffixes would defeat the
- * shared cookie since each subdomain reads a different name.
+ * Cross-subdomain exception: when `COOKIE_DOMAIN` is set for a custom domain,
+ * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so the
+ * cookie is shared across every subdomain. First-party `*.agent-native.com`
+ * apps are deliberately excluded from that behavior by default because each
+ * hosted app has its own auth database; they use Dispatch identity federation
+ * instead of a shared browser cookie.
  */
-const APP_NAME_SLUG = (process.env.APP_NAME || "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "_")
-  .replace(/^_+|_+$/g, "");
-const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
+const AUTH_COOKIE_NAMESPACE = resolveAuthCookieNamespace();
 
 /**
  * When set, the framework session cookie is shared across every subdomain
- * matching this domain (e.g. `.agent-native.com`). Reads `COOKIE_DOMAIN`.
- * Returns undefined when unset so cookies stay scoped to the origin host.
+ * matching this domain. Returns undefined when unset or deliberately ignored
+ * for first-party hosted apps, so cookies stay scoped to the origin host.
  */
 export function getCookieDomain(): string | undefined {
-  const raw = process.env.COOKIE_DOMAIN;
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed || undefined;
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieDomain;
 }
 
-const HAS_COOKIE_DOMAIN = !!getCookieDomain();
-
-export const COOKIE_NAME = HAS_COOKIE_DOMAIN
-  ? "an_session"
-  : IS_WORKSPACE_MODE
-    ? "an_session_workspace"
-    : APP_NAME_SLUG
-      ? `an_session_${APP_NAME_SLUG}`
-      : "an_session";
+export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
+export const BETTER_AUTH_COOKIE_PREFIX =
+  AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
@@ -350,28 +340,41 @@ function getCookieValues(event: H3Event, name: string): string[] {
   return values;
 }
 
-function getFrameworkSessionCookieValues(event: H3Event): string[] {
-  return getCookieValues(event, COOKIE_NAME);
+export function getFrameworkSessionCookieValues(event: H3Event): string[] {
+  return getFrameworkSessionCookieEntries(event).map((entry) => entry.value);
+}
+
+function getFrameworkSessionCookieEntries(
+  event: H3Event,
+): Array<{ name: string; value: string }> {
+  const entries: Array<{ name: string; value: string }> = [];
+  const seenValues = new Set<string>();
+
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    for (const value of getCookieValues(event, name)) {
+      if (seenValues.has(value)) continue;
+      seenValues.add(value);
+      entries.push({ name, value });
+    }
+  }
+
+  return entries;
 }
 
 function frameworkSessionCookieNamesToClear(): string[] {
-  const names = new Set([COOKIE_NAME]);
-  if (APP_NAME_SLUG) names.add(`an_session_${APP_NAME_SLUG}`);
-  return [...names];
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
-  // Clear host-only cookies first. When COOKIE_DOMAIN was introduced, stale
-  // host-only `an_session` cookies could shadow the new domain cookie because
-  // browsers send older same-path duplicates first.
+  // Clear host-only cookies first. Then clear any configured domain scope so
+  // stale shared cookies stop shadowing isolated app sessions.
   deleteCookie(event, name, { path: "/" });
-  const domainAttrs = cookieDomainAttrs();
-  if (domainAttrs.domain) {
-    deleteCookie(event, name, { path: "/", ...domainAttrs });
+  for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
+    deleteCookie(event, name, { path: "/", domain });
   }
 }
 
-function clearFrameworkSessionCookies(event: H3Event): void {
+export function clearFrameworkSessionCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }
@@ -380,9 +383,12 @@ function clearFrameworkSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const cookie of getFrameworkSessionCookieValues(event)) {
-    const email = await getSessionEmail(cookie);
-    if (email) return { email, token: cookie };
+  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+    const email = await getSessionEmail(value);
+    if (email) {
+      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      return { email, token: value };
+    }
   }
   return null;
 }
@@ -1216,7 +1222,7 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
     // session-lost popup case) — when a session IS present, the normal
     // guard runs and the callback handler cross-checks the state owner
     // against the session.
-    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
       verifyBuilderCallbackStateAndGetOwner(state) ||
@@ -1276,7 +1282,7 @@ function createAuthGuardFn(): (
     // returns to the same deep link). It must bypass the guard's blanket
     // 401-for-/_agent-native/* so an external-agent "Open in … →" link
     // clicked in any browser/webview lands correctly.
-    if (p === "/_agent-native/open") {
+    if (p === "/_agent-native/open" || p === EMBED_START_PATH) {
       return;
     }
 
@@ -1332,17 +1338,23 @@ function createAuthGuardFn(): (
     // protected by short-TTL, single-use, crypto-random codes + a creation
     // rate-limit, not cookies.
     //
-    // Everything that MINTS or MUTATES on behalf of the user — `/token`,
-    // `/device/authorize`, `/tokens`, `/tokens/revoke` — is intentionally
-    // NOT bypassed: the guard's default 401-for-/_agent-native/* is the
-    // correct gate for them. Those are POSTed by the in-page fetch, which
-    // carries the session cookie, so the guard (which only 401s when there
-    // is no session) lets the authenticated same-origin request through and
-    // the handler then re-checks the session itself (defense in depth).
+    // The standard remote-MCP OAuth endpoints also bypass here: metadata and
+    // dynamic client registration are public by design; `/oauth/token` is
+    // protected by single-use auth codes / refresh tokens; and
+    // `/oauth/authorize` resolves the browser session itself so it can serve
+    // the login form at the original authorization URL.
+    //
+    // The legacy Connect endpoints that MINT or MUTATE on behalf of the user
+    // (`/connect/token`, `/device/authorize`, `/tokens`, `/tokens/revoke`) are
+    // intentionally NOT bypassed: they are POSTed by the in-page fetch with a
+    // session cookie and the handler re-checks the session itself.
     if (
       p === "/_agent-native/mcp/connect" ||
       p === "/_agent-native/mcp/connect/device/start" ||
-      p === "/_agent-native/mcp/connect/device/poll"
+      p === "/_agent-native/mcp/connect/device/poll" ||
+      p === "/_agent-native/mcp/oauth/authorize" ||
+      p === "/_agent-native/mcp/oauth/token" ||
+      p === "/_agent-native/mcp/oauth/register"
     ) {
       return;
     }
@@ -1667,12 +1679,13 @@ async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
  *
  * Resolution chain:
  * 1. ACCESS_TOKEN → check legacy cookie-based token sessions
- * 2. BYOA custom getSession → delegate to template callback
- * 3. Bearer legacy session → check Authorization: Bearer against sessions
- * 4. Better Auth → check session via Better Auth API (cookie or Bearer)
- * 5. Legacy cookie → check an_session cookie in legacy sessions table
- * 6. Desktop SSO broker (Electron loopback only)
- * 7. Mobile _session query param → promote to cookie
+ * 2. Embed session → short-lived token minted by /_agent-native/embed/start
+ * 3. BYOA custom getSession → delegate to template callback
+ * 4. Bearer legacy session → check Authorization: Bearer against sessions
+ * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 6. Legacy cookie → check an_session cookie in legacy sessions table
+ * 7. Desktop SSO broker (Electron loopback only)
+ * 8. Mobile _session query param → promote to cookie
  *
  * Returns `null` for unauthenticated requests. There is no dev-mode bypass:
  * local development uses the same Better Auth signup flow as production. The
@@ -1703,7 +1716,20 @@ async function resolveSessionUncached(
     if (cookieSession) return cookieSession;
   }
 
-  // 2. BYOA custom getSession
+  // 2. MCP App embed session. This is a short-lived browser session minted
+  // from a one-time ticket that was scoped to the authenticated MCP caller.
+  // It lets an inline MCP App iframe load the real app without reusing the
+  // MCP bearer token as a browser cookie.
+  const embedSession = await resolveEmbedSessionFromRequest(event);
+  if (embedSession) {
+    return {
+      email: embedSession.email,
+      token: embedSession.token,
+      ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+    };
+  }
+
+  // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
@@ -1720,12 +1746,12 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 3. Bearer legacy session. Desktop/native clients can persist a session
+    // 4. Bearer legacy session. Desktop/native clients can persist a session
     // token outside the WebView cookie jar and attach it to all app requests.
     const bearerSession = await getBearerLegacySession(event);
     if (bearerSession) return bearerSession;
 
-    // 4. Better Auth session (cookie or Bearer token)
+    // 5. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -1740,11 +1766,11 @@ async function resolveSessionUncached(
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 5. Legacy cookie fallback (for sessions created before migration)
+    // 6. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
 
-    // 6. Desktop SSO broker fallback.
+    // 7. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -1759,7 +1785,7 @@ async function resolveSessionUncached(
     }
   }
 
-  // 7. Mobile WebView bridge — _session query param
+  // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
 
@@ -2624,6 +2650,11 @@ async function mountBetterAuthRoutes(
       const reqPath = event.url?.pathname ?? event.path ?? "";
       const isResetPassword =
         reqPath.includes("reset-password") && getMethod(event) === "POST";
+      const isSendVerificationEmail =
+        reqPath.includes("send-verification-email") &&
+        getMethod(event) === "POST";
+      const authRequest = toWebRequest(event);
+      let requestForAuth = authRequest;
 
       // Pre-read the body for reset-password so we can auto-verify the
       // user's email after they save the new password. CRUCIAL: clone
@@ -2636,7 +2667,7 @@ async function mountBetterAuthRoutes(
       let resetUserId: string | undefined;
       if (isResetPassword) {
         try {
-          const cloned = (event.req as Request).clone();
+          const cloned = authRequest.clone();
           const body = (await cloned.json().catch(() => undefined)) as
             | { token?: string }
             | undefined;
@@ -2663,7 +2694,37 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(toWebRequest(event));
+      // The signup wrapper sanitizes callbackURL before calling Better Auth,
+      // but the resend endpoint is exposed directly so users can request a
+      // fresh link while unauthenticated. Keep that path equally strict:
+      // only same-origin relative return paths survive into the email.
+      if (isSendVerificationEmail) {
+        try {
+          const body = (await authRequest
+            .clone()
+            .json()
+            .catch(() => undefined)) as Record<string, unknown> | undefined;
+          if (body && typeof body.callbackURL === "string") {
+            const callbackURL = safeReturnPath(body.callbackURL);
+            if (callbackURL !== body.callbackURL) {
+              const headers = new Headers(authRequest.headers);
+              headers.delete("content-length");
+              headers.set("content-type", "application/json");
+              requestForAuth = new Request(authRequest.url, {
+                method: authRequest.method,
+                headers,
+                body: JSON.stringify({ ...body, callbackURL }),
+                duplex: "half",
+              } as RequestInit & { duplex: "half" });
+            }
+          }
+        } catch {
+          // Let Better Auth handle malformed bodies and return its normal
+          // validation error.
+        }
+      }
+
+      const response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&

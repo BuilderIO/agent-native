@@ -29,6 +29,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { extensionPath } from "../../extensions/path.js";
 
 interface Extension {
   id: string;
@@ -353,7 +354,7 @@ function EmbeddedToolMenu({
               type="button"
               onClick={() => {
                 closeMenu();
-                navigate(`/extensions/${extensionId}`);
+                navigate(extensionPath(extensionId, toolName));
               }}
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
             >

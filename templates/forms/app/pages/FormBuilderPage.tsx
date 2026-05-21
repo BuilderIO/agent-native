@@ -238,7 +238,7 @@ export function FormBuilderPage() {
     [],
   );
 
-  if (isLoading) {
+  if (isLoading || (!form && !error)) {
     return (
       <div className="flex flex-col h-full">
         {/* Top bar */}

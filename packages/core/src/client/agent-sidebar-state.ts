@@ -1,4 +1,3 @@
-import { isInBuilderFrame } from "./builder-frame.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
@@ -6,6 +5,9 @@ import {
 
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
+export const SIDEBAR_URL_CHANGE_EVENT = "agent-panel:url-change";
+
+const HISTORY_PATCHED_KEY = "__agentNativeSidebarHistoryPatched";
 
 export type AgentSidebarStateSource = "app" | "frame";
 export type AgentSidebarStateMode = "app" | "code";
@@ -61,6 +63,51 @@ export function consumeAgentSidebarUrlOpenOverride(): boolean | null {
   return override;
 }
 
+function emitSidebarUrlChange(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SIDEBAR_URL_CHANGE_EVENT));
+}
+
+function installSidebarUrlChangeEvents(): void {
+  if (typeof window === "undefined") return;
+  const historyWithFlag = window.history as History & {
+    [HISTORY_PATCHED_KEY]?: boolean;
+  };
+  if (historyWithFlag[HISTORY_PATCHED_KEY]) return;
+
+  const pushState = window.history.pushState;
+  const replaceState = window.history.replaceState;
+
+  window.history.pushState = function pushStateWithSidebarEvent(...args) {
+    const result = pushState.apply(this, args);
+    emitSidebarUrlChange();
+    return result;
+  };
+  window.history.replaceState = function replaceStateWithSidebarEvent(...args) {
+    const result = replaceState.apply(this, args);
+    emitSidebarUrlChange();
+    return result;
+  };
+  historyWithFlag[HISTORY_PATCHED_KEY] = true;
+}
+
+export function subscribeAgentSidebarUrlChanges(
+  listener: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  installSidebarUrlChangeEvents();
+  window.addEventListener(SIDEBAR_URL_CHANGE_EVENT, listener);
+  window.addEventListener("popstate", listener);
+  window.addEventListener("hashchange", listener);
+
+  return () => {
+    window.removeEventListener(SIDEBAR_URL_CHANGE_EVENT, listener);
+    window.removeEventListener("popstate", listener);
+    window.removeEventListener("hashchange", listener);
+  };
+}
+
 export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
   const urlOverride = getAgentSidebarUrlOpenOverride();
   if (urlOverride !== null) return urlOverride;
@@ -71,13 +118,6 @@ export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 767px)").matches
   ) {
-    return false;
-  }
-
-  // Builder owns the code/chat surface around embedded apps. Start the
-  // app-native chat collapsed there even if a previous standalone session
-  // persisted it as open.
-  if (isInBuilderFrame()) {
     return false;
   }
 

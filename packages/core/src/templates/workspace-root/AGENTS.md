@@ -95,12 +95,24 @@ coding agents can discover the same workspace-wide guidance from the root.
   `@tabler/icons-react`. Do not add `lucide-react` or another icon library.
   Read `packages/shared/.agents/skills/shadcn-ui/SKILL.md` before adding,
   updating, or debugging shadcn components.
+- Normal app data must flow through actions. For CRUD that the agent can
+  perform, create `defineAction` files in `actions/`, mark reads with
+  `http: { method: "GET" }`, and call them from React with `useActionQuery` /
+  `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*`
+  for the same data unless the route is for uploads, streaming, webhooks,
+  OAuth, or another route-only concern. Action-backed UI is what makes
+  agent-created or agent-edited records appear without a manual refresh.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch
   should still create the separate workspace app, not patch starter. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
+- When using the starter template, treat it as scaffolding only. The finished
+  app must be branded as the requested app, with its own home screen,
+  navigation, package metadata, manifest, and domain workflow. Do not leave
+  visible `Starter`, `Blank app`, `Start building`, or `New app` UI in a
+  starter-derived app.
 
 ## Workspace Identity
 

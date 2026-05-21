@@ -22,7 +22,13 @@ import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
+import {
+  handleMcpOAuth,
+  handleMcpOAuthAuthorizationServerMetadata,
+  handleMcpOAuthProtectedResourceMetadata,
+} from "../mcp/oauth-route.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { getAppName } from "./app-name.js";
@@ -43,6 +49,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
+  resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
   resolveSafePreviewUrl,
@@ -110,6 +117,7 @@ import {
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -151,6 +159,13 @@ async function detectUsageEngineName(
         /* org module not present in this template */
       }
     }
+    const envEntry = process.env.AGENT_ENGINE
+      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+      : undefined;
+    if (envEntry) {
+      return isAgentEnginePackageInstalled(envEntry) ? envEntry.name : null;
+    }
+
     const detectedFromUser = await runWithRequestContext(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
@@ -306,12 +321,15 @@ export interface CoreRoutesPluginOptions {
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
+  /** Disable the /_agent-native/embed/start iframe session launcher. */
+  disableEmbedRoute?: boolean;
   /**
    * Disable the /_agent-native/mcp/connect routes (browser Connect page +
-   * CLI device-code flow that mints per-user, revocable MCP tokens).
-   * Enabled by default — the routes are session-gated where they mint and
-   * back-compat with deployments that have no A2A_SECRET (they return a
-   * clear 503 instead of minting).
+   * CLI device-code flow that mints per-user, revocable MCP tokens) and the
+   * standard remote-MCP OAuth endpoints under /_agent-native/mcp/oauth.
+   * Enabled by default — the routes are session-gated where they approve user
+   * access; token endpoints are protected by single-use codes / refresh
+   * tokens.
    */
   disableMcpConnect?: boolean;
   /** Canonical app id (e.g. `mail`) for the MCP connect server name. */
@@ -1484,10 +1502,11 @@ export function createCoreRoutesPlugin(
           // No prior error row — fine
         }
 
-        const previewUrl = resolveSafePreviewUrl(
-          requestUrl.searchParams.get("preview-url"),
+        const previewUrl = resolveBuilderCallbackReturnUrl({
           event,
-        );
+          openerOrigin: openerOriginFromQuery,
+          previewUrl: requestUrl.searchParams.get("preview-url"),
+        });
         await trackBuilderLifecycle(
           event,
           "builder connect succeeded",
@@ -1859,6 +1878,21 @@ export function createCoreRoutesPlugin(
               engine,
               model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
               source: "settings" as const,
+            };
+          }
+          const envEntry = process.env.AGENT_ENGINE
+            ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+            : undefined;
+          if (envEntry) {
+            if (!isAgentEnginePackageInstalled(envEntry)) {
+              return { configured: false };
+            }
+            return {
+              configured: true,
+              engine: envEntry.name,
+              model: envEntry.defaultModel ?? DEFAULT_MODEL,
+              source: "env" as const,
+              envVar: "AGENT_ENGINE",
             };
           }
           // Per-user app_secrets — a user who connected Builder (or pasted
@@ -2520,6 +2554,35 @@ export function createCoreRoutesPlugin(
     );
 
     if (!options.disableMcpConnect) {
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-protected-resource",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthProtectedResourceMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/oauth-authorization-server",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        "/.well-known/openid-configuration",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
+        `${P}/mcp/oauth`,
+        defineEventHandler(async (event: H3Event) => {
+          const subpath = event.url?.pathname || "";
+          return handleMcpOAuth(event, subpath, {
+            appId: options.mcpConnectAppId,
+            appName: options.mcpConnectAppName ?? getAppName(),
+          });
+        }),
+      );
+
       // Frictionless external-agent connection. A logged-in user mints a
       // per-user, scoped, revocable MCP bearer token here — via the browser
       // Connect page or the OAuth-style device-code flow a CLI drives — so
@@ -2574,6 +2637,16 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/open`,
         createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+      );
+    }
+
+    if (!options.disableEmbedRoute) {
+      // One-time ticket launcher for MCP Apps that embed the full React app.
+      // The ticket is minted by an authenticated MCP tool call and exchanged
+      // here for a short-lived browser session cookie + bearer fallback.
+      getH3App(nitroApp).use(
+        `${P}/embed/start`,
+        createEmbedStartRouteHandler({ getExistingSession: getSession }),
       );
     }
 

@@ -32,6 +32,8 @@ function fakeEvent(url: string, method = "GET") {
 
 describe("createOpenRouteHandler", () => {
   beforeEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     getSession.mockReset();
     getConfiguredLoginHtml.mockReset();
     appStatePut.mockReset();
@@ -41,6 +43,8 @@ describe("createOpenRouteHandler", () => {
   });
 
   afterEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     vi.restoreAllMocks();
   });
 
@@ -160,6 +164,79 @@ describe("createOpenRouteHandler", () => {
       f_range: "30d",
       f_team: "growth",
     });
+  });
+
+  it("preserves embed launch params through the redirect but not navigate payload", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    const loc = res.headers.get("Location")!;
+    const sp = new URL(loc, "http://x.invalid").searchParams;
+    expect(sp.get("embedded")).toBe("1");
+    expect(sp.get("__an_embed_token")).toBe("tok_123");
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("parses the original browser URL when mounted under the framework route", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler({
+      method: "GET",
+      path: "/",
+      node: { req: { url: "/" } },
+      context: { _mountedPathname: "/_agent-native/open" },
+      url: {
+        search: "?view=inbox&threadId=t1&embedded=1&__an_embed_token=tok_123",
+      },
+    } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/inbox?embedded=1&__an_embed_token=tok_123&agentSidebar=closed",
+    );
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("preserves APP_BASE_PATH when redirecting mounted app routes", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/mail/_agent-native/open?view=inbox&threadId=t1"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/mail/inbox?agentSidebar=closed");
+  });
+
+  it("does not duplicate APP_BASE_PATH when a safe to param is already mounted", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/mail/_agent-native/open?view=inbox&to=%2Fmail%2Finbox%2Fabc123",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/mail/inbox/abc123?agentSidebar=closed",
+    );
   });
 
   it("honors a safe same-origin relative `to` override", async () => {

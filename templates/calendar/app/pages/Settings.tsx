@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router";
 import {
   IconBrandZoom,
   IconExternalLink,
+  IconLink,
   IconUnlink,
   IconCircleCheck,
   IconCircleX,
@@ -278,7 +280,9 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">General</CardTitle>
-          <CardDescription>Calendar and booking page settings.</CardDescription>
+          <CardDescription>
+            Calendar defaults and fallback booking copy.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -287,7 +291,7 @@ export default function Settings() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="booking-title">Booking page title</Label>
+            <Label htmlFor="booking-title">Fallback booking page title</Label>
             <Input
               id="booking-title"
               value={bookingTitle}
@@ -295,13 +299,15 @@ export default function Settings() {
               placeholder="Book a Meeting"
             />
             <p className="text-xs text-muted-foreground">
-              Heading shown on your default public booking page. Individual
-              booking links use their own title when set.
+              Used only when a booking link has no title. Create, open, and copy
+              public URLs from Booking links.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="booking-desc">Booking page description</Label>
+            <Label htmlFor="booking-desc">
+              Fallback booking page description
+            </Label>
             <Textarea
               id="booking-desc"
               value={bookingDescription}
@@ -310,8 +316,7 @@ export default function Settings() {
               rows={2}
             />
             <p className="text-xs text-muted-foreground">
-              Subtitle shown on your default public booking page when a booking
-              link has no description of its own.
+              Used only when a booking link has no description of its own.
             </p>
           </div>
 
@@ -333,9 +338,17 @@ export default function Settings() {
             </p>
           </div>
 
-          <Button onClick={handleSave} disabled={updateSettings.isPending}>
-            {updateSettings.isPending ? "Saving..." : "Save Settings"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleSave} disabled={updateSettings.isPending}>
+              {updateSettings.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/booking-links">
+                <IconLink className="mr-1.5 h-3.5 w-3.5" />
+                Booking links
+              </Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

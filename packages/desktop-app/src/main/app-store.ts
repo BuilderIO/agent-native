@@ -125,6 +125,7 @@ function canonicalizeDefaultApp(appConfig: AppConfig, def: AppConfig) {
     url: shouldBackfillProdUrl ? def.url : (appConfig.url ?? def.url),
     devUrl: appConfig.devUrl ?? def.devUrl,
     devCommand: appConfig.devCommand ?? def.devCommand,
+    localPath: appConfig.localPath,
     devPort: appConfig.devPort || def.devPort,
   };
 }
@@ -147,6 +148,8 @@ function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
     devUrl: shouldBackfillDevUrl
       ? def.devUrl
       : (appConfig.devUrl ?? def.devUrl),
+    devCommand: appConfig.devCommand ?? def.devCommand,
+    localPath: appConfig.localPath,
     devPort: appConfig.devPort || def.devPort,
   };
 }

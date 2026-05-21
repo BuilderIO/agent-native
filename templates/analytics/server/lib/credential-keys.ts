@@ -89,6 +89,15 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
   { key: "GRAFANA_API_TOKEN", label: "Grafana API Token", required: false },
+  // Prometheus
+  { key: "PROMETHEUS_URL", label: "Prometheus URL", required: false },
+  { key: "PROMETHEUS_USERNAME", label: "Prometheus Username", required: false },
+  { key: "PROMETHEUS_PASSWORD", label: "Prometheus Password", required: false },
+  {
+    key: "PROMETHEUS_BEARER_TOKEN",
+    label: "Prometheus Bearer Token",
+    required: false,
+  },
   // Slack
   { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", required: false },
   {
@@ -241,6 +250,16 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     requiredKeys: ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
   },
   {
+    provider: "prometheus",
+    label: "Prometheus",
+    requiredKeys: ["PROMETHEUS_URL"],
+    optionalKeys: [
+      "PROMETHEUS_USERNAME",
+      "PROMETHEUS_PASSWORD",
+      "PROMETHEUS_BEARER_TOKEN",
+    ],
+  },
+  {
     provider: "gcloud",
     label: "Google Cloud",
     requiredKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
@@ -304,6 +323,18 @@ const credentialAliases: Record<string, string[]> = {
   postgres: ["POSTGRES_URL"],
   postgresql: ["POSTGRES_URL"],
   posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
+  prometheus: [
+    "PROMETHEUS_URL",
+    "PROMETHEUS_USERNAME",
+    "PROMETHEUS_PASSWORD",
+    "PROMETHEUS_BEARER_TOKEN",
+  ],
+  prom: [
+    "PROMETHEUS_URL",
+    "PROMETHEUS_USERNAME",
+    "PROMETHEUS_PASSWORD",
+    "PROMETHEUS_BEARER_TOKEN",
+  ],
   pylon: ["PYLON_API_KEY"],
   sentry: ["SENTRY_AUTH_TOKEN", "SENTRY_ORG_SLUG", "SENTRY_SERVER_TOKEN"],
   slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],

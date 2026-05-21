@@ -48,6 +48,14 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations ?? [];
     }
+    if (navigation?.view === "agents") {
+      const [connectedAgents, mcpAccess] = await Promise.all([
+        runDispatchAction("list-connected-agents", {}),
+        runDispatchAction("list-mcp-app-access", {}),
+      ]);
+      screen.connectedAgents = connectedAgents;
+      screen.mcpAppAccess = mcpAccess;
+    }
     if (
       navigation?.view === "overview" ||
       navigation?.view === "metrics" ||

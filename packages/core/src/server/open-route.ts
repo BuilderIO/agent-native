@@ -29,6 +29,11 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -36,6 +41,8 @@ const RESERVED = new Set([
   "view",
   "to",
   "compose",
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
 ]);
 
@@ -61,6 +68,10 @@ export interface OpenRouteOptions {
 }
 
 function getRequestUrl(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return `${mountedPathname}${(event as any).url?.search ?? ""}`;
+  }
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
 }
 
@@ -94,6 +105,21 @@ function appendSearchParams(target: string, params: URLSearchParams): string {
   try {
     const url = new URL(target, "http://an.invalid");
     for (const [k, v] of params.entries()) url.searchParams.set(k, v);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return target;
+  }
+}
+
+function withConfiguredRedirectBasePath(target: string): string {
+  const base = getConfiguredAppBasePath();
+  if (!base) return target;
+  try {
+    const url = new URL(target, "http://an.invalid");
+    if (url.pathname === base || url.pathname.startsWith(`${base}/`)) {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    url.pathname = url.pathname === "/" ? base : `${base}${url.pathname}`;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return target;
@@ -217,7 +243,14 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
     target = appendSearchParams(target, filters);
+    const embedParams = new URLSearchParams();
+    for (const key of [EMBED_MODE_QUERY_PARAM, EMBED_TOKEN_QUERY_PARAM]) {
+      const value = search.get(key);
+      if (value) embedParams.set(key, value);
+    }
+    target = appendSearchParams(target, embedParams);
     target = withCollapsedAgentSidebarParam(target);
+    target = withConfiguredRedirectBasePath(target);
 
     return redirect(target);
   });

@@ -107,6 +107,7 @@ function DbSyncSetup() {
       "list-agent-thread-sources",
       "search-agent-threads",
       "get-agent-thread-debug",
+      "list-mcp-app-access",
       "get-dispatch-settings",
       "list-connected-agents",
       "list-vault-secrets",

@@ -1,8 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { asc } from "drizzle-orm";
+import { and, asc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  documentDiscoveryFilter,
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -32,6 +36,7 @@ export default defineAction({
           icon: doc.icon,
           position: doc.position,
           isFavorite: parseDocumentFavorite(doc.isFavorite),
+          hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           visibility: doc.visibility,
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
@@ -42,7 +47,12 @@ export default defineAction({
     const docs = await db
       .select()
       .from(schema.documents)
-      .where(accessFilter(schema.documents, schema.documentShares))
+      .where(
+        and(
+          accessFilter(schema.documents, schema.documentShares),
+          documentDiscoveryFilter(),
+        ),
+      )
       .orderBy(asc(schema.documents.position));
 
     if (docs.length > 0) {
@@ -54,6 +64,7 @@ export default defineAction({
           title: d.title || "Untitled",
           icon: d.icon || undefined,
           isFavorite: parseDocumentFavorite(d.isFavorite),
+          hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
           visibility: d.visibility,
         })),
       };

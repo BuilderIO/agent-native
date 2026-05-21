@@ -1,10 +1,50 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 
 const SNIPPET_RADIUS = 80;
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
+
+type RecordingMatchPanel = "transcript" | "comments" | null;
+
+function playerPath(
+  recordingId: string,
+  options: { matchMs?: number | null; matchPanel?: RecordingMatchPanel } = {},
+): string {
+  const params = new URLSearchParams();
+  if (typeof options.matchMs === "number" && Number.isFinite(options.matchMs)) {
+    params.set("t", Math.max(0, Math.floor(options.matchMs / 1000)).toString());
+  }
+  if (options.matchPanel) params.set("panel", options.matchPanel);
+  const query = params.toString();
+  return `/r/${encodeURIComponent(recordingId)}${query ? `?${query}` : ""}`;
+}
+
+function recordingDeepLink(
+  recordingId: string,
+  options: { matchMs?: number | null; matchPanel?: RecordingMatchPanel } = {},
+): string {
+  return buildDeepLink({
+    app: "clips",
+    view: "recording",
+    params: {
+      recordingId,
+      ...(typeof options.matchMs === "number" &&
+      Number.isFinite(options.matchMs)
+        ? { t: Math.max(0, Math.floor(options.matchMs / 1000)) }
+        : {}),
+      ...(options.matchPanel ? { panel: options.matchPanel } : {}),
+    },
+    to: playerPath(recordingId, options),
+  });
+}
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -64,6 +104,16 @@ export default defineAction({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Clip search",
+      description: "Open the best matching recording in the real Clips player.",
+      iframeTitle: "Agent-Native Clips",
+      openLabel: "Open clip",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
+  },
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
@@ -260,6 +310,25 @@ export default defineAction({
     return {
       query: args.query,
       results: results.slice(0, args.limit),
+    };
+  },
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const results = (result as { results?: unknown }).results;
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const first = results[0] as {
+      id?: string;
+      matchMs?: number | null;
+      matchPanel?: RecordingMatchPanel;
+    };
+    if (!first.id) return null;
+    return {
+      url: recordingDeepLink(first.id, {
+        matchMs: first.matchMs,
+        matchPanel: first.matchPanel ?? null,
+      }),
+      label: "Open clip in Clips",
+      view: "recording",
     };
   },
 });

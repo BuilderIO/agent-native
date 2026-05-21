@@ -1,4 +1,9 @@
-export type DataSourceType = "bigquery" | "ga4" | "amplitude" | "first-party";
+export type DataSourceType =
+  | "bigquery"
+  | "ga4"
+  | "amplitude"
+  | "first-party"
+  | "prometheus";
 
 export type ChartType =
   | "line"
