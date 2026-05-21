@@ -825,6 +825,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
+  it("cache-busts custom MCP App resource URI paths before query strings and fragments", async () => {
+    const customResourceConfig = {
+      ...config,
+      actions: {
+        "custom-review": {
+          tool: {
+            description: "Review with a custom resource URI",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              uri: "ui://mail/custom-review?mode=compact#preview",
+              title: "Custom review",
+              html: "<!doctype html><html><body>Custom review</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review/shell-v3?mode=compact#preview",
+        name: "custom-review",
+      }),
+    ]);
+
+    const legacyRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "resources/read",
+        params: { uri: "ui://mail/custom-review?mode=compact#preview" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+    );
+
+    expect(legacyRead.error).toBeUndefined();
+    expect(legacyRead.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/custom-review?mode=compact#preview",
+        text: expect.stringContaining("Custom review"),
+      }),
+    ]);
+  });
+
   it("handles `tools/call` and appends the deep-link block + `_meta`", async () => {
     const out = await callWeb({
       jsonrpc: "2.0",

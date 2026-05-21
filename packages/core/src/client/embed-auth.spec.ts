@@ -58,11 +58,28 @@ describe("embed auth client", () => {
     expect(window.location.search).toBe(
       `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
     );
-    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBe("1");
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBe("signed-token");
 
     window.history.replaceState(null, "", "/inbox?embedded=1");
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {
+    sessionStorage.setItem(STORAGE_KEY, "old-token");
+    sessionStorage.setItem(BRIDGE_STORAGE_KEY, "old-token");
+
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=new-token`,
+    );
+
+    const reloadedModule = await loadEmbedAuth();
+
+    expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(false);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe("new-token");
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
   });
 
   it("adds the stored embed bearer token and target header to same-origin fetches", async () => {

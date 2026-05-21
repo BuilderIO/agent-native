@@ -319,12 +319,20 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
 function versionMcpAppResourceUri(
   rawUri: string,
 ): { uri: string; legacyUris?: string[] } | null {
-  const uri = rawUri.trim().replace(/\/+$/g, "");
+  const uri = rawUri.trim();
   if (!uri.startsWith("ui://")) return null;
   const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
-  const versionedUri = /\/shell-v\d+$/.test(uri)
-    ? uri.replace(/\/shell-v\d+$/, versionSuffix)
-    : `${uri}${versionSuffix}`;
+  let versionedUri: string;
+  try {
+    const parsed = new URL(uri);
+    const path = parsed.pathname.replace(/\/+$/g, "");
+    parsed.pathname = /\/shell-v\d+$/.test(path)
+      ? path.replace(/\/shell-v\d+$/, versionSuffix)
+      : `${path}${versionSuffix}`;
+    versionedUri = parsed.toString();
+  } catch {
+    return null;
+  }
   return {
     uri: versionedUri,
     ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),

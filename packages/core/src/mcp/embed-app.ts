@@ -310,10 +310,10 @@ export function embedApp(
     }
 
     async function openFallbackExternal() {
-      let url = openUrl;
+      let url = withChatBridgeParam(openUrl);
       try {
         const result = await callEmbedSessionTool({
-          url: openUrl,
+          url,
           chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
         });
         const data = parseToolResult(result);

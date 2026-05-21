@@ -9,6 +9,7 @@ import {
 let installed = false;
 let memoryToken: string | null = null;
 let mcpChatBridgeActive = false;
+let mcpChatBridgeScope: string | null = null;
 const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
 const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
@@ -59,11 +60,31 @@ export function readEmbedMcpChatBridgeFlagFromUrl(): boolean {
   return value === "1" || value === "true";
 }
 
+function currentMcpChatBridgeScope(win: Window): string | null {
+  return readTokenFromUrl(win) ?? memoryToken ?? storedToken(win);
+}
+
+function clearMcpChatBridge(win: Window): void {
+  mcpChatBridgeActive = false;
+  mcpChatBridgeScope = null;
+  try {
+    win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+  } catch {
+    // ignore unavailable session storage
+  }
+}
+
 export function markEmbedMcpChatBridgeActive(): void {
   const win = browserWindow();
+  const scope = win ? currentMcpChatBridgeScope(win) : null;
   mcpChatBridgeActive = true;
+  mcpChatBridgeScope = scope;
   try {
-    win?.sessionStorage?.setItem(MCP_CHAT_BRIDGE_STORAGE_KEY, "1");
+    if (scope) {
+      win?.sessionStorage?.setItem(MCP_CHAT_BRIDGE_STORAGE_KEY, scope);
+    } else {
+      win?.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+    }
   } catch {
     // Session storage may be unavailable in some sandboxed hosts. The
     // in-memory fallback still covers the normal single-page boot path.
@@ -74,21 +95,28 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   const win = browserWindow();
   if (!win) return false;
   if (!isEmbedAuthActive()) {
-    mcpChatBridgeActive = false;
-    try {
-      win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
-    } catch {
-      // ignore unavailable session storage
-    }
+    clearMcpChatBridge(win);
     return false;
   }
-  if (mcpChatBridgeActive) return true;
   if (readEmbedMcpChatBridgeFlagFromUrl()) {
     markEmbedMcpChatBridgeActive();
     return true;
   }
+  const scope = currentMcpChatBridgeScope(win);
+  if (mcpChatBridgeActive) {
+    if (scope && mcpChatBridgeScope === scope) return true;
+    clearMcpChatBridge(win);
+    return false;
+  }
   try {
-    return win.sessionStorage?.getItem(MCP_CHAT_BRIDGE_STORAGE_KEY) === "1";
+    const storedScope = win.sessionStorage?.getItem(
+      MCP_CHAT_BRIDGE_STORAGE_KEY,
+    );
+    if (scope && storedScope === scope) return true;
+    if (storedScope && storedScope !== scope) {
+      win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
+    }
+    return false;
   } catch {
     return false;
   }
@@ -136,6 +164,7 @@ export function _resetEmbedAuthForTests(): void {
   installed = false;
   memoryToken = null;
   mcpChatBridgeActive = false;
+  mcpChatBridgeScope = null;
   authFailureCache.clear();
   embedAuthFailure = null;
 }

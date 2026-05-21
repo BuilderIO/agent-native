@@ -72,6 +72,7 @@ describe("embedApp", () => {
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
+    expect(html).toContain("let url = withChatBridgeParam(openUrl)");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("}, 30000)");
