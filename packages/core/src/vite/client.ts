@@ -623,6 +623,33 @@ function baseRedirectGuard(): Plugin {
   };
 }
 
+function embedDevFrameHeaders(): Plugin {
+  return {
+    name: "agent-native-embed-dev-frame-headers",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const cookieHeader = String(req.headers.cookie ?? "");
+        let hasEmbedMarker = /\ban_embed_session=/.test(cookieHeader);
+        try {
+          const url = new URL(req.url ?? "/", "http://agent-native.local");
+          hasEmbedMarker =
+            hasEmbedMarker || url.searchParams.has("__an_embed_token");
+        } catch {
+          // Malformed URLs should continue through Vite's normal handling.
+        }
+        if (hasEmbedMarker) {
+          res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+          res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Referrer-Policy", "no-referrer");
+        }
+        next();
+      });
+    },
+  };
+}
+
 function contentTypeForPublicFile(filePath: string): string | null {
   switch (path.extname(filePath).toLowerCase()) {
     case ".css":
@@ -1058,6 +1085,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
       fullReloadOnOptimizeDep504(),
+      embedDevFrameHeaders(),
       baseRedirectGuard(),
       portExposer(),
       silenceConnectionResets(),

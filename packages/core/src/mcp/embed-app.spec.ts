@@ -35,8 +35,12 @@ describe("embedApp", () => {
     expect(html).toContain(
       'toolInput.embed === false || toolInput.embed === "false"',
     );
-    expect(html).toContain("min-height: 900px");
+    expect(html).toContain("min-height: 764px");
+    expect(html).toContain("height: 720px");
     expect(resource.csp?.frameDomains).toContain(
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    );
+    expect(resource.csp?.resourceDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
@@ -75,6 +79,10 @@ describe("embedApp", () => {
             prefersBorder: false,
             csp: {
               frameDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
+              resourceDomains: [
+                "https://esm.sh",
+                MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+              ],
             },
           },
         },

@@ -5,6 +5,10 @@ const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.2/app-with-deps";
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
+const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
+export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT = 720;
+export const DEFAULT_MCP_APP_SHELL_HEIGHT =
+  DEFAULT_MCP_APP_VIEWPORT_HEIGHT + MCP_APP_WRAPPER_CHROME_HEIGHT;
 
 export interface EmbedAppOptions {
   title?: string;
@@ -33,7 +37,11 @@ export function embedApp(
   const openLabel = options.openLabel ?? "Open in app";
   const startToolName = options.startToolName ?? "create_embed_session";
   const embedByDefault = options.embedByDefault !== false;
-  const height = Math.max(320, Math.min(900, options.height ?? 900));
+  const height = Math.max(
+    320,
+    Math.min(900, options.height ?? DEFAULT_MCP_APP_SHELL_HEIGHT),
+  );
+  const viewportHeight = height - MCP_APP_WRAPPER_CHROME_HEIGHT;
 
   return {
     title,
@@ -53,9 +61,9 @@ export function embedApp(
     .actions { display: flex; align-items: center; gap: 6px; }
     button { min-height: 28px; border: 1px solid color-mix(in srgb, CanvasText 14%, Canvas); border-radius: 7px; background: Canvas; color: CanvasText; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 0 9px; }
     button:disabled { opacity: .55; cursor: default; }
-    .stage { position: relative; min-height: ${height - 44}px; }
-    iframe { display: block; width: 100%; height: ${height - 44}px; border: 0; background: Canvas; }
-    .message { display: grid; place-items: center; min-height: ${height - 44}px; padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
+    .stage { position: relative; min-height: ${viewportHeight}px; }
+    iframe { display: block; width: 100%; height: ${viewportHeight}px; border: 0; background: Canvas; }
+    .message { display: grid; place-items: center; min-height: ${viewportHeight}px; padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
   </style>
 </head>
 <body
@@ -365,7 +373,11 @@ export function embedApp(
 </html>`,
     csp: {
       connectDomains: ["https://esm.sh"],
-      resourceDomains: ["https://esm.sh"],
+      resourceDomains: [
+        "https://esm.sh",
+        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.frameDomains ?? []),
+      ],
       frameDomains: [
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
         ...(options.frameDomains ?? []),

@@ -24,9 +24,11 @@ describe("security headers middleware", () => {
     expect(headers.get("Permissions-Policy")).toBe(
       "camera=(), microphone=(self), geolocation=(), screen-wake-lock=()",
     );
+    expect(headers.get("Cross-Origin-Embedder-Policy")).toBeUndefined();
+    expect(headers.get("Cross-Origin-Resource-Policy")).toBe("same-site");
   });
 
-  it("omits X-Frame-Options for embed-token page loads in production", () => {
+  it("relaxes frame headers for embed-token page loads in production", () => {
     headers.clear();
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("OAUTH_STATE_SECRET", "embed-test-secret");
@@ -46,6 +48,8 @@ describe("security headers middleware", () => {
 
     expect(headers.get("X-Frame-Options")).toBeUndefined();
     expect(headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(headers.get("Cross-Origin-Embedder-Policy")).toBe("require-corp");
+    expect(headers.get("Cross-Origin-Resource-Policy")).toBe("cross-origin");
     vi.unstubAllEnvs();
   });
 });

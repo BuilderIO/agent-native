@@ -25,6 +25,22 @@ import {
 
 const EMAIL_PAGE_SIZE = 25;
 
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new Error(error);
+  return new Error("Request failed");
+}
+
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -37,7 +53,9 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error || `Request failed (${res.status})`);
+    const error = new Error(body?.error || `Request failed (${res.status})`);
+    (error as Error & { status?: number }).status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -464,9 +482,10 @@ export function useEmails(
     // the interval based on consecutive failures, capped at 5 minutes, so the
     // UI keeps trying without hammering Gmail.
     refetchInterval: (query: {
-      state: { status: string; fetchFailureCount: number };
+      state: { status: string; fetchFailureCount: number; error: unknown };
     }) => {
       if (search) return false;
+      if (isAuthFailure(query.state.error)) return false;
       const base = 2 * 60_000;
       if (query.state.status === "error") {
         return Math.min(base * (1 + query.state.fetchFailureCount), 5 * 60_000);
@@ -494,7 +513,7 @@ export function useEmails(
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
     isError: q.isError && !q.data,
-    error: q.isError && !q.data ? q.error : null,
+    error: q.isError && !q.data ? toError(q.error) : null,
     refetch: q.refetch,
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
@@ -507,6 +526,7 @@ export function useEmail(id: string | undefined) {
     queryKey: ["email", id],
     queryFn: () => apiFetch(`/api/emails/${id}`),
     enabled: !!id,
+    retry: (failureCount, error) => !isAuthFailure(error) && failureCount < 1,
   });
 }
 

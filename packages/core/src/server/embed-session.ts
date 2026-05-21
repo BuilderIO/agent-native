@@ -417,6 +417,17 @@ export function requestMatchesEmbedTarget(
   return !!referrerTarget && allowed.has(referrerTarget);
 }
 
+function isEmbedRuntimeRequest(event: H3Event): boolean {
+  const pathname = requestPathname(event);
+  return (
+    !!pathname &&
+    (pathname === "/api" ||
+      pathname.startsWith("/api/") ||
+      pathname === "/_agent-native" ||
+      pathname.startsWith("/_agent-native/"))
+  );
+}
+
 export function normalizeEmbedTargetPath(
   raw: string | undefined | null,
   requestOrigin?: string,
@@ -676,7 +687,13 @@ export async function resolveEmbedSessionFromRequest(
   for (const candidate of candidates) {
     const verified = verifyEmbedSessionToken(candidate.token);
     if (!verified.ok) continue;
-    if (!requestMatchesEmbedTarget(event, verified.claims.targetPath)) {
+    const matchesTarget = requestMatchesEmbedTarget(
+      event,
+      verified.claims.targetPath,
+    );
+    const isRuntimeCookieRequest =
+      candidate.source === "cookie" && isEmbedRuntimeRequest(event);
+    if (!matchesTarget && !isRuntimeCookieRequest) {
       continue;
     }
     if (candidate.source === "query" && candidate.token) {

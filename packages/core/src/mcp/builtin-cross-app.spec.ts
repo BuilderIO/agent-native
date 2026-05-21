@@ -160,7 +160,7 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  it("requests the largest full-app MCP App height we support", () => {
+  it("requests a 720px app viewport for full-app MCP App embeds", () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
     const resource = tools.open_app.mcpApp?.resource;
     const html =
@@ -168,7 +168,8 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
         ? resource.html({ actionName: "open_app", appId: "mail" })
         : resource?.html;
 
-    expect(html).toContain("min-height: 900px");
+    expect(html).toContain("min-height: 764px");
+    expect(html).toContain("height: 720px");
   });
 
   it("accepts string embed:true from MCP clients that stringify arguments", async () => {

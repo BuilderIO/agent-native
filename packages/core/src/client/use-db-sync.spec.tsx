@@ -64,6 +64,7 @@ describe("useDbSync", () => {
     roots = [];
     containers = [];
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("broadly invalidates active queries for action events", async () => {
@@ -94,5 +95,40 @@ describe("useDbSync", () => {
     expect(result.fetchMock).toHaveBeenCalled();
     expect(result.queryClient.calls).not.toContainEqual(undefined);
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("backs off polling after an auth failure", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("Unauthorized", {
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

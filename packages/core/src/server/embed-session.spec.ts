@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
+  resolveEmbedSessionFromRequest,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
-import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TARGET_HEADER,
+} from "../shared/embed-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -109,6 +113,7 @@ describe("requestMatchesEmbedTarget", () => {
   function fakeEvent(path: string, headers: Record<string, string> = {}) {
     return {
       path,
+      req: { url: `http://mail.test${path}`, headers: new Headers(headers) },
       request: { headers: new Headers(headers) },
       headers: new Headers(headers),
       node: { req: { url: path, headers } },
@@ -283,6 +288,14 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox",
       ),
     ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/api/emails?view=inbox&limit=25", {
+          [EMBED_TARGET_HEADER]: "/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox",
+      ),
+    ).toBe(true);
 
     expect(
       requestMatchesEmbedTarget(
@@ -292,5 +305,35 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox",
       ),
     ).toBe(false);
+  });
+
+  it("allows app runtime requests with the embed cookie when referrer headers are unavailable", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+      targetPath: "/inbox?__an_mcp_chat_bridge=1",
+      ttlSeconds: 60,
+    });
+
+    const runtimeSession = await resolveEmbedSessionFromRequest(
+      fakeEvent("/api/emails?view=inbox&limit=25", {
+        cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+      }),
+    );
+
+    expect(runtimeSession).toMatchObject({
+      email: "owner@example.com",
+      orgId: "org_123",
+      targetPath: "/inbox?__an_mcp_chat_bridge=1",
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/settings", {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toBeNull();
   });
 });

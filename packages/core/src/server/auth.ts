@@ -14,6 +14,7 @@ import {
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { resolveEmbedSessionFromRequest } from "./embed-session.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
@@ -1100,7 +1101,14 @@ function applyCorsHeaders(event: H3Event): {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+    [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-Request-Source",
+      "X-Agent-Native-CSRF",
+      EMBED_TARGET_HEADER,
+    ].join(","),
   );
   return { hasOrigin: true, allowed: true };
 }
