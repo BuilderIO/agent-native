@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.11
+
+### Patch Changes
+
+- e3b219b: Emit compact MCP Apps tool catalogs for OAuth app hosts and include ChatGPT-compatible widget metadata for real app embeds.
+
 ## 0.22.10
 
 ### Patch Changes
