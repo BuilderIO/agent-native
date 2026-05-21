@@ -34,7 +34,10 @@ function redirectWithStagedCookies(
   location: string,
   status = 302,
 ): Response {
-  const headers = new Headers({ Location: location });
+  const headers = new Headers({
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    Location: location,
+  });
   const staged = event.res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
   headers.set("Referrer-Policy", "no-referrer");
@@ -44,7 +47,10 @@ function redirectWithStagedCookies(
 function textResponse(message: string, status: number): Response {
   return new Response(message, {
     status,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    },
   });
 }
 
@@ -65,7 +71,10 @@ export function createEmbedStartRouteHandler(
     if (method === "HEAD") {
       return new Response(null, {
         status: 204,
-        headers: { "Cache-Control": "no-store" },
+        headers: {
+          "Cache-Control": "no-store",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+        },
       });
     }
 

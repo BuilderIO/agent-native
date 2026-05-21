@@ -46,6 +46,9 @@ describe("createEmbedStartRouteHandler", () => {
 
     expect(res.status).toBe(204);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
     expect(consumeEmbedSessionTicket).not.toHaveBeenCalled();
     expect(setEmbedSessionCookie).not.toHaveBeenCalled();
   });
@@ -72,6 +75,9 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
       "/inbox?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+    );
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
     );
   });
 });
