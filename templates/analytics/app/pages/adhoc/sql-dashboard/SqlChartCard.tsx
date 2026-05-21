@@ -53,6 +53,7 @@ interface SqlChartCardProps {
   /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
+  editable?: boolean;
 }
 
 export function SqlChartCard({
@@ -63,6 +64,7 @@ export function SqlChartCard({
   gridColumns,
   onEdit,
   onSaveSql,
+  editable = true,
 }: SqlChartCardProps) {
   const {
     attributes,
@@ -71,7 +73,7 @@ export function SqlChartCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: panel.id });
+  } = useSortable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
@@ -103,81 +105,85 @@ export function SqlChartCard({
       >
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-            <DropdownMenu>
+          {editable ? (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-1 rounded text-muted-foreground hover:text-foreground"
+                        aria-label="Section options"
+                      >
+                        <IconDotsVertical className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Section options</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-40">
+                  {onEdit && (
+                    <DropdownMenuItem onSelect={() => onEdit()}>
+                      <IconPencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {onEdit && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    <IconTrash className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="p-1 rounded text-muted-foreground hover:text-foreground"
-                      aria-label="Section options"
-                    >
-                      <IconDotsVertical className="h-3.5 w-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
+                  <button
+                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                    aria-label="Drag to reorder"
+                    {...attributes}
+                    {...listeners}
+                  >
+                    <IconGripVertical className="h-3.5 w-3.5" />
+                  </button>
                 </TooltipTrigger>
-                <TooltipContent>Section options</TooltipContent>
+                <TooltipContent>Drag to reorder</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="w-40">
-                {onEdit && (
-                  <DropdownMenuItem onSelect={() => onEdit()}>
-                    <IconPencil className="h-4 w-4 mr-2" />
-                    Edit
-                  </DropdownMenuItem>
-                )}
-                {onEdit && <DropdownMenuSeparator />}
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setConfirmOpen(true);
-                  }}
-                >
-                  <IconTrash className="h-4 w-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                  aria-label="Drag to reorder"
-                  {...attributes}
-                  {...listeners}
-                >
-                  <IconGripVertical className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Drag to reorder</TooltipContent>
-            </Tooltip>
-          </div>
+            </div>
+          ) : null}
         </div>
         {panel.config?.description && (
           <p className="text-sm text-muted-foreground mt-1">
             {panel.config.description}
           </p>
         )}
-        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete section?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Delete &quot;{panel.title}&quot;? This cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  setConfirmOpen(false);
-                  onRemove();
-                }}
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {editable ? (
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete section?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Delete &quot;{panel.title}&quot;? This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmOpen(false);
+                    onRemove();
+                  }}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </div>
     );
   }
@@ -218,19 +224,19 @@ export function SqlChartCard({
                     Download CSV
                   </DropdownMenuItem>
                 )}
-                {onSaveSql && (
-                  <ViewSqlPopover
-                    panel={panel}
-                    resolvedSql={resolvedSql}
-                    onSaveSql={onSaveSql}
-                  >
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                      <IconCode className="h-4 w-4 mr-2" />
-                      View SQL
-                    </DropdownMenuItem>
-                  </ViewSqlPopover>
-                )}
-                {onToggleWidth && (gridColumns ?? 2) > 1 && (
+                {panel.chartType === "table" ? <DropdownMenuSeparator /> : null}
+                <ViewSqlPopover
+                  panel={panel}
+                  resolvedSql={resolvedSql}
+                  onSaveSql={editable ? onSaveSql : undefined}
+                  editable={editable}
+                >
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <IconCode className="h-4 w-4 mr-2" />
+                    View SQL
+                  </DropdownMenuItem>
+                </ViewSqlPopover>
+                {editable && onToggleWidth && (gridColumns ?? 2) > 1 && (
                   <DropdownMenuItem onSelect={onToggleWidth}>
                     {panel.width >= (gridColumns ?? 2) ? (
                       <>
@@ -245,37 +251,41 @@ export function SqlChartCard({
                     )}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                {onEdit && (
+                {editable ? <DropdownMenuSeparator /> : null}
+                {editable && onEdit && (
                   <DropdownMenuItem onSelect={() => onEdit()}>
                     <IconPencil className="h-4 w-4 mr-2" />
                     Edit
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setConfirmOpen(true);
-                  }}
-                >
-                  <IconTrash className="h-4 w-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
+                {editable ? (
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    <IconTrash className="h-4 w-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                  aria-label="Drag to reorder"
-                  {...attributes}
-                  {...listeners}
-                >
-                  <IconGripVertical className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Drag to reorder</TooltipContent>
-            </Tooltip>
+            {editable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                    aria-label="Drag to reorder"
+                    {...attributes}
+                    {...listeners}
+                  >
+                    <IconGripVertical className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Drag to reorder</TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
@@ -287,27 +297,29 @@ export function SqlChartCard({
         </CardContent>
       </Card>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete panel?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete "{panel.title}"? This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmOpen(false);
-                onRemove();
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {editable ? (
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete panel?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Delete "{panel.title}"? This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onRemove();
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </div>
   );
 }

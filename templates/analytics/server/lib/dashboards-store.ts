@@ -632,8 +632,7 @@ async function migrateAnalysisFromSettings(
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
-  const analysis = rowToAnalysis(row);
-  Object.assign(analysis, accessFields(role));
+  const analysis = rowToAnalysis(row, role);
   recordScopedChange(
     "analyses",
     "change",

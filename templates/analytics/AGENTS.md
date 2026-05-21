@@ -117,6 +117,8 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
 
+Dashboard and analysis detail responses include the caller's effective `role`, `canEdit`, and `canManage`. Shared viewers should keep the normal Analytics shell and read-only result/filter affordances, but hide mutating controls such as re-run, edit, archive, delete, drag/reorder, and saved-view management unless the flags allow them.
+
 | State Key        | Purpose                      | Direction                                    |
 | ---------------- | ---------------------------- | -------------------------------------------- |
 | `navigation`     | Current view, dashboard ID   | UI -> Agent (read-only)                      |

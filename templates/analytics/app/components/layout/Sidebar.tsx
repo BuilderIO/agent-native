@@ -104,6 +104,7 @@ import {
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
+import type { ResourceAccess } from "@/lib/resource-access";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
@@ -952,7 +953,7 @@ type PrefetchedSqlDashboard = {
     panels: unknown[];
   };
   archivedAt: string | null;
-};
+} & ResourceAccess;
 
 async function fetchSqlDashboardForPrefetch(
   id: string,
@@ -985,6 +986,9 @@ async function fetchSqlDashboardForPrefetch(
       panels: Array.isArray(data.panels) ? data.panels : [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
   };
 }
 
