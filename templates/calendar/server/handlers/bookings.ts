@@ -136,6 +136,7 @@ type AvailabilityContext = {
 
 type ConflictItem = { start: string; end: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
+type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 
 type LocalDateTimeParts = {
   year: number;
@@ -393,11 +394,13 @@ async function resolveAvailabilityContext(
 }
 
 async function getConflictItems({
+  db = getDb(),
   ownerEmail,
   conflictSlugs,
   rangeStartIso,
   rangeEndIso,
 }: {
+  db?: ConflictDb;
   ownerEmail?: string;
   conflictSlugs: string[];
   rangeStartIso: string;
@@ -423,7 +426,7 @@ async function getConflictItems({
     }
   }
 
-  const bookings = await getDb()
+  const bookings = await db
     .select()
     .from(schema.bookings)
     .where(
@@ -552,11 +555,13 @@ function generateAvailableSlotsForDate({
 }
 
 async function requestedSlotIsCurrentlyAvailable({
+  db,
   slug,
   start,
   end,
   duration,
 }: {
+  db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
@@ -568,6 +573,7 @@ async function requestedSlotIsCurrentlyAvailable({
   const timezone = context.effectiveConfig.timezone || "UTC";
   const date = formatLocalDateInTimezone(start, timezone);
   const conflictItems = await getConflictItems({
+    db,
     ownerEmail: context.ownerEmail,
     conflictSlugs: context.conflictSlugs,
     rangeStartIso: dateStartIso(date, timezone),
@@ -783,6 +789,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
       if (
         !(await requestedSlotIsCurrentlyAvailable({
+          db: tx,
           slug: requestedSlug,
           start: requestedRange.start,
           end: requestedRange.end,
