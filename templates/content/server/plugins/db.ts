@@ -131,6 +131,10 @@ export default runMigrations(
       version: 16,
       sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 17,
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "content_migrations" },
 );

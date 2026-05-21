@@ -231,6 +231,8 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`) and actions with `mcpApp`. Stdio/static-token developer clients still get the full connected action surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools outside the compact app catalog. If a UI-capable host should be able to call a new action from an MCP App conversation, mark it with `mcpApp`; use `publicAgent` for non-UI read/ingest handoff tools.
 
+For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App widget launch the iframe. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
+
 ### Per-app tour {#tour}
 
 Every allow-listed template that produces or lists a navigable resource ships a `link` builder, and the ingest-heavy ones ship a GET + `publicAgent` action so a connected agent can pull live state:

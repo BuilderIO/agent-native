@@ -1,4 +1,5 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
+import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.2/app-with-deps";

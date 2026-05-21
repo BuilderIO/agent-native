@@ -18,7 +18,10 @@ vi.stubGlobal("window", {
   addEventListener: vi.fn(),
   dispatchEvent: dispatchEventSpy,
   postMessage: selfPostMessageSpy,
-  location: { origin: "http://localhost:3000" },
+  location: {
+    origin: "http://localhost:3000",
+    search: "",
+  },
 });
 
 const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
@@ -33,6 +36,7 @@ describe("sendToAgentChat", () => {
     selfPostMessageSpy.mockClear();
     dispatchEventSpy.mockClear();
     sendToBuilderChatMock.mockClear();
+    window.location.search = "";
   });
 
   afterEach(() => {
@@ -150,6 +154,45 @@ describe("sendToAgentChat", () => {
     const eventTypes = dispatchEventSpy.mock.calls.map(([event]) => event.type);
     expect(eventTypes).toContain("agent-panel:prepare");
     expect(eventTypes).not.toContain("agent-panel:open");
+  });
+
+  it("routes auto-submitted MCP App embeds to the parent host bridge without opening local chat", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      context: "Selected item ids: a, b",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("*");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("continue with this selection");
+    expect(payload.data.context).toBe("Selected item ids: a, b");
+    expect(dispatchEventSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps MCP App prefill-only messages on the existing local path", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "prefill this for review",
+      submit: false,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
   });
 
   it("generates distinct tabIds across calls", () => {

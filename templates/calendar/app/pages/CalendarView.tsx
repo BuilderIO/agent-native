@@ -939,7 +939,6 @@ export default function CalendarView() {
     }
 
     setSelectedDate(clickedDate);
-    setEventDraft(null);
     const defaultDuration = Math.max(
       5,
       activeSettings.defaultEventDuration ?? 30,
@@ -953,47 +952,26 @@ export default function CalendarView() {
     setCreateDefaultEnd(end.time);
     const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
     const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
-    const tempId = `temp-${Date.now()}`;
+    const now = new Date().toISOString();
+    const draftId = `slot-${Date.now()}`;
+    const draft: CalendarEventDraft = {
+      id: draftId,
+      title: "",
+      description: "",
+      location: "",
+      start: startISO,
+      end: endISO,
+      startTimeZone: timezone,
+      endTimeZone: timezone,
+      allDay: false,
+      eventType: "default",
+      createdAt: now,
+      updatedAt: now,
+    };
 
-    createEvent.mutate(
-      {
-        title: "(No title)",
-        description: "",
-        location: "",
-        start: startISO,
-        end: endISO,
-        startTimeZone: timezone,
-        endTimeZone: timezone,
-        allDay: false,
-        _tempId: tempId,
-      },
-      {
-        onSuccess: (result) => {
-          const { _tempId, ...realEvent } = result;
-          const stableTempId = _tempId ?? tempId;
-          setQuickEditTempIds((current) => ({
-            ...current,
-            [realEvent.id]: stableTempId,
-          }));
-          queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["action", "list-events"] },
-            (old) =>
-              old?.map((e) =>
-                e.id === stableTempId
-                  ? { ...e, ...realEvent, _tempId: stableTempId }
-                  : e,
-              ),
-          );
-          setQuickEditEventId(realEvent.id);
-        },
-        onError: () => {
-          setQuickEditEventId(null);
-          toast.error("Failed to create event");
-        },
-      },
-    );
-
-    setQuickEditEventId(tempId);
+    persistCalendarDraft(draft);
+    setEventDraft(draft);
+    setQuickEditEventId(calendarDraftEventId(draftId));
   }
 
   async function handleQuickEditSave(eventId: string, title: string) {

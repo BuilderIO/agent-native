@@ -24,6 +24,7 @@ import {
   NotificationsBell,
   PresenceBar,
   appPath,
+  useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
@@ -74,6 +75,7 @@ interface DocumentToolbarProps {
   isSaving?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  hideFromSearch?: boolean;
 }
 
 export function DocumentToolbar({
@@ -85,6 +87,7 @@ export function DocumentToolbar({
   isSaving,
   currentUserEmail,
   canEdit = true,
+  hideFromSearch = false,
 }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
   const [autoSync, setAutoSync] = useLocalStorage(
@@ -98,10 +101,16 @@ export function DocumentToolbar({
   const pullDocument = usePullDocumentFromNotion(documentId);
   const pushDocument = usePushDocumentToNotion(documentId);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
+  const setDocumentDiscoverability = useActionMutation(
+    "set-document-discoverability",
+  );
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
   const [open, setOpen] = useState(false);
+  const [pendingHideFromSearch, setPendingHideFromSearch] = useState<
+    boolean | null
+  >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -131,9 +140,68 @@ export function DocumentToolbar({
     typeof window === "undefined"
       ? `/p/${documentId}`
       : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+  const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
+
+  const handleHideFromSearchChange = useCallback(
+    async (next: boolean) => {
+      const previous = hideFromSearch;
+      setPendingHideFromSearch(next);
+
+      queryClient.setQueryData(
+        ["action", "get-document", { id: documentId }],
+        (old: any) =>
+          old && typeof old === "object"
+            ? { ...old, hideFromSearch: next }
+            : old,
+      );
+      queryClient.setQueryData(
+        ["action", "list-documents", undefined],
+        (old: any) => {
+          const docs = old?.documents ?? (Array.isArray(old) ? old : null);
+          if (!Array.isArray(docs)) return old;
+          const nextDocs = docs.map((doc: any) =>
+            doc.id === documentId ? { ...doc, hideFromSearch: next } : doc,
+          );
+          return Array.isArray(old)
+            ? nextDocs
+            : { ...old, documents: nextDocs };
+        },
+      );
+
+      try {
+        await setDocumentDiscoverability.mutateAsync({
+          id: documentId,
+          hideFromSearch: next,
+          includeChildren: true,
+        });
+      } catch (err) {
+        setPendingHideFromSearch(previous);
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: documentId }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        toast.error("Failed to update sharing", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+        throw err;
+      } finally {
+        setPendingHideFromSearch(null);
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: documentId }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      }
+    },
+    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
+  );
 
   // Debounce search
   useEffect(() => {
@@ -291,6 +359,21 @@ export function DocumentToolbar({
           resourceId={documentId}
           resourceTitle={documentTitle}
           shareUrl={shareUrl}
+          visibilityCopy={{
+            org: {
+              description: effectiveHideFromSearch
+                ? "Anyone in your organization with the link can view"
+                : "Anyone in your organization can find and view",
+            },
+          }}
+          hideInSearchControl={{
+            checked: effectiveHideFromSearch,
+            pending: setDocumentDiscoverability.isPending,
+            label: "Hide in search",
+            description:
+              "Hide from Organization and search. People with the link can still view.",
+            onCheckedChange: handleHideFromSearchChange,
+          }}
           variant="compact"
         />
 

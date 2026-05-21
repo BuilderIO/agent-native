@@ -162,6 +162,31 @@ call a new action from an MCP App conversation, mark it with `mcpApp`; use
 `publicAgent` for non-UI read/ingest handoff tools instead of relying on
 incidental full-surface discovery.
 
+### 1b. Fast-path expectations for MCP Apps hosts
+
+Keep ChatGPT/Claude paths short. For a known app-facing intent, the external
+agent should call the specific action that creates or opens the thing, then let
+the MCP App widget launch the iframe. Do **not** route simple UI handoffs
+through `ask_app`, broad `list_resources`, or generic app-agent delegation just
+to find a screen.
+
+Expected shape:
+
+- Email draft: `manage_draft` → inline Mail compose route. The widget calls
+  `create_embed_session` itself.
+- Dashboard/filter/search: `open_app({ path, embed: true })` or the dashboard
+  action with `mcpApp` → inline full app/dashboard route.
+- Calendar invite: `manage-event-draft` → inline Calendar event draft route.
+- Forms/content/slides/design/clips: create/search action with `mcpApp` →
+  inline editor/player route.
+
+`list_apps` is fine when the model genuinely needs to choose among granted
+apps. `resources/list`/`resources/read` are host plumbing for MCP Apps UI
+resources; they are not a planning strategy. If a host/model repeatedly calls
+large discovery tools before obvious app-facing actions, tighten action names,
+descriptions, `mcpApp` metadata, or compact-catalog filtering until the direct
+path is obvious.
+
 ### 2. Add a `link` builder to an action
 
 `defineAction` accepts an optional `link` builder. When set, every MCP/A2A

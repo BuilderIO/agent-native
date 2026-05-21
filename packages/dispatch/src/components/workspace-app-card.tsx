@@ -36,6 +36,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   isPendingBuilderHref,
@@ -134,10 +139,10 @@ export function WorkspaceAppCard({
         />
       ) : null}
 
-      <div className="pointer-events-none relative z-10 flex h-full items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate text-sm font-semibold text-foreground">
+      <div className="pointer-events-none relative z-10 flex h-full min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
               {app.name}
             </h3>
             {isPending ? (
@@ -305,18 +310,23 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
         if (!nextOpen) setInspectedResourceId(null);
       }}
     >
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <IconFileText size={14} className="mr-1" />
-          Context
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`View context resources for ${app.name}`}
+              className="h-7 w-7 p-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <IconFileText size={14} />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Context</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{app.name} workspace resources</DialogTitle>

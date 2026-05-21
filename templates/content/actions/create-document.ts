@@ -1,7 +1,10 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -65,6 +68,7 @@ export default defineAction({
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
+    let hideFromSearch = 0;
     const db = getDb();
     let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
@@ -79,6 +83,7 @@ export default defineAction({
       ownerEmail = parent.ownerEmail as string;
       orgId = (parent.orgId as string | null) ?? null;
       visibility = parent.visibility ?? "private";
+      hideFromSearch = parent.hideFromSearch ?? 0;
       inheritedRole = parentAccess.role;
       inheritedShares = await db
         .select({
@@ -120,6 +125,7 @@ export default defineAction({
       icon,
       position,
       isFavorite: 0,
+      hideFromSearch,
       visibility,
       createdAt: now,
       updatedAt: now,
@@ -168,6 +174,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       accessRole: inheritedRole,
       canEdit: true,
