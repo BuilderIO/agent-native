@@ -1,10 +1,24 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createAuthPlugin, getAppBasePath } from "@agent-native/core/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 import { randomUUID } from "crypto";
 
+export function shouldCreateDocsSessionForPath(
+  pathname: string,
+  basePath = getAppBasePath(),
+): boolean {
+  const pathWithoutBase =
+    basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
+  return (
+    pathWithoutBase.startsWith("/_agent-native/") ||
+    pathWithoutBase.startsWith("/api/")
+  );
+}
+
 function shouldCreateDocsSession(event: H3Event): boolean {
   const pathname = getRequestURL(event).pathname;
-  return pathname.startsWith("/_agent-native/") || pathname.startsWith("/api/");
+  return shouldCreateDocsSessionForPath(pathname);
 }
 
 export default createAuthPlugin({

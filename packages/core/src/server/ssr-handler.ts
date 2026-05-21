@@ -20,6 +20,8 @@ import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
+import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
 
 export const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
@@ -140,7 +142,13 @@ function injectHeadScript(html: string, script: string | null): string {
 
 function requestHasAuthSignal(event: H3Event): boolean {
   const headers = event.req.headers;
-  return Boolean(headers.get("authorization") || headers.get("cookie"));
+  return Boolean(
+    headers.get("authorization") ||
+    headers.get("cookie") ||
+    event.url.searchParams.has(EMBED_TOKEN_QUERY_PARAM) ||
+    event.url.searchParams.has("_session") ||
+    requestHasEmbedAuthMarker(event),
+  );
 }
 
 function applyDefaultSsrCacheHeader(headers: Headers, status: number) {

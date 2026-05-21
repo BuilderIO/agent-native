@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => {
     });
   });
   const getSession = vi.fn(async () => null);
-  return { getSession, requestHandler };
+  const requestHasEmbedAuthMarker = vi.fn(() => false);
+  return { getSession, requestHandler, requestHasEmbedAuthMarker };
 });
 
 vi.mock("react-router", () => ({
@@ -21,6 +22,10 @@ vi.mock("react-router", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: mocks.getSession,
+}));
+
+vi.mock("./embed-session.js", () => ({
+  requestHasEmbedAuthMarker: mocks.requestHasEmbedAuthMarker,
 }));
 
 function createEvent(pathname: string, method = "GET", init: RequestInit = {}) {
@@ -40,6 +45,8 @@ describe("createH3SSRHandler", () => {
     delete process.env.SENTRY_ENVIRONMENT;
     mocks.requestHandler.mockClear();
     mocks.getSession.mockClear();
+    mocks.requestHasEmbedAuthMarker.mockClear();
+    mocks.requestHasEmbedAuthMarker.mockReturnValue(false);
   });
 
   it("strips APP_BASE_PATH before handing requests to React Router", async () => {
@@ -150,6 +157,46 @@ describe("createH3SSRHandler", () => {
     const handler = createH3SSRHandler(() => ({})) as any;
 
     await handler(createEvent("/", "GET", { headers: { cookie: "sid=1" } }));
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves auth context when an SSR page request carries an embed token", async () => {
+    mocks.requestHasEmbedAuthMarker.mockReturnValue(true);
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(createEvent("/inbox?embedded=1&__an_embed_token=signed"));
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves auth context when an SSR page request carries embed token auth", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(createEvent("/inbox?__an_embed_token=signed-token"));
+
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves auth context when an SSR page request carries mobile session auth", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(createEvent("/inbox?_session=mobile-token"));
 
     expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });
