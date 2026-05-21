@@ -119,6 +119,16 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
+function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
+  if (isAgentEnginePackageInstalled(entry)) return;
+  const installHint = entry.installPackage
+    ? ` Run: pnpm add ${entry.installPackage}`
+    : "";
+  throw new Error(
+    `[agent-engine] Engine "${entry.name}" requires optional packages that are not installed in this app.${installHint}`,
+  );
+}
+
 /**
  * First registered engine whose requiredEnvVars are all set. Registration
  * order controls priority — the Builder gateway is registered first so it
@@ -408,6 +418,7 @@ export async function resolveEngine(
       throw new Error(
         `[agent-engine] Unknown engine: "${name}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
+    assertAgentEnginePackageInstalled(entry);
     return entry.create(engineCreateConfig(apiKey, engineConfig));
   }
 
@@ -418,6 +429,7 @@ export async function resolveEngine(
       throw new Error(
         `[agent-engine] Unknown engine: "${engineOption}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
+    assertAgentEnginePackageInstalled(entry);
     return entry.create(engineCreateConfig(apiKey));
   }
 
@@ -425,7 +437,10 @@ export async function resolveEngine(
   const envEngine = process.env.AGENT_ENGINE;
   if (envEngine) {
     const entry = _registry.get(envEngine);
-    if (entry) return entry.create(engineCreateConfig(apiKey));
+    if (entry) {
+      assertAgentEnginePackageInstalled(entry);
+      return entry.create(engineCreateConfig(apiKey));
+    }
   }
 
   const appDefault = await getAgentAppModelDefaultForCurrentRequest(appId);
