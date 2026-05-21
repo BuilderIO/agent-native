@@ -82,6 +82,17 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createPage]);
 
+  const mobileSidebarTrigger = isMobile ? (
+    <button
+      type="button"
+      aria-label="Open sidebar"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
+      onClick={() => setMobileSidebarOpen(true)}
+    >
+      <IconMenu2 size={18} />
+    </button>
+  ) : null;
+
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen overflow-hidden bg-background">
@@ -101,12 +112,16 @@ export function Layout({ children }: LayoutProps) {
                 />
               </SheetContent>
             </Sheet>
-            <button
-              className="fixed top-3 left-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg bg-background border border-border shadow-sm md:hidden cursor-pointer"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <IconMenu2 size={18} />
-            </button>
+            {showHeader ? null : (
+              <button
+                type="button"
+                aria-label="Open sidebar"
+                className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
+                onClick={() => setMobileSidebarOpen(true)}
+              >
+                <IconMenu2 size={18} />
+              </button>
+            )}
           </>
         ) : (
           <DocumentSidebar
@@ -129,8 +144,12 @@ export function Layout({ children }: LayoutProps) {
           scope={documentScope}
         >
           <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
-            {showHeader ? <Header /> : null}
-            <InvitationBanner className="pl-16 sm:pl-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1" />
+            {showHeader ? (
+              <Header sidebarTrigger={mobileSidebarTrigger} />
+            ) : null}
+            <InvitationBanner
+              className={`${showHeader ? "pl-4" : "pl-16"} sm:pl-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+            />
             {children}
           </main>
         </AgentSidebar>
