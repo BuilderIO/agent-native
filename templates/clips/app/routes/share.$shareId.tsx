@@ -616,7 +616,10 @@ export default function ShareRoute() {
                     tracking.reportReaction(emoji);
                     const liveCt = playerRef.current?.video?.currentTime;
                     const liveMs =
-                      typeof liveCt === "number" && Number.isFinite(liveCt)
+                      typeof liveCt === "number" &&
+                      Number.isFinite(liveCt) &&
+                      liveCt >= 0 &&
+                      liveCt < 1e7
                         ? Math.floor(liveCt * 1000)
                         : currentMs;
                     fetch(
