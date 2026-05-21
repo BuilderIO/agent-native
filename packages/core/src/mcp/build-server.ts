@@ -179,20 +179,13 @@ async function isKnownMcpAppOAuthClient(
     return Boolean(value && NON_APP_OAUTH_CLIENT_RE.test(value));
   }
 
-  function isLoopbackHost(hostname: string): boolean {
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
-      hostname.startsWith("127.")
-    );
-  }
-
-  function isRemoteRedirectUri(uri: string): boolean {
+  function isKnownMcpAppRedirectUri(uri: string): boolean {
     try {
       const url = new URL(uri);
-      return url.protocol === "https:" && !isLoopbackHost(url.hostname);
+      return (
+        url.protocol === "https:" &&
+        MCP_APP_OAUTH_REDIRECT_HOST_RE.test(url.hostname)
+      );
     } catch {
       return false;
     }
@@ -204,22 +197,12 @@ async function isKnownMcpAppOAuthClient(
   try {
     const { getOAuthClient } = await import("./oauth-store.js");
     const client = await getOAuthClient(clientId);
-    if (!client) return true;
+    if (!client) return false;
     if (isKnownAppClientName(client.clientName)) return true;
     if (isKnownNonAppClientName(client.clientName)) return false;
-    return client.redirectUris.some((uri) => {
-      try {
-        const hostname = new URL(uri).hostname;
-        return (
-          MCP_APP_OAUTH_REDIRECT_HOST_RE.test(hostname) ||
-          isRemoteRedirectUri(uri)
-        );
-      } catch {
-        return false;
-      }
-    });
+    return client.redirectUris.some(isKnownMcpAppRedirectUri);
   } catch {
-    return true;
+    return false;
   }
 }
 
