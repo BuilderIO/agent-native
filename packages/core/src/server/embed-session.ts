@@ -22,6 +22,19 @@ const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
+const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
+  ask: "/",
+  calendar: "/",
+  capture: "/search",
+  knowledge: "/knowledge",
+  ops: "/ops",
+  proposals: "/review",
+  review: "/review",
+  search: "/search",
+  source: "/sources",
+  sources: "/sources",
+  settings: "/settings",
+};
 
 let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
@@ -184,6 +197,15 @@ function safePathSegment(value: string | null | undefined): string | null {
   return segment;
 }
 
+function addResolvedOpenRoutePath(
+  targets: Set<string>,
+  path: string | null | undefined,
+): void {
+  if (!path) return;
+  const pathname = pathnameFromPath(path);
+  if (pathname) targets.add(pathname);
+}
+
 function openRouteTargetPathnames(targetPath: string): Set<string> {
   const targets = new Set<string>();
   let url: URL;
@@ -192,35 +214,86 @@ function openRouteTargetPathnames(targetPath: string): Set<string> {
   } catch {
     return targets;
   }
-  if (url.pathname !== OPEN_ROUTE_PATH) {
+  if (stripConfiguredBasePath(url.pathname) !== OPEN_ROUTE_PATH) {
     return targets;
   }
 
   const to = normalizeEmbedTargetPath(url.searchParams.get("to"));
-  const toPathname = to ? pathnameFromPath(to) : null;
-  if (toPathname) targets.add(toPathname);
+  addResolvedOpenRoutePath(targets, to);
 
   const view = url.searchParams.get("view")?.trim();
   if (!view || CONTROL_CHARS.test(view)) return targets;
   const viewPath = view.startsWith("/") ? view : `/${view}`;
   const viewPathname = pathnameFromPath(viewPath);
-  if (viewPathname) targets.add(viewPathname);
+  addResolvedOpenRoutePath(targets, viewPathname);
+  addResolvedOpenRoutePath(targets, OPEN_ROUTE_VIEW_PATHS[view]);
 
   const dashboardId = safePathSegment(url.searchParams.get("dashboardId"));
   if (view === "adhoc" && dashboardId) {
-    targets.add(`/adhoc/${encodeURIComponent(dashboardId)}`);
+    addResolvedOpenRoutePath(
+      targets,
+      `/adhoc/${encodeURIComponent(dashboardId)}`,
+    );
   }
   const analysisId = safePathSegment(url.searchParams.get("analysisId"));
   if (view === "analyses" && analysisId) {
-    targets.add(`/analyses/${encodeURIComponent(analysisId)}`);
+    addResolvedOpenRoutePath(
+      targets,
+      `/analyses/${encodeURIComponent(analysisId)}`,
+    );
   }
   const extensionId = safePathSegment(url.searchParams.get("extensionId"));
   if (view === "extensions" && extensionId) {
-    targets.add(`/extensions/${encodeURIComponent(extensionId)}`);
+    addResolvedOpenRoutePath(
+      targets,
+      `/extensions/${encodeURIComponent(extensionId)}`,
+    );
+  }
+  const designId = safePathSegment(url.searchParams.get("designId"));
+  if (designId) {
+    addResolvedOpenRoutePath(
+      targets,
+      view === "present"
+        ? `/present/${encodeURIComponent(designId)}`
+        : `/design/${encodeURIComponent(designId)}`,
+    );
+  }
+  const documentId = safePathSegment(url.searchParams.get("documentId"));
+  if (documentId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `/page/${encodeURIComponent(documentId)}`,
+    );
+  }
+  const deckId = safePathSegment(url.searchParams.get("deckId"));
+  if (deckId) {
+    addResolvedOpenRoutePath(
+      targets,
+      view === "present"
+        ? `/deck/${encodeURIComponent(deckId)}/present`
+        : `/deck/${encodeURIComponent(deckId)}`,
+    );
+  }
+  if (
+    safePathSegment(url.searchParams.get("captureId")) ||
+    safePathSegment(url.searchParams.get("knowledgeId")) ||
+    safePathSegment(url.searchParams.get("sourceId"))
+  ) {
+    addResolvedOpenRoutePath(targets, OPEN_ROUTE_VIEW_PATHS[view]);
+  }
+  if (
+    view === "calendar" &&
+    (safePathSegment(url.searchParams.get("eventId")) ||
+      safePathSegment(url.searchParams.get("eventDraftId")))
+  ) {
+    addResolvedOpenRoutePath(targets, "/");
   }
   const threadId = safePathSegment(url.searchParams.get("threadId"));
-  if (view && threadId) {
-    targets.add(`${viewPathname ?? viewPath}/${encodeURIComponent(threadId)}`);
+  if (viewPathname && threadId) {
+    addResolvedOpenRoutePath(
+      targets,
+      `${viewPathname}/${encodeURIComponent(threadId)}`,
+    );
   }
 
   return targets;
