@@ -1160,6 +1160,54 @@ function createDanglingOptionalDepStubs() {
  * Build for any non-Cloudflare preset using Nitro's programmatic build API.
  * Handles netlify, vercel, deno_deploy, aws-lambda, and all other targets.
  */
+export interface NitroBuildHooks {
+  prepare: (nitro: any) => Promise<void>;
+  copyPublicAssets: (nitro: any) => Promise<void>;
+  nitroBuild: (nitro: any) => Promise<void>;
+}
+
+export interface NitroBuildPipelineOptions {
+  nitro: any;
+  hooks: NitroBuildHooks;
+  clientDir: string;
+  publicOutputDir: string | undefined;
+  appBasePath: string;
+  cwd: string;
+}
+
+/**
+ * Run Nitro's lifecycle in the order required to ship a working React Router
+ * framework-mode build.
+ *
+ * The critical ordering constraint is that the React Router client build must
+ * be copied into `publicOutputDir` *before* `nitroBuild` runs. Nitro generates
+ * the static-asset manifest baked into the server bundle by globbing
+ * `publicDir` during the server build; files copied in after that point exist
+ * on disk but are invisible to the runtime `serveStatic` handler. Every
+ * /assets/* request then falls through to the SSR catch-all, which 404s
+ * anything with a file extension.
+ */
+export async function runNitroBuildPipeline(
+  opts: NitroBuildPipelineOptions,
+): Promise<void> {
+  const { nitro, hooks, clientDir, publicOutputDir, appBasePath, cwd } = opts;
+
+  await hooks.prepare(nitro);
+  await hooks.copyPublicAssets(nitro);
+
+  if (fs.existsSync(clientDir) && publicOutputDir) {
+    copyDir(clientDir, publicOutputDir);
+    if (appBasePath) {
+      copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
+    }
+    console.log(
+      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
+    );
+  }
+
+  await hooks.nitroBuild(nitro);
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -1255,23 +1303,14 @@ export default bundle;
       : {}),
   } as any);
 
-  await prepare(nitro);
-  await copyPublicAssets(nitro);
-  await nitroBuild(nitro);
-
-  // Copy React Router's client build into Nitro's public output dir
-  const clientDir = path.join(cwd, "build", "client");
-  const publicOutputDir = nitro.options.output.publicDir;
-  if (fs.existsSync(clientDir) && publicOutputDir) {
-    copyDir(clientDir, publicOutputDir);
-    const basePath = appBasePath;
-    if (basePath) {
-      copyDir(clientDir, path.join(publicOutputDir, basePath.slice(1)));
-    }
-    console.log(
-      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
-    );
-  }
+  await runNitroBuildPipeline({
+    nitro,
+    hooks: { prepare, copyPublicAssets, nitroBuild },
+    clientDir: path.join(cwd, "build", "client"),
+    publicOutputDir: nitro.options.output.publicDir,
+    appBasePath,
+    cwd,
+  });
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
