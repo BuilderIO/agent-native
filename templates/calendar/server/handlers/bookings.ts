@@ -135,6 +135,7 @@ type AvailabilityContext = {
 };
 
 type ConflictItem = { start: string; end: string };
+type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 
 type LocalDateTimeParts = {
   year: number;
@@ -264,6 +265,61 @@ function addDateString(date: string, days: number): string {
   const next = new Date(`${date}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + days);
   return next.toISOString().slice(0, 10);
+}
+
+function parseRequestDate(value: unknown): Date | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function uniqueDurations(values: number[]): number[] {
+  return [...new Set(values.filter((value) => Number.isInteger(value)))];
+}
+
+function parseBookingLinkDurations(
+  bookingLink: Pick<BookingLinkRow, "duration" | "durations">,
+): number[] {
+  if (bookingLink.durations) {
+    try {
+      const parsed = JSON.parse(bookingLink.durations);
+      if (Array.isArray(parsed)) {
+        const durations = uniqueDurations(
+          parsed
+            .map((value) =>
+              typeof value === "number"
+                ? value
+                : typeof value === "string"
+                  ? Number(value)
+                  : NaN,
+            )
+            .filter((value) => value > 0 && value <= 24 * 60),
+        );
+        if (durations.length > 0) return durations;
+      }
+    } catch {
+      // Fall through to the primary duration below.
+    }
+  }
+  return [bookingLink.duration].filter(
+    (value) => Number.isInteger(value) && value > 0 && value <= 24 * 60,
+  );
+}
+
+function requestedBookingRange(
+  startValue: unknown,
+  endValue: unknown,
+): { start: Date; end: Date; duration: number } | null {
+  const start = parseRequestDate(startValue);
+  const end = parseRequestDate(endValue);
+  if (!start || !end || end <= start) return null;
+
+  const duration = (end.getTime() - start.getTime()) / (60 * 1000);
+  if (!Number.isInteger(duration) || duration <= 0 || duration > 24 * 60) {
+    return null;
+  }
+
+  return { start, end, duration };
 }
 
 function countDaysInclusive(start: Date, end: Date): number {
@@ -495,6 +551,43 @@ function generateAvailableSlotsForDate({
   return availableSlots;
 }
 
+async function requestedSlotIsCurrentlyAvailable({
+  slug,
+  start,
+  end,
+  duration,
+}: {
+  slug: string;
+  start: Date;
+  end: Date;
+  duration: number;
+}): Promise<boolean> {
+  const context = await resolveAvailabilityContext(slug);
+  if (!context.effectiveConfig) return false;
+
+  const timezone = context.effectiveConfig.timezone || "UTC";
+  const date = formatLocalDateInTimezone(start, timezone);
+  const conflictItems = await getConflictItems({
+    ownerEmail: context.ownerEmail,
+    conflictSlugs: context.conflictSlugs,
+    rangeStartIso: dateStartIso(date, timezone),
+    rangeEndIso: dateEndIso(date, timezone),
+  });
+  const slots = generateAvailableSlotsForDate({
+    date,
+    duration,
+    config: context.effectiveConfig,
+    conflictItems,
+  });
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  return slots.some(
+    (slot) =>
+      new Date(slot.start).getTime() === startMs &&
+      new Date(slot.end).getTime() === endMs,
+  );
+}
+
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   return requireRequestContext(_event, async () => {
     try {
@@ -545,17 +638,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
     }
+    const requestedSlug = stripCrlf(body.slug);
 
     const bookingLink =
-      body.slug &&
+      requestedSlug &&
       (
         await getDb()
           .select()
           .from(schema.bookingLinks)
-          .where(eq(schema.bookingLinks.slug, body.slug))
+          .where(eq(schema.bookingLinks.slug, requestedSlug))
       )[0];
 
-    if (body.slug && (!bookingLink || !bookingLink.isActive)) {
+    if (requestedSlug && (!bookingLink || !bookingLink.isActive)) {
       setResponseStatus(event, 404);
       return { error: "Booking link not found" };
     }
@@ -566,6 +660,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 500);
       return { error: "Booking link has no host email" };
     }
+    const requestedRange = requestedBookingRange(body.start, body.end);
+    if (!requestedRange) {
+      setResponseStatus(event, 400);
+      return { error: "start and end must be valid ISO times" };
+    }
+
+    const allowedDurations = bookingLink
+      ? parseBookingLinkDurations(bookingLink)
+      : [];
+    if (
+      allowedDurations.length > 0 &&
+      !allowedDurations.includes(requestedRange.duration)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Requested duration is not available for this link" };
+    }
+
     const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
 
     const eventTitle = buildBookingEventTitle({
@@ -655,12 +766,24 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    if (
+      !(await requestedSlotIsCurrentlyAvailable({
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+      }))
+    ) {
+      setResponseStatus(event, 409);
+      return { error: "This time slot is no longer available" };
+    }
+
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const conflictSlugs = bookingLink?.ownerEmail
       ? await getBookingLinkSlugsForOwner(bookingLink.ownerEmail)
-      : body.slug
-        ? [String(body.slug)]
+      : requestedSlug
+        ? [requestedSlug]
         : [];
     const insertResult = await db.transaction(async (tx) => {
       const conflicting = await tx
@@ -669,8 +792,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         .where(
           and(
             ne(schema.bookings.status, "cancelled"),
-            lte(schema.bookings.start, body.end),
-            gte(schema.bookings.end, body.start),
+            lte(schema.bookings.start, requestedRange.end.toISOString()),
+            gte(schema.bookings.end, requestedRange.start.toISOString()),
             conflictSlugs.length > 0
               ? inArray(schema.bookings.slug, conflictSlugs)
               : undefined,
@@ -685,9 +808,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         id,
         name: attendeeName,
         email: attendeeEmail,
-        start: body.start,
-        end: body.end,
-        slug: body.slug || "",
+        start: requestedRange.start.toISOString(),
+        end: requestedRange.end.toISOString(),
+        slug: requestedSlug,
         eventTitle,
         notes: notes || null,
         fieldResponses:
@@ -738,8 +861,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         const zoomResult = await createZoomMeeting({
           hostEmail,
           title: eventTitle,
-          startTime: body.start,
-          endTime: body.end,
+          startTime: requestedRange.start.toISOString(),
+          endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
         if (zoomResult?.meetingUrl) {
@@ -787,8 +910,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           id: nanoid(),
           title: eventTitle,
           description: descParts.join("\n\n"),
-          start: body.start,
-          end: body.end,
+          start: requestedRange.start.toISOString(),
+          end: requestedRange.end.toISOString(),
           location: meetingLink || "",
           allDay: false,
           source: "google",
@@ -836,9 +959,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       id,
       name: attendeeName,
       email: attendeeEmail,
-      start: body.start,
-      end: body.end,
-      slug: body.slug || "",
+      start: requestedRange.start.toISOString(),
+      end: requestedRange.end.toISOString(),
+      slug: requestedSlug,
       eventTitle,
       notes: notes || undefined,
       fieldResponses:
@@ -862,11 +985,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         "calendar.booking.created",
         {
           bookingId: id,
-          schedulingLinkSlug: body.slug || "",
+          schedulingLinkSlug: requestedSlug,
           attendeeName,
           attendeeEmail,
-          startTime: body.start,
-          endTime: body.end,
+          startTime: requestedRange.start.toISOString(),
+          endTime: requestedRange.end.toISOString(),
           eventTitle: booking.eventTitle || "",
         },
         { owner: hostEmail },
