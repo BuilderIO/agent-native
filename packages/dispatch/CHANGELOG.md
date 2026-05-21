@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.8
+
+### Patch Changes
+
+- 0ba051e: Prevent Dispatch workspace app card text from collapsing at intermediate grid widths.
+
 ## 0.8.7
 
 ### Patch Changes

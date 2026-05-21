@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.22.15
+
+### Patch Changes
+
+- 0ba051e: Relay `sendToAgentChat()` submissions from MCP App embeds to compatible chat hosts.
+- 0ba051e: Prevent HEAD probes from consuming one-time MCP app embed tickets before iframe navigation.
+- 0ba051e: Add client helpers for MCP App host integration.
+- 0ba051e: Add an embedRoute helper that pairs action deep links with MCP App resources.
+- 0ba051e: Add a ShareButton hook for hiding organization-link resources from discovery.
+
 ## 0.22.14
 
 ### Patch Changes
