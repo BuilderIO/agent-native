@@ -305,10 +305,14 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
   return normalized || fallback;
 }
 
+// ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
+// when the shared shell changes in a way that must invalidate host caches.
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v2";
+
 function defaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
   const action = safeUiSegment(actionName, "tool");
-  return `ui://${app}/${action}`;
+  return `ui://${app}/${action}/${MCP_APP_RESOURCE_SHELL_VERSION}`;
 }
 
 function expandRequestOriginSources(
