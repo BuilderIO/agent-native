@@ -46,6 +46,7 @@ import {
 
 interface ViewsMenuProps {
   dashboardId: string;
+  canEdit?: boolean;
 }
 
 function slugify(name: string): string {
@@ -85,7 +86,7 @@ function filtersMatch(
   return true;
 }
 
-export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
+export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { views, saveView, deleteView } = useDashboardViews(dashboardId);
 
@@ -187,42 +188,48 @@ export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
                 }}
               >
                 <span className="truncate flex-1">{v.name}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDeleteTarget(v);
-                        setMenuOpen(false);
-                      }}
-                    >
-                      <IconTrash className="h-3 w-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{`Delete ${v.name}`}</TooltipContent>
-                </Tooltip>
+                {canEdit ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeleteTarget(v);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        <IconTrash className="h-3 w-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{`Delete ${v.name}`}</TooltipContent>
+                  </Tooltip>
+                ) : null}
               </DropdownMenuItem>
             ))
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              setMenuOpen(false);
-              setSaveDialogOpen(true);
-            }}
-          >
-            <IconDeviceFloppy className="h-4 w-4 mr-2" />
-            Save current view
-          </DropdownMenuItem>
+          {canEdit ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setMenuOpen(false);
+                  setSaveDialogOpen(true);
+                }}
+              >
+                <IconDeviceFloppy className="h-4 w-4 mr-2" />
+                Save current view
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog open={canEdit && saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Save view</DialogTitle>
@@ -265,7 +272,7 @@ export function ViewsMenu({ dashboardId }: ViewsMenuProps) {
       </Dialog>
 
       <AlertDialog
-        open={!!deleteTarget}
+        open={canEdit && !!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
       >
         <AlertDialogContent>

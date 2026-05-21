@@ -418,6 +418,23 @@ export function EventDetailPanel({
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     Delete
                   </Button>
+                  {event.htmlLink && (
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto"
+                    >
+                      <a
+                        href={safeUrl(event.htmlLink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        Google Calendar
+                      </a>
+                    </Button>
+                  )}
                 </div>
               )}
             </>

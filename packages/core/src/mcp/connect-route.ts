@@ -95,6 +95,21 @@ function deriveOrigin(event: H3Event): string {
   return host ? `${proto}://${host}` : "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function normalizeBasePath(raw: string | undefined): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed || trimmed === "/") return "";
@@ -136,6 +151,7 @@ function canUseDevOpenConnect(event: H3Event): boolean {
   // by spoofing `Host: localhost`.
   return (
     isLoopbackRequest(event) &&
+    isLoopbackOrigin(deriveOrigin(event)) &&
     !process.env.A2A_SECRET?.trim() &&
     !process.env.ACCESS_TOKEN?.trim() &&
     !process.env.ACCESS_TOKENS?.trim()

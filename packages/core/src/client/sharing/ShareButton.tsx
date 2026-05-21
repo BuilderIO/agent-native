@@ -15,6 +15,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconCopy,
+  IconSearchOff,
 } from "@tabler/icons-react";
 import * as Select from "@radix-ui/react-select";
 import {
@@ -71,6 +72,15 @@ export interface ShareButtonProps {
   >;
   /** Optional note rendered between general access and the copyable link. */
   accessNote?: ReactNode;
+  /** Optional Notion-style organization access control. When present, the
+   *  share panel shows a "Hide in search" switch for org visibility. */
+  hideInSearchControl?: {
+    checked: boolean;
+    pending?: boolean;
+    label?: string;
+    description?: ReactNode;
+    onCheckedChange: (checked: boolean) => void | Promise<void>;
+  };
 }
 
 type Visibility = "private" | "org" | "public";
@@ -416,6 +426,21 @@ function SharePanel(
     });
   };
 
+  const handleHideInSearch = () => {
+    const control = props.hideInSearchControl;
+    if (!control || control.pending || !canManage) return;
+    setShareError(null);
+    try {
+      Promise.resolve(control.onCheckedChange(!control.checked)).catch(
+        (err) => {
+          setShareError(extractShareErrorMessage(err));
+        },
+      );
+    } catch (err) {
+      setShareError(extractShareErrorMessage(err));
+    }
+  };
+
   const handleAdd = () => {
     const trimmed = email.trim();
     if (!trimmed) return;
@@ -729,6 +754,47 @@ function SharePanel(
           </div>
         </div>
       </div>
+
+      {visibility === "org" && props.hideInSearchControl ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={props.hideInSearchControl.checked}
+          disabled={!canManage || props.hideInSearchControl.pending}
+          onClick={handleHideInSearch}
+          className={cn(
+            "mb-4 flex w-full items-center gap-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+            props.hideInSearchControl.checked &&
+              "border-border bg-accent/35 text-foreground",
+          )}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border bg-muted-foreground/25 transition-colors",
+              props.hideInSearchControl.checked &&
+                "border-primary/70 bg-primary",
+            )}
+          >
+            <span
+              className={cn(
+                "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+                props.hideInSearchControl.checked && "translate-x-4",
+              )}
+            />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <IconSearchOff size={14} strokeWidth={1.8} />
+              {props.hideInSearchControl.label ?? "Hide in search"}
+            </span>
+            <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+              {props.hideInSearchControl.description ??
+                "People with the link can still open this."}
+            </span>
+          </span>
+        </button>
+      ) : null}
 
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">

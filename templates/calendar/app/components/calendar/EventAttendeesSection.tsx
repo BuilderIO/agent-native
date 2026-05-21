@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  IconCheck,
-  IconCircleX,
-  IconHelpCircle,
-  IconUser,
-} from "@tabler/icons-react";
+import { IconMessageCircle, IconUser } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
 import { Button } from "@/components/ui/button";
@@ -16,30 +11,21 @@ import {
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import { cn } from "@/lib/utils";
+import {
+  getRsvpStatusLabel,
+  RsvpStatusIcon,
+  type RsvpStatus,
+} from "@/lib/rsvp-status";
 
 type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
-type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
 
 function getAvatarUrl(email: string): string {
   return `https://unavatar.io/${encodeURIComponent(email.trim().toLowerCase())}?fallback=false`;
-}
-
-function ResponseStatusIcon({ status }: { status?: string }) {
-  switch (status) {
-    case "accepted":
-      return <IconCheck className="h-3 w-3 text-green-500" />;
-    case "declined":
-      return <IconCircleX className="h-3 w-3 text-red-400" />;
-    case "tentative":
-      return <IconHelpCircle className="h-3 w-3 text-yellow-500" />;
-    default:
-      return <IconHelpCircle className="h-3 w-3 text-muted-foreground/40" />;
-  }
 }
 
 function AttendeeAvatar({
@@ -247,6 +233,10 @@ function AttendeeRow({
   onStatusChange?: (status: Exclude<RsvpStatus, "needsAction">) => void;
   isRecurring?: boolean;
 }) {
+  const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
+  const statusLabel = getRsvpStatusLabel(displayStatus) ?? "Awaiting";
+  const comment = attendee.comment?.trim();
+
   return (
     <AttendeeApolloPopover attendee={attendee}>
       <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
@@ -254,9 +244,7 @@ function AttendeeRow({
           <div className="relative shrink-0">
             <AttendeeAvatar attendee={attendee} resolvedPhotoUrl={photoUrl} />
             <div className="absolute -bottom-0.5 -right-0.5">
-              <ResponseStatusIcon
-                status={inlineRsvp ? currentStatus : attendee.responseStatus}
-              />
+              <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
             </div>
           </div>
           <div className="min-w-0 flex-1">
@@ -275,8 +263,17 @@ function AttendeeRow({
                 {attendee.email}
               </div>
             )}
+            <div className="mt-0.5 text-[11px] text-muted-foreground/70">
+              {inlineRsvp ? `Your response: ${statusLabel}` : statusLabel}
+            </div>
           </div>
         </div>
+        {comment && (
+          <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+            <IconMessageCircle className="mt-0.5 h-3 w-3 shrink-0" />
+            <span className="min-w-0 break-words">{comment}</span>
+          </div>
+        )}
         {inlineRsvp && currentStatus && onStatusChange && (
           <RsvpControls
             eventId={event.id}

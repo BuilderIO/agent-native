@@ -66,6 +66,9 @@ export default defineAction({
       ownerEmail: a.ownerEmail,
       orgId: a.orgId,
       visibility: a.visibility,
+      role: a.role,
+      canEdit: a.canEdit,
+      canManage: a.canManage,
     };
   },
 });

@@ -29,6 +29,8 @@ export function EmptyState() {
       icon: null,
       position: 9999,
       isFavorite: false,
+      hideFromSearch: false,
+      visibility: "private",
       createdAt: now,
       updatedAt: now,
     };

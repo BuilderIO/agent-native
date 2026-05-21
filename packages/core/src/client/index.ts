@@ -72,6 +72,21 @@ export {
 } from "./conversation/index.js";
 export { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
 export {
+  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+  type AgentNativeMcpAppHostMessageType,
+  type McpAppDisplayMode,
+  type McpAppHostCapabilities,
+  type McpAppHostContext,
+  type McpAppHostContextSnapshot,
+  type McpAppModelContextContentPart,
+  type McpAppModelContextUpdate,
+} from "./mcp-app-host.js";
+export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,
 } from "./components/CodeAgentIndicator.js";

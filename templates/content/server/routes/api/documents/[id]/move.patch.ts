@@ -2,7 +2,10 @@ import { defineEventHandler, createError } from "h3";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db/index.js";
 import { schema } from "../../../../db/index.js";
-import { parseDocumentFavorite } from "../../../../lib/documents.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../../../../lib/documents.js";
 import {
   getSession,
   readBody,
@@ -153,6 +156,7 @@ export default defineEventHandler(async (event) => {
         icon: doc.icon,
         position: doc.position,
         isFavorite: parseDocumentFavorite(doc.isFavorite),
+        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
       };

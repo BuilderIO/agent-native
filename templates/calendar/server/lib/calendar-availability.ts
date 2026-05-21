@@ -5,7 +5,6 @@ type AvailabilityEvent = Pick<
   | "accountEmail"
   | "attendees"
   | "end"
-  | "organizer"
   | "responseStatus"
   | "start"
   | "status"
@@ -31,13 +30,6 @@ export function eventBlocksAvailability(event: AvailabilityEvent): boolean {
   const selfAttendee = findSelfAttendee(event);
   const selfStatus = event.responseStatus ?? selfAttendee?.responseStatus;
   if (selfStatus === "declined") return false;
-
-  if (event.attendees && event.attendees.length > 0) {
-    const organizerIsSelf =
-      event.organizer?.self === true ||
-      sameEmail(event.organizer?.email, event.accountEmail);
-    if (!selfAttendee && !organizerIsSelf) return false;
-  }
 
   return true;
 }

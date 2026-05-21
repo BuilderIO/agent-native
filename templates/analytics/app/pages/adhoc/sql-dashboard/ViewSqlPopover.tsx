@@ -39,7 +39,8 @@ interface ViewSqlPopoverProps {
   resolvedSql?: string;
   /** Persist a SQL-only edit. Should throw on validation failure so the
    *  popover can keep open and surface the error inline. */
-  onSaveSql: (sql: string) => Promise<void>;
+  onSaveSql?: (sql: string) => Promise<void>;
+  editable?: boolean;
   children: ReactNode;
 }
 
@@ -47,6 +48,7 @@ export function ViewSqlPopover({
   panel,
   resolvedSql,
   onSaveSql,
+  editable = true,
   children,
 }: ViewSqlPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -65,15 +67,16 @@ export function ViewSqlPopover({
   }, [open, panel.sql]);
 
   const dirty = draft !== panel.sql;
+  const canEditSql = editable && !!onSaveSql;
   const hasResolvedDifference =
     resolvedSql !== undefined && resolvedSql !== panel.sql;
-  const canFormat = canFormatPanelSql(panel.source);
+  const canFormat = canEditSql && canFormatPanelSql(panel.source);
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
 
   const handleSave = async () => {
-    if (!dirty || saving) return;
+    if (!canEditSql || !dirty || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -121,7 +124,7 @@ export function ViewSqlPopover({
         aria-label="View SQL"
         className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-4"
         onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          if (canEditSql && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
             handleSave();
           }
@@ -135,7 +138,7 @@ export function ViewSqlPopover({
             </Badge>
           </div>
           <div className="flex items-center gap-1">
-            {dirty && (
+            {canEditSql && dirty && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -194,20 +197,25 @@ export function ViewSqlPopover({
 
         <Textarea
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            if (canEditSql) setDraft(e.target.value);
+          }}
           rows={12}
           spellCheck={false}
           className="font-mono text-xs resize-y min-h-[240px]"
           placeholder="SELECT ..."
+          readOnly={!canEditSql}
         />
-        <p className="text-[11px] text-muted-foreground mt-1.5">
-          Use <code className="font-mono">{"{{varName}}"}</code> to interpolate
-          filter values. Press{" "}
-          <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-            {isMac ? "⌘" : "Ctrl"}+Enter
-          </kbd>{" "}
-          to save.
-        </p>
+        {canEditSql ? (
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Use <code className="font-mono">{"{{varName}}"}</code> to
+            interpolate filter values. Press{" "}
+            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
+              {isMac ? "⌘" : "Ctrl"}+Enter
+            </kbd>{" "}
+            to save.
+          </p>
+        ) : null}
 
         {hasResolvedDifference && (
           <div className="mt-3">
@@ -247,16 +255,18 @@ export function ViewSqlPopover({
           >
             Close
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
-            {saving ? (
-              <>
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              "Save"
-            )}
-          </Button>
+          {canEditSql ? (
+            <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? (
+                <>
+                  <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>

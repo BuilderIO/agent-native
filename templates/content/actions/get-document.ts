@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
@@ -41,6 +44,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       accessRole: access.role,
       canEdit: canEditRole(access.role),

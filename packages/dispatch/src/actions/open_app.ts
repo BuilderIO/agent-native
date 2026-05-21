@@ -62,7 +62,6 @@ export default defineAction({
       iframeTitle: "Dispatch MCP app",
       openLabel: "Open app",
       frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
-      height: 900,
     }),
   },
 });

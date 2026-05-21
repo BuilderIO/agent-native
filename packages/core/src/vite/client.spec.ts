@@ -90,6 +90,78 @@ describe("Vite optimized dependency recovery", () => {
   });
 });
 
+describe("Vite MCP embed headers", () => {
+  it("adds COEP-compatible headers to embed-token page loads in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+    expect(middleware).toBeTypeOf("function");
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/inbox?embedded=1&__an_embed_token=tok", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith("Referrer-Policy", "no-referrer");
+  });
+
+  it("adds the same headers when an embed session cookie is present", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/inbox", headers: { cookie: "an_embed_session=tok" } },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+});
+
 describe("Vite connection reset noise", () => {
   it("suppresses benign reset errors before they reach the browser overlay", () => {
     const plugin = findPlugin("agent-native-silence-connection-resets");

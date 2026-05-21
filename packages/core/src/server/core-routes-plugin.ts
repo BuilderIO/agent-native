@@ -117,6 +117,7 @@ import {
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -158,6 +159,13 @@ async function detectUsageEngineName(
         /* org module not present in this template */
       }
     }
+    const envEntry = process.env.AGENT_ENGINE
+      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+      : undefined;
+    if (envEntry) {
+      return isAgentEnginePackageInstalled(envEntry) ? envEntry.name : null;
+    }
+
     const detectedFromUser = await runWithRequestContext(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
@@ -1870,6 +1878,21 @@ export function createCoreRoutesPlugin(
               engine,
               model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
               source: "settings" as const,
+            };
+          }
+          const envEntry = process.env.AGENT_ENGINE
+            ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+            : undefined;
+          if (envEntry) {
+            if (!isAgentEnginePackageInstalled(envEntry)) {
+              return { configured: false };
+            }
+            return {
+              configured: true,
+              engine: envEntry.name,
+              model: envEntry.defaultModel ?? DEFAULT_MODEL,
+              source: "env" as const,
+              envVar: "AGENT_ENGINE",
             };
           }
           // Per-user app_secrets — a user who connected Builder (or pasted

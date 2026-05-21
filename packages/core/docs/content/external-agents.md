@@ -215,6 +215,34 @@ That makes the same app surface available to every compatible host rather than b
 
 Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app.
 
+### First-class MCP App bridge {#mcp-app-bridge}
+
+MCP App embeds are route embeds, not separate mini-products. `embedApp()`
+starts from the action's `link` target, creates a short-lived embed session,
+and loads that URL in an iframe. Design embedded routes so a reload with the
+same URL reconstructs the same view.
+
+The host bridge is deliberately small:
+
+| Direction       | Message type                             | Use it for                               |
+| --------------- | ---------------------------------------- | ---------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | Theme, locale, host platform, dimensions |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | Hidden context for the host model        |
+| route → wrapper | `agentNative.mcpHost.openLink`           | Open an external or app URL via the host |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Request `inline`, `fullscreen`, or `pip` |
+| wrapper → route | `agentNative.mcpHost.response`           | Correlate async request results          |
+
+Embedded routes can use `updateMcpAppModelContext()`,
+`openMcpAppHostLink()`, `requestMcpAppDisplayMode()`,
+`getMcpAppHostContext()`, and `useMcpAppHostContext()` from
+`@agent-native/core/client`. `sendToAgentChat()` uses the same path from
+full-app embeds for auto-submitted prompts.
+
+Display mode is best-effort. The in-app `McpAppRenderer` currently reports an
+inline web host context and an inline-only display mode; external hosts may
+honor larger display requests, ignore them, or reply with an unsupported-mode
+error. Always keep the inline route usable.
+
 ### Generic cross-app verbs {#cross-app}
 
 On top of the per-action tools the MCP server exposes a stable verb set, so an external agent has a predictable surface without guessing per-app action names:
@@ -230,6 +258,8 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
 For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`) and actions with `mcpApp`. Stdio/static-token developer clients still get the full connected action surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools outside the compact app catalog. If a UI-capable host should be able to call a new action from an MCP App conversation, mark it with `mcpApp`; use `publicAgent` for non-UI read/ingest handoff tools.
+
+For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App widget launch the iframe. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
 
 ### Per-app tour {#tour}
 
@@ -283,7 +313,7 @@ List/search actions point at a record-focused view the same way — e.g. calenda
 
 For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
 
-Use the real React app with `embedApp()` whenever the user needs UI. The mental model is simple: the action's `link` target is also the MCP App embed target. Expose the operation as a normal action/tool, return a focused deep link with `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that same route inline instead of opening a new tab.
+Use the real React app with `embedRoute()` or `embedApp()` whenever the user needs UI. The mental model is simple: the action's `link` target is also the MCP App embed target. Expose the operation as a normal action/tool, return a focused deep link with `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that same route inline instead of opening a new tab. When both should be built from the same route, prefer `embedRoute({ title, openLabel, path })`; it returns matching `link` and `mcpApp` action fields.
 
 That means full-app embeds can do anything the route can do once opened: review or edit an email draft, show a filtered inbox/search, open a calendar event or event draft, load an extension page, inspect a full analytics dashboard or saved analysis, continue a deck in the Slides editor, or open a Design project/editor. Prefer URL/deep-link params and the existing `/_agent-native/open` navigation/app-state bridge over inventing a second state protocol for MCP Apps.
 
@@ -311,6 +341,12 @@ export default defineAction({
 The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui.resourceUri` plus `_meta["ui/resourceUri"]` to `tools/list`, and also emits ChatGPT Apps SDK compatibility metadata (`openai/outputTemplate`, widget CSP/description/accessibility). It exposes the HTML through `resources/list`, `resources/templates/list`, and `resources/read` using MIME `text/html;profile=mcp-app`. The stdio proxy forwards those resource handlers from the live app, so desktop and CLI clients see the same resources as HTTP clients.
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and loads the target route in an iframe with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
+
+Inside those `embedApp()` full-app iframes, `sendToAgentChat()` is host-aware:
+auto-submitted prompts are relayed to the wrapper, which uses the host's model
+context and message APIs for hidden context plus the visible user turn. Hosts
+without MCP Apps messaging support simply ignore the bridge, and
+`submit: false` remains a local review/prefill path.
 
 ### The `link` contract {#link-contract}
 
@@ -452,6 +488,9 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - Make external-agent ingest actions GET + `readOnly` + `publicAgent`, and read live (Yjs) state, not the stale DB column.
 - Let the open route resolve the browser session; pass record ids as deep-link params and let the UI focus them via the polled `navigate` command.
 - Revoke a minted connect token by `jti` when an agent client is decommissioned.
+- Test MCP Apps with the lightweight fixtures around `embedApp()` and
+  `McpAppRenderer`; they cover CSP, host context, app launch, and bridge
+  message behavior without needing a real external host.
 
 **Don't**
 

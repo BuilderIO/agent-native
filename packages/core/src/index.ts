@@ -39,6 +39,13 @@ export {
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
   type EmbedAppOptions,
 } from "./mcp/embed-app.js";
+export {
+  embedRoute,
+  type EmbedRouteContext,
+  type EmbedRouteOptions,
+  type EmbedRoutePathBuilder,
+  type EmbedRouteResult,
+} from "./mcp/embed-route.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
@@ -70,6 +77,12 @@ export {
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,
+  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
   CodeRequiredDialog,
   useAgentNativeEmbeddedBrowserSession,
   useDbSync,
@@ -81,6 +94,13 @@ export {
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatMessage,
+  type AgentNativeMcpAppHostMessageType,
+  type McpAppDisplayMode,
+  type McpAppHostCapabilities,
+  type McpAppHostContext,
+  type McpAppHostContextSnapshot,
+  type McpAppModelContextContentPart,
+  type McpAppModelContextUpdate,
   type AgentNativeEmbeddedProps,
   type UseAgentNativeEmbeddedBrowserSessionOptions,
   type CodeRequiredDialogProps,

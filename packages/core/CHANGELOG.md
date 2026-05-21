@@ -1,5 +1,40 @@
 # @agent-native/core
 
+## 0.22.16
+
+### Patch Changes
+
+- 6de0eaf: Fix `/assets/*` 404s in production builds. The React Router client build is now
+  copied into Nitro's `publicDir` before `nitroBuild` runs, so the static-asset
+  manifest baked into the server bundle includes hashed JS/CSS chunks. Previously
+  the copy happened after `nitroBuild`, leaving the files on disk but invisible to
+  Nitro's runtime `serveStatic` handler — every `/assets/*` request fell through
+  to the SSR catch-all, which 404s any path with a file extension.
+
+## 0.22.15
+
+### Patch Changes
+
+- 0ba051e: Relay `sendToAgentChat()` submissions from MCP App embeds to compatible chat hosts.
+- 0ba051e: Prevent HEAD probes from consuming one-time MCP app embed tickets before iframe navigation.
+- 0ba051e: Add client helpers for MCP App host integration.
+- 0ba051e: Add an embedRoute helper that pairs action deep links with MCP App resources.
+- 0ba051e: Add a ShareButton hook for hiding organization-link resources from discovery.
+
+## 0.22.14
+
+### Patch Changes
+
+- b09db79: Prevent unavailable optional agent engines from being selected by chat model pickers or explicit runtime overrides.
+
+## 0.22.13
+
+### Patch Changes
+
+- 0b4ade2: Use the official Gemini 3.5 Flash model ID for the Google provider.
+- 9482ec9: Harden serverless database pool cleanup and chat thread conflict retries.
+- 54f295b: Make MCP App embeds launch real app routes reliably and keep web-host discovery compact.
+
 ## 0.22.12
 
 ### Patch Changes

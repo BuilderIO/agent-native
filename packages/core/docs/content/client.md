@@ -73,6 +73,14 @@ navigate(`/inbox/${threadId}`);
 
 Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.
 
+When the app route is running inside an MCP App embed created with `embedApp()`,
+auto-submitted messages (`submit` omitted or `true`) are forwarded to the MCP
+App wrapper, which asks the containing host to add hidden context and send the
+visible user turn. `context` is sent as model context before the visible
+message, so it stays model-visible without being posted as user-facing chat.
+`submit: false` keeps the local prefill/review behavior because MCP Apps do not
+define a standard draft-prefill API.
+
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 
@@ -101,6 +109,41 @@ sendToAgentChat({
 | `projectSlug`         | `string?`   | Optional project slug for structured context   |
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
+
+## MCP App Host Bridge {#mcp-app-host-bridge}
+
+Routes embedded by `embedApp()` should be URL-first: load the current artifact
+from path/query params, render the real React route or a focused shared
+component, and use host bridge messages only for host-owned behavior.
+
+The wire contract is:
+
+| Direction       | Message type                             | Purpose                                           |
+| --------------- | ---------------------------------------- | ------------------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | Push host context such as theme/display mode      |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | Add hidden model context                          |
+| route → wrapper | `agentNative.mcpHost.openLink`           | Ask the host to open a URL                        |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Ask for `inline`, `fullscreen`, or `pip`          |
+| wrapper → route | `agentNative.mcpHost.response`           | Resolve or reject a request by matching requestId |
+
+Use the exported helpers from `@agent-native/core/client` inside embedded
+routes:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client";
+```
+
+`getMcpAppHostContext()` reads the latest pushed host context snapshot;
+`useMcpAppHostContext()` subscribes React components to changes. The request
+helpers return `false` outside an embedded MCP App frame, or
+`Promise<boolean>` inside a frame. `sendToAgentChat()` uses the same bridge for
+auto-submitted prompts from embedded routes.
 
 ## Dynamic Suggestions {#dynamic-suggestions}
 

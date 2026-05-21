@@ -233,9 +233,6 @@ export function createCameraCompositeStream(
 
   resizeCanvasToDisplay(canvas, display.video, options.displayStream);
   const stream = canvas.captureStream(frameRate);
-  let raf: number | null = null;
-  let stopped = false;
-  let lastFrameAt = 0;
   const minFrameMs = 1000 / frameRate;
 
   const drawFrame = () => {
@@ -250,22 +247,54 @@ export function createCameraCompositeStream(
     drawCameraBubble(ctx, camera.video, canvas, drawOptions);
   };
 
-  const tick = (now: number) => {
-    if (stopped) return;
-    if (now - lastFrameAt >= minFrameMs) {
-      lastFrameAt = now;
-      drawFrame();
+  // Use a Worker-based timer so the draw loop keeps running at the target
+  // frame rate even when the user switches to a different tab. rAF is
+  // throttled to ~1fps in background tabs, which causes glitchy recordings.
+  // Falls back to rAF if Worker creation fails (e.g. strict CSP blocking blob: workers).
+  let worker: Worker | null = null;
+  let raf: number | null = null;
+
+  try {
+    const workerBlob = new Blob(
+      [
+        `let t=null;onmessage=e=>{if(e.data==='start'){clearInterval(t);t=setInterval(()=>postMessage('tick'),${minFrameMs});}else if(e.data==='stop'){clearInterval(t);}};`,
+      ],
+      { type: "application/javascript" },
+    );
+    const workerUrl = URL.createObjectURL(workerBlob);
+    try {
+      worker = new Worker(workerUrl);
+    } finally {
+      URL.revokeObjectURL(workerUrl);
     }
+    worker.onmessage = () => drawFrame();
+    worker.postMessage("start");
+  } catch (err) {
+    console.warn(
+      "[camera-composite] Worker timer unavailable, falling back to rAF — recording may glitch on hidden tabs:",
+      err,
+    );
+    let lastFrameAt = 0;
+    const tick = (now: number) => {
+      if (raf === null) return;
+      if (now - lastFrameAt >= minFrameMs) {
+        lastFrameAt = now;
+        drawFrame();
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
     raf = window.requestAnimationFrame(tick);
-  };
+  }
 
   drawFrame();
-  raf = window.requestAnimationFrame(tick);
 
   return {
     stream,
     cleanup() {
-      stopped = true;
+      if (worker) {
+        worker.postMessage("stop");
+        worker.terminate();
+      }
       if (raf !== null) {
         window.cancelAnimationFrame(raf);
         raf = null;

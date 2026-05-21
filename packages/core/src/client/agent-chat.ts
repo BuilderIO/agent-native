@@ -10,6 +10,11 @@
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
   sendToBuilderChat,
@@ -100,6 +105,16 @@ export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function isMcpAppChatBridgeEnabled(): boolean {
+  if (typeof window === "undefined" || window.parent === window) return false;
+  const params = new URLSearchParams(window.location.search || "");
+  return (
+    params.get(EMBED_MODE_QUERY_PARAM) === "1" &&
+    params.has(EMBED_TOKEN_QUERY_PARAM) &&
+    params.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM) === "1"
+  );
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  */
@@ -123,6 +138,12 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: { ...opts, tabId },
   };
+
+  if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+    window.parent.postMessage(payload, getFrameOrigin() || "*");
+    return tabId;
+  }
+
   const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
   const targetSelf = !isCodeRequest && isInBuilderFrame();

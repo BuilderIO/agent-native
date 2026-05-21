@@ -17,7 +17,8 @@
  *   pnpm action get-recording-player-data --recordingId=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -29,12 +30,37 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 
+const MCP_APP_FRAME_DOMAINS = [
+  "https:",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+];
+
+function recordingDeepLink(recordingId: string): string {
+  return buildDeepLink({
+    app: "clips",
+    view: "recording",
+    params: { recordingId },
+    to: `/r/${encodeURIComponent(recordingId)}`,
+  });
+}
+
 export default defineAction({
   description:
     "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
+  mcpApp: {
+    resource: embedApp({
+      title: "Clip player",
+      description: "Open this recording in the real Clips player.",
+      iframeTitle: "Agent-Native Clips",
+      openLabel: "Open clip",
+      frameDomains: MCP_APP_FRAME_DOMAINS,
+      height: 680,
+    }),
+  },
   http: { method: "GET" },
   run: async (args) => {
     const access = await resolveAccess("recording", args.recordingId);
@@ -250,6 +276,13 @@ export default defineAction({
         placement: c.placement,
       })),
       meeting,
+    };
+  },
+  link: ({ args }) => {
+    return {
+      url: recordingDeepLink(args.recordingId),
+      label: "Open clip in Clips",
+      view: "recording",
     };
   },
 });

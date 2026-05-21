@@ -1,4 +1,4 @@
-import { createError, defineEventHandler, setResponseHeaders } from "h3";
+import { defineEventHandler, setResponseHeaders, setResponseStatus } from "h3";
 import {
   type DesktopDownloadManifest,
   getDesktopDownloadManifest,
@@ -11,10 +11,12 @@ export default defineEventHandler(async (event) => {
     manifest = await getDesktopDownloadManifest();
   } catch (error) {
     const e = getDesktopReleaseError(error);
-    throw createError({
-      statusCode: e.statusCode,
-      statusMessage: e.statusMessage,
+    setResponseStatus(event, e.statusCode, e.statusMessage);
+    setResponseHeaders(event, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=30",
     });
+    return { error: e.statusMessage };
   }
 
   setResponseHeaders(event, {

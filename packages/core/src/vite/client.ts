@@ -412,6 +412,8 @@ export interface NitroOptions {
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
+  /** Additional hostnames allowed to access the dev server. */
+  allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
   /** Vite log level. Workspace child apps default to "warn" so only the gateway URL is advertised. */
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
@@ -614,6 +616,33 @@ function baseRedirectGuard(): Plugin {
         ) {
           // Rewrite to the base path so Vite serves the app directly
           req.url = base;
+        }
+        next();
+      });
+    },
+  };
+}
+
+function embedDevFrameHeaders(): Plugin {
+  return {
+    name: "agent-native-embed-dev-frame-headers",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const cookieHeader = String(req.headers.cookie ?? "");
+        let hasEmbedMarker = /\ban_embed_session=/.test(cookieHeader);
+        try {
+          const url = new URL(req.url ?? "/", "http://agent-native.local");
+          hasEmbedMarker =
+            hasEmbedMarker || url.searchParams.has("__an_embed_token");
+        } catch {
+          // Malformed URLs should continue through Vite's normal handling.
+        }
+        if (hasEmbedMarker) {
+          res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+          res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Referrer-Policy", "no-referrer");
         }
         next();
       });
@@ -958,6 +987,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     server: {
       host: "::",
       port: options.port ?? 8080,
+      allowedHosts: options.allowedHosts ?? [
+        ".ngrok-free.dev",
+        ".ngrok-free.app",
+        ".ngrok.io",
+      ],
       fs: {
         allow: [
           ".",
@@ -1051,6 +1085,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
       fullReloadOnOptimizeDep504(),
+      embedDevFrameHeaders(),
       baseRedirectGuard(),
       portExposer(),
       silenceConnectionResets(),

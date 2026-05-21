@@ -166,31 +166,46 @@ This works for draft emails, filtered inboxes, calendar event drafts, full
 dashboards, saved analyses, extension routes, decks, design editors, and any
 other state the app can load from a route.
 
+Keep MCP Apps URL-first. Prefer a durable app route such as
+`/dashboards/:id`, `/compose?draft=...`, or `/chart?payload=...` over passing
+large opaque state through the bridge. When an action's `link` and `mcpApp`
+should point at the same route, use `embedRoute()` to create both from one pure
+path builder. The host bridge is for host-owned capabilities: model context
+updates, host-mediated links, host context, and display-mode requests.
+
 When a whole app surface is too much, embed a narrow route that renders a real
 shared React component instead. For example, Analytics can render `/chart` with
 a compact `SqlPanel` URL payload so the MCP host shows one live chart while the
 implementation still reuses the dashboard chart component.
 
 ```ts
-import { embedApp } from "@agent-native/core";
+import { embedRoute } from "@agent-native/core";
 
 export default defineAction({
   description: "Create an email draft for review.",
   schema: z.object({ body: z.string() }),
   run: async ({ body }) => ({ body }),
-  link: ({ result }) => ({
-    label: "Open draft in Mail",
-    url: "/_agent-native/open?app=mail&view=inbox",
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
   }),
-  mcpApp: {
-    resource: embedApp({ title: "Review draft", openLabel: "Open in Mail" }),
-  },
 });
 ```
 
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
+
+Embedded routes can use the exported client helpers for the MCP App host
+bridge. Under the hood, routes receive `agentNative.mcpHostContext` and may
+post `agentNative.mcpHost.updateModelContext`,
+`agentNative.mcpHost.openLink`, or
+`agentNative.mcpHost.requestDisplayMode`; the wrapper replies with
+`agentNative.mcpHost.response`.
 
 ## Standard actions {#standard-actions}
 
