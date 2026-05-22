@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.25
+
+### Patch Changes
+
+- b76bf4f: Bust MCP App shell resource caches so host CSP metadata refreshes after embed changes.
+
 ## 0.22.24
 
 ### Patch Changes
