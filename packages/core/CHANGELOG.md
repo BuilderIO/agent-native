@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.28
+
+### Patch Changes
+
+- 4a5dc8d: Retry transient agent-chat route-missing startup responses and harden Dispatch MCP embed fallback behavior.
+
 ## 0.22.27
 
 ### Patch Changes
