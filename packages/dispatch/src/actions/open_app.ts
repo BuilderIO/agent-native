@@ -46,6 +46,55 @@ const openAppSchema = z
     path: ["view"],
   });
 
+type OpenAppArgs = z.infer<typeof openAppSchema>;
+
+function normalizeOpenAppArgs(args: OpenAppArgs): OpenAppArgs {
+  if (!args.params) return args;
+
+  const params = { ...args.params };
+  const embedded = params.embed;
+  const chrome = params.chrome;
+  let changed = false;
+
+  let normalizedEmbed = args.embed;
+  if (normalizedEmbed == null) {
+    if (embedded === true || embedded === "true") {
+      normalizedEmbed = true;
+      changed = true;
+    } else if (embedded === false || embedded === "false") {
+      normalizedEmbed = false;
+      changed = true;
+    }
+  }
+  if (
+    embedded === true ||
+    embedded === false ||
+    embedded === "true" ||
+    embedded === "false"
+  ) {
+    delete params.embed;
+    changed = true;
+  }
+
+  let normalizedChrome = args.chrome;
+  if (normalizedChrome == null && (chrome === "full" || chrome === "minimal")) {
+    normalizedChrome = chrome;
+    changed = true;
+  }
+  if (chrome === "full" || chrome === "minimal") {
+    delete params.chrome;
+    changed = true;
+  }
+
+  if (!changed) return args;
+  return {
+    ...args,
+    params: Object.keys(params).length ? params : undefined,
+    ...(normalizedEmbed == null ? {} : { embed: normalizedEmbed }),
+    ...(normalizedChrome == null ? {} : { chrome: normalizedChrome }),
+  };
+}
+
 const localDevFrameSources = ["http://localhost:*", "http://127.0.0.1:*"];
 
 const dispatchOpenAppCsp: ActionMcpAppCspBuilder = async (
@@ -81,7 +130,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
-  run: async (args) => openGrantedDispatchMcpApp(args),
+  run: async (args) => openGrantedDispatchMcpApp(normalizeOpenAppArgs(args)),
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const r = result as { url?: string; app?: string; view?: string };

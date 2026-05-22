@@ -228,6 +228,45 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
+  it("promotes embed and chrome from params for hosts that nest open options", async () => {
+    const createTicket = vi
+      .spyOn(embedSession, "createEmbedSessionTicket")
+      .mockResolvedValue({
+        ticket: "ticket-params",
+        ticketHash: "hash-params",
+        expiresAt: 987654,
+      });
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+
+    const result: any = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      () =>
+        tools.open_app.run({
+          app: "mail",
+          view: "inbox",
+          params: {
+            embed: true,
+            chrome: "minimal",
+            threadId: "abc",
+          },
+        }),
+    );
+
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embed).toBe(true);
+    expect(result.embedStartUrl).toBe(
+      "https://mail.example.com/_agent-native/embed/start?ticket=ticket-params",
+    );
+    expect(createTicket).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-123",
+      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      scope: "minimal",
+    });
+  });
+
   it("prefixes direct same-app paths with the configured app base path", async () => {
     process.env.APP_BASE_PATH = "/mail";
     const tools = getBuiltinCrossAppTools(baseConfig());
