@@ -1097,6 +1097,60 @@ function deriveStaticTokenIdentity(
   return { userEmail: owner, orgDomain: undefined };
 }
 
+function addSecretCandidate(
+  candidates: string[],
+  secret: string | null | undefined,
+): void {
+  const trimmed = secret?.trim();
+  if (!trimmed || candidates.includes(trimmed)) return;
+  candidates.push(trimmed);
+}
+
+async function verifyA2AJwtForMcp(
+  token: string,
+): Promise<Record<string, unknown> | null> {
+  const jose = await import("jose");
+  let unverifiedPayload: Record<string, unknown> | null = null;
+  try {
+    unverifiedPayload = jose.decodeJwt(token) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const candidateSecrets: string[] = [];
+  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
+
+  const orgDomain =
+    typeof unverifiedPayload.org_domain === "string"
+      ? unverifiedPayload.org_domain
+      : undefined;
+  if (orgDomain) {
+    try {
+      const { getA2ASecretByDomain } = await import("../org/context.js");
+      addSecretCandidate(
+        candidateSecrets,
+        await getA2ASecretByDomain(orgDomain),
+      );
+    } catch {
+      // DB not ready or org lookup unavailable — fall back to other candidates.
+    }
+  }
+
+  for (const secret of candidateSecrets) {
+    try {
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode(secret),
+      );
+      return payload as Record<string, unknown>;
+    } catch {
+      // Try the next candidate without exposing which secret matched.
+    }
+  }
+
+  return null;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
@@ -1159,7 +1213,7 @@ export async function verifyAuth(
       };
     }
   }
-  if (accessTokens.length === 0 && !hasA2ASecret) {
+  if (accessTokens.length === 0 && !hasA2ASecret && !token) {
     if (options.allowDevOpen === false) {
       return { authed: false };
     }
@@ -1176,62 +1230,63 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  // Try JWT via A2A_SECRET
-  if (hasA2ASecret) {
-    try {
-      const jose = await import("jose");
-      const { payload } = await jose.jwtVerify(
-        token,
-        new TextEncoder().encode(process.env.A2A_SECRET!),
-      );
+  // Try an A2A JWT via the shared A2A_SECRET first, then the caller org's
+  // synced A2A secret when the token carries org_domain.
+  const payload = await verifyA2AJwtForMcp(token);
+  if (payload) {
+    const tokenScope =
+      typeof payload.scope === "string" ? payload.scope : undefined;
+    if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+      return { authed: false };
+    }
 
-      const tokenScope =
-        typeof payload.scope === "string" ? payload.scope : undefined;
-      if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+    // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
+    // and are individually revocable. Only these tokens hit the revoke
+    // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
+    // the hot path is unchanged. The signature was already
+    // cryptographically verified, so failing open here only widens the
+    // explicit-revoke gate, never the trust boundary.
+    if (tokenScope === MCP_CONNECT_SCOPE) {
+      if (typeof payload.jti !== "string" || !payload.jti) {
         return { authed: false };
       }
-
-      // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
-      // and are individually revocable. Only these tokens hit the revoke
-      // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
-      // the hot path is unchanged. The revoke check FAILS OPEN on any
-      // store/DB error: a transient Neon WS drop must never lock every
-      // connected agent out. The signature was already cryptographically
-      // verified above, so failing open here only widens the explicit-revoke
-      // gate, never the trust boundary.
-      if (tokenScope === MCP_CONNECT_SCOPE) {
-        if (typeof payload.jti !== "string" || !payload.jti) {
+      const jti = payload.jti;
+      try {
+        const { isJtiRevoked, touchTokenUsed } =
+          await import("./connect-store.js");
+        if (await isJtiRevoked(jti)) {
           return { authed: false };
         }
-        const jti = payload.jti;
-        try {
-          const { isJtiRevoked, touchTokenUsed } =
-            await import("./connect-store.js");
-          if (await isJtiRevoked(jti)) {
-            return { authed: false };
-          }
-          // Best-effort usage telemetry — never blocks / throws.
-          void touchTokenUsed(jti);
-        } catch {
-          // Store import / lookup failed — fail open (see comment above).
-        }
+        // Best-effort usage telemetry — never blocks / throws.
+        void touchTokenUsed(jti);
+      } catch {
+        // Store import / lookup failed — fail open (see comment above).
       }
-
-      return {
-        authed: true,
-        identity: {
-          userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-          orgDomain:
-            typeof payload.org_domain === "string"
-              ? (payload.org_domain as string)
-              : undefined,
-        },
-        // Verified JWT (connect-minted or A2A delegation) — a real caller.
-        fullSurface: true,
-      };
-    } catch {
-      // Not a valid JWT — fall through to token check
     }
+
+    return {
+      authed: true,
+      identity: {
+        userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+        orgDomain:
+          typeof payload.org_domain === "string"
+            ? (payload.org_domain as string)
+            : undefined,
+      },
+      // Verified JWT (connect-minted or A2A delegation) — a real caller.
+      fullSurface: true,
+    };
+  }
+
+  if (accessTokens.length === 0 && !hasA2ASecret) {
+    if (options.allowDevOpen === false) {
+      return { authed: false };
+    }
+    return {
+      authed: true,
+      identity: deriveStaticTokenIdentity(ownerEmailHeader),
+      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
+    };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
