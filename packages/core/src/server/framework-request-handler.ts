@@ -22,6 +22,7 @@ const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
+const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 
 interface PluginReadyEntry {
@@ -235,6 +236,33 @@ export function trackPluginInit(
     existing.push(entry);
   } else {
     nitroApp[PLUGIN_READY_KEY] = [entry];
+  }
+  installPluginReadyPlaceholders(nitroApp, entry.paths);
+}
+
+function installPluginReadyPlaceholders(
+  nitroApp: any,
+  paths: string[] | undefined,
+): void {
+  if (!paths?.length) return;
+  const existing = nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] as
+    | Set<string>
+    | undefined;
+  const installed = existing ?? new Set<string>();
+  nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] = installed;
+
+  const app = getH3App(nitroApp);
+  for (const path of paths) {
+    if (!path || installed.has(path)) continue;
+    installed.add(path);
+    app.use(path, (async (event: H3Event) => {
+      const eventAny = event as any;
+      await awaitPluginsReady(
+        nitroApp,
+        eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
+      );
+      return undefined;
+    }) as EventHandler);
   }
 }
 
