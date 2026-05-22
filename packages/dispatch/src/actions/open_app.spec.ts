@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listGrantedDispatchMcpAppOrigins: vi.fn(),
@@ -13,6 +13,10 @@ vi.mock("../server/lib/mcp-gateway.js", () => ({
 import openAppAction from "./open_app.js";
 
 describe("open_app MCP App metadata", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("uses exact granted app origins instead of broad HTTPS CSP", async () => {
     mocks.listGrantedDispatchMcpAppOrigins.mockResolvedValue([
       "https://dispatch.agent-native.com",
@@ -47,5 +51,35 @@ describe("open_app MCP App metadata", () => {
     ]);
     expect(csp.baseUriDomains).toEqual(csp.frameDomains);
     expect(JSON.stringify(csp)).not.toContain('"https:"');
+  });
+
+  it("promotes embed and chrome from params for hosts that nest open options", async () => {
+    mocks.openGrantedDispatchMcpApp.mockResolvedValue({
+      app: "mail",
+      view: "inbox",
+      url: "https://mail.agent-native.com/inbox",
+      embed: true,
+      chrome: "minimal",
+      embedStartUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=test",
+    });
+
+    await openAppAction.run({
+      app: "mail",
+      view: "inbox",
+      params: {
+        embed: true,
+        chrome: "minimal",
+        threadId: "abc",
+      },
+    });
+
+    expect(mocks.openGrantedDispatchMcpApp).toHaveBeenCalledWith({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+      chrome: "minimal",
+    });
   });
 });
