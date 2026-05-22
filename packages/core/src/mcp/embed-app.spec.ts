@@ -152,6 +152,9 @@ describe("embedApp", () => {
     expect(html).toContain('toolInput.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
+    expect(resource.csp?.connectDomains).toContain(
+      "https://analytics.example.com",
+    );
     expect(resource.csp?.frameDomains).toEqual([
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
       "https://analytics.example.com",
