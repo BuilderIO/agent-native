@@ -3,6 +3,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import {
   getClients,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
@@ -211,7 +212,14 @@ export default defineAction({
         limit,
         ownerEmail,
         undefined,
-        { mode: "threads", threadCandidateLimit: query ? 500 : undefined },
+        {
+          mode: "threads",
+          threadCandidateLimit: query ? 500 : undefined,
+          threadRecentMessageCandidateLimit:
+            !query && (view === "inbox" || view === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
+        },
       );
 
       if (errors.length > 0 && messages.length === 0) {

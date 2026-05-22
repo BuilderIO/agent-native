@@ -496,6 +496,12 @@ type ListOptions = {
    * each thread's newest message time, which is what Gmail visibly sorts by.
    */
   threadCandidateLimit?: number;
+  /**
+   * Cheap candidate source for regular inbox pagination. messages.list returns
+   * the newest matching messages, which catches old threads with fresh replies
+   * without hydrating a large metadata ranking window on every inbox poll.
+   */
+  threadRecentMessageCandidateLimit?: number;
 };
 
 const LIST_CACHE_TTL = 45_000;
@@ -506,6 +512,7 @@ const THREAD_CANDIDATE_PAGE_MAX = 25;
 const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
 const THREAD_CANDIDATE_PAGE_SETTING = "mail-thread-candidate-pages";
 const THREAD_METADATA_RANK_LIMIT = 120;
+export const DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT = 100;
 
 type ThreadCandidatePageEntry = {
   email: string;
@@ -764,7 +771,7 @@ function listCacheKey(
         .join("|")
     : "";
   const queryPart = query === undefined ? "<default>" : query;
-  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.messageFormat ?? ""}::${options?.threadCandidateLimit ?? ""}`;
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.messageFormat ?? ""}::${options?.threadCandidateLimit ?? ""}::${options?.threadRecentMessageCandidateLimit ?? ""}`;
 }
 
 export async function listGmailMessages(
@@ -1299,6 +1306,7 @@ async function fetchAccountThreads(
   pageToken: string | undefined,
   format: "full" | "metadata" | "minimal",
   candidateLimit: number | undefined,
+  recentMessageCandidateLimit: number | undefined,
   onNextPageToken: (token: string) => void,
   onEstimate: (n: number) => void,
 ): Promise<any[]> {
@@ -1341,6 +1349,10 @@ async function fetchAccountThreads(
 
   const useCandidateWindow =
     !pageToken && candidateLimit && candidateLimit > maxResults;
+  const useRecentMessageCandidates =
+    !pageToken &&
+    recentMessageCandidateLimit &&
+    recentMessageCandidateLimit > maxResults;
   const listMaxResults =
     useCandidateWindow && candidateLimit
       ? Math.min(Math.max(candidateLimit, maxResults), 500)
@@ -1356,6 +1368,14 @@ async function fetchAccountThreads(
   const threadStubs = listRes.threads || [];
   let candidateIds = uniqueIds(threadStubs.map((t: any) => t.id));
   let candidateMetadataById: Map<string, any> | undefined;
+  if (useRecentMessageCandidates) {
+    const recentMatchingThreadIds = await listRecentMatchingThreadIds(
+      accessToken,
+      query,
+      Math.min(Math.max(recentMessageCandidateLimit, maxResults), 500),
+    );
+    candidateIds = uniqueIds([...recentMatchingThreadIds, ...candidateIds]);
+  }
   if (useCandidateWindow && candidateIds.length > maxResults) {
     const rankLimit = Math.min(
       Math.max(maxResults, THREAD_METADATA_RANK_LIMIT),
@@ -1391,7 +1411,10 @@ async function fetchAccountThreads(
   const threadIds = candidateIds.slice(0, maxResults);
   if (threadIds.length === 0) return [];
 
-  if (useCandidateWindow && candidateIds.length > maxResults) {
+  if (
+    (useCandidateWindow || useRecentMessageCandidates) &&
+    candidateIds.length > maxResults
+  ) {
     const key = await storeThreadCandidatePage(
       candidateStoreOwner,
       email,
@@ -1480,6 +1503,7 @@ async function listGmailMessagesUncached(
             pageTokens?.[email],
             threadFormat,
             options?.threadCandidateLimit,
+            options?.threadRecentMessageCandidateLimit,
             (token) => {
               nextPageTokens[email] = token;
             },

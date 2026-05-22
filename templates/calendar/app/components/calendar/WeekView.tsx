@@ -31,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
   events: CalendarEvent[];
@@ -774,6 +775,9 @@ export function WeekView({
                     const segDayEnd = addDays(dayBase, 1);
                     const isStart = isSameDay(start, day);
                     const isEnd = end <= segDayEnd;
+                    const isDragPreviewSegment =
+                      isBeingDragged && overrides?.dayIndex === dayIndex;
+                    const segmentStartsHere = isStart || isDragPreviewSegment;
 
                     // Hide from original column if dragged to a different day
                     if (
@@ -785,7 +789,15 @@ export function WeekView({
                       return null;
                     }
                     // Hide continuation segments during active drag to avoid ghost overlap
-                    if (isBeingDragged && isDragging && !isStart) {
+                    if (
+                      !shouldRenderWeekDragSegment({
+                        isBeingDragged,
+                        isDragging,
+                        isStart,
+                        overrideDayIndex: overrides?.dayIndex,
+                        dayIndex,
+                      })
+                    ) {
                       return null;
                     }
 
@@ -841,7 +853,7 @@ export function WeekView({
                         }}
                         className={cn(
                           "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
-                          isStart ? "rounded-t-md" : "rounded-t-none",
+                          segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
                           isEnd ? "rounded-b-md" : "rounded-b-none",
                           durationMin <= 30
                             ? "justify-center"
@@ -851,7 +863,7 @@ export function WeekView({
                           isBeingDragged &&
                             isDragging &&
                             "ring-2 ring-primary/40",
-                          canDrag && isStart && "cursor-grab",
+                          canDrag && segmentStartsHere && "cursor-grab",
                           isBeingDragged && isDragging && "cursor-grabbing",
                         )}
                         style={{
@@ -872,7 +884,7 @@ export function WeekView({
                               ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
                               : (color ?? "hsl(var(--primary))")
                           }`,
-                          borderTop: !isStart
+                          borderTop: !segmentStartsHere
                             ? `2px dashed ${
                                 isPast || isDeclined
                                   ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
@@ -932,7 +944,7 @@ export function WeekView({
                               />
                               <span className="truncate">{event.title}</span>
                             </div>
-                            {isStart && (
+                            {segmentStartsHere && (
                               <div
                                 className={cn(
                                   "mt-0.5 truncate text-[9px] leading-tight",

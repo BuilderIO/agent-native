@@ -3,9 +3,16 @@ import {
   useMutation,
   useQueryClient,
   keepPreviousData,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { nanoid } from "nanoid";
 import { appApiPath } from "@/lib/api-path";
+import {
+  calendarEventOverlapsListParams,
+  mergeCalendarEventIntoList,
+  removeOptimisticCalendarEventFromList,
+} from "./event-list-cache";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 type CreateEventInput = Omit<
@@ -28,6 +35,9 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   scope?: UpdateEventScope;
 };
 
+const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
+const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
+
 async function readErrorMessage(res: Response, fallback: string) {
   try {
     const body = (await res.json()) as { error?: string; message?: string };
@@ -49,6 +59,66 @@ function buildEventsParams(
     params.overlayEmails = overlayEmails.join(",");
   }
   return params;
+}
+
+function getListEventsParams(
+  queryKey: QueryKey,
+): Record<string, string> | undefined {
+  const params = queryKey[2];
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return undefined;
+  }
+  return params as Record<string, string>;
+}
+
+function buildOptimisticCalendarEvent(
+  newData: CreateEventInput,
+  optimisticId: string,
+): CalendarEvent {
+  const now = new Date().toISOString();
+  return {
+    id: optimisticId,
+    title: newData.title,
+    start: newData.start,
+    end: newData.end,
+    startTimeZone: newData.startTimeZone,
+    endTimeZone: newData.endTimeZone,
+    allDay: newData.allDay ?? false,
+    description: newData.description || "",
+    location: newData.location || "",
+    eventType: newData.eventType,
+    color: newData.color,
+    colorId: newData.colorId,
+    attachments: newData.attachments,
+    transparency: newData.transparency,
+    visibility: newData.visibility,
+    reminders: newData.reminders,
+    remindersUseDefault: newData.remindersUseDefault,
+    attendees: newData.attendees,
+    accountEmail: newData.accountEmail,
+    source: "local",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function updateListEventQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updater: (
+    old: CalendarEvent[] | undefined,
+    params: Record<string, string> | undefined,
+  ) => CalendarEvent[] | undefined,
+) {
+  const queries = queryClient.getQueriesData<CalendarEvent[]>({
+    queryKey: LIST_EVENTS_QUERY_KEY,
+  });
+
+  for (const [queryKey] of queries) {
+    const params = getListEventsParams(queryKey);
+    queryClient.setQueryData<CalendarEvent[]>(queryKey, (old) =>
+      updater(old, params),
+    );
+  }
 }
 
 export function useEvents(
@@ -126,38 +196,37 @@ export function useCreateEvent() {
       return { ...result, _tempId };
     },
     onMutate: async (newData) => {
-      if (!newData._tempId) return;
-      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
+      const optimisticId =
+        newData._tempId ?? `${OPTIMISTIC_EVENT_PREFIX}${nanoid()}`;
+
+      await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
-        queryKey: ["action", "list-events"],
+        queryKey: LIST_EVENTS_QUERY_KEY,
       });
-      const optimisticEvent: CalendarEvent = {
-        id: newData._tempId,
-        title: newData.title,
-        start: newData.start,
-        end: newData.end,
-        startTimeZone: newData.startTimeZone,
-        endTimeZone: newData.endTimeZone,
-        allDay: newData.allDay ?? false,
-        description: newData.description || "",
-        location: newData.location || "",
-        eventType: newData.eventType,
-        color: newData.color,
-        colorId: newData.colorId,
-        attachments: newData.attachments,
-        transparency: newData.transparency,
-        visibility: newData.visibility,
-        reminders: newData.reminders,
-        remindersUseDefault: newData.remindersUseDefault,
-        source: "local",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) => (old ? [...old, optimisticEvent] : [optimisticEvent]),
+      const optimisticEvent = buildOptimisticCalendarEvent(
+        newData,
+        optimisticId,
       );
-      return { previous };
+
+      updateListEventQueries(queryClient, (old, params) => {
+        if (!calendarEventOverlapsListParams(optimisticEvent, params)) {
+          return old;
+        }
+        return mergeCalendarEventIntoList(old, optimisticEvent, optimisticId);
+      });
+
+      return { previous, optimisticId };
+    },
+    onSuccess: (created, _newData, context) => {
+      const optimisticId = context?.optimisticId;
+      updateListEventQueries(queryClient, (old, params) => {
+        if (!calendarEventOverlapsListParams(created, params)) {
+          return optimisticId
+            ? removeOptimisticCalendarEventFromList(old, optimisticId)
+            : old;
+        }
+        return mergeCalendarEventIntoList(old, created, optimisticId);
+      });
     },
     onError: (_err, _newData, context) => {
       if (context?.previous) {
@@ -167,7 +236,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
     },
   });
 }

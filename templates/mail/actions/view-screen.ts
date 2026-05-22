@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   isConnected,
   getClients,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
@@ -94,6 +95,10 @@ async function fetchEmailList(
           mode: "threads",
           threadFormat: "metadata",
           threadCandidateLimit: search ? 500 : undefined,
+          threadRecentMessageCandidateLimit:
+            !search && (view === "inbox" || view === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
         },
       );
 

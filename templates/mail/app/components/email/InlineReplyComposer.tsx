@@ -40,6 +40,10 @@ import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState, EmailMessage } from "@shared/types";
+import {
+  appendSignatureToBody,
+  splitAppendedSignature,
+} from "@shared/signature";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
@@ -149,9 +153,23 @@ export const InlineReplyComposer = forwardRef<
     () => splitQuotedContent(draft.body),
     [draft.body],
   );
+  const [messageContent, appendedSignature] = useMemo(
+    () =>
+      draft.mode === "reply"
+        ? splitAppendedSignature(editableContent, settings?.signature)
+        : [editableContent, ""],
+    [draft.mode, editableContent, settings?.signature],
+  );
   const quotedRef = useRef(quotedContent);
   quotedRef.current = quotedContent;
+  const appendedSignatureRef = useRef(appendedSignature);
+  appendedSignatureRef.current = appendedSignature;
   const hasQuote = quotedContent.length > 0;
+  const editorContent = appendedSignature
+    ? messageContent
+    : hasQuote
+      ? editableContent
+      : draft.body;
 
   const handleSend = async () => {
     if (sendingRef.current) return;
@@ -410,9 +428,16 @@ export const InlineReplyComposer = forwardRef<
       >
         <ComposeEditor
           ref={editorRef}
-          content={hasQuote ? editableContent : draft.body}
+          content={editorContent}
           onChange={(md) => {
-            if (hasQuote) {
+            if (appendedSignatureRef.current) {
+              onUpdate(draft.id, {
+                body: appendSignatureToBody(
+                  md + quotedRef.current,
+                  appendedSignatureRef.current,
+                ),
+              });
+            } else if (hasQuote) {
               onUpdate(draft.id, { body: md + quotedRef.current });
             } else {
               onUpdate(draft.id, { body: md });
