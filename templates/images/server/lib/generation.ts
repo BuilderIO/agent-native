@@ -53,6 +53,10 @@ export interface GenerateProviderOutput {
   creditsCharged?: number;
 }
 
+const MANAGED_PROVIDER_MAX_ATTEMPTS = 3;
+const MANAGED_PROVIDER_RETRY_DELAY_MS =
+  process.env.NODE_ENV === "test" ? 0 : 2500;
+
 async function getGeminiApiKey(): Promise<string> {
   const key = await resolveSecret("GEMINI_API_KEY");
   if (!key) {
@@ -69,6 +73,14 @@ async function getGeminiApiKey(): Promise<string> {
 
 export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
   return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+}
+
+export function isImageGenerationSetupError(err: unknown): boolean {
+  if (err instanceof FeatureNotConfiguredError) return true;
+  const message = err instanceof Error ? err.message : "";
+  return /Image generation is not configured|Builder\.io is connected, but this Builder space/i.test(
+    message,
+  );
 }
 
 export function isBuilderImageGenerationEnabled(): boolean {
@@ -96,6 +108,19 @@ class BuilderImageGenerationError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+function isRetryableBuilderImageGenerationError(err: unknown): boolean {
+  return (
+    err instanceof BuilderImageGenerationError &&
+    [429, 503, 504].includes(err.status ?? 0)
+  );
+}
+
+function generationRetryDelay(attempt: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, attempt * MANAGED_PROVIDER_RETRY_DELAY_MS);
+  });
 }
 
 interface BuilderImageGenerationResponse {
@@ -215,6 +240,33 @@ export async function generateWithBuilderImageApi(
   };
 }
 
+async function generateWithRetryingBuilderImageApi(
+  input: GenerateProviderInput,
+): Promise<GenerateProviderOutput> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MANAGED_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      if (attempt > 0) {
+        await generationRetryDelay(attempt);
+      }
+      return await generateWithBuilderImageApi(input);
+    } catch (err) {
+      lastError = err;
+      if (
+        !isRetryableBuilderImageGenerationError(err) ||
+        attempt === MANAGED_PROVIDER_MAX_ATTEMPTS - 1
+      ) {
+        throw err;
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new BuilderImageGenerationError(
+        "Builder-managed image generation failed.",
+      );
+}
+
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
@@ -232,7 +284,7 @@ export async function generateWithManagedImageProvider(
   }
 
   try {
-    return await generateWithBuilderImageApi(input);
+    return await generateWithRetryingBuilderImageApi(input);
   } catch (err) {
     const shouldFallback =
       err instanceof BuilderImageGenerationError &&

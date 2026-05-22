@@ -29,6 +29,7 @@ const DISPATCH_NAME = "Agent-Native Dispatch";
 const DISPATCH_DESCRIPTION =
   "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
 const DISPATCH_COLOR = "#14B8A6";
+const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 
 export interface DispatchMcpAccessibleApp {
   id: string;
@@ -300,6 +301,9 @@ export async function openGrantedDispatchMcpApp(input: {
   url: string;
   embed?: boolean;
   chrome?: "full" | "minimal";
+  embedStartUrl?: string;
+  embedTargetPath?: string;
+  embedExpiresAt?: number;
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
@@ -317,13 +321,28 @@ export async function openGrantedDispatchMcpApp(input: {
         view,
         params: input.params,
       });
+  const url = `${appBaseUrl(target)}${relUrl}`;
+  const embedSession = input.embed
+    ? await createGrantedDispatchMcpEmbedSession({
+        app: target.id,
+        url,
+        chrome: input.chrome,
+      })
+    : null;
   return {
     app: target.id,
     ...(view ? { view } : {}),
     ...(path ? { path } : {}),
-    url: `${appBaseUrl(target)}${relUrl}`,
+    url,
     ...(input.embed === true ? { embed: true } : {}),
     ...(input.chrome ? { chrome: input.chrome } : {}),
+    ...(embedSession?.startUrl ? { embedStartUrl: embedSession.startUrl } : {}),
+    ...(embedSession?.targetPath
+      ? { embedTargetPath: embedSession.targetPath }
+      : {}),
+    ...(typeof embedSession?.expiresAt === "number"
+      ? { embedExpiresAt: embedSession.expiresAt }
+      : {}),
   };
 }
 
@@ -344,6 +363,67 @@ function parseMcpToolTextResult(result: unknown): Record<string, unknown> {
     }
   }
   throw new Error("Target app did not return an embed session.");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTargetMcpError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error ?? "");
+  return /not connected|streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+    message,
+  );
+}
+
+async function callTargetCreateEmbedSession(input: {
+  app: DispatchMcpAccessibleApp;
+  token: string;
+  url: string;
+  chrome?: "full" | "minimal";
+}): Promise<unknown> {
+  const serverId = "target";
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= TARGET_EMBED_SESSION_ATTEMPTS; attempt++) {
+    const manager = new McpClientManager({
+      servers: {
+        [serverId]: {
+          type: "http",
+          url: `${appBaseUrl(input.app)}/_agent-native/mcp`,
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+        },
+      },
+    });
+    try {
+      await manager.start();
+      return await manager.callTool(
+        buildMcpToolName(serverId, "create_embed_session"),
+        {
+          url: input.url,
+          chrome: input.chrome ?? "full",
+        },
+      );
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
+        !isRetryableTargetMcpError(error)
+      ) {
+        throw error;
+      }
+      await sleep(250 * attempt);
+    } finally {
+      await manager.stop();
+    }
+  }
+  throw lastError;
 }
 
 async function resolveDispatchEmbedTarget(input: {
@@ -465,56 +545,37 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     orgSecret ?? undefined,
     {
       expiresIn: "5m",
-      // Target MCP endpoints verify A2A JWTs with the deployment-wide
-      // A2A_SECRET. Prefer it for hosted cross-app embeds even when Dispatch
-      // also has an org-level secret available.
-      preferGlobalSecret: true,
+      // Prefer the synced org A2A secret when present because first-party
+      // production apps do not have to share the same deployment env secret.
+      // Fall back to the global A2A_SECRET for orgs that have not synced yet.
+      preferGlobalSecret: !orgSecret,
     },
   );
 
-  const serverId = "target";
-  const manager = new McpClientManager({
-    servers: {
-      [serverId]: {
-        type: "http",
-        url: `${appBaseUrl(target.app)}/_agent-native/mcp`,
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    },
+  const result = await callTargetCreateEmbedSession({
+    app: target.app,
+    token,
+    url: target.url,
+    chrome: input.chrome,
   });
-  await manager.start();
-  try {
-    const result = await manager.callTool(
-      buildMcpToolName(serverId, "create_embed_session"),
-      {
-        url: target.url,
-        chrome: input.chrome ?? "full",
-      },
-    );
-    const parsed = parseMcpToolTextResult(result) as {
-      startUrl?: string;
-      targetPath?: string;
-      expiresAt?: number;
-    };
-    if (!parsed.startUrl) {
-      throw new Error("Target app did not return an embed start URL.");
-    }
-    const output: {
-      startUrl: string;
-      targetPath?: string;
-      expiresAt?: number;
-      app: string;
-    } = {
-      startUrl: parsed.startUrl,
-      app: target.app.id,
-    };
-    if (parsed.targetPath) output.targetPath = parsed.targetPath;
-    if (typeof parsed.expiresAt === "number")
-      output.expiresAt = parsed.expiresAt;
-    return output;
-  } finally {
-    await manager.stop();
+  const parsed = parseMcpToolTextResult(result) as {
+    startUrl?: string;
+    targetPath?: string;
+    expiresAt?: number;
+  };
+  if (!parsed.startUrl) {
+    throw new Error("Target app did not return an embed start URL.");
   }
+  const output: {
+    startUrl: string;
+    targetPath?: string;
+    expiresAt?: number;
+    app: string;
+  } = {
+    startUrl: parsed.startUrl,
+    app: target.app.id,
+  };
+  if (parsed.targetPath) output.targetPath = parsed.targetPath;
+  if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
+  return output;
 }

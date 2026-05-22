@@ -1,5 +1,30 @@
 # @agent-native/dispatch
 
+## 0.8.13
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
+## 0.8.12
+
+### Patch Changes
+
+- 5bf1ce0: Retry transient target MCP handshakes when Dispatch pre-mints cross-app embeds.
+
+## 0.8.11
+
+### Patch Changes
+
+- 236f106: Pre-mint Dispatch MCP app embed sessions from open_app results so hosts can render inline apps without a follow-up helper call.
+
+## 0.8.10
+
+### Patch Changes
+
+- 75223dd: Fix Dispatch-routed MCP App embed sessions and surface embed helper errors in the wrapper.
+- 75223dd: Expose current extension ids to agents and wait for tracked async framework plugins before dispatching first serverless requests.
+
 ## 0.8.9
 
 ### Patch Changes

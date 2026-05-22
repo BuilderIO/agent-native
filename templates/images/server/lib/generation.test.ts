@@ -48,15 +48,14 @@ const baseInput: GenerateProviderInput = {
 };
 
 function mockBuilderFailure(status: number, body: unknown) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => {
-      return new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      });
-    }),
-  );
+  const fetchMock = vi.fn(async () => {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 describe("generateWithManagedImageProvider", () => {
@@ -108,7 +107,9 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("reports transient Builder outages as retryable provider failures", async () => {
-    mockBuilderFailure(503, { error: { message: "Provider warming up" } });
+    const fetchMock = mockBuilderFailure(503, {
+      error: { message: "Provider warming up" },
+    });
 
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
@@ -116,10 +117,58 @@ describe("generateWithManagedImageProvider", () => {
         message: expect.stringContaining("temporarily unavailable"),
       }),
     );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
         message: expect.not.stringContaining("needs Builder.io connected"),
       }),
     );
+  });
+
+  it("recovers when a transient Builder retry succeeds", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.endsWith("/generations") && fetchMock.mock.calls.length <= 2) {
+        return new Response(
+          JSON.stringify({ error: { message: "Provider warming up" } }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (href.endsWith("/generations")) {
+        return new Response(
+          JSON.stringify({
+            id: "generation-1",
+            status: "completed",
+            model: {
+              publicId: "builder-image",
+              provider: "builder",
+              providerModel: "provider-image",
+            },
+            outputs: [
+              {
+                id: "output-1",
+                url: "https://cdn.builder.test/output.png",
+                mimeType: "image/png",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
+      expect.objectContaining({
+        model: "builder-image",
+        provider: "builder",
+        providerGenerationId: "generation-1",
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });

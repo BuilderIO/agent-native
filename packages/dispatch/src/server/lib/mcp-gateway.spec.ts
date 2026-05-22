@@ -170,6 +170,81 @@ describe("openGrantedDispatchMcpApp", () => {
       url: "http://localhost:8092/extensions/ext-1/github-stars-over-time",
       embed: true,
       chrome: "minimal",
+      embedStartUrl:
+        "http://localhost:8092/_agent-native/embed/start?ticket=ticket-123",
+      embedTargetPath: "/extensions/ext-1/github-stars-over-time",
+      embedExpiresAt: 12345,
+    });
+  });
+
+  it("pre-mints cross-app embed sessions for MCP app hosts", async () => {
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards?range=30d",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "http://localhost:8086/dashboards?range=30d",
+        chrome: "minimal",
+      },
+    );
+    expect(result).toEqual({
+      app: "analytics",
+      path: "/dashboards?range=30d",
+      url: "http://localhost:8086/dashboards?range=30d",
+      embed: true,
+      chrome: "minimal",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
   });
 
@@ -293,7 +368,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("prefers the shared A2A secret when minting cross-app MCP embed tokens", async () => {
+  it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
 
@@ -314,6 +389,34 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "owner@example.test",
       "builder.io",
       "org-specific-secret",
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: false,
+      },
+    );
+  });
+
+  it("falls back to the shared A2A secret when no org secret is available", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue(null);
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: true,

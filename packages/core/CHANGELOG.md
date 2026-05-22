@@ -1,5 +1,37 @@
 # @agent-native/core
 
+## 0.22.27
+
+### Patch Changes
+
+- 5986cd0: Keep MCP Apps resource CSP and permissions on UI resources instead of tool descriptors.
+- 5986cd0: Add a reusable interactive starfield background with subtle cursor attraction.
+
+## 0.22.26
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
+## 0.22.25
+
+### Patch Changes
+
+- b76bf4f: Bust MCP App shell resource caches so host CSP metadata refreshes after embed changes.
+
+## 0.22.24
+
+### Patch Changes
+
+- b275383: Allow MCP app embed wrappers to connect to configured frame domains so Claude can transplant cross-app embeds.
+
+## 0.22.23
+
+### Patch Changes
+
+- 75223dd: Fix Dispatch-routed MCP App embed sessions and surface embed helper errors in the wrapper.
+- 75223dd: Expose current extension ids to agents and wait for tracked async framework plugins before dispatching first serverless requests.
+
 ## 0.22.22
 
 ### Patch Changes
