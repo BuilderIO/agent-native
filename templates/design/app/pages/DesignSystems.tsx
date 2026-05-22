@@ -734,7 +734,10 @@ function DesignSystemDetailsSheet({
     return null;
   }
 
-  const canEdit = Boolean(designSystem.canManage);
+  const canEdit =
+    designSystem.accessRole === "owner" ||
+    designSystem.accessRole === "admin" ||
+    designSystem.accessRole === "editor";
   const trimmedTitle = title.trim();
   const hasChanges =
     trimmedTitle !== designSystem.title ||

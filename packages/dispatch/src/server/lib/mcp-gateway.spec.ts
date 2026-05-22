@@ -75,6 +75,7 @@ import {
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
+  resolveGrantedDispatchMcpApp,
 } from "./mcp-gateway.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 
@@ -190,12 +191,46 @@ describe("Dispatch MCP gateway app discovery", () => {
       },
       () => listGrantedDispatchMcpAppOrigins(),
     );
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
 
     expect(origins).toEqual([
       "http://localhost:8092",
       "http://localhost:8086",
       "https://mail.agent-native.com",
     ]);
+    expect(apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "analytics",
+      "mail",
+    ]);
+  });
+
+  it("rejects malformed granted app URLs before routing MCP actions", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => resolveGrantedDispatchMcpApp("bad-url"),
+      ),
+    ).rejects.toThrow(/invalid URL/);
   });
 });
 

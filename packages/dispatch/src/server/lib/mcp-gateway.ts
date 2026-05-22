@@ -249,7 +249,7 @@ export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
   const { apps } = await listDispatchMcpApps();
-  return apps.filter((app) => app.granted);
+  return apps.filter((app) => app.granted && safeAppOrigin(app));
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
@@ -275,6 +275,11 @@ export async function resolveGrantedDispatchMcpApp(
   if (!match.granted) {
     throw new Error(
       `Dispatch MCP access to "${match.id}" is not granted. Open Dispatch > Agents to change MCP app access.`,
+    );
+  }
+  if (!safeAppOrigin(match)) {
+    throw new Error(
+      `Dispatch MCP app "${match.id}" has an invalid URL and cannot be opened through MCP.`,
     );
   }
   return match;
