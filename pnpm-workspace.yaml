@@ -24,5 +24,6 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
+  - ffmpeg-static
   - lightningcss
   - node-pty

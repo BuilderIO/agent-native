@@ -149,6 +149,41 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("holds framework requests before already-registered middleware runs", async () => {
+    let release!: () => void;
+    let pluginsReady = false;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        pluginsReady = true;
+        resolve();
+      };
+    });
+    const observedPluginReadiness: boolean[] = [];
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~middleware"].push(async (_event: any, next: any) => {
+      observedPluginReadiness.push(pluginsReady);
+      return next();
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/_agent-native/mcp", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/_agent-native/mcp");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observedPluginReadiness).toEqual([]);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(observedPluginReadiness).toEqual([true]);
+  });
+
   it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
     const nitroApp = createNitroApp();
     markDefaultPluginProvided(nitroApp, "agent-chat");
@@ -193,6 +228,38 @@ describe("framework request handler", () => {
     getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
       ok: true,
     }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("installs the readiness gate when async plugin init is tracked first", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+          ok: true,
+        }));
+        resolve();
+      };
+    });
+    let settled = false;
+
     trackPluginInit(nitroApp, ready, {
       paths: ["/_agent-native/agent-chat"],
     });

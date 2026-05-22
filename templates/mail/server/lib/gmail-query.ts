@@ -1,4 +1,8 @@
-import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+import {
+  isInboxScopedAppLabel,
+  mailLabelsInclude,
+} from "@shared/gmail-labels.js";
+import type { EmailMessage } from "@shared/types.js";
 
 export const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox -in:sent",
@@ -66,4 +70,56 @@ export function buildGmailEmailSearchQuery({
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
   return [viewQuery, trimmedQuery].filter(Boolean).join(" ");
+}
+
+function threadKey(message: EmailMessage): string {
+  return `${message.accountEmail ?? ""}:${message.threadId || message.id}`;
+}
+
+function qualifiesForInboxThread(
+  message: EmailMessage,
+  view: string,
+  label?: string,
+): boolean {
+  const allowSentToSelf = label?.toLowerCase() === "note-to-self";
+  return (
+    mailLabelsInclude(message.labelIds, "inbox") &&
+    !message.isDraft &&
+    !message.isTrashed &&
+    (allowSentToSelf || !message.isSent) &&
+    (view !== "unread" || !message.isRead)
+  );
+}
+
+function qualifiesForThreadPreview(
+  message: EmailMessage,
+  label?: string,
+): boolean {
+  const isCustomLabel = label && !isInboxScopedAppLabel(label);
+  return (
+    !message.isDraft &&
+    !message.isTrashed &&
+    (!isCustomLabel || !message.isSent)
+  );
+}
+
+export function filterInboxScopedThreadMessages(
+  emails: EmailMessage[],
+  view: string,
+  label?: string,
+): EmailMessage[] {
+  if (view !== "inbox" && view !== "unread") return emails;
+
+  const includedThreads = new Set<string>();
+  for (const message of emails) {
+    if (qualifiesForInboxThread(message, view, label)) {
+      includedThreads.add(threadKey(message));
+    }
+  }
+
+  return emails.filter(
+    (message) =>
+      includedThreads.has(threadKey(message)) &&
+      qualifiesForThreadPreview(message, label),
+  );
 }

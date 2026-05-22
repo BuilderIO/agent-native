@@ -78,6 +78,60 @@ describe("extensions/actions", () => {
     expect(result.extensions[0]).not.toHaveProperty("content");
   });
 
+  it("gets a known current extension by id with content", async () => {
+    const getExtension = vi.fn(async () => extensionRow);
+    const getHiddenExtensionIdsForCurrentUser = vi.fn(
+      async () => new Set<string>(),
+    );
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension,
+      getHiddenExtensionIdsForCurrentUser,
+      hideExtension: vi.fn(),
+      listExtensions: vi.fn(),
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent: vi.fn(),
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(async () => ({
+        role: "editor",
+        resource: extensionRow,
+      })),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["get-extension"].run({
+      id: "ext-zoom",
+    })) as any;
+
+    expect(actions["get-extension"].readOnly).toBe(true);
+    expect(getExtension).toHaveBeenCalledWith("ext-zoom");
+    expect(result).toMatchObject({
+      ok: true,
+      extension: {
+        id: "ext-zoom",
+        name: "Connect Zoom",
+        content: "<div>Zoom</div>",
+        role: "editor",
+        canEdit: true,
+      },
+    });
+  });
+
   it("hides a shared extension from the current user's view", async () => {
     const hideExtension = vi.fn(async () => true);
 

@@ -3,11 +3,13 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import {
   getClients,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { filterInboxScopedThreadMessages } from "../server/lib/gmail-query.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 import { z } from "zod";
 
@@ -211,7 +213,14 @@ export default defineAction({
         limit,
         ownerEmail,
         undefined,
-        { mode: "threads", threadCandidateLimit: query ? 500 : undefined },
+        {
+          mode: "threads",
+          threadCandidateLimit: query ? 500 : undefined,
+          threadRecentMessageCandidateLimit:
+            !query && (view === "inbox" || view === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
+        },
       );
 
       if (errors.length > 0 && messages.length === 0) {
@@ -231,6 +240,7 @@ export default defineAction({
         );
       }
 
+      emails = filterInboxScopedThreadMessages(emails, view);
       emails = latestPerThread(emails).slice(0, limit);
 
       const payload = compact ? toCompact(emails) : emails;

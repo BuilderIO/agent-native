@@ -31,7 +31,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "list-extensions": {
       tool: {
         description:
-          "List extensions visible in the current user's Extensions list/sidebar. Use this before updating, hiding, or deleting existing extensions; do not query the legacy tools table directly for extension management.",
+          "List extensions visible in the current user's Extensions list/sidebar. Use this for browsing or when you only know a display name. If <current-screen> or <current-url> already contains extensionId for the current extension, use get-extension or update-extension with that id directly instead of listing. Do not query the legacy tools table directly for extension management.",
         parameters: {
           type: "object",
           properties: {
@@ -84,6 +84,49 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ok: true,
           count: extensions.length,
           extensions,
+        };
+      },
+      readOnly: true,
+    },
+
+    "get-extension": {
+      tool: {
+        description:
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content so you can make a targeted update-extension edit.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description:
+                "Extension id to read. Prefer the extensionId from <current-screen> or <current-url> when the user refers to the current extension.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full Alpine.js content. Defaults to true for targeted edits.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const includeContent =
+          args?.includeContent === undefined
+            ? true
+            : coerceBoolean(args.includeContent);
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        return {
+          ok: true,
+          extension: await summarizeExtension(
+            extension,
+            hiddenIds,
+            includeContent,
+          ),
         };
       },
       readOnly: true,
@@ -160,13 +203,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          "Update an existing sandboxed Alpine.js mini-app extension. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
+          "Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
         parameters: {
           type: "object",
           properties: {
             id: {
               type: "string",
-              description: "Extension id to update.",
+              description:
+                "Extension id to update. Prefer the extensionId from <current-screen> or <current-url> for the current extension.",
             },
             name: {
               type: "string",

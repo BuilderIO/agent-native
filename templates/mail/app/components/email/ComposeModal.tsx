@@ -46,6 +46,10 @@ import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
+import {
+  appendSignatureToBody,
+  splitAppendedSignature,
+} from "@shared/signature";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
@@ -719,6 +723,7 @@ export function ComposeModal({
             setGenerateOpen={setGenerateOpen}
             showQuoted={showQuoted}
             setShowQuoted={setShowQuoted}
+            signature={settings?.signature}
           />
 
           {/* Attachments */}
@@ -888,6 +893,7 @@ function ComposeBody({
   setGenerateOpen,
   showQuoted,
   setShowQuoted,
+  signature,
 }: {
   activeDraft: ComposeState;
   activeId: string;
@@ -905,17 +911,32 @@ function ComposeBody({
   setGenerateOpen: (open: boolean) => void;
   showQuoted: boolean;
   setShowQuoted: (show: boolean) => void;
+  signature?: string;
 }) {
   const [editableContent, quotedContent] = useMemo(
     () => splitQuotedContent(activeDraft.body),
     [activeDraft.body],
   );
+  const [messageContent, appendedSignature] = useMemo(
+    () =>
+      activeDraft.mode === "reply"
+        ? splitAppendedSignature(editableContent, signature)
+        : [editableContent, ""],
+    [activeDraft.mode, editableContent, signature],
+  );
 
   // Store quoted content in a ref so the onChange handler always has the latest
   const quotedRef = useRef(quotedContent);
   quotedRef.current = quotedContent;
+  const appendedSignatureRef = useRef(appendedSignature);
+  appendedSignatureRef.current = appendedSignature;
 
   const hasQuote = quotedContent.length > 0;
+  const editorContent = appendedSignature
+    ? messageContent
+    : hasQuote
+      ? editableContent
+      : activeDraft.body;
 
   return (
     <div
@@ -928,9 +949,16 @@ function ComposeBody({
     >
       <ComposeEditor
         ref={editorRef}
-        content={hasQuote ? editableContent : activeDraft.body}
+        content={editorContent}
         onChange={(md) => {
-          if (hasQuote) {
+          if (appendedSignatureRef.current) {
+            onUpdate(activeId, {
+              body: appendSignatureToBody(
+                md + quotedRef.current,
+                appendedSignatureRef.current,
+              ),
+            });
+          } else if (hasQuote) {
             onUpdate(activeId, { body: md + quotedRef.current });
           } else {
             onUpdate(activeId, { body: md });

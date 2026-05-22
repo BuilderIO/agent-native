@@ -41,17 +41,18 @@ import {
 } from "../lib/google-api.js";
 import {
   isConnected,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   invalidateListCacheForOwner,
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
-import { buildGmailEmailSearchQuery } from "../lib/gmail-query.js";
 import {
-  isInboxScopedAppLabel,
-  mailLabelMatches,
-} from "@shared/gmail-labels.js";
+  buildGmailEmailSearchQuery,
+  filterInboxScopedThreadMessages,
+} from "../lib/gmail-query.js";
+import { mailLabelMatches } from "@shared/gmail-labels.js";
 import {
   incrementSendFrequency,
   getContactFrequencyMap,
@@ -370,39 +371,6 @@ function recomputeUnreadCounts(
   });
 }
 
-function hasNormalizedLabel(email: EmailMessage, labelId: string): boolean {
-  return email.labelIds.some((label) => label.toLowerCase() === labelId);
-}
-
-function filterInboxScopedMessages(
-  emails: EmailMessage[],
-  view: string,
-  label?: string,
-): EmailMessage[] {
-  if (view !== "inbox" && view !== "unread") return emails;
-
-  if (label && !isInboxScopedAppLabel(label)) {
-    return emails.filter(
-      (message) =>
-        hasNormalizedLabel(message, "inbox") &&
-        !message.isDraft &&
-        !message.isTrashed &&
-        !message.isSent &&
-        (view !== "unread" || !message.isRead),
-    );
-  }
-
-  const allowSentToSelf = label?.toLowerCase() === "note-to-self";
-  return emails.filter(
-    (message) =>
-      hasNormalizedLabel(message, "inbox") &&
-      !message.isDraft &&
-      !message.isTrashed &&
-      (allowSentToSelf || !message.isSent) &&
-      (view !== "unread" || !message.isRead),
-  );
-}
-
 function isGmailQuotaError(message: string): boolean {
   return /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
     message,
@@ -491,6 +459,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           mode: "threads",
           threadFormat: "metadata",
           threadCandidateLimit: q ? 80 : undefined,
+          threadRecentMessageCandidateLimit:
+            !q && (view === "inbox" || view === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
         });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
@@ -508,7 +480,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
-      emails = filterInboxScopedMessages(emails, view, label);
+      emails = filterInboxScopedThreadMessages(emails, view, label);
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -556,7 +528,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   let emails = await readEmails(email);
 
   if (label && (view === "inbox" || view === "unread")) {
-    emails = filterInboxScopedMessages(
+    emails = filterInboxScopedThreadMessages(
       emails.filter((e) =>
         e.labelIds.some((labelId) => mailLabelMatches(labelId, label)),
       ),

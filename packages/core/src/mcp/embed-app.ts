@@ -187,7 +187,11 @@ export function embedApp(
       }
       const parts = Array.isArray(params.content) ? params.content : [];
       const textPart = parts.find((part) => part && part.type === "text" && typeof part.text === "string");
-      return parseJson(textPart ? textPart.text : "", {});
+      const text = textPart ? textPart.text : "";
+      if (params.isError && typeof text === "string" && text.trim()) {
+        return { error: text.trim() };
+      }
+      return parseJson(text, {});
     }
 
     function openLinkRecordFrom(value) {

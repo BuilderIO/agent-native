@@ -292,4 +292,58 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
   });
+
+  it("prefers the shared A2A secret when minting cross-app MCP embed tokens", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      "org-specific-secret",
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+      },
+    );
+  });
+
+  it("surfaces target MCP embed-session errors", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: create_embed_session requires an authenticated MCP caller.",
+        },
+      ],
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/authenticated MCP caller/);
+  });
 });

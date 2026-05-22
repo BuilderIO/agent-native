@@ -338,6 +338,7 @@ function parseMcpToolTextResult(result: unknown): Record<string, unknown> {
       (part) => part?.type === "text" && typeof part.text === "string",
     )?.text;
     if (typeof text === "string" && text.trim()) {
+      if ((result as any).isError) throw new Error(text.trim());
       const parsed = JSON.parse(text);
       if (parsed && typeof parsed === "object") return parsed;
     }
@@ -464,7 +465,10 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     orgSecret ?? undefined,
     {
       expiresIn: "5m",
-      preferGlobalSecret: !orgSecret,
+      // Target MCP endpoints verify A2A JWTs with the deployment-wide
+      // A2A_SECRET. Prefer it for hosted cross-app embeds even when Dispatch
+      // also has an org-level secret available.
+      preferGlobalSecret: true,
     },
   );
 

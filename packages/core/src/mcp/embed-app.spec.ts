@@ -32,6 +32,10 @@ describe("embedApp", () => {
     );
     expect(html).toContain("function embedStartUrlFrom(params, data)");
     expect(html).toContain("openStartUrl = embedStartUrlFrom(params, data)");
+    expect(html).toContain(
+      'if (params.isError && typeof text === "string" && text.trim())',
+    );
+    expect(html).toContain("return { error: text.trim() };");
     expect(html).toContain("record.embedTargetPath");
     expect(html).toContain("record.deepLinkUrl");
     expect(html).toContain("const launchUrl = openStartUrl || openUrl");

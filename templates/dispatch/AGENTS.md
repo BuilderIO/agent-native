@@ -10,6 +10,28 @@ Dispatch is the workspace control plane. It is the central entrypoint for secret
 - Save durable behavior in resources and jobs, not just in chat replies.
 - When an external sender is linked, use that person’s personal resources and permissions. Otherwise fall back to the shared dispatch owner.
 
+## External MCP Apps Setup
+
+When a user wants Claude, ChatGPT, Codex, Cursor, or another MCP host to reach
+the workspace, keep the answer short: add one remote MCP connector,
+`https://dispatch.agent-native.com/_agent-native/mcp`, then use Dispatch's
+Agents page to expose all apps or only selected app IDs. Recommend a direct
+single-app URL such as `https://mail.agent-native.com/_agent-native/mcp` only
+when the user intentionally wants that app isolated from the workspace gateway.
+
+Claude and ChatGPT both use the same standard OAuth path: paste the MCP URL as
+a custom connector/app, choose OAuth or Authenticate, sign in with
+Agent-Native, and approve the MCP scopes. The host stores tokens and mediates
+tool/resource calls; inline previews never receive raw OAuth tokens.
+
+For external hosts, `open_app({ embed: true })` should produce an inline
+preview when the host supports MCP Apps, and a deep link remains the fallback.
+Embedded app routes should be responsive inside a bounded inline height and
+scroll internally. If an embedded route needs to continue the host
+conversation, use `sendToAgentChat({ submit: true })`; it is relayed as
+`agentNative.submitChat` to the MCP host rather than inventing a second chat
+bridge.
+
 ## Integration Webhooks (Slack, Telegram, WhatsApp, Email)
 
 Inbound platform webhooks follow a cross-platform queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare, etc.) without relying on platform-specific background-execution APIs:

@@ -242,6 +242,31 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
         }, 120);
       };
+      const titleTimers = new Set<ReturnType<typeof setTimeout>>();
+      let disposed = false;
+      const emitTitle = (candidate?: unknown) => {
+        const title = String(candidate ?? "").trim();
+        if (title) onTitleChangeRef.current?.(title);
+      };
+      const emitCurrentTitle = (candidate?: string) => {
+        if (disposed) return;
+        emitTitle(candidate);
+        emitTitle(wv.getTitle());
+        void wv
+          .executeJavaScript("document.title", false)
+          .then((title) => {
+            if (!disposed) emitTitle(title);
+          })
+          .catch(() => {});
+      };
+      const emitCurrentTitleSoon = (candidate?: string) => {
+        emitCurrentTitle(candidate);
+        const timer = setTimeout(() => {
+          titleTimers.delete(timer);
+          emitCurrentTitle();
+        }, 200);
+        titleTimers.add(timer);
+      };
 
       const onReady = () => {
         setError(false);
@@ -249,13 +274,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setSlowLoad(false);
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
-        const title = wv.getTitle().trim();
-        if (title) onTitleChangeRef.current?.(title);
+        emitCurrentTitleSoon();
       };
       const onTitleUpdated = (e: Event) => {
         const title = String((e as { title?: string }).title ?? "").trim();
-        if (title) onTitleChangeRef.current?.(title);
+        emitCurrentTitle(title);
       };
+      const onNavigation = () => emitCurrentTitleSoon();
       const onFailed = (e: Event) => {
         const details = e as any;
         const errorCode = details.errorCode;
@@ -286,14 +311,22 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
       wv.addEventListener("dom-ready", onReady);
       wv.addEventListener("page-title-updated", onTitleUpdated);
+      wv.addEventListener("did-navigate", onNavigation);
+      wv.addEventListener("did-navigate-in-page", onNavigation);
+      wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
       wv.addEventListener("leave-html-full-screen", onLeaveFullscreen);
 
       return () => {
+        disposed = true;
+        for (const timer of titleTimers) clearTimeout(timer);
         wv.removeEventListener("dom-ready", onReady);
         wv.removeEventListener("page-title-updated", onTitleUpdated);
+        wv.removeEventListener("did-navigate", onNavigation);
+        wv.removeEventListener("did-navigate-in-page", onNavigation);
+        wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
