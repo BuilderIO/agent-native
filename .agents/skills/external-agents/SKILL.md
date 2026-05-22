@@ -299,9 +299,13 @@ as HTTP clients.
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
 metadata and still need the "Open in … →" link. `embedApp()` uses that link as
-its launch target, calls the app-only `create_embed_session` helper, exchanges
-a one-time SQL ticket at `/_agent-native/embed/start`, then launches the real
-app route with a short-lived browser session. Standard hosts navigate the MCP
+its launch target. Same-app `open_app({ embed: true })` mints the
+`/_agent-native/embed/start` ticket during the original tool call so production
+hosts do not need the iframe to make a second app-only helper call; custom
+actions can return `embedStartUrl` for the same fast path. Otherwise the
+resource falls back to the app-only `create_embed_session` helper. The embed
+start route exchanges a one-time SQL ticket, then launches the real app route
+with a short-lived browser session. Standard hosts navigate the MCP
 App frame directly. Claude web uses a single-frame transplant path that fetches
 the signed app HTML and hydrates it inside Claude's MCP App iframe because
 Claude does not reliably allow app-owned child iframes or external frame

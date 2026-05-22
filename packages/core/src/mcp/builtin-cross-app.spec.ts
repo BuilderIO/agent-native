@@ -5,6 +5,8 @@ import type { MCPConfig } from "./build-server.js";
 import * as orgDirectory from "./org-directory.js";
 import * as a2aClient from "../a2a/client.js";
 import * as callerAuth from "../a2a/caller-auth.js";
+import * as embedSession from "../server/embed-session.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -160,6 +162,46 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embedStartUrl).toBeUndefined();
     expect(result.deepLinkUrl).toBeUndefined();
     expect(result.embed).toBe(true);
+  });
+
+  it("mints a same-app embed start URL for authenticated MCP app callers", async () => {
+    const createTicket = vi
+      .spyOn(embedSession, "createEmbedSessionTicket")
+      .mockResolvedValue({
+        ticket: "ticket-123",
+        ticketHash: "hash-123",
+        expiresAt: 123456,
+      });
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+
+    const result: any = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      () =>
+        tools.open_app.run({
+          app: "mail",
+          view: "inbox",
+          params: { threadId: "abc" },
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embedStartUrl).toBe(
+      "https://mail.example.com/_agent-native/embed/start?ticket=ticket-123",
+    );
+    expect(result.embedTargetPath).toBe(
+      "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+    );
+    expect(result.embedExpiresAt).toBe(123456);
+    expect(createTicket).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-123",
+      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      scope: "minimal",
+    });
   });
 
   it("requests the default app viewport for full-app MCP App embeds", () => {

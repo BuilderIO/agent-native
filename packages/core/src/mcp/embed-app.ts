@@ -112,6 +112,7 @@ export function embedApp(
     let openAiBridge = null;
     let toolInput = {};
     let openUrl = "";
+    let openStartUrl = "";
     let startedFor = "";
     let appFrame = null;
     let appFrameReady = false;
@@ -189,13 +190,60 @@ export function embedApp(
       return parseJson(textPart ? textPart.text : "", {});
     }
 
+    function openLinkRecordFrom(value) {
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+    }
+
+    function openLinkWebUrlFrom(value) {
+      const record = openLinkRecordFrom(value);
+      return typeof record.webUrl === "string" ? record.webUrl : "";
+    }
+
+    function firstNonEmbedStartUrl(values) {
+      for (const value of values) {
+        if (typeof value === "string" && value && !isEmbedStartUrl(value)) return value;
+      }
+      return "";
+    }
+
+    function firstEmbedStartUrl(values) {
+      for (const value of values) {
+        if (typeof value === "string" && value && isEmbedStartUrl(value)) {
+          return withChatBridgeParam(value);
+        }
+      }
+      return "";
+    }
+
     function openLinkFrom(params, data) {
       const openLink = params && params._meta && params._meta["agent-native/openLink"];
-      const metaUrl = openLink && typeof openLink === "object" && typeof openLink.webUrl === "string"
-        ? openLink.webUrl
-        : "";
+      const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
-      return metaUrl || record.url || record.deepLink || record.openUrl || "";
+      const structuredOpenLinkUrl = openLinkWebUrlFrom(record.openLink);
+      return firstNonEmbedStartUrl([
+        record.embedTargetPath,
+        record.deepLinkUrl,
+        record.deepLink,
+        record.openUrl,
+        record.url,
+        structuredOpenLinkUrl,
+        metaUrl
+      ]);
+    }
+
+    function embedStartUrlFrom(params, data) {
+      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const metaUrl = openLinkWebUrlFrom(openLink);
+      const record = data && typeof data === "object" ? data : {};
+      return firstEmbedStartUrl([
+        record.embedStartUrl,
+        record.startUrl,
+        record.url,
+        openLinkWebUrlFrom(record.openLink),
+        metaUrl
+      ]);
     }
 
     function hostState() {
@@ -266,7 +314,7 @@ export function embedApp(
       if (typeof value !== "string" || !value) return false;
       try {
         const url = new URL(value, window.location.href);
-        return /\\/_agent-native\\/embed\\/start$/.test(url.pathname);
+        return url.pathname.endsWith("/_agent-native/embed/start");
       } catch {
         return false;
       }
@@ -605,14 +653,14 @@ export function embedApp(
             '<button type="button" data-fallback-open>Open app</button>' +
             '<button type="button" data-fallback-retry>Try inline again</button>' +
           '</div>' +
-          (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
+          (openUrl || openStartUrl ? '<a class="fallback-url" href="' + esc(openUrl || openStartUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl || openStartUrl) + '</a>' : '') +
         '</div>';
       const fallbackOpen = stage.querySelector("[data-fallback-open]");
       const fallbackRetry = stage.querySelector("[data-fallback-retry]");
       if (fallbackOpen) {
-        fallbackOpen.disabled = !openUrl;
+        fallbackOpen.disabled = !(openUrl || openStartUrl);
         fallbackOpen.onclick = () => {
-          if (openUrl) void openFallbackExternal();
+          if (openUrl || openStartUrl) void openFallbackExternal();
         };
       }
       if (fallbackRetry) {
@@ -626,14 +674,17 @@ export function embedApp(
     async function openFallbackExternal() {
       let url = withChatBridgeParam(openUrl);
       try {
-        const result = await callEmbedSessionTool(embedSessionArgsFor(url));
-        const data = parseToolResult(result);
-        if (typeof data.startUrl === "string" && data.startUrl) {
-          url = data.startUrl;
+        if (url) {
+          const result = await callEmbedSessionTool(embedSessionArgsFor(url));
+          const data = parseToolResult(result);
+          if (typeof data.startUrl === "string" && data.startUrl) {
+            url = withChatBridgeParam(data.startUrl);
+          }
         }
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
       }
+      if (!url) url = withChatBridgeParam(openStartUrl);
       await openHostLink({ url });
     }
 
@@ -877,7 +928,8 @@ export function embedApp(
     }
 
     async function launchEmbed() {
-      if (!openUrl) {
+      const launchUrl = openStartUrl || openUrl;
+      if (!launchUrl) {
         setMessage("Open link was not available.");
         return;
       }
@@ -885,12 +937,12 @@ export function embedApp(
         setMessage("Ready to open.");
         return;
       }
-      if (startedFor === openUrl) return;
-      startedFor = openUrl;
+      if (startedFor === launchUrl) return;
+      startedFor = launchUrl;
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
-        const embedUrl = withChatBridgeParam(openUrl);
+        const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);
@@ -912,16 +964,17 @@ export function embedApp(
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
+        const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
           if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
-            await transplantAppDocument(data.startUrl);
+            await transplantAppDocument(startUrl);
           } else if (shouldRenderControlledAppFrame()) {
-            renderFrame(data.startUrl);
+            renderFrame(startUrl);
           } else {
-            navigateToAppFrame(data.startUrl);
+            navigateToAppFrame(startUrl);
           }
         } else {
-          renderFrame(data.startUrl);
+          renderFrame(startUrl);
         }
       } catch (err) {
         startedFor = "";
@@ -951,9 +1004,10 @@ export function embedApp(
     }
 
     function updateOpenButton() {
-      openButton.disabled = !openUrl;
+      const buttonUrl = openUrl || openStartUrl;
+      openButton.disabled = !buttonUrl;
       openButton.onclick = () => {
-        if (openUrl) void openHostLink({ url: openUrl });
+        if (buttonUrl) void openHostLink({ url: buttonUrl });
       };
       updateHostOpenInAppUrl();
     }
@@ -991,12 +1045,13 @@ export function embedApp(
       const params = openAiToolResultParams(bridge);
       const data = parseToolResult(params);
       openUrl = openLinkFrom(params, data);
+      openStartUrl = embedStartUrlFrom(params, data);
       updateTitle(data);
       updateOpenButton();
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
-      if (openUrl) {
+      if (openUrl || openStartUrl) {
         void launchEmbed();
       } else if (!appFrame) {
         setMessage("Waiting for app result");
@@ -1040,6 +1095,7 @@ export function embedApp(
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
         openUrl = openLinkFrom(params, data);
+        openStartUrl = embedStartUrlFrom(params, data);
         updateTitle(data);
         updateOpenButton();
         void launchEmbed();

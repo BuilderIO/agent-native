@@ -33,6 +33,7 @@ import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
+import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import { MCP_CONNECT_SCOPE } from "./connect-store.js";
 import {
@@ -232,6 +233,21 @@ function metadataObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function withMcpChatBridgeParam(urlOrPath: string): string {
+  try {
+    const base = "http://agent-native.invalid";
+    const url = urlOrPath.startsWith("/")
+      ? new URL(urlOrPath, base)
+      : new URL(urlOrPath);
+    url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+    return urlOrPath.startsWith("/")
+      ? `${url.pathname}${url.search}${url.hash}`
+      : url.toString();
+  } catch {
+    return urlOrPath;
+  }
+}
+
 function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
@@ -248,7 +264,10 @@ function mcpAppEmbedOpenLinkMeta(
         : null;
   if (!embedStartUrl) return {};
 
-  const webUrl = toAbsoluteOpenUrl(embedStartUrl, meta?.origin);
+  const webUrl = toAbsoluteOpenUrl(
+    withMcpChatBridgeParam(embedStartUrl),
+    meta?.origin,
+  );
   const deepLinkUrl =
     typeof out.deepLinkUrl === "string" ? out.deepLinkUrl : null;
   const fallbackLabel = resource.title ?? resource.name ?? "app";

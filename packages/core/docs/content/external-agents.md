@@ -230,6 +230,13 @@ same signed app route and render the normal route and React components. Design
 embedded routes so a reload with the same signed URL reconstructs the same
 view.
 
+For same-app `open_app({ embed: true })`, the framework mints the embed-start
+ticket during the original tool call and returns `embedStartUrl` in the hidden
+structured payload. Custom actions can do the same. When no `embedStartUrl` is
+present, the resource falls back to the app-only `create_embed_session` helper.
+This keeps production hosts that restrict iframe-initiated tool calls on the
+direct route.
+
 ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
 document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
 then calls `create_embed_session` via `window.openai.callTool(...)`. Standard

@@ -199,6 +199,10 @@ export default defineAction({
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
+Same-app `open_app({ embed: true })` mints that embed-start ticket during the
+original tool call, and custom actions can return `embedStartUrl` for the same
+fast path; otherwise the resource falls back to the app-only
+`create_embed_session` helper.
 Standard hosts navigate the MCP App frame directly to that signed route.
 Claude web uses a single-frame transplant path that hydrates the signed app
 HTML inside Claude's MCP App iframe because Claude does not reliably allow
