@@ -806,17 +806,6 @@ export class RecorderEngine {
       await finalDataAvailable;
     }
 
-    // Drain in-flight chunk uploads queued by the start()-time listener
-    // (including the final dataavailable that just fired) before we either
-    // compress + re-upload or send the isFinal sentinel.
-    await this.chunkQueue;
-    if (this.uploadFailure) {
-      this.cleanupTracks();
-      this.localChunks = [];
-      this.transition("error", { message: this.uploadFailure.message });
-      throw this.uploadFailure;
-    }
-
     const dimensions = this.readDimensions();
     const durationMs = Math.round(this.getElapsedMs());
     const hasAudio = this.hasAudioTrack();
@@ -828,6 +817,18 @@ export class RecorderEngine {
       hasCamera,
     };
     this.lastFinalizeMeta = finalizeMeta;
+
+    // Drain in-flight chunk uploads queued by the start()-time listener
+    // (including the final dataavailable that just fired) before we either
+    // compress + re-upload or send the isFinal sentinel. If a streamed upload
+    // already failed, keep `localChunks` + `lastFinalizeMeta` so retryUpload()
+    // can re-send the complete local buffer without a new recording.
+    await this.chunkQueue;
+    if (this.uploadFailure) {
+      this.cleanupTracks();
+      this.transition("error", { message: this.uploadFailure.message });
+      throw this.uploadFailure;
+    }
 
     let result: Record<string, unknown> | undefined;
     let completed = false;
