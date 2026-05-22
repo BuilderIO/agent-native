@@ -572,9 +572,10 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   const usableOrgDomain =
     typeof orgDomain === "string" && orgDomain.trim().length > 0;
   const useOrgSigning = usableOrgDomain && usableOrgSecret;
+  const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const token = await signA2AToken(
     userEmail,
-    useOrgSigning ? orgDomain.trim() : undefined,
+    signedOrgDomain,
     useOrgSigning ? orgSecret.trim() : undefined,
     {
       expiresIn: "5m",
