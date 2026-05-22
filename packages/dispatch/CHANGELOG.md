@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.15
+
+### Patch Changes
+
+- 3b1a0e5: Accept nested `params.embed` and `params.chrome` values in MCP `open_app` calls.
+
 ## 0.8.14
 
 ### Patch Changes
