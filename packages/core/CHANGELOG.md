@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.35
+
+### Patch Changes
+
+- 6f76cbe: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+
 ## 0.22.34
 
 ### Patch Changes
