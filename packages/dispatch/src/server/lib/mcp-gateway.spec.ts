@@ -211,6 +211,7 @@ describe("openGrantedDispatchMcpApp", () => {
   });
 
   it("retries transient target MCP connection failures while pre-minting embeds", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     mocks.managerCallTool
       .mockRejectedValueOnce(
         new Error(
@@ -246,6 +247,38 @@ describe("openGrantedDispatchMcpApp", () => {
       embedStartUrl:
         "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
+    randomSpy.mockRestore();
+  });
+
+  it("returns the normal open URL when embed preminting fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error("Target app did not return an embed session."),
+    );
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toEqual({
+      app: "analytics",
+      path: "/dashboards",
+      url: "http://localhost:8086/dashboards",
+      embed: true,
+      chrome: "minimal",
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {
@@ -422,6 +455,85 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         preferGlobalSecret: true,
       },
     );
+  });
+
+  it("falls back to the shared A2A secret when org signing inputs are incomplete", async () => {
+    mocks.getOrgDomain.mockResolvedValue(null);
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+      },
+    );
+  });
+
+  it("does not retry permanent target MCP errors", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error(
+        'MCP server "target" is not connected: The MCP server rejected the request.',
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/rejected the request/);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let stop failures mask target MCP errors", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error("Target app returned a permanent auth error."),
+    );
+    mocks.managerStop.mockRejectedValueOnce(new Error("stop failed"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/permanent auth error/);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[dispatch] Failed to stop target MCP client:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
   });
 
   it("surfaces target MCP embed-session errors", async () => {

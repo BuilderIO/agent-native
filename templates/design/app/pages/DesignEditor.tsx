@@ -334,8 +334,12 @@ export default function DesignEditor() {
 
   const { session } = useSession();
 
-  useEffect(() => clearGenerationCompleteTimer, [clearGenerationCompleteTimer]);
-  useEffect(() => clearAutoRetryTimer, [clearAutoRetryTimer]);
+  useEffect(() => {
+    return () => clearGenerationCompleteTimer();
+  }, [clearGenerationCompleteTimer]);
+  useEffect(() => {
+    return () => clearAutoRetryTimer();
+  }, [clearAutoRetryTimer]);
 
   // Current user info for collaborative presence
   const currentUser: CollabUser | undefined = session?.email

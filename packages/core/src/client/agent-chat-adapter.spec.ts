@@ -1406,6 +1406,74 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("did not start streaming");
   });
 
+  it("retries a transient missing agent-chat route on startup", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const routeMissing = {
+      error: true,
+      status: 404,
+      message:
+        "Cannot find any route matching [POST] https://design.agent-native.com/_agent-native/agent-chat",
+    };
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount < 3
+          ? jsonResponse(routeMissing, 404)
+          : sseResponse([
+              { type: "text", text: "ready after route registration" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-route-missing",
+      threadId: "thread-route-missing",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "please respond" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(3);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("ready after route registration");
+  });
+
   it("uses partial stream-ended text as history without keeping it visible", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });

@@ -56,6 +56,8 @@ const HOME_CHAT_SUGGESTIONS = [
 ];
 
 const CUSTOM_RATIOS_KEY = "images.customAspectRatios";
+const MAX_TEXT_CONTEXT_FILE_CHARS = 12_000;
+const MAX_TEXT_CONTEXT_TOTAL_CHARS = 24_000;
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -171,6 +173,27 @@ function isInlineTextContextFile(file: File): boolean {
   );
 }
 
+async function readInlineTextContextFiles(files: File[]) {
+  const snippets: string[] = [];
+  let remaining = MAX_TEXT_CONTEXT_TOTAL_CHARS;
+  for (const file of files) {
+    if (remaining <= 0) break;
+    const raw = await file.text();
+    const maxForFile = Math.min(MAX_TEXT_CONTEXT_FILE_CHARS, remaining);
+    const text = raw.slice(0, maxForFile);
+    remaining -= text.length;
+    snippets.push(
+      [
+        `### ${file.name}`,
+        raw.length > text.length
+          ? `${text}\n\n[Truncated ${raw.length - text.length} characters]`
+          : text,
+      ].join("\n"),
+    );
+  }
+  return snippets;
+}
+
 function HomeGeneratePanel({
   libraries,
   onRequestNewLibrary,
@@ -274,6 +297,7 @@ function HomeGeneratePanel({
     }
 
     const imageFiles = files.filter(isImageReferenceFile);
+    const textFiles = files.filter(isInlineTextContextFile);
     const unsupportedFiles = files.filter(
       (file) => !isImageReferenceFile(file) && !isInlineTextContextFile(file),
     );
@@ -327,6 +351,16 @@ function HomeGeneratePanel({
       }
     }
 
+    let textContextSnippets: string[] = [];
+    if (textFiles.length > 0) {
+      try {
+        textContextSnippets = await readInlineTextContextFiles(textFiles);
+      } catch {
+        toast.error("Couldn't read one of the attached text files.");
+        return;
+      }
+    }
+
     const messageLines = [
       `Generate ${count} image candidate${count === 1 ? "" : "s"}.`,
       `Prompt: ${trimmed}`,
@@ -368,6 +402,18 @@ function HomeGeneratePanel({
         ...uploadedAssets.map((a) => `- ${a.id} - ${a.title}`),
         "",
         "These were just added to the library. Treat them as the highest-weight style references for this generation.",
+      );
+    }
+    if (textContextSnippets.length > 0) {
+      contextLines.push(
+        "",
+        "## Attached text context (this turn)",
+        ...textContextSnippets,
+      );
+      messageLines.push(
+        `Use ${textContextSnippets.length} attached text context file${
+          textContextSnippets.length === 1 ? "" : "s"
+        } from the request context.`,
       );
     }
     contextLines.push(
