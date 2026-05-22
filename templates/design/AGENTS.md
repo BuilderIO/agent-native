@@ -181,6 +181,7 @@ Write to `navigate` to move the user. The UI reads it, navigates, and auto-delet
 { "view": "editor", "designId": "abc123" }
 { "view": "list" }
 { "view": "design-systems" }
+{ "view": "design-systems", "designSystemId": "ds123" }
 { "path": "/present/abc123" }
 ```
 
@@ -296,14 +297,15 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Navigation
 
-| Action     | Args                             | Purpose                    |
-| ---------- | -------------------------------- | -------------------------- |
-| `navigate` | `--view list`                    | Navigate to design list    |
-| `navigate` | `--view editor --designId <id>`  | Navigate to design editor  |
-| `navigate` | `--view design-systems`          | Navigate to design systems |
-| `navigate` | `--view present --designId <id>` | Navigate to presentation   |
-| `navigate` | `--view templates`               | Navigate to templates      |
-| `navigate` | `--view settings`                | Navigate to settings       |
+| Action     | Args                                          | Purpose                           |
+| ---------- | --------------------------------------------- | --------------------------------- |
+| `navigate` | `--view list`                                 | Navigate to design list           |
+| `navigate` | `--view editor --designId <id>`               | Navigate to design editor         |
+| `navigate` | `--view design-systems`                       | Navigate to design systems        |
+| `navigate` | `--view design-systems --designSystemId <id>` | Open a design system detail sheet |
+| `navigate` | `--view present --designId <id>`              | Navigate to presentation          |
+| `navigate` | `--view templates`                            | Navigate to templates             |
+| `navigate` | `--view settings`                             | Navigate to settings              |
 
 ### Creating & Editing Designs
 

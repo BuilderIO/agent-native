@@ -53,6 +53,27 @@ describe("open_app MCP App metadata", () => {
     expect(JSON.stringify(csp)).not.toContain('"https:"');
   });
 
+  it("keeps exact granted origins when request origin is unavailable", async () => {
+    mocks.listGrantedDispatchMcpAppOrigins.mockResolvedValue([
+      "https://mail.agent-native.com",
+      "https://calendar.agent-native.com",
+    ]);
+
+    const cspBuilder = openAppAction.mcpApp?.resource.csp;
+    const csp = await (cspBuilder as any)({
+      actionName: "open_app",
+      appId: "dispatch",
+    });
+
+    expect(csp.frameDomains).toEqual([
+      "$requestOrigin",
+      "https://mail.agent-native.com",
+      "https://calendar.agent-native.com",
+      "http://localhost:*",
+      "http://127.0.0.1:*",
+    ]);
+  });
+
   it("promotes embed and chrome from params for hosts that nest open options", async () => {
     mocks.openGrantedDispatchMcpApp.mockResolvedValue({
       app: "mail",

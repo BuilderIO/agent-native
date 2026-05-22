@@ -163,10 +163,24 @@ describe("Dispatch MCP gateway app discovery", () => {
         url: "https://mail.agent-native.com/inbox",
         color: "#2563EB",
       },
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+      {
+        id: "file-url",
+        name: "File URL",
+        description: "Unsupported manifest URL scheme",
+        url: "file:///tmp/app",
+        color: "#111827",
+      },
     ]);
     mocks.getUserSetting.mockResolvedValue({
       mode: "selected-apps",
-      selectedAppIds: ["dispatch", "analytics", "mail"],
+      selectedAppIds: ["dispatch", "analytics", "mail", "bad-url", "file-url"],
     });
 
     const origins = await runWithRequestContext(

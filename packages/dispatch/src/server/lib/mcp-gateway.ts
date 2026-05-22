@@ -145,8 +145,21 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
+  try {
+    const url = new URL(app.url);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function appOrigin(app: DispatchMcpAccessibleApp): string {
-  return new URL(app.url).origin;
+  const origin = safeAppOrigin(app);
+  if (!origin) throw new Error(`Invalid app URL for "${app.id}": ${app.url}`);
+  return origin;
 }
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
@@ -240,7 +253,7 @@ export async function listGrantedDispatchMcpApps(): Promise<
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
   const apps = await listGrantedDispatchMcpApps();
-  return Array.from(new Set(apps.map((app) => appOrigin(app))));
+  return Array.from(new Set(apps.flatMap((app) => safeAppOrigin(app) ?? [])));
 }
 
 export async function resolveGrantedDispatchMcpApp(
