@@ -38,9 +38,9 @@ vec2 GetPos(vec2 id, vec2 offs, float t) {
 vec2 Attract(vec2 p, vec2 cursor, float strength) {
   vec2 delta = cursor - p;
   float d = length(delta);
-  float pull = 1. - smoothstep(.08, 2.1, d);
+  float pull = 1. - smoothstep(.08, 1.9, d);
   pull = pull * pull * (3. - 2. * pull);
-  return p + delta * pull * .16 * strength;
+  return p + delta * pull * .095 * strength;
 }
 
 float df_line(in vec2 a, in vec2 b, in vec2 p) {
@@ -155,11 +155,15 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float fade = S(0., .6, z) * S(1., .8, z);
     vec2 pointerSt = pointerUv * rot * size;
     vec2 layerSt = st * size;
-    float warp = 1. - smoothstep(.15, 3.2, length(layerSt - pointerSt));
+    float warp = 1. - smoothstep(.15, 2.7, length(layerSt - pointerSt));
     warp = warp * warp * (3. - 2. * warp) * uPointer.z;
-    layerSt -= (pointerSt - layerSt) * warp * .06;
+    layerSt -= (pointerSt - layerSt) * warp * .035;
     m += fade * NetLayer(layerSt, i, iTime * 0.3, pointerSt, uPointer.z);
   }
+
+  float cursorLift = 1. - smoothstep(.04, .48, length(uv - pointerUv));
+  cursorLift = cursorLift * cursorLift * (3. - 2. * cursorLift) * uPointer.z;
+  m *= 1. + cursorLift * .55;
 
   // Gray instead of rainbow
   vec3 baseCol = vec3(0.35) * uDark + vec3(0.12) * (1.0 - uDark);
