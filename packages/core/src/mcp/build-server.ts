@@ -261,6 +261,17 @@ function originString(value: unknown): string | undefined {
   }
 }
 
+function hostSpecificDomainString(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  try {
+    new URL(trimmed);
+    return undefined;
+  } catch {
+    return trimmed;
+  }
+}
+
 function withMcpChatBridgeParam(urlOrPath: string): string {
   try {
     const base = "http://agent-native.invalid";
@@ -493,6 +504,7 @@ function mcpAppUiMeta(
       ? (base.ui as Record<string, unknown>)
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
+  delete ui.domain;
   if (resolvedCsp) {
     ui.csp = {
       ...resolvedCsp,
@@ -515,11 +527,15 @@ function mcpAppUiMeta(
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
-  const widgetDomain =
+  const hostSpecificDomain =
+    hostSpecificDomainString(resource.domain) ??
+    hostSpecificDomainString(existingUi.domain);
+  if (hostSpecificDomain) ui.domain = hostSpecificDomain;
+  const openAiWidgetDomain =
     originString(resource.domain) ??
     originString(ui.domain) ??
+    originString(existingUi.domain) ??
     originString(requestMeta?.origin);
-  if (widgetDomain) ui.domain = widgetDomain;
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -537,8 +553,8 @@ function mcpAppUiMeta(
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
-  if (widgetDomain && base["openai/widgetDomain"] == null) {
-    base["openai/widgetDomain"] = widgetDomain;
+  if (openAiWidgetDomain && base["openai/widgetDomain"] == null) {
+    base["openai/widgetDomain"] = openAiWidgetDomain;
   }
   return Object.keys(base).length > 0 ? base : undefined;
 }

@@ -309,6 +309,21 @@ escape hatch for routes like full dashboards, filtered inboxes, calendar
 drafts, analyses, or extension pages, and should be used liberally when the
 full app is the clearest review/edit surface.
 
+Do not set standard `_meta.ui.domain` to an app URL. That field is
+host-specific: Claude validates hash subdomains such as
+`{hash}.claudemcpcontent.com`, while ChatGPT has its own widget-domain
+metadata. Let hosts choose their default sandbox origin unless you are emitting
+a host-specific value on purpose. `embedApp()` may still emit
+`openai/widgetDomain` for ChatGPT compatibility.
+
+Extension pages are a special case inside MCP chat embeds. The normal app uses
+`/_agent-native/extensions/:id/render` as a sandboxed child iframe, but MCP
+chat hosts add another ancestor frame and can block that route via
+`frame-ancestors` / `X-Frame-Options`. In MCP chat bridge mode the framework
+renders the extension document as sandboxed `srcDoc` inside the existing app
+route iframe instead; keep `sandbox="allow-scripts allow-forms"` and do not add
+`allow-same-origin`.
+
 For Dispatch, keep the single connector path first-class: the `open_app`
 resource CSP should include the exact origins of apps granted through Dispatch,
 not broad sources like `https:`. This lets Claude's transplant path fetch the

@@ -899,7 +899,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             csp: {
               connectDomains: ["https://mail.agent-native.com"],
             },
-            domain: "https://mail.agent-native.com",
             prefersBorder: true,
           },
           "openai/widgetDescription":
@@ -957,7 +956,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             csp: {
               connectDomains: ["https://mail.agent-native.com"],
             },
-            domain: "https://mail.agent-native.com",
             prefersBorder: true,
           },
           "openai/widgetCSP": {

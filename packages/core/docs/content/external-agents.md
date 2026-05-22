@@ -254,6 +254,20 @@ relays the same host actions over `agentNative.mcpHost.*` postMessage
 requests. Keep the result shape identical for both paths: return a focused
 `link` and concise structured content.
 
+Do not set standard `_meta.ui.domain` to an app URL. MCP Apps treats that field
+as host-specific: Claude validates `{hash}.claudemcpcontent.com`-style sandbox
+domains, while ChatGPT uses its own `openai/widgetDomain` metadata. Omit
+`ui.domain` unless you are deliberately emitting a host-specific value; the host
+will choose a default sandbox origin.
+
+Extension pages keep their sandbox in MCP chat embeds without navigating a
+second route iframe. Normal app usage renders
+`/_agent-native/extensions/:id/render` as a sandboxed child iframe. In MCP chat
+bridge mode the framework renders the same extension document as sandboxed
+`srcDoc` inside the route iframe, avoiding host `frame-ancestors` /
+`X-Frame-Options` failures while preserving `sandbox="allow-scripts
+allow-forms"`.
+
 The resource shell owns the outer host size. `embedApp({ height })` defaults
 to `560px`, clamps the shell to `320-900px`, and reserves `44px` for the small
 toolbar, so the route viewport is `height - 44px`. Keep embedded app routes

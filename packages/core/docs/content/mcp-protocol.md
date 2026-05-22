@@ -136,6 +136,17 @@ through Dispatch, which keeps the one-connector path narrow while still letting
 Claude/ChatGPT inline target app routes. Pass additional domains only for
 custom third-party frames or assets.
 
+Leave standard `_meta.ui.domain` unset by default. Its format is host-specific:
+Claude expects Claude content-domain hashes, while ChatGPT reads the separate
+`openai/widgetDomain` compatibility field. App URLs belong in CSP sources and
+open-link targets, not portable `ui.domain` metadata.
+
+Extension detail routes render their extension iframe from `srcDoc` when the
+route is already inside an MCP chat embed. That avoids a second
+`/_agent-native/extensions/:id/render` frame navigation being rejected by chat
+host ancestry checks, while keeping the same sandbox flags and postMessage
+extension bridge.
+
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.
 `ui/message` is the portable way for an embedded app button to ask the host to
