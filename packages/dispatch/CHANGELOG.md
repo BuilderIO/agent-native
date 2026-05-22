@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.12
+
+### Patch Changes
+
+- 5bf1ce0: Retry transient target MCP handshakes when Dispatch pre-mints cross-app embeds.
+
 ## 0.8.11
 
 ### Patch Changes
