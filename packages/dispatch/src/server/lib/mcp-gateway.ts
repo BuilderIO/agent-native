@@ -30,6 +30,7 @@ const DISPATCH_DESCRIPTION =
   "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
 const DISPATCH_COLOR = "#14B8A6";
 const TARGET_EMBED_SESSION_ATTEMPTS = 3;
+const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 
 export interface DispatchMcpAccessibleApp {
   id: string;
@@ -237,6 +238,11 @@ export async function listGrantedDispatchMcpApps(): Promise<
   return apps.filter((app) => app.granted);
 }
 
+export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
+  const apps = await listGrantedDispatchMcpApps();
+  return Array.from(new Set(apps.map((app) => appOrigin(app))));
+}
+
 export async function resolveGrantedDispatchMcpApp(
   app: string,
 ): Promise<DispatchMcpAccessibleApp> {
@@ -322,13 +328,23 @@ export async function openGrantedDispatchMcpApp(input: {
         params: input.params,
       });
   const url = `${appBaseUrl(target)}${relUrl}`;
-  const embedSession = input.embed
-    ? await createGrantedDispatchMcpEmbedSession({
+  let embedSession: Awaited<
+    ReturnType<typeof createGrantedDispatchMcpEmbedSession>
+  > | null = null;
+  if (input.embed) {
+    try {
+      embedSession = await createGrantedDispatchMcpEmbedSession({
         app: target.id,
         url,
         chrome: input.chrome,
-      })
-    : null;
+      });
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
+        error,
+      );
+    }
+  }
   return {
     app: target.id,
     ...(view ? { view } : {}),
@@ -376,9 +392,22 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : String(error ?? "");
-  return /not connected|streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+  if (
+    /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
     message,
   );
+}
+
+function targetMcpRetryDelay(attempt: number): number {
+  const base =
+    TARGET_EMBED_SESSION_RETRY_BASE_MS * Math.pow(2, Math.max(0, attempt - 1));
+  return base + Math.floor(Math.random() * 100);
 }
 
 async function callTargetCreateEmbedSession(input: {
@@ -388,8 +417,7 @@ async function callTargetCreateEmbedSession(input: {
   chrome?: "full" | "minimal";
 }): Promise<unknown> {
   const serverId = "target";
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= TARGET_EMBED_SESSION_ATTEMPTS; attempt++) {
+  for (let attempt = 1; ; attempt += 1) {
     const manager = new McpClientManager({
       servers: {
         [serverId]: {
@@ -411,19 +439,19 @@ async function callTargetCreateEmbedSession(input: {
         },
       );
     } catch (error) {
-      lastError = error;
       if (
         attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
         !isRetryableTargetMcpError(error)
       ) {
         throw error;
       }
-      await sleep(250 * attempt);
+      await sleep(targetMcpRetryDelay(attempt));
     } finally {
-      await manager.stop();
+      await manager.stop().catch((stopError) => {
+        console.warn("[dispatch] Failed to stop target MCP client:", stopError);
+      });
     }
   }
-  throw lastError;
 }
 
 async function resolveDispatchEmbedTarget(input: {
@@ -539,16 +567,22 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
         getOrgA2ASecret(orgId).catch(() => null),
       ])
     : [null, null];
+  const usableOrgSecret =
+    typeof orgSecret === "string" && orgSecret.trim().length > 0;
+  const usableOrgDomain =
+    typeof orgDomain === "string" && orgDomain.trim().length > 0;
+  const useOrgSigning = usableOrgDomain && usableOrgSecret;
+  const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const token = await signA2AToken(
     userEmail,
-    orgDomain ?? undefined,
-    orgSecret ?? undefined,
+    signedOrgDomain,
+    useOrgSigning ? orgSecret.trim() : undefined,
     {
       expiresIn: "5m",
       // Prefer the synced org A2A secret when present because first-party
       // production apps do not have to share the same deployment env secret.
       // Fall back to the global A2A_SECRET for orgs that have not synced yet.
-      preferGlobalSecret: !orgSecret,
+      preferGlobalSecret: !useOrgSigning,
     },
   );
 

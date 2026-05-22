@@ -131,7 +131,10 @@ relay:
 
 `embedApp()` includes the MCP request origin in the resource CSP so the
 launcher can fetch and, when explicitly requested, frame the signed first-party
-route. Pass additional `frameDomains` only for custom third-party frames.
+route. Dispatch's `open_app` resource adds the exact origins for apps granted
+through Dispatch, which keeps the one-connector path narrow while still letting
+Claude/ChatGPT inline target app routes. Pass additional domains only for
+custom third-party frames or assets.
 
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.

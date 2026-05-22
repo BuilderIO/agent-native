@@ -31,12 +31,14 @@ export default defineAction({
       readAppState("image-generation-setup").catch(() => null),
     ]);
 
+    const configured = (builderEnabled && builderConnected) || geminiConfigured;
+
     return {
       builderEnabled,
       builderConnected,
       geminiConfigured,
-      configured: (builderEnabled && builderConnected) || geminiConfigured,
-      lastIssue: geminiConfigured ? null : lastIssue,
+      configured,
+      lastIssue: configured ? null : lastIssue,
     };
   },
 });

@@ -932,7 +932,10 @@ export function EmailList({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !isFetchingNextPageRef.current) {
-          fetchNextPage();
+          void fetchNextPage().catch(() => {
+            // React Query owns the visible error state; avoid a global
+            // unhandledrejection for transient list-page fetch failures.
+          });
         }
       },
       { rootMargin: "200px" },

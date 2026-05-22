@@ -55,7 +55,7 @@ function BookingPageShell({
     >
       <StarfieldBackground className="fixed inset-0 opacity-25 dark:opacity-60" />
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)]" />
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 flow-root">{children}</div>
     </div>
   );
 }
