@@ -17,14 +17,14 @@ export default defineAction({
     "The editor's Download SVG command uses the live browser DOM for the most faithful snapshot; this action provides agent parity for source-based SVG export.",
   schema: z.object({
     id: z.string().describe("Design ID to export"),
-    width: z
+    width: z.coerce
       .number()
       .int()
       .positive()
       .optional()
       .default(1440)
       .describe("SVG viewport width in pixels"),
-    height: z
+    height: z.coerce
       .number()
       .int()
       .positive()

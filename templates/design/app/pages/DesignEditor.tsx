@@ -1202,6 +1202,7 @@ ${serializedHtml}
     exportZipMutation.isPending ||
     createCodingHandoffMutation.isPending ||
     svgExporting;
+  const zoomLabel = `${Math.round(zoom)}%`;
 
   if (!id) {
     navigate("/");
@@ -1421,8 +1422,8 @@ ${serializedHtml}
               >
                 <IconZoomOut className="w-3.5 h-3.5" />
               </Button>
-              <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
-                {zoom}%
+              <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
+                {zoomLabel}
               </span>
               <Button
                 variant="ghost"
