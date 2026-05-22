@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.11
+
+### Patch Changes
+
+- 236f106: Pre-mint Dispatch MCP app embed sessions from open_app results so hosts can render inline apps without a follow-up helper call.
+
 ## 0.8.10
 
 ### Patch Changes
