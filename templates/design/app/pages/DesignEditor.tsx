@@ -1156,6 +1156,39 @@ export default function DesignEditor() {
       );
       const clone = doc.documentElement.cloneNode(true) as HTMLElement;
       clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+      const stylesheetLinks = Array.from(
+        doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const clonedStylesheetLinks = Array.from(
+        clone.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const stylesheets = Array.from(doc.styleSheets);
+
+      stylesheetLinks.forEach((link, index) => {
+        const sheet = stylesheets.find(
+          (candidate) =>
+            (candidate as StyleSheet & { ownerNode?: Node | null })
+              .ownerNode === link,
+        ) as CSSStyleSheet | undefined;
+        let cssText = "";
+        try {
+          cssText = Array.from(sheet?.cssRules ?? [])
+            .map((rule) => rule.cssText)
+            .join("\n");
+        } catch {
+          // Cross-origin stylesheets cannot be read. Leave the original link in
+          // place instead of failing the whole export.
+          return;
+        }
+        if (!cssText.trim()) return;
+        const style = doc.createElement("style");
+        style.setAttribute(
+          "data-agent-native-inlined-stylesheet",
+          link.getAttribute("href") ?? "",
+        );
+        style.textContent = cssText;
+        clonedStylesheetLinks[index]?.replaceWith(style);
+      });
       clone.querySelectorAll("script").forEach((node) => node.remove());
       clone.style.width = `${width}px`;
       clone.style.minHeight = `${height}px`;

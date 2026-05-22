@@ -116,11 +116,7 @@ function escapeXmlAttribute(value: string): string {
 
 function normalizeHtmlForSvg(html: string): string {
   const withoutDoctype = html.replace(/<!doctype[^>]*>/i, "").trim();
-  const withoutScripts = withoutDoctype.replace(
-    /<script\b[\s\S]*?<\/script>/gi,
-    "",
-  );
-  const withClosedVoidElements = withoutScripts.replace(
+  const withClosedVoidElements = withoutDoctype.replace(
     /<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b([^>]*)>/gi,
     (match, tag: string, attrs: string) => {
       if (/\/\s*>$/.test(match)) return match;
