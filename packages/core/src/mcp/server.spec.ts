@@ -367,6 +367,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resourceUri: "ui://mail/echo-thing/shell-v25",
       visibility: ["model", "app"],
     });
+    expect(echo._meta?.ui?.csp).toBeUndefined();
+    expect(echo._meta?.ui?.permissions).toBeUndefined();
   });
 
   it("uses a compact tool catalog when the OAuth token has mcp:apps", async () => {
