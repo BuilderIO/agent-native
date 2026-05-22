@@ -452,17 +452,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     expect(echo._meta?.["ui/resourceUri"]).toBe(
-      "ui://mail/echo-thing/shell-v25",
+      "ui://mail/echo-thing/shell-v26",
     );
     expect(echo._meta?.["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v25",
+      "ui://mail/echo-thing/shell-v26",
     );
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
     expect(echo._meta?.["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
     expect(echo._meta?.ui).toEqual({
-      resourceUri: "ui://mail/echo-thing/shell-v25",
+      resourceUri: "ui://mail/echo-thing/shell-v26",
       visibility: ["model", "app"],
     });
     expect(echo._meta?.ui?.csp).toBeUndefined();
@@ -546,7 +546,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v25",
+      "ui://mail/open_app/shell-v26",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
@@ -572,7 +572,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(templatesOut.error).toBeUndefined();
     expect(
       templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
-    ).toEqual(["ui://mail/open_app/shell-v25"]);
+    ).toEqual(["ui://mail/open_app/shell-v26"]);
     expect(JSON.stringify(templatesOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
     );
@@ -586,7 +586,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 123,
         method: "resources/read",
-        params: { uri: "ui://mail/review-draft/shell-v25" },
+        params: { uri: "ui://mail/review-draft/shell-v26" },
       },
       {
         headers: await mcpAppsAuthHeaders(),
@@ -601,7 +601,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 126,
         method: "resources/read",
-        params: { uri: "ui://mail/bloated-widget/shell-v25" },
+        params: { uri: "ui://mail/bloated-widget/shell-v26" },
       },
       {
         headers: await mcpAppsAuthHeaders(),
@@ -672,8 +672,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v25",
-      "ui://mail/status-panel/shell-v25",
+      "ui://mail/open_app/shell-v26",
+      "ui://mail/status-panel/shell-v26",
     ]);
   });
 
@@ -760,8 +760,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources.map((r: any) => r.uri)).toEqual(
       expect.arrayContaining([
-        "ui://mail/echo-thing/shell-v25",
-        "ui://mail/review-draft/shell-v25",
+        "ui://mail/echo-thing/shell-v26",
+        "ui://mail/review-draft/shell-v26",
       ]),
     );
   });
@@ -899,7 +899,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v25",
+      "ui://mail/open_app/shell-v26",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
@@ -945,7 +945,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v25",
+        uri: "ui://mail/echo-thing/shell-v26",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -982,7 +982,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
-        uriTemplate: "ui://mail/echo-thing/shell-v25",
+        uriTemplate: "ui://mail/echo-thing/shell-v26",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -997,14 +997,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 6,
         method: "resources/read",
-        params: { uri: "ui://mail/echo-thing/shell-v25" },
+        params: { uri: "ui://mail/echo-thing/shell-v26" },
       },
       { headers: await mcpAppsAuthHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v25",
+        uri: "ui://mail/echo-thing/shell-v26",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('data-action="echo-thing"'),
         _meta: expect.objectContaining({
@@ -1116,7 +1116,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 37,
         method: "resources/read",
-        params: { uri: "ui://mail/dynamic-review/shell-v25" },
+        params: { uri: "ui://mail/dynamic-review/shell-v26" },
       },
       { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
     );
@@ -1205,7 +1205,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       expect(brokenTool._meta?.["openai/outputTemplate"]).toBeUndefined();
       expect(healthyTool._meta["openai/outputTemplate"]).toBe(
-        "ui://mail/healthy-review/shell-v25",
+        "ui://mail/healthy-review/shell-v26",
       );
 
       const brokenCall = await callWeb(
@@ -1235,7 +1235,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(resources.error).toBeUndefined();
       expect(
         resources.result.resources.map((resource: any) => resource.uri),
-      ).toEqual(["ui://mail/healthy-review/shell-v25"]);
+      ).toEqual(["ui://mail/healthy-review/shell-v26"]);
 
       const templates = await callWeb(
         {
@@ -1251,7 +1251,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         templates.result.resourceTemplates.map(
           (template: any) => template.uriTemplate,
         ),
-      ).toEqual(["ui://mail/healthy-review/shell-v25"]);
+      ).toEqual(["ui://mail/healthy-review/shell-v26"]);
 
       const warnCallsBeforeRead = warn.mock.calls.length;
       const read = await callWeb(
@@ -1259,14 +1259,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           jsonrpc: "2.0",
           id: 43,
           method: "resources/read",
-          params: { uri: "ui://mail/healthy-review/shell-v25" },
+          params: { uri: "ui://mail/healthy-review/shell-v26" },
         },
         { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
       );
       expect(read.error).toBeUndefined();
       expect(read.result.contents[0]).toEqual(
         expect.objectContaining({
-          uri: "ui://mail/healthy-review/shell-v25",
+          uri: "ui://mail/healthy-review/shell-v26",
           text: expect.stringContaining("Healthy"),
         }),
       );
@@ -1334,7 +1334,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v25",
+        uri: "ui://mail/custom-review/shell-v26",
         name: "custom-review",
       }),
     ]);
@@ -1391,7 +1391,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v25",
+        uri: "ui://mail/custom-review/shell-v26",
         name: "custom-review",
       }),
     ]);
@@ -1448,7 +1448,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v25?mode=compact#preview",
+        uri: "ui://mail/custom-review/shell-v26?mode=compact#preview",
         name: "custom-review",
       }),
     ]);
@@ -1498,7 +1498,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v25",
+      "ui://mail/echo-thing/shell-v26",
     );
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
