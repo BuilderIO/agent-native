@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // field we set on the fake event. Mirrors poll-handler.spec's h3 stub.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) =>
+    event.headers?.get?.(name) ??
+    event.headers?.[name] ??
+    event.headers?.[name.toLowerCase()] ??
+    event.node?.req?.headers?.[name] ??
+    event.node?.req?.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
 }));
 
@@ -21,6 +27,12 @@ const appStateGet = vi.hoisted(() => vi.fn());
 vi.mock("../application-state/store.js", () => ({
   appStatePut: (...a: any[]) => appStatePut(...a),
   appStateGet: (...a: any[]) => appStateGet(...a),
+}));
+
+const requestHasEmbedAuthMarker = vi.hoisted(() => vi.fn());
+
+vi.mock("./embed-session.js", () => ({
+  requestHasEmbedAuthMarker: (...a: any[]) => requestHasEmbedAuthMarker(...a),
 }));
 
 import { createOpenRouteHandler } from "./open-route.js";
@@ -45,6 +57,8 @@ describe("createOpenRouteHandler", () => {
     appStatePut.mockResolvedValue(undefined);
     appStateGet.mockReset();
     appStateGet.mockResolvedValue(null);
+    requestHasEmbedAuthMarker.mockReset();
+    requestHasEmbedAuthMarker.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -190,6 +204,32 @@ describe("createOpenRouteHandler", () => {
 
     const [, , payload] = appStatePut.mock.calls[0];
     expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("adds MCP embed CORS headers to embed-auth open redirects", async () => {
+    requestHasEmbedAuthMarker.mockReturnValue(true);
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler({
+      ...fakeEvent(
+        `/_agent-native/open?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123`,
+      ),
+      headers: new Headers({
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      }),
+    } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/inbox?");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   it("parses the original browser URL when mounted under the framework route", async () => {
