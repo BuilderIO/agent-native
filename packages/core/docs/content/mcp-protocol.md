@@ -94,7 +94,9 @@ custom actions can return the same field when they already know the target
 route.
 
 The outer MCP resource reports a bounded inline height to the host and the app
-route scrolls internally. Do not rely on host auto-resize measuring the full
+route scrolls internally. `embedApp({ height })` defaults to a `560px` shell,
+clamps to `320-900px`, and subtracts `44px` for the wrapper toolbar before
+sizing the route viewport. Do not rely on host auto-resize measuring the full
 document; in ChatGPT and Claude this can make a normal full-app route appear as
 a huge chat artifact. Host conversations also keep already-rendered iframes, so
 after changing the resource shell or `ui://` version, test a fresh tool call

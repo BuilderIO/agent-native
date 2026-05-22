@@ -303,8 +303,10 @@ drafts, analyses, or extension pages, and should be used liberally when the
 full app is the clearest review/edit surface.
 
 Host sizing rule: the MCP resource shell owns a bounded inline height and the
-embedded route should scroll internally. Do not re-enable host SDK auto-resize
-for full-app route embeds; Claude and ChatGPT can otherwise measure the whole
+embedded route should scroll internally. `embedApp({ height })` defaults to a
+`560px` shell, clamps to `320-900px`, and subtracts `44px` for the wrapper bar
+before sizing the route viewport. Do not re-enable host SDK auto-resize for
+full-app route embeds; Claude and ChatGPT can otherwise measure the whole
 document and create a huge chat iframe. After changing the shell or `ui://`
 resource version, verify with a fresh tool call because old conversation frames
 keep the behavior they were rendered with.

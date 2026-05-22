@@ -369,6 +369,10 @@ export {
   type OpenSourceBadgeProps,
   type PoweredByBadgeProps,
 } from "./PoweredByBadge.js";
+export {
+  StarfieldBackground,
+  type StarfieldBackgroundProps,
+} from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { installRouteChunkRecovery } from "./route-chunk-recovery.js";

@@ -220,7 +220,9 @@ When a submitted app prompt should continue the host chat, call
 then posts a visible user message through the host bridge where supported.
 Design those routes with their own scrolling, because the MCP resource reports
 a bounded inline height rather than asking the host to size itself to the full
-app document.
+app document. `embedApp({ height })` defaults to a `560px` shell, clamps to
+`320-900px`, and subtracts `44px` for wrapper chrome before sizing the embedded
+route viewport.
 
 ## Standard actions {#standard-actions}
 

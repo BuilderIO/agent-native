@@ -364,10 +364,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       connect_domains: ["https://mail.agent-native.com"],
     });
     expect(echo._meta?.ui).toEqual({
-      csp: {
-        connectDomains: ["https://mail.agent-native.com"],
-      },
-      prefersBorder: true,
       resourceUri: "ui://mail/echo-thing/shell-v24",
       visibility: ["model", "app"],
     });
@@ -916,12 +912,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
-    expect(out.result._meta.ui).toMatchObject({
-      csp: {
-        connectDomains: ["https://mail.agent-native.com"],
-      },
-      prefersBorder: true,
-    });
+    expect(out.result._meta.ui).toBeUndefined();
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
       id: "thing-42",
