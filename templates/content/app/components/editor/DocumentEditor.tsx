@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ClipboardEvent } from "react";
 import { useNavigate } from "react-router";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
@@ -29,6 +30,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import {
+  normalizeTitleText,
+  stripMarkdownHeadingPrefixFromTitlePaste,
+} from "./title-text";
 
 const TAB_ID = generateTabId();
 
@@ -349,6 +354,53 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     setPendingComment({ quotedText, offsetTop });
   }, []);
 
+  const focusTitleEnd = useCallback(() => {
+    const textarea = titleInputRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, []);
+
+  const joinFirstBodyBlockToTitle = useCallback(
+    (text: string) => {
+      const trimmed = text.replace(/\s+/g, " ").trim();
+      if (trimmed) {
+        const currentTitle = localTitleRef.current.trim();
+        const nextTitle = currentTitle ? `${currentTitle} ${trimmed}` : trimmed;
+        handleTitleChange(nextTitle);
+      }
+      requestAnimationFrame(focusTitleEnd);
+    },
+    [focusTitleEnd, handleTitleChange],
+  );
+
+  const handleTitlePaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canEdit) return;
+
+      const pastedText = event.clipboardData.getData("text/plain");
+      if (!pastedText) return;
+
+      event.preventDefault();
+
+      const textarea = event.currentTarget;
+      const selectionStart = textarea.selectionStart;
+      const selectionEnd = textarea.selectionEnd;
+      const pastedTitle = normalizeTitleText(
+        stripMarkdownHeadingPrefixFromTitlePaste(pastedText),
+      );
+      const nextTitle = `${localTitle.slice(0, selectionStart)}${pastedTitle}${localTitle.slice(selectionEnd)}`;
+      const nextCaret = selectionStart + pastedTitle.length;
+
+      handleTitleChange(nextTitle);
+      requestAnimationFrame(() => {
+        titleInputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      });
+    },
+    [canEdit, handleTitleChange, localTitle],
+  );
+
   // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
     if (canEdit && !collabLoading && shouldFocusTitleRef.current) {
@@ -412,8 +464,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               wrap="soft"
               value={localTitle}
               onChange={(e) =>
-                handleTitleChange(e.target.value.replace(/\s*\r?\n\s*/g, " "))
+                handleTitleChange(normalizeTitleText(e.target.value))
               }
+              onPaste={handleTitlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -451,6 +504,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               user={currentUser}
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}
+              onJoinTitle={joinFirstBodyBlockToTitle}
             />
           </div>
         </div>

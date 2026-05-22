@@ -26,11 +26,13 @@ describe("VisualEditor read-only mode", () => {
     expect(source).not.toMatch(
       /handle\.addEventListener\("mousedown", \(e\) => \{\s*e\.preventDefault\(\);\s*if \(!editor\.isEditable\)/,
     );
-    expect(source).toContain("handle.draggable = false");
-    expect(source).toContain("handle.draggable = true");
     expect(source).toContain(
-      'e.dataTransfer.setData("text/plain", getDragText());',
+      'document.addEventListener("mousemove", handleDocumentMouseMove);',
     );
-    expect(source).toContain("node: sel");
+    expect(source).toContain('line.className = "notion-drop-indicator";');
+    expect(source).toContain(
+      'session.sourceBlock.classList.add("notion-block--dragging");',
+    );
+    expect(source).toContain("session.view.dispatch(tr.scrollIntoView());");
   });
 });

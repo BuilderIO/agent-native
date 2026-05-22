@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useTheme } from "next-themes";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -41,7 +41,52 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript("dark", false);
+const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+const themeOptions = [
+  { value: "system", label: "System", icon: IconDeviceDesktop },
+  { value: "light", label: "Light", icon: IconSun },
+  { value: "dark", label: "Dark", icon: IconMoon },
+] as const;
+
+const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";
+
+type ThemeOption = (typeof themeOptions)[number]["value"];
+
+function isThemeOption(value: string | null | undefined): value is ThemeOption {
+  return value === "light" || value === "system" || value === "dark";
+}
+
+function readStoredThemePreference(): ThemeOption {
+  if (typeof window === "undefined") return "system";
+
+  try {
+    const storedTheme = window.localStorage.getItem(
+      THEME_PREFERENCE_STORAGE_KEY,
+    );
+    if (storedTheme === "auto") return "system";
+    return isThemeOption(storedTheme) ? storedTheme : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function writeStoredThemePreference(theme: ThemeOption) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
+  } catch {
+    // Ignore storage failures and still let next-themes update the page.
+  }
+}
+
+function nextTheme(theme: ThemeOption): ThemeOption {
+  const currentIndex = themeOptions.findIndex(
+    (option) => option.value === theme,
+  );
+  return themeOptions[(currentIndex + 1) % themeOptions.length].value;
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -85,15 +130,35 @@ function AppSetup() {
 }
 
 function ThemeToggleItem() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const { theme, setTheme } = useTheme();
+  const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
+
+  useEffect(() => {
+    setSelectedTheme(readStoredThemePreference());
+  }, [theme]);
+
+  const activeTheme = selectedTheme;
+  const activeOption =
+    themeOptions.find((option) => option.value === activeTheme) ??
+    themeOptions[0];
+  const ActiveIcon = activeOption.icon;
+  const handleSelect = () => {
+    const next = nextTheme(activeTheme);
+    setSelectedTheme(next);
+    writeStoredThemePreference(next);
+    setTheme(next);
+  };
+
   return (
     <CommandMenu.Item
-      onSelect={() => setTheme(isDark ? "light" : "dark")}
-      keywords={["theme", "dark", "light", "mode"]}
+      onSelect={handleSelect}
+      keywords={["theme", "dark", "light", "system", "mode"]}
     >
-      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
+      <ActiveIcon size={16} />
       Toggle theme
+      <span className="ml-auto text-xs text-muted-foreground">
+        {activeOption.label}
+      </span>
     </CommandMenu.Item>
   );
 }
@@ -150,11 +215,7 @@ export default function Root() {
   if (location.pathname.startsWith("/p/")) {
     return (
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem={false}
-        >
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <TooltipProvider>
             <Toaster />
             <Sonner closeButton position="bottom-left" />
@@ -169,7 +230,7 @@ export default function Root() {
 
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
-      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <QueryClientProvider client={queryClient}>
           <AppSetup />
           <TooltipProvider>

@@ -253,6 +253,58 @@ const SelectAllDocument = Extension.create({
   },
 });
 
+const JoinFirstBodyBlockToTitle = Extension.create<{
+  onJoinTitle?: (text: string) => void;
+}>({
+  name: "joinFirstBodyBlockToTitle",
+
+  addOptions() {
+    return {
+      onJoinTitle: undefined,
+    };
+  },
+
+  addKeyboardShortcuts() {
+    const joinFirstBodyBlock = ({ editor }: { editor: CoreEditor }) => {
+      const { state, view } = editor;
+      const { doc, selection } = state;
+      if (!selection.empty) return false;
+
+      const { $from } = selection;
+      const firstBlock = doc.firstChild;
+      if (
+        !firstBlock ||
+        $from.depth !== 1 ||
+        $from.before() !== 0 ||
+        !$from.parent.isTextblock ||
+        $from.parentOffset !== 0
+      ) {
+        return false;
+      }
+
+      const text = firstBlock.textContent.trim();
+      if (!text) {
+        queueMicrotask(() => this.options.onJoinTitle?.(""));
+        return true;
+      }
+
+      const paragraph = state.schema.nodes.paragraph;
+      const tr =
+        doc.childCount === 1 && paragraph
+          ? state.tr.replaceWith(0, firstBlock.nodeSize, paragraph.create())
+          : state.tr.delete(0, firstBlock.nodeSize);
+      view.dispatch(tr.scrollIntoView());
+      queueMicrotask(() => this.options.onJoinTitle?.(text));
+      return true;
+    };
+
+    return {
+      Backspace: joinFirstBodyBlock,
+      Delete: joinFirstBodyBlock,
+    };
+  },
+});
+
 const NotionBlockquote = Blockquote.extend({
   addInputRules() {
     return [];
@@ -281,11 +333,14 @@ const NotionMarkdownShortcuts = Extension.create({
 
       const blockStart = $from.start();
       const textBeforeCursor = view.state.doc.textBetween(blockStart, from);
+      const quoteMarkers = new Set([">", "|", '"']);
       const marker =
-        text === " " && (textBeforeCursor === ">" || textBeforeCursor === "|")
+        text === " " && quoteMarkers.has(textBeforeCursor)
           ? textBeforeCursor
-          : textBeforeCursor === "" && (text === "> " || text === "| ")
-            ? text[0]
+          : textBeforeCursor === "" &&
+              text.endsWith(" ") &&
+              quoteMarkers.has(text.trim())
+            ? text.trim()
             : null;
 
       if (!marker) return null;
@@ -497,12 +552,14 @@ interface VisualEditorProps {
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
+  onJoinTitle?: (text: string) => void;
 }
 
 interface VisualEditorExtensionOptions {
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
   user?: { name: string; color: string } | null;
+  onJoinTitle?: (text: string) => void;
 }
 
 function hasAncestorType(
@@ -554,7 +611,8 @@ function getVisualEditorPlaceholder({
     const level = node.attrs.level;
     if (level === 1) return "Heading 1";
     if (level === 2) return "Heading 2";
-    return "Heading 3";
+    if (level === 3) return "Heading 3";
+    return "Heading 4";
   }
 
   if (
@@ -612,16 +670,17 @@ export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
   user,
+  onJoinTitle,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return [
     StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
+      heading: { levels: [1, 2, 3, 4] },
       blockquote: false,
       codeBlock: false,
       paragraph: false,
       link: false,
       horizontalRule: {},
-      dropcursor: { color: "hsl(243 75% 59%)", width: 2 },
+      dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
       // Disable built-in undo/redo when Collaboration is active (Yjs tracks undo)
       ...(ydoc ? { undoRedo: false } : {}),
     }),
@@ -661,6 +720,7 @@ export function createVisualEditorExtensions({
     NotionMarkdownShortcuts,
     MarkdownPasteDetection,
     SelectAllDocument,
+    JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
     NotionBlockIndent,
     Markdown.configure({
       html: true,
@@ -689,6 +749,7 @@ export function VisualEditor({
   user,
   editable = true,
   onComment,
+  onJoinTitle,
 }: VisualEditorProps) {
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const isSettingContent = useRef(false);
@@ -729,8 +790,14 @@ export function VisualEditor({
   }, [localAwareness]);
 
   const extensions = useMemo(
-    () => createVisualEditorExtensions({ ydoc, localAwareness, user }),
-    [ydoc, localAwareness, user?.name, user?.color],
+    () =>
+      createVisualEditorExtensions({
+        ydoc,
+        localAwareness,
+        user,
+        onJoinTitle,
+      }),
+    [ydoc, localAwareness, user?.name, user?.color, onJoinTitle],
   );
 
   const editor = useEditor({
