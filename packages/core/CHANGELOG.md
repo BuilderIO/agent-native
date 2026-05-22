@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.22.23
+
+### Patch Changes
+
+- 75223dd: Fix Dispatch-routed MCP App embed sessions and surface embed helper errors in the wrapper.
+- 75223dd: Expose current extension ids to agents and wait for tracked async framework plugins before dispatching first serverless requests.
+
 ## 0.22.22
 
 ### Patch Changes
