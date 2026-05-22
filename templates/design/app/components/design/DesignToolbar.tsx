@@ -74,6 +74,7 @@ const MODE_ITEMS: {
 
 const EXPORT_FORMATS = [
   { value: "zip", label: "Download ZIP" },
+  { value: "svg", label: "Download SVG" },
   { value: "pdf", label: "Export PDF" },
   { value: "html", label: "Export HTML" },
   { value: "coding-handoff", label: "Copy coding handoff" },
