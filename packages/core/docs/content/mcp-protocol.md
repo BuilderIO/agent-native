@@ -102,6 +102,12 @@ a huge chat artifact. Host conversations also keep already-rendered iframes, so
 after changing the resource shell or `ui://` version, test a fresh tool call
 rather than re-measuring an old frame.
 
+If a user reopens an older chat after a one-time embed start ticket expires,
+the start route returns a small refresh page and posts
+`agentNative.embedSessionExpired` to the wrapper. `embedApp()` clears the stale
+start URL and asks the app-only `create_embed_session` tool for a fresh ticket
+when it still has the original app route.
+
 Default direct embeds talk to the MCP Apps host through standard `ui/*`
 JSON-RPC messages:
 
@@ -136,6 +142,17 @@ through Dispatch, which keeps the one-connector path narrow while still letting
 Claude/ChatGPT inline target app routes. Pass additional domains only for
 custom third-party frames or assets.
 
+Leave standard `_meta.ui.domain` unset by default. Its format is host-specific:
+Claude expects Claude content-domain hashes, while ChatGPT reads the separate
+`openai/widgetDomain` compatibility field. App URLs belong in CSP sources and
+open-link targets, not portable `ui.domain` metadata.
+
+Extension detail routes render their extension iframe from `srcDoc` when the
+route is already inside an MCP chat embed. That avoids a second
+`/_agent-native/extensions/:id/render` frame navigation being rejected by chat
+host ancestry checks, while keeping the same sandbox flags and postMessage
+extension bridge.
+
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.
 `ui/message` is the portable way for an embedded app button to ask the host to
@@ -148,7 +165,7 @@ request. Embedded routes must remain functional in the default inline mode.
 
 ## Tools {#tools}
 
-Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+Stdio/code developer clients can see all connected app actions as MCP tools. Chat-style app hosts, including OAuth callers that request `mcp:apps` and generic authenticated remote HTTP/static-token callers, get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
 
 The mapping is direct:
 

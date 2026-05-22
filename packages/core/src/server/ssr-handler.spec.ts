@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  AUTHENTICATED_SSR_CACHE_CONTROL,
   createH3SSRHandler,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
@@ -122,7 +121,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("uses private SSR caching when a page request carries a framework session cookie", async () => {
+  it("keeps public SSR caching when a page request carries a framework session cookie", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -137,7 +136,7 @@ describe("createH3SSRHandler", () => {
     );
 
     expect(response.headers.get("cache-control")).toBe(
-      AUTHENTICATED_SSR_CACHE_CONTROL,
+      DEFAULT_SSR_CACHE_CONTROL,
     );
   });
 
@@ -181,7 +180,7 @@ describe("createH3SSRHandler", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
-  it("uses private SSR caching when anonymous and authenticated cookies coexist", async () => {
+  it("keeps public SSR caching when anonymous and authenticated cookies coexist", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -196,7 +195,7 @@ describe("createH3SSRHandler", () => {
     );
 
     expect(response.headers.get("cache-control")).toBe(
-      AUTHENTICATED_SSR_CACHE_CONTROL,
+      DEFAULT_SSR_CACHE_CONTROL,
     );
     expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });

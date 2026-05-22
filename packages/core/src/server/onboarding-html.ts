@@ -14,6 +14,10 @@ import {
 } from "./google-auth-mode.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  resolveBuiltInAuthMarketing,
+  type AuthMarketingContent,
+} from "./auth-marketing.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -67,6 +71,12 @@ export interface OnboardingHtmlOptions {
     runLocalCommand?: string;
   };
   /**
+   * Request context used only to recover branded first-party marketing when a
+   * default auth guard serves before a template-specific auth plugin.
+   */
+  requestHost?: string;
+  requestPath?: string;
+  /**
    * Optional preflight copy shown before redirecting through Google sign-in.
    * Use this when a hosted app needs to warn about provider-specific consent
    * screens while leaving self-hosted deployments untouched.
@@ -96,7 +106,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
 
-  const marketing = opts.marketing;
+  const marketing: AuthMarketingContent | undefined =
+    opts.marketing ??
+    resolveBuiltInAuthMarketing({
+      requestHost: opts.requestHost,
+      requestPath: opts.requestPath,
+    });
   const hasMarketing = !!marketing;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");

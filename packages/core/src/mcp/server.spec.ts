@@ -858,15 +858,70 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("keeps the full tool catalog for non-OAuth callers without mcp:apps", async () => {
-    const out = await callWeb(
+  it("uses the compact catalog for authenticated non-OAuth callers by default", async () => {
+    const toolsOut = await callWeb(
       {
         jsonrpc: "2.0",
         id: 21,
         method: "tools/list",
         params: {},
       },
-      { config: compactSurfaceConfig },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toEqual([
+      "list_apps",
+      "open_app",
+      "ask_app",
+      "create_embed_session",
+    ]);
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("bloated-widget");
+    expect(JSON.stringify(toolsOut)).not.toContain(
+      "INTERNAL_TOOL_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(toolsOut)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(toolsOut).length).toBeLessThan(12_000);
+
+    const resourcesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 28,
+        method: "resources/list",
+        params: {},
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(resourcesOut.error).toBeUndefined();
+    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/open_app/shell-v25",
+    ]);
+    expect(JSON.stringify(resourcesOut)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
+  });
+
+  it("keeps the full tool catalog only for explicit code/stdio callers", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 29,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-client": "agent-native-mcp-proxy",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: compactSurfaceConfig,
+      },
     );
 
     expect(out.error).toBeUndefined();
@@ -874,6 +929,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).toEqual(
       expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
     );
+    expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("handles `resources/list` and advertises MCP App resources", async () => {
@@ -899,7 +955,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             csp: {
               connectDomains: ["https://mail.agent-native.com"],
             },
-            domain: "https://mail.agent-native.com",
             prefersBorder: true,
           },
           "openai/widgetDescription":
@@ -957,7 +1012,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             csp: {
               connectDomains: ["https://mail.agent-native.com"],
             },
-            domain: "https://mail.agent-native.com",
             prefersBorder: true,
           },
           "openai/widgetCSP": {

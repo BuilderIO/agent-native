@@ -113,6 +113,14 @@ export interface MCPRequestMeta {
   /** Optional client preference for which URL the *markdown* link uses. */
   target?: "browser" | "desktop" | "terminal";
   /**
+   * Best-effort caller label derived from MCP transport headers. Chat-style
+   * remote hosts should stay on the compact catalog; code/stdio clients can
+   * explicitly identify themselves to keep the full action surface.
+   */
+  clientName?: string;
+  /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
+  fullCatalog?: boolean;
+  /**
    * The caller authenticated with a real credential (verified A2A/connect
    * JWT, matching ACCESS_TOKEN, or a forwarded owner-email header from
    * `agent-native mcp install`) — not the unauthenticated local dev-open
@@ -169,6 +177,8 @@ const NON_APP_OAUTH_CLIENT_RE =
   /\b(code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 const MCP_APP_OAUTH_REDIRECT_HOST_RE =
   /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
+const FULL_CATALOG_CLIENT_RE =
+  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 
 async function isKnownMcpAppOAuthClient(
   identity: MCPCallerIdentity | undefined,
@@ -224,6 +234,28 @@ async function isKnownMcpAppOAuthClient(
   }
 }
 
+function explicitlyRequestsFullMcpCatalog(
+  requestMeta: MCPRequestMeta | undefined,
+): boolean {
+  if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
+  if (requestMeta?.fullCatalog === true) return true;
+  return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
+}
+
+function shouldUseCompactMcpCatalogByDefault(
+  identity: MCPCallerIdentity | undefined,
+  requestMeta: MCPRequestMeta | undefined,
+): boolean {
+  if (explicitlyRequestsFullMcpCatalog(requestMeta)) return false;
+  // OAuth callers are classified through `isKnownMcpAppOAuthClient`: unknown
+  // OAuth clients compact by default, while known code/CLI clients stay full.
+  if (identity?.oauthClientId) return false;
+  // A real authenticated remote HTTP caller with no OAuth client metadata is
+  // usually a chat-host static-token connector. Keep it on the app-facing
+  // verbs so a host cannot dump every action schema into a giant tool card.
+  return requestMeta?.fullSurface === true;
+}
+
 interface ResolvedMcpAppResource {
   uri: string;
   legacyUris?: string[];
@@ -258,6 +290,17 @@ function originString(value: unknown): string | undefined {
     return new URL(value).origin;
   } catch {
     return undefined;
+  }
+}
+
+function hostSpecificDomainString(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  try {
+    new URL(trimmed);
+    return undefined;
+  } catch {
+    return trimmed;
   }
 }
 
@@ -493,6 +536,7 @@ function mcpAppUiMeta(
       ? (base.ui as Record<string, unknown>)
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
+  delete ui.domain;
   if (resolvedCsp) {
     ui.csp = {
       ...resolvedCsp,
@@ -515,11 +559,15 @@ function mcpAppUiMeta(
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
-  const widgetDomain =
+  const hostSpecificDomain =
+    hostSpecificDomainString(resource.domain) ??
+    hostSpecificDomainString(existingUi.domain);
+  if (hostSpecificDomain) ui.domain = hostSpecificDomain;
+  const openAiWidgetDomain =
     originString(resource.domain) ??
     originString(ui.domain) ??
+    originString(existingUi.domain) ??
     originString(requestMeta?.origin);
-  if (widgetDomain) ui.domain = widgetDomain;
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -537,8 +585,8 @@ function mcpAppUiMeta(
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
-  if (widgetDomain && base["openai/widgetDomain"] == null) {
-    base["openai/widgetDomain"] = widgetDomain;
+  if (openAiWidgetDomain && base["openai/widgetDomain"] == null) {
+    base["openai/widgetDomain"] = openAiWidgetDomain;
   }
   return Object.keys(base).length > 0 ? base : undefined;
 }
@@ -793,7 +841,8 @@ export async function createMCPServerForRequest(
   const compactMcpAppCatalog =
     (Array.isArray(effectiveIdentity?.oauthScopes) &&
       hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-    (await isKnownMcpAppOAuthClient(effectiveIdentity));
+    (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
+    shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>

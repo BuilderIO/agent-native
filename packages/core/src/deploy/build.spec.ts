@@ -10,8 +10,6 @@ import {
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-const AUTHENTICATED_SSR_CACHE_CONTROL =
-  "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 const tempDirs: string[] = [];
 
@@ -173,7 +171,7 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
-  it("uses private SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+  it("uses public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -186,7 +184,7 @@ export default (event) =>
     );
 
     expect(response.headers.get("cache-control")).toBe(
-      AUTHENTICATED_SSR_CACHE_CONTROL,
+      DEFAULT_SSR_CACHE_CONTROL,
     );
   });
 
