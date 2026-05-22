@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.32
+
+### Patch Changes
+
+- 5c6b741: Emit MCP App widget domain metadata so ChatGPT can render submitted app templates.
+
 ## 0.22.31
 
 ### Patch Changes
