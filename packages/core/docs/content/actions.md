@@ -210,6 +210,12 @@ bridge. Direct and Claude-mounted route embeds post standard `ui/*` JSON-RPC
 messages to the host, while the ChatGPT controlled-frame path and explicit
 nested-iframe diagnostic path proxy `agentNative.mcpHost.*` messages through
 the launch wrapper.
+When a submitted app prompt should continue the host chat, call
+`sendToAgentChat()` from the embedded route; it sends hidden model context and
+then posts a visible user message through the host bridge where supported.
+Design those routes with their own scrolling, because the MCP resource reports
+a bounded inline height rather than asking the host to size itself to the full
+app document.
 
 ## Standard actions {#standard-actions}
 

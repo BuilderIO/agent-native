@@ -318,6 +318,13 @@ escape hatch for routes like full dashboards, filtered inboxes, calendar
 drafts, analyses, or extension pages, and should be used liberally when the
 full app is the clearest review/edit surface.
 
+Host sizing rule: the MCP resource shell owns a bounded inline height and the
+embedded route should scroll internally. Do not re-enable host SDK auto-resize
+for full-app route embeds; Claude and ChatGPT can otherwise measure the whole
+document and create a huge chat iframe. After changing the shell or `ui://`
+resource version, verify with a fresh tool call because old conversation frames
+keep the behavior they were rendered with.
+
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email
 drafts, Analytics `open-traffic-dashboard` for the first-party traffic
@@ -418,6 +425,9 @@ connect or present a token rather than assuming the action is missing.
 - Do use `embedApp()` / `open_app({ embed: true })` when the right UI is the
   existing React app at a specific route, including full app routes and focused
   component routes like an Analytics chart embed.
+- Do test real ChatGPT/Claude web behavior with a fresh inline render after any
+  resource-shell or host-bridge change; old frames are not proof that a new
+  shell is still broken.
 - Do build the URL with `buildDeepLink(...)` — it is the single source of truth
   for the open-route format.
 - Do keep `link` pure and synchronous; return `null` when there's nothing to
@@ -439,6 +449,8 @@ connect or present a token rather than assuming the action is missing.
 - Don't replace deep links with MCP Apps; non-UI clients still need the link.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
+- Don't use nested iframes for Claude web as the normal route; use the
+  single-frame mounted route path and reserve nested iframes for diagnostics.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

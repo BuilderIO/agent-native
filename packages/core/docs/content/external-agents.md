@@ -242,6 +242,14 @@ actions over `agentNative.mcpHost.*` postMessage requests. Keep the result
 shape identical for both paths: return a focused `link` and concise structured
 content.
 
+The resource shell owns the outer host size. Keep embedded app routes
+internally scrollable and let the launcher report a bounded intrinsic height
+rather than the full document height; otherwise host auto-resize can turn a
+normal app page into a very tall chat artifact. A changed shell only affects
+new MCP App resources and new tool calls. Old ChatGPT/Claude conversation
+frames can keep the previous resource behavior, so verify sizing with a fresh
+inline render before judging a fix.
+
 You can force the nested diagnostic iframe with `embedMode: "iframe"`,
 `renderMode: "iframe"`, `nested: true`, or `frame: "iframe"` when debugging
 host behavior. If the iframe is blocked, `embedApp()` replaces it with an
@@ -377,7 +385,9 @@ embeds a third-party player.
 
 Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
 Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus
-`ui/message`; `submit: false` remains local prefill/review behavior.
+`ui/message`, so a button in the embedded app can intentionally continue the
+Claude/ChatGPT conversation from the selected app state. `submit: false`
+remains local prefill/review behavior.
 
 ### The `link` contract {#link-contract}
 
@@ -522,6 +532,9 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - Test MCP Apps with the lightweight fixtures around `embedApp()` and
   `McpAppRenderer`; they cover CSP, host context, app launch, and bridge
   message behavior without needing a real external host.
+- When validating ChatGPT or Claude web, trigger a fresh tool call after shell
+  changes and measure the visible iframe. Previously rendered frames in the
+  same conversation may still show cached height or launch behavior.
 
 **Don't**
 
