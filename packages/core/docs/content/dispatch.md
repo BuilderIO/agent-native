@@ -56,6 +56,11 @@ selected app grants, so external agents can route work to Mail, Calendar,
 Analytics, Brain, and workspace apps without a separate authorization for every
 app.
 
+When a host supports MCP Apps, that same Dispatch connector can render granted
+app routes inline too: email drafts, calendar invites, decks, forms, docs,
+designs, dashboards, clips, and other app routes can preview in chat without
+adding per-app connectors.
+
 Direct per-app MCP URLs such as
 `https://mail.agent-native.com/_agent-native/mcp` still exist when you
 intentionally want one isolated app surface. For most workspace use, the

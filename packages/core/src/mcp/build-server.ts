@@ -245,6 +245,15 @@ function metadataObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function originString(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 function withMcpChatBridgeParam(urlOrPath: string): string {
   try {
     const base = "http://agent-native.invalid";
@@ -499,7 +508,11 @@ function mcpAppUiMeta(
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
-  if (resource.domain) ui.domain = resource.domain;
+  const widgetDomain =
+    originString(resource.domain) ??
+    originString(ui.domain) ??
+    originString(requestMeta?.origin);
+  if (widgetDomain) ui.domain = widgetDomain;
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -516,6 +529,9 @@ function mcpAppUiMeta(
   const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
+  }
+  if (widgetDomain && base["openai/widgetDomain"] == null) {
+    base["openai/widgetDomain"] = widgetDomain;
   }
   return Object.keys(base).length > 0 ? base : undefined;
 }

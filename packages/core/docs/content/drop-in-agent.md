@@ -122,6 +122,10 @@ import { sendToAgentChat } from "@agent-native/core/client";
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
 
+When the same route is embedded as an MCP App, submitted
+`sendToAgentChat()` calls are forwarded to the host chat where supported; see
+[Client](/docs/client#sendtoagentchat) for the MCP App bridge behavior.
+
 If you want a loading state, use the `useSendToAgentChat()` hook — it returns both `send` and `isGenerating`:
 
 ```ts

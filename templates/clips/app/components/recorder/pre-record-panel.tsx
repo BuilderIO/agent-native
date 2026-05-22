@@ -125,7 +125,7 @@ const SURFACE_OPTIONS: Array<{
     value: "browser",
     label: "Browser tab",
     icon: IconBrowser,
-    sub: "Best for web demos",
+    sub: "Choose an open tab",
   },
   {
     value: "monitor",
