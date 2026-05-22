@@ -6,15 +6,15 @@ import {
   IconH1,
   IconH2,
   IconH3,
+  IconH4,
   IconList,
   IconListNumbers,
   IconSquareCheck,
   IconChevronRight,
   IconCode,
-  IconQuote,
   IconMinus,
   IconTable as TableIcon,
-  IconPencil,
+  IconSparkles,
   IconArrowUp,
   IconInfoCircle,
   IconPhoto,
@@ -42,8 +42,21 @@ interface EditorMenuPosition {
 interface CommandItem {
   title: string;
   description: string;
+  shortcut?: string;
   icon: React.ElementType;
   action: (editor: Editor) => void;
+}
+
+function QuoteCommandIcon({ size = 22 }: { size?: number; stroke?: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="font-serif font-semibold leading-none"
+      style={{ fontSize: Math.round(size * 1.15) }}
+    >
+      &quot;
+    </span>
+  );
 }
 
 export function parseInlineGeneratePrompt(textBeforeCursor: string) {
@@ -74,6 +87,7 @@ const commands: CommandItem[] = [
   {
     title: "Heading 1",
     description: "Large heading",
+    shortcut: "#",
     icon: IconH1,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 1 }).run(),
@@ -81,6 +95,7 @@ const commands: CommandItem[] = [
   {
     title: "Heading 2",
     description: "Medium heading",
+    shortcut: "##",
     icon: IconH2,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 2 }).run(),
@@ -88,31 +103,44 @@ const commands: CommandItem[] = [
   {
     title: "Heading 3",
     description: "Small heading",
+    shortcut: "###",
     icon: IconH3,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
+    title: "Heading 4",
+    description: "Subheading",
+    shortcut: "####",
+    icon: IconH4,
+    action: (editor) =>
+      editor.chain().focus().toggleHeading({ level: 4 }).run(),
+  },
+  {
+    title: "Bulleted list",
     description: "Unordered list",
+    shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
+    title: "Numbered list",
     description: "Ordered list",
+    shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do List",
+    title: "To-do list",
     description: "Checklist items",
+    shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     title: "Toggle",
     description: "Notion-style toggle line",
+    shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
       editor
@@ -130,13 +158,15 @@ const commands: CommandItem[] = [
   {
     title: "Code Block",
     description: "Code snippet",
+    shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
     title: "Quote",
     description: "Block quote",
-    icon: IconQuote,
+    shortcut: '"',
+    icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -157,6 +187,7 @@ const commands: CommandItem[] = [
   {
     title: "Divider",
     description: "Horizontal rule",
+    shortcut: "---",
     icon: IconMinus,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
@@ -184,42 +215,56 @@ const turnIntoCommands: CommandItem[] = [
   {
     title: "Heading 1",
     description: "Large heading",
+    shortcut: "#",
     icon: IconH1,
     action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
     title: "Heading 2",
     description: "Medium heading",
+    shortcut: "##",
     icon: IconH2,
     action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
     title: "Heading 3",
     description: "Small heading",
+    shortcut: "###",
     icon: IconH3,
     action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
+    title: "Heading 4",
+    description: "Subheading",
+    shortcut: "####",
+    icon: IconH4,
+    action: (editor) => editor.chain().focus().setHeading({ level: 4 }).run(),
+  },
+  {
+    title: "Bulleted list",
     description: "Unordered list",
+    shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
+    title: "Numbered list",
     description: "Ordered list",
+    shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do List",
+    title: "To-do list",
     description: "Checklist items",
+    shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     title: "Toggle",
     description: "Collapsible block",
+    shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
       // Grab remaining text (slash already deleted by executeCommand)
@@ -245,13 +290,15 @@ const turnIntoCommands: CommandItem[] = [
   {
     title: "Code Block",
     description: "Code snippet",
+    shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
     title: "Quote",
     description: "Block quote",
-    icon: IconQuote,
+    shortcut: '"',
+    icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -367,7 +414,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: "Generate",
     description: "Generate content with AI",
-    icon: IconPencil,
+    icon: IconSparkles,
     action: () => {
       openGeneratePopover(position);
     },
@@ -383,15 +430,33 @@ export function SlashCommandMenu({
     },
   };
 
-  const allCommands = isTurnInto
-    ? turnIntoCommands
-    : [generateCommand, imageCommand, ...commands];
+  const aiCommands = isTurnInto ? [] : [generateCommand];
+  const blockCommands = isTurnInto ? turnIntoCommands : commands;
+  const mediaCommands = isTurnInto ? [] : [imageCommand];
+  const commandMatchesQuery = (cmd: CommandItem) =>
+    cmd.title.toLowerCase().includes(query.toLowerCase()) ||
+    cmd.description.toLowerCase().includes(query.toLowerCase());
+  const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
+  const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+  const filteredCommands = [
+    ...filteredAiCommands,
+    ...filteredBlockCommands,
+    ...filteredMediaCommands,
+  ];
 
-  const filteredCommands = allCommands.filter(
-    (cmd) =>
-      cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase()),
-  );
+  const renderCommand = (cmd: CommandItem) => {
+    const globalIndex = filteredCommands.indexOf(cmd);
+    return (
+      <CommandButton
+        key={cmd.title}
+        cmd={cmd}
+        isSelected={globalIndex === selectedIndex}
+        onExecute={() => executeCommand(cmd)}
+        onHover={() => setSelectedIndex(globalIndex)}
+      />
+    );
+  };
 
   function handleGenerateSubmit() {
     submitGeneratePrompt(generatePrompt);
@@ -612,27 +677,36 @@ export function SlashCommandMenu({
             top: position.top,
             left: 0,
             right: 0,
-            maxWidth: "min(300px, calc(100vw - 2rem))",
+            maxWidth: "min(330px, calc(100vw - 2rem))",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
           }}
         >
           <div className="py-1.5">
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {isTurnInto ? "Turn into" : "Blocks"}
-            </div>
-            {filteredCommands.map((cmd) => {
-              const globalIndex = filteredCommands.indexOf(cmd);
-              return (
-                <CommandButton
-                  key={cmd.title}
-                  cmd={cmd}
-                  isSelected={globalIndex === selectedIndex}
-                  onExecute={() => executeCommand(cmd)}
-                  onHover={() => setSelectedIndex(globalIndex)}
-                />
-              );
-            })}
+            {filteredAiCommands.length > 0 ? (
+              <div className="pb-1">
+                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
+                  AI
+                </div>
+                {filteredAiCommands.map(renderCommand)}
+              </div>
+            ) : null}
+            {filteredBlockCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
+                  {isTurnInto ? "Turn into" : "Basic blocks"}
+                </div>
+                {filteredBlockCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredMediaCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  Media
+                </div>
+                {filteredMediaCommands.map(renderCommand)}
+              </>
+            ) : null}
           </div>
         </div>
       )}
@@ -660,7 +734,7 @@ export function SlashCommandMenu({
           >
             <div className="p-4 pb-3">
               <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconPencil size={14} className="text-muted-foreground" />
+                <IconSparkles size={14} className="text-muted-foreground" />
                 Generate with AI
               </p>
               <textarea
@@ -718,16 +792,22 @@ function CommandButton({
       onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(
-        "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-        isSelected ? "bg-accent" : "hover:bg-accent/50",
+        "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",
+        isSelected ? "bg-accent/70" : "hover:bg-accent/50",
       )}
     >
-      <div className="flex items-center justify-center w-9 h-9 rounded-md border border-border bg-background text-muted-foreground">
-        <cmd.icon size={18} />
+      <div className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+        <cmd.icon size={22} stroke={1.75} />
       </div>
-      <div>
-        <div className="text-sm font-medium text-foreground">{cmd.title}</div>
-        <div className="text-xs text-muted-foreground">{cmd.description}</div>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="truncate text-[15px] font-medium leading-5 text-foreground">
+          {cmd.title}
+        </div>
+        {cmd.shortcut ? (
+          <div className="ml-auto shrink-0 text-sm font-semibold leading-5 text-muted-foreground/60">
+            {cmd.shortcut}
+          </div>
+        ) : null}
       </div>
     </button>
   );

@@ -41,6 +41,7 @@ import {
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
+  sidebarWidth?: number;
   activeId: string | null;
   expandedIds: Set<string>;
   onToggleExpanded: (id: string) => void;
@@ -53,6 +54,7 @@ interface DocumentTreeItemProps {
 export function DocumentTreeItem({
   node,
   depth,
+  sidebarWidth,
   activeId,
   expandedIds,
   onToggleExpanded,
@@ -72,6 +74,10 @@ export function DocumentTreeItem({
   const hasMenuActions = canEdit || canManage;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const indent = depth * 12 + 12;
+  const rowWidth =
+    sidebarWidth === undefined
+      ? undefined
+      : Math.max(224, sidebarWidth - 8 + depth * 12);
   const {
     attributes,
     listeners,
@@ -105,7 +111,10 @@ export function DocumentTreeItem({
             ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
         )}
-        style={{ paddingLeft: `${indent}px` }}
+        style={{
+          paddingLeft: `${indent}px`,
+          width: rowWidth === undefined ? undefined : `${rowWidth}px`,
+        }}
         onClick={() => onSelect(node.id)}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
@@ -136,7 +145,7 @@ export function DocumentTreeItem({
           )}
         </span>
 
-        <span className="flex-1 truncate group-hover:mr-[60px]">
+        <span className="min-w-0 flex-1 truncate">
           {node.title || "Untitled"}
         </span>
 
@@ -217,6 +226,7 @@ export function DocumentTreeItem({
               key={child.id}
               node={child}
               depth={depth + 1}
+              sidebarWidth={sidebarWidth}
               activeId={activeId}
               expandedIds={expandedIds}
               onToggleExpanded={onToggleExpanded}

@@ -253,7 +253,7 @@ export function NotionButton() {
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
               <button
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={() => setOpen(true)}
               >
                 <NotionIcon className="h-4 w-4" />
@@ -609,7 +609,7 @@ export function NotionButton() {
           <PopoverTrigger asChild>
             <button
               className={cn(
-                "w-7 h-7 flex items-center justify-center rounded hover:bg-accent",
+                "flex size-8 items-center justify-center rounded-md hover:bg-accent",
                 isConnected
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground",
