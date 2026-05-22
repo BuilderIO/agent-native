@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.22.20
+
+### Patch Changes
+
+- 7918065: Default Agent-Native SSR page responses to public cache headers with short max-age, week-long stale-while-revalidate, and hour-long stale-if-error, without creating sessions for anonymous page hits.
+- 7918065: Improve MCP App route embeds by using signed real app routes across hosts, preserving host chat bridge state, controlling ChatGPT route height, and mounting the real signed app document inside Claude's proxied MCP content frame.
+- 7918065: Make MCP app embeds default to 560px, shrink toward the host-visible height, and cap dynamic resize reports at the configured embed height.
+
 ## 0.22.19
 
 ### Patch Changes
