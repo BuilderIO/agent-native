@@ -58,6 +58,7 @@ const HOME_CHAT_SUGGESTIONS = [
 const CUSTOM_RATIOS_KEY = "images.customAspectRatios";
 const MAX_TEXT_CONTEXT_FILE_CHARS = 12_000;
 const MAX_TEXT_CONTEXT_TOTAL_CHARS = 24_000;
+const MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR = 4;
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -178,15 +179,20 @@ async function readInlineTextContextFiles(files: File[]) {
   let remaining = MAX_TEXT_CONTEXT_TOTAL_CHARS;
   for (const file of files) {
     if (remaining <= 0) break;
-    const raw = await file.text();
     const maxForFile = Math.min(MAX_TEXT_CONTEXT_FILE_CHARS, remaining);
+    const maxReadBytes = Math.min(
+      file.size,
+      maxForFile * MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR,
+    );
+    const raw = await file.slice(0, maxReadBytes).text();
     const text = raw.slice(0, maxForFile);
+    const truncated = raw.length > text.length || file.size > maxReadBytes;
     remaining -= text.length;
     snippets.push(
       [
         `### ${file.name}`,
-        raw.length > text.length
-          ? `${text}\n\n[Truncated ${raw.length - text.length} characters]`
+        truncated
+          ? `${text}\n\n[Truncated after ${text.length} characters]`
           : text,
       ].join("\n"),
     );

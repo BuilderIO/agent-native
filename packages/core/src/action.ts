@@ -90,6 +90,12 @@ export interface ActionMcpAppCsp {
   baseUriDomains?: string[];
 }
 
+export type ActionMcpAppCspBuilder = (ctx: {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
+
 export interface ActionMcpAppPermissions {
   camera?: Record<string, never>;
   microphone?: Record<string, never>;
@@ -98,7 +104,7 @@ export interface ActionMcpAppPermissions {
 }
 
 export interface ActionMcpAppResourceMeta {
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
   domain?: string;
   prefersBorder?: boolean;
