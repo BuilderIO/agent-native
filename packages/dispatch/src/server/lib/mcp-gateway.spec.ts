@@ -210,6 +210,44 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {
     await expect(
       runWithRequestContext(
