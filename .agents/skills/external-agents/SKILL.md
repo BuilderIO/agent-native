@@ -412,8 +412,9 @@ connect or present a token rather than assuming the action is missing.
 
 ## Do
 
-- Do connect to a hosted app with `npx @agent-native/core connect <url>` (or
-  `--all`) — it mints a per-user, revocable token; no shared secret copied.
+- Do connect local/fallback clients to Dispatch with
+  `npx @agent-native/core connect https://dispatch.agent-native.com`; use a
+  direct app URL only when the host should be isolated to one app.
 - Do add a `link` builder to any action that produces or lists a navigable
   resource (draft, event, dashboard, document).
 - Do add `mcpApp` when a UI-capable MCP host should render an inline review or

@@ -108,13 +108,15 @@ Restart the agent client after connecting so it picks up the new MCP server; OAu
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
-When you truly need isolated per-app MCP resources, connect every first-party hosted app at once with:
+When you truly need an isolated app instead of Dispatch's workspace gateway,
+run the same command with that app's host:
 
 ```bash
-npx @agent-native/core connect --all
+npx @agent-native/core connect https://mail.agent-native.com
 ```
 
-The client picker appears once and the same selection is used for every hosted app.
+`connect --all` still exists for legacy per-app client setups, but new
+workspace setups should prefer the single Dispatch connector.
 
 The connection is **per-user, scoped, and revocable**. In the OAuth path, the host stores the tokens after `/mcp` authentication; in the fallback path, the browser session you authorized with is the identity the agent acts as. Nothing exposes the deployment's shared secret.
 
@@ -144,14 +146,14 @@ Use this manual bearer block for MCP clients that cannot complete the standard r
 Hosted agent-native apps also support the standard remote MCP OAuth flow. For clients that implement MCP OAuth, add the remote HTTP server URL with no static headers:
 
 ```bash
-claude mcp add --transport http agent-native-mail \
-  https://mail.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native \
+  https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
 This is the same URL-only entry that `agent-native connect https://dispatch.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
 The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
@@ -510,7 +512,7 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 
 **Do**
 
-- Connect your own agent to a hosted app with `npx @agent-native/core connect <url>` (or `--all`) — it's the frictionless path.
+- Connect your own agent to Dispatch with `npx @agent-native/core connect https://dispatch.agent-native.com`; use a direct app URL only when you want one isolated app.
 - Add a `link` builder to any action that produces or lists a navigable resource (draft, event, dashboard, document).
 - Build the URL with `buildDeepLink(...)` — the single source of truth for the open-route format.
 - Keep `link` pure and synchronous; return `null` when there's nothing to open.

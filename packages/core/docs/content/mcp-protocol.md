@@ -188,14 +188,14 @@ The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-tok
 For OAuth-capable MCP hosts, configure the remote server URL with no static headers:
 
 ```bash
-claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
 The first unauthenticated MCP request receives:
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
 ```
 
 Discovery endpoints:
