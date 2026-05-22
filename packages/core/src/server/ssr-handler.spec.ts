@@ -139,6 +139,46 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("keeps public SSR caching for docs anonymous session cookies", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/docs", "GET", {
+        headers: { cookie: "an_docs_session=anonymous-session" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("uses private SSR caching when anonymous and authenticated cookies coexist", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/docs", "GET", {
+        headers: { cookie: "an_docs_session=anon; sid=1" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      AUTHENTICATED_SSR_CACHE_CONTROL,
+    );
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves explicit SSR cache policies from routes", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {

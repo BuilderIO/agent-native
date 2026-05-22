@@ -27,6 +27,7 @@ export const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 export const AUTHENTICATED_SSR_CACHE_CONTROL =
   "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 
 /**
  * Read the active org for a request without forcing every template to bundle
@@ -146,11 +147,20 @@ function requestHasAuthSignal(event: H3Event): boolean {
   const headers = event.req.headers;
   return Boolean(
     headers.get("authorization") ||
-    headers.get("cookie") ||
+    requestHasAuthenticatedCookie(headers.get("cookie")) ||
     event.url.searchParams.has(EMBED_TOKEN_QUERY_PARAM) ||
     event.url.searchParams.has("_session") ||
     requestHasEmbedAuthMarker(event),
   );
+}
+
+function requestHasAuthenticatedCookie(cookieHeader: string | null): boolean {
+  if (!cookieHeader) return false;
+  return cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
+    .filter((name): name is string => Boolean(name))
+    .some((name) => !ANONYMOUS_SESSION_COOKIE_NAMES.has(name));
 }
 
 function applyDefaultSsrCacheHeader(
