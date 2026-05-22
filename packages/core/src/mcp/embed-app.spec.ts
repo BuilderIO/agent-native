@@ -30,8 +30,12 @@ describe("embedApp", () => {
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
     );
-    expect(html).toContain("function embedStartUrlFrom(data)");
-    expect(html).toContain("openStartUrl = embedStartUrlFrom(data)");
+    expect(html).toContain("function embedStartUrlFrom(params, data)");
+    expect(html).toContain("openStartUrl = embedStartUrlFrom(params, data)");
+    expect(html).toContain("record.embedTargetPath");
+    expect(html).toContain("record.deepLinkUrl");
+    expect(html).toContain("const launchUrl = openStartUrl || openUrl");
+    expect(html).toContain("if (openUrl || openStartUrl)");
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("isChatGptSandboxHost");
     expect(html).toContain("oaiusercontent");
@@ -54,9 +58,7 @@ describe("embedApp", () => {
     expect(html).toContain('mode === "transplant"');
     expect(html).toContain('toolInput.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
-    expect(html).toContain(
-      "const embedUrl = withChatBridgeParam(openStartUrl || openUrl)",
-    );
+    expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
     expect(html).toContain("if (selfNavigate)");
@@ -67,7 +69,7 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain("app.requestDisplayMode");
-    expect(html).toContain('typeof openLink === "object"');
+    expect(html).toContain("function openLinkRecordFrom(value)");
     expect(html).not.toContain("shouldDirectRenderEmbed");
     expect(html).toContain("claudemcpcontent\\.com");
     expect(html).toContain("isClaudeMcpContentHost()");
@@ -119,6 +121,7 @@ describe("embedApp", () => {
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
     expect(html).toContain("let url = withChatBridgeParam(openUrl)");
+    expect(html).toContain("if (!url) url = withChatBridgeParam(openStartUrl)");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("function embedSessionArgsFor(value)");
@@ -126,9 +129,7 @@ describe("embedApp", () => {
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
     );
-    expect(html).toContain(
-      "const embedUrl = withChatBridgeParam(openStartUrl || openUrl)",
-    );
+    expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain(
       'url.pathname.endsWith("/_agent-native/embed/start")',
     );

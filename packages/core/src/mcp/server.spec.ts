@@ -978,14 +978,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open mail",
       view: "/inbox",
       webUrl:
-        "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket",
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
       desktopUrl: "https://mail.agent-native.com/inbox",
     });
     expect(out.result.structuredContent).toMatchObject({
       url: "/_agent-native/embed/start?ticket=test-ticket",
       openLink: {
         webUrl:
-          "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket",
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
       },
     });
   });
