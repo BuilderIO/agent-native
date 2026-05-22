@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.22.27
+
+### Patch Changes
+
+- 5986cd0: Keep MCP Apps resource CSP and permissions on UI resources instead of tool descriptors.
+- 5986cd0: Add a reusable interactive starfield background with subtle cursor attraction.
+
 ## 0.22.26
 
 ### Patch Changes
