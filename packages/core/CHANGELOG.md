@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.22.33
+
+### Patch Changes
+
+- d0a107e: Default MCP Apps hosts to the compact generic app catalog instead of listing every action-specific UI resource.
+- d0a107e: Refuse to auto-bind CLI actions when multiple dev session owners exist.
+
 ## 0.22.32
 
 ### Patch Changes
