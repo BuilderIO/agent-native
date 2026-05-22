@@ -420,6 +420,7 @@ export function DocumentSidebar({
           key={node.id}
           node={node}
           depth={0}
+          sidebarWidth={width}
           activeId={activeDocumentId}
           expandedIds={expandedIds}
           onToggleExpanded={handleToggleExpanded}
@@ -580,7 +581,7 @@ export function DocumentSidebar({
                       <span className="flex-shrink-0 w-5 text-center">
                         {doc.icon || <IconFileText size={14} />}
                       </span>
-                      <span className="truncate">
+                      <span className="min-w-0 flex-1 truncate">
                         {doc.title || "Untitled"}
                       </span>
                     </button>
@@ -615,7 +616,7 @@ export function DocumentSidebar({
                       <span className="flex-shrink-0 w-5 text-center">
                         {doc.icon || <IconFileText size={14} />}
                       </span>
-                      <span className="truncate">
+                      <span className="min-w-0 flex-1 truncate">
                         {doc.title || "Untitled"}
                       </span>
                     </button>
@@ -694,7 +695,7 @@ export function DocumentSidebar({
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
         <div className="flex items-center gap-1">
-          <FeedbackButton className="min-w-0 flex-1" />
+          <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">
             <NotionButton />
             <ThemeToggle />

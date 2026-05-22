@@ -129,4 +129,29 @@ describe("security headers middleware", () => {
     expect(headers.get("Vary")).toBe("Origin");
     vi.unstubAllEnvs();
   });
+
+  it("allows opaque sandboxed MCP app frames to fetch embed-token page HTML", () => {
+    headers.clear();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OAUTH_STATE_SECRET", "embed-test-secret");
+    const token = signEmbedSessionToken({
+      ownerEmail: "user@example.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+
+    const handler = createSecurityHeadersMiddleware();
+    handler({
+      path: "/inbox",
+      query: { __an_embed_token: token },
+      url: { protocol: "https:" },
+      headers: new Headers({ origin: "null" }),
+      node: { req: { headers: {} } },
+    });
+
+    expect(headers.get("Access-Control-Allow-Origin")).toBe("null");
+    expect(headers.get("Access-Control-Allow-Credentials")).toBeUndefined();
+    expect(headers.get("Vary")).toBe("Origin");
+    vi.unstubAllEnvs();
+  });
 });

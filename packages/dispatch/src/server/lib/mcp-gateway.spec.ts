@@ -73,6 +73,7 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import {
   createGrantedDispatchMcpEmbedSession,
   listGrantedDispatchMcpApps,
+  listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
 } from "./mcp-gateway.js";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -146,6 +147,42 @@ describe("Dispatch MCP gateway app discovery", () => {
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
+
+  it("returns deduped origins for granted Dispatch MCP apps only", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      analyticsAgent,
+      {
+        ...analyticsAgent,
+        id: "analytics-copy",
+        name: "Analytics Copy",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Mail",
+        url: "https://mail.agent-native.com/inbox",
+        color: "#2563EB",
+      },
+    ]);
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch", "analytics", "mail"],
+    });
+
+    const origins = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpAppOrigins(),
+    );
+
+    expect(origins).toEqual([
+      "http://localhost:8092",
+      "http://localhost:8086",
+      "https://mail.agent-native.com",
+    ]);
+  });
 });
 
 describe("openGrantedDispatchMcpApp", () => {
@@ -208,6 +245,77 @@ describe("openGrantedDispatchMcpApp", () => {
       embedStartUrl:
         "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
+  });
+
+  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+    randomSpy.mockRestore();
+  });
+
+  it("returns the normal open URL when embed preminting fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error("Target app did not return an embed session."),
+    );
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toEqual({
+      app: "analytics",
+      path: "/dashboards",
+      url: "http://localhost:8086/dashboards",
+      embed: true,
+      chrome: "minimal",
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("rejects Dispatch-owned extension routes on sibling apps", async () => {
@@ -330,7 +438,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("prefers the shared A2A secret when minting cross-app MCP embed tokens", async () => {
+  it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
 
@@ -353,9 +461,116 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-specific-secret",
       {
         expiresIn: "5m",
+        preferGlobalSecret: false,
+      },
+    );
+  });
+
+  it("falls back to the shared A2A secret when no org secret is available", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue(null);
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      undefined,
+      {
+        expiresIn: "5m",
         preferGlobalSecret: true,
       },
     );
+  });
+
+  it("falls back to the shared A2A secret when org signing inputs are incomplete", async () => {
+    mocks.getOrgDomain.mockResolvedValue(null);
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+      },
+    );
+  });
+
+  it("does not retry permanent target MCP errors", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error(
+        'MCP server "target" is not connected: The MCP server rejected the request.',
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/rejected the request/);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let stop failures mask target MCP errors", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error("Target app returned a permanent auth error."),
+    );
+    mocks.managerStop.mockRejectedValueOnce(new Error("stop failed"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/permanent auth error/);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[dispatch] Failed to stop target MCP client:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
   });
 
   it("surfaces target MCP embed-session errors", async () => {

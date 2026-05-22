@@ -53,7 +53,7 @@
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
-  isClaudeMcpContentOrigin,
+  isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 
@@ -113,7 +113,7 @@ export function createSecurityHeadersMiddleware() {
       "Cross-Origin-Resource-Policy",
       embedFrameRequest ? "cross-origin" : "same-site",
     );
-    if (embedFrameRequest && isClaudeMcpContentOrigin(requestOrigin)) {
+    if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
       setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);
       setResponseHeader(event, "Vary", "Origin");
       setResponseHeader(

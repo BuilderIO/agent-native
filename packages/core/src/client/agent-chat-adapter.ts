@@ -619,6 +619,12 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
 function isRetryableStartupError(message: string): boolean {
   const msg = message.toLowerCase();
   if (
+    msg.includes("cannot find any route matching") &&
+    msg.includes("/_agent-native/agent-chat")
+  ) {
+    return true;
+  }
+  if (
     msg.includes("unauthorized") ||
     msg.includes("not authenticated") ||
     msg.includes("401") ||

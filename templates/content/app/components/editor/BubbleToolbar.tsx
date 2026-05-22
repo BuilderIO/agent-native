@@ -11,6 +11,7 @@ import {
   IconH1,
   IconH2,
   IconH3,
+  IconH4,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -118,6 +119,12 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       title: "Heading 3",
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
       isActive: () => editor.isActive("heading", { level: 3 }),
+    },
+    {
+      icon: IconH4,
+      title: "Heading 4",
+      action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+      isActive: () => editor.isActive("heading", { level: 4 }),
     },
     { type: "divider" as const },
     {

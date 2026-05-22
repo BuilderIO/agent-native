@@ -24,6 +24,7 @@ import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
   MCP_APP_RESOURCE_URI_META_KEY,
+  type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
@@ -227,6 +228,12 @@ interface ResolvedMcpAppResource {
   _meta?: Record<string, unknown>;
 }
 
+interface McpAppResourceContext {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}
+
 function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -370,7 +377,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v23";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v25";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -415,21 +422,21 @@ function expandRequestOriginSources(
 }
 
 function openAiWidgetCsp(
-  resource: ActionMcpAppResourceConfig,
+  cspConfig: ActionMcpAppCsp | undefined,
   requestMeta?: MCPRequestMeta,
 ): Record<string, string[]> | undefined {
-  if (!resource.csp) return undefined;
+  if (!cspConfig) return undefined;
   const csp: Record<string, string[]> = {};
   const connectDomains = expandRequestOriginSources(
-    resource.csp.connectDomains,
+    cspConfig.connectDomains,
     requestMeta,
   );
   const resourceDomains = expandRequestOriginSources(
-    resource.csp.resourceDomains,
+    cspConfig.resourceDomains,
     requestMeta,
   );
   const frameDomains = expandRequestOriginSources(
-    resource.csp.frameDomains,
+    cspConfig.frameDomains,
     requestMeta,
   );
   if (connectDomains?.length) csp.connect_domains = connectDomains;
@@ -440,6 +447,7 @@ function openAiWidgetCsp(
 
 function mcpAppUiMeta(
   resource: ActionMcpAppResourceConfig,
+  resolvedCsp: ActionMcpAppCsp | undefined,
   requestMeta?: MCPRequestMeta,
   description?: string,
 ): Record<string, unknown> | undefined {
@@ -452,23 +460,23 @@ function mcpAppUiMeta(
       ? (base.ui as Record<string, unknown>)
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
-  if (resource.csp) {
+  if (resolvedCsp) {
     ui.csp = {
-      ...resource.csp,
+      ...resolvedCsp,
       connectDomains: expandRequestOriginSources(
-        resource.csp.connectDomains,
+        resolvedCsp.connectDomains,
         requestMeta,
       ),
       resourceDomains: expandRequestOriginSources(
-        resource.csp.resourceDomains,
+        resolvedCsp.resourceDomains,
         requestMeta,
       ),
       frameDomains: expandRequestOriginSources(
-        resource.csp.frameDomains,
+        resolvedCsp.frameDomains,
         requestMeta,
       ),
       baseUriDomains: expandRequestOriginSources(
-        resource.csp.baseUriDomains,
+        resolvedCsp.baseUriDomains,
         requestMeta,
       ),
     };
@@ -488,19 +496,29 @@ function mcpAppUiMeta(
   ) {
     base["openai/widgetPrefersBorder"] = resource.prefersBorder;
   }
-  const openAiCsp = openAiWidgetCsp(resource, requestMeta);
+  const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
   return Object.keys(base).length > 0 ? base : undefined;
 }
 
-function resolveMcpAppResource(
+async function resolveMcpAppCsp(
+  resource: ActionMcpAppResourceConfig,
+  ctx: McpAppResourceContext,
+): Promise<ActionMcpAppCsp | undefined> {
+  if (!resource.csp) return undefined;
+  return typeof resource.csp === "function"
+    ? await resource.csp(ctx)
+    : resource.csp;
+}
+
+async function resolveMcpAppResource(
   config: MCPConfig,
   actionName: string,
   entry: ActionEntry,
   requestMeta?: MCPRequestMeta,
-): ResolvedMcpAppResource | null {
+): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
   const baseUri =
@@ -508,7 +526,17 @@ function resolveMcpAppResource(
   const resolvedUri = versionMcpAppResourceUri(baseUri);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
-  const resourceMeta = mcpAppUiMeta(resource, requestMeta, description);
+  const resolvedCsp = await resolveMcpAppCsp(resource, {
+    actionName,
+    appId: config.appId,
+    requestOrigin: requestMeta?.origin,
+  });
+  const resourceMeta = mcpAppUiMeta(
+    resource,
+    resolvedCsp,
+    requestMeta,
+    description,
+  );
   return {
     uri: resolvedUri.uri,
     ...(resolvedUri.legacyUris ? { legacyUris: resolvedUri.legacyUris } : {}),
@@ -521,15 +549,19 @@ function resolveMcpAppResource(
   };
 }
 
-function getMcpAppResources(
+async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
-): ResolvedMcpAppResource[] {
-  return Object.entries(actions).flatMap(([name, entry]) => {
-    const resource = resolveMcpAppResource(config, name, entry, requestMeta);
-    return resource ? [resource] : [];
-  });
+): Promise<ResolvedMcpAppResource[]> {
+  const resources = await Promise.all(
+    Object.entries(actions).map(([name, entry]) =>
+      resolveMcpAppResource(config, name, entry, requestMeta),
+    ),
+  );
+  return resources.filter((resource): resource is ResolvedMcpAppResource =>
+    Boolean(resource),
+  );
 }
 
 function renderMcpAppHtml(
@@ -568,17 +600,25 @@ function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
-  const ui = metadataObject(resource._meta?.ui);
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
   return {
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
-    ...(Object.keys(ui).length > 0 ? { ui } : {}),
     ...(Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
+  };
+}
+
+function mcpAppToolUiMeta(
+  resource: ResolvedMcpAppResource,
+  visibility: unknown,
+): Record<string, unknown> {
+  return {
+    resourceUri: resource.uri,
+    visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
   };
 }
 
@@ -706,10 +746,11 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
-  const mcpAppResources = compactMcpAppCatalog
-    ? getMcpAppResources(config, advertisedActions, requestMeta)
-    : [];
-  const supportsMcpApps = mcpAppResources.length > 0;
+  const supportsMcpApps =
+    compactMcpAppCatalog &&
+    Object.values(advertisedActions).some((entry) =>
+      Boolean(entry.mcpApp?.resource),
+    );
   const server = new Server(
     { name: config.name, version: config.version ?? "1.0.0" },
     {
@@ -764,59 +805,56 @@ export async function createMCPServerForRequest(
   // applies to the listing too.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return withCallerContext(async () => {
-      const tools = Object.entries(advertisedActions).map(([name, entry]) => {
-        const hasLink = typeof entry.link === "function";
-        const mcpAppResource = resolveMcpAppResource(
-          config,
-          name,
-          entry,
-          requestMeta,
-        );
-        const rawToolMeta =
-          (entry.tool as any)._meta &&
-          typeof (entry.tool as any)._meta === "object" &&
-          !Array.isArray((entry.tool as any)._meta)
-            ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
-            : {};
-        const toolMeta = {
-          ...rawToolMeta,
-          ...(mcpAppResource
-            ? {
-                ...openAiToolDescriptorMeta(mcpAppResource),
-                [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
-                ui: {
-                  ...metadataObject(mcpAppResource._meta?.ui),
-                  ...(((rawToolMeta.ui as any) &&
-                  typeof rawToolMeta.ui === "object" &&
-                  !Array.isArray(rawToolMeta.ui)
-                    ? rawToolMeta.ui
-                    : {}) as Record<string, unknown>),
-                  resourceUri: mcpAppResource.uri,
-                  visibility: entry.mcpApp?.visibility ?? ["model", "app"],
-                },
-              }
-            : {}),
-        };
-        const baseDescription = entry.tool.description ?? name;
-        const annotations: Record<string, unknown> = {
-          readOnlyHint: entry.readOnly === true,
-          destructiveHint: entry.publicAgent?.isConsequential === true,
-          openWorldHint: false,
-        };
-        if (hasLink) annotations["agent-native/producesOpenLink"] = true;
-        return {
-          name,
-          description: hasLink
-            ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
-            : baseDescription,
-          inputSchema: entry.tool.parameters ?? {
-            type: "object" as const,
-            properties: {},
-          },
-          ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
-          annotations,
-        };
-      });
+      const tools = await Promise.all(
+        Object.entries(advertisedActions).map(async ([name, entry]) => {
+          const hasLink = typeof entry.link === "function";
+          const mcpAppResource = await resolveMcpAppResource(
+            config,
+            name,
+            entry,
+            requestMeta,
+          );
+          const rawToolMeta =
+            (entry.tool as any)._meta &&
+            typeof (entry.tool as any)._meta === "object" &&
+            !Array.isArray((entry.tool as any)._meta)
+              ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
+              : {};
+          const toolMeta = {
+            ...rawToolMeta,
+            ...(mcpAppResource
+              ? {
+                  ...openAiToolDescriptorMeta(mcpAppResource),
+                  [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                  ui: mcpAppToolUiMeta(
+                    mcpAppResource,
+                    entry.mcpApp?.visibility ??
+                      metadataObject(rawToolMeta.ui).visibility,
+                  ),
+                }
+              : {}),
+          };
+          const baseDescription = entry.tool.description ?? name;
+          const annotations: Record<string, unknown> = {
+            readOnlyHint: entry.readOnly === true,
+            destructiveHint: entry.publicAgent?.isConsequential === true,
+            openWorldHint: false,
+          };
+          if (hasLink) annotations["agent-native/producesOpenLink"] = true;
+          return {
+            name,
+            description: hasLink
+              ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+              : baseDescription,
+            inputSchema: entry.tool.parameters ?? {
+              type: "object" as const,
+              properties: {},
+            },
+            ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
+            annotations,
+          };
+        }),
+      );
 
       if (
         !compactMcpAppCatalog &&
@@ -918,7 +956,7 @@ export async function createMCPServerForRequest(
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
-        const mcpAppResource = resolveMcpAppResource(
+        const mcpAppResource = await resolveMcpAppResource(
           config,
           name,
           entry,
@@ -965,33 +1003,47 @@ export async function createMCPServerForRequest(
 
   if (supportsMcpApps) {
     server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return withCallerContext(async () => ({
-        resources: mcpAppResources.map((resource) => ({
-          uri: resource.uri,
-          name: resource.name,
-          ...(resource.title ? { title: resource.title } : {}),
-          ...(resource.description
-            ? { description: resource.description }
-            : {}),
-          mimeType: resource.mimeType,
-          ...(resource._meta ? { _meta: resource._meta } : {}),
-        })),
-      }));
+      return withCallerContext(async () => {
+        const mcpAppResources = await getMcpAppResources(
+          config,
+          advertisedActions,
+          requestMeta,
+        );
+        return {
+          resources: mcpAppResources.map((resource) => ({
+            uri: resource.uri,
+            name: resource.name,
+            ...(resource.title ? { title: resource.title } : {}),
+            ...(resource.description
+              ? { description: resource.description }
+              : {}),
+            mimeType: resource.mimeType,
+            ...(resource._meta ? { _meta: resource._meta } : {}),
+          })),
+        };
+      });
     });
 
     server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-      return {
-        resourceTemplates: mcpAppResources.map((resource) => ({
-          uriTemplate: resource.uri,
-          name: resource.name,
-          ...(resource.title ? { title: resource.title } : {}),
-          ...(resource.description
-            ? { description: resource.description }
-            : {}),
-          mimeType: resource.mimeType,
-          ...(resource._meta ? { _meta: resource._meta } : {}),
-        })),
-      };
+      return withCallerContext(async () => {
+        const mcpAppResources = await getMcpAppResources(
+          config,
+          advertisedActions,
+          requestMeta,
+        );
+        return {
+          resourceTemplates: mcpAppResources.map((resource) => ({
+            uriTemplate: resource.uri,
+            name: resource.name,
+            ...(resource.title ? { title: resource.title } : {}),
+            ...(resource.description
+              ? { description: resource.description }
+              : {}),
+            mimeType: resource.mimeType,
+            ...(resource._meta ? { _meta: resource._meta } : {}),
+          })),
+        };
+      });
     });
 
     server.setRequestHandler(
@@ -999,16 +1051,22 @@ export async function createMCPServerForRequest(
       async (request: any) => {
         return withCallerContext(async () => {
           const uri = request.params?.uri;
-          const found = Object.entries(advertisedActions)
-            .map(([name, entry]) => ({
+          const candidates = await Promise.all(
+            Object.entries(advertisedActions).map(async ([name, entry]) => ({
               actionName: name,
-              resource: resolveMcpAppResource(config, name, entry, requestMeta),
-            }))
-            .find(
-              (candidate) =>
-                candidate.resource?.uri === uri ||
-                candidate.resource?.legacyUris?.includes(uri),
-            );
+              resource: await resolveMcpAppResource(
+                config,
+                name,
+                entry,
+                requestMeta,
+              ),
+            })),
+          );
+          const found = candidates.find(
+            (candidate) =>
+              candidate.resource?.uri === uri ||
+              candidate.resource?.legacyUris?.includes(uri),
+          );
           if (!found?.resource) {
             throw new Error(`MCP App resource not found: ${uri}`);
           }
@@ -1097,6 +1155,60 @@ function deriveStaticTokenIdentity(
   return { userEmail: owner, orgDomain: undefined };
 }
 
+function addSecretCandidate(
+  candidates: string[],
+  secret: string | null | undefined,
+): void {
+  const trimmed = secret?.trim();
+  if (!trimmed || candidates.includes(trimmed)) return;
+  candidates.push(trimmed);
+}
+
+async function verifyA2AJwtForMcp(
+  token: string,
+): Promise<Record<string, unknown> | null> {
+  const jose = await import("jose");
+  let unverifiedPayload: Record<string, unknown> | null = null;
+  try {
+    unverifiedPayload = jose.decodeJwt(token) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const candidateSecrets: string[] = [];
+  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
+
+  const orgDomain =
+    typeof unverifiedPayload.org_domain === "string"
+      ? unverifiedPayload.org_domain
+      : undefined;
+  if (orgDomain) {
+    try {
+      const { getA2ASecretByDomain } = await import("../org/context.js");
+      addSecretCandidate(
+        candidateSecrets,
+        await getA2ASecretByDomain(orgDomain),
+      );
+    } catch {
+      // DB not ready or org lookup unavailable — fall back to other candidates.
+    }
+  }
+
+  for (const secret of candidateSecrets) {
+    try {
+      const { payload } = await jose.jwtVerify(
+        token,
+        new TextEncoder().encode(secret),
+      );
+      return payload as Record<string, unknown>;
+    } catch {
+      // Try the next candidate without exposing which secret matched.
+    }
+  }
+
+  return null;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
@@ -1159,7 +1271,7 @@ export async function verifyAuth(
       };
     }
   }
-  if (accessTokens.length === 0 && !hasA2ASecret) {
+  if (accessTokens.length === 0 && !hasA2ASecret && !token) {
     if (options.allowDevOpen === false) {
       return { authed: false };
     }
@@ -1176,62 +1288,63 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  // Try JWT via A2A_SECRET
-  if (hasA2ASecret) {
-    try {
-      const jose = await import("jose");
-      const { payload } = await jose.jwtVerify(
-        token,
-        new TextEncoder().encode(process.env.A2A_SECRET!),
-      );
+  // Try an A2A JWT via the shared A2A_SECRET first, then the caller org's
+  // synced A2A secret when the token carries org_domain.
+  const payload = await verifyA2AJwtForMcp(token);
+  if (payload) {
+    const tokenScope =
+      typeof payload.scope === "string" ? payload.scope : undefined;
+    if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+      return { authed: false };
+    }
 
-      const tokenScope =
-        typeof payload.scope === "string" ? payload.scope : undefined;
-      if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
+    // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
+    // and are individually revocable. Only these tokens hit the revoke
+    // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
+    // the hot path is unchanged. The signature was already
+    // cryptographically verified, so failing open here only widens the
+    // explicit-revoke gate, never the trust boundary.
+    if (tokenScope === MCP_CONNECT_SCOPE) {
+      if (typeof payload.jti !== "string" || !payload.jti) {
         return { authed: false };
       }
-
-      // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
-      // and are individually revocable. Only these tokens hit the revoke
-      // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
-      // the hot path is unchanged. The revoke check FAILS OPEN on any
-      // store/DB error: a transient Neon WS drop must never lock every
-      // connected agent out. The signature was already cryptographically
-      // verified above, so failing open here only widens the explicit-revoke
-      // gate, never the trust boundary.
-      if (tokenScope === MCP_CONNECT_SCOPE) {
-        if (typeof payload.jti !== "string" || !payload.jti) {
+      const jti = payload.jti;
+      try {
+        const { isJtiRevoked, touchTokenUsed } =
+          await import("./connect-store.js");
+        if (await isJtiRevoked(jti)) {
           return { authed: false };
         }
-        const jti = payload.jti;
-        try {
-          const { isJtiRevoked, touchTokenUsed } =
-            await import("./connect-store.js");
-          if (await isJtiRevoked(jti)) {
-            return { authed: false };
-          }
-          // Best-effort usage telemetry — never blocks / throws.
-          void touchTokenUsed(jti);
-        } catch {
-          // Store import / lookup failed — fail open (see comment above).
-        }
+        // Best-effort usage telemetry — never blocks / throws.
+        void touchTokenUsed(jti);
+      } catch {
+        // Store import / lookup failed — fail open (see comment above).
       }
-
-      return {
-        authed: true,
-        identity: {
-          userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-          orgDomain:
-            typeof payload.org_domain === "string"
-              ? (payload.org_domain as string)
-              : undefined,
-        },
-        // Verified JWT (connect-minted or A2A delegation) — a real caller.
-        fullSurface: true,
-      };
-    } catch {
-      // Not a valid JWT — fall through to token check
     }
+
+    return {
+      authed: true,
+      identity: {
+        userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+        orgDomain:
+          typeof payload.org_domain === "string"
+            ? (payload.org_domain as string)
+            : undefined,
+      },
+      // Verified JWT (connect-minted or A2A delegation) — a real caller.
+      fullSurface: true,
+    };
+  }
+
+  if (accessTokens.length === 0 && !hasA2ASecret) {
+    if (options.allowDevOpen === false) {
+      return { authed: false };
+    }
+    return {
+      authed: true,
+      identity: deriveStaticTokenIdentity(ownerEmailHeader),
+      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
+    };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no

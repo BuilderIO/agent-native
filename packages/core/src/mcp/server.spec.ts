@@ -354,21 +354,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     expect(echo._meta?.["ui/resourceUri"]).toBe(
-      "ui://mail/echo-thing/shell-v23",
+      "ui://mail/echo-thing/shell-v25",
     );
     expect(echo._meta?.["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v23",
+      "ui://mail/echo-thing/shell-v25",
     );
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
     expect(echo._meta?.["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
     expect(echo._meta?.ui).toEqual({
-      csp: {
-        connectDomains: ["https://mail.agent-native.com"],
-      },
-      prefersBorder: true,
-      resourceUri: "ui://mail/echo-thing/shell-v23",
+      resourceUri: "ui://mail/echo-thing/shell-v25",
       visibility: ["model", "app"],
     });
   });
@@ -482,8 +478,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources.map((r: any) => r.uri)).toEqual(
       expect.arrayContaining([
-        "ui://mail/echo-thing/shell-v23",
-        "ui://mail/review-draft/shell-v23",
+        "ui://mail/echo-thing/shell-v25",
+        "ui://mail/review-draft/shell-v25",
       ]),
     );
   });
@@ -611,7 +607,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v23",
+        uri: "ui://mail/echo-thing/shell-v25",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -647,7 +643,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
-        uriTemplate: "ui://mail/echo-thing/shell-v23",
+        uriTemplate: "ui://mail/echo-thing/shell-v25",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -662,14 +658,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 6,
         method: "resources/read",
-        params: { uri: "ui://mail/echo-thing/shell-v23" },
+        params: { uri: "ui://mail/echo-thing/shell-v25" },
       },
       { headers: await mcpAppsAuthHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v23",
+        uri: "ui://mail/echo-thing/shell-v25",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('data-action="echo-thing"'),
         _meta: expect.objectContaining({
@@ -679,6 +675,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
             prefersBorder: true,
           },
+          "openai/widgetCSP": {
+            connect_domains: ["https://mail.agent-native.com"],
+          },
           "openai/widgetDescription":
             "Review the echoed thing in an inline MCP App.",
           "openai/widgetPrefersBorder": true,
@@ -687,6 +686,124 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
     expect(out.result.contents[0].text).toContain(
       'data-origin="https://mail.agent-native.com"',
+    );
+  });
+
+  it("resolves function-valued MCP App CSP across tools and resources", async () => {
+    const dynamicCspCalls: any[] = [];
+    const dynamicCspConfig = {
+      ...config,
+      actions: {
+        "dynamic-review": {
+          tool: {
+            description: "Review with dynamic CSP",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              title: "Dynamic review",
+              html: "<!doctype html><html><body>Dynamic</body></html>",
+              csp: async (ctx: any) => {
+                dynamicCspCalls.push(ctx);
+                return {
+                  connectDomains: ["$requestOrigin", "https://api.example.com"],
+                  resourceDomains: ["https://cdn.example.com"],
+                  frameDomains: ["https://frame.example.com"],
+                  baseUriDomains: ["https://base.example.com"],
+                };
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const tools = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "tools/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    const tool = tools.result.tools.find(
+      (t: any) => t.name === "dynamic-review",
+    );
+    expect(tool._meta["openai/widgetCSP"]).toEqual({
+      connect_domains: [
+        "https://mail.agent-native.com",
+        "https://api.example.com",
+      ],
+      resource_domains: ["https://cdn.example.com"],
+      frame_domains: ["https://frame.example.com"],
+    });
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 35,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(list.result.resources[0]._meta.ui.csp).toEqual({
+      connectDomains: [
+        "https://mail.agent-native.com",
+        "https://api.example.com",
+      ],
+      resourceDomains: ["https://cdn.example.com"],
+      frameDomains: ["https://frame.example.com"],
+      baseUriDomains: ["https://base.example.com"],
+    });
+
+    const templates = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "resources/templates/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(templates.result.resourceTemplates[0]._meta.ui.csp).toEqual(
+      list.result.resources[0]._meta.ui.csp,
+    );
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 37,
+        method: "resources/read",
+        params: { uri: "ui://mail/dynamic-review/shell-v25" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(read.result.contents[0]._meta.ui.csp).toEqual(
+      list.result.resources[0]._meta.ui.csp,
+    );
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 38,
+        method: "tools/call",
+        params: { name: "dynamic-review", arguments: {} },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(call.result._meta["openai/widgetCSP"]).toEqual(
+      tool._meta["openai/widgetCSP"],
+    );
+    expect(dynamicCspCalls).toEqual(
+      expect.arrayContaining([
+        {
+          actionName: "dynamic-review",
+          appId: "mail",
+          requestOrigin: "https://mail.agent-native.com",
+        },
+      ]),
     );
   });
 
@@ -744,7 +861,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v23",
+        uri: "ui://mail/custom-review/shell-v25",
         name: "custom-review",
       }),
     ]);
@@ -801,7 +918,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v23",
+        uri: "ui://mail/custom-review/shell-v25",
         name: "custom-review",
       }),
     ]);
@@ -858,7 +975,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v23?mode=compact#preview",
+        uri: "ui://mail/custom-review/shell-v25?mode=compact#preview",
         name: "custom-review",
       }),
     ]);
@@ -908,17 +1025,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v23",
+      "ui://mail/echo-thing/shell-v25",
     );
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
-    expect(out.result._meta.ui).toMatchObject({
-      csp: {
-        connectDomains: ["https://mail.agent-native.com"],
-      },
-      prefersBorder: true,
-    });
+    expect(out.result._meta.ui).toBeUndefined();
     expect(out.result.structuredContent).toMatchObject({
       echoed: "hello",
       id: "thing-42",

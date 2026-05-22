@@ -321,7 +321,40 @@ function openAppTool(
           params = undefined;
         }
       }
-      const embed = args.embed === true || args.embed === "true";
+      const embeddedParam = params?.embed;
+      const chromeParam = params?.chrome;
+      let embed = args.embed === true || args.embed === "true";
+      if (
+        args.embed == null &&
+        (embeddedParam === true || embeddedParam === "true")
+      ) {
+        embed = true;
+      } else if (
+        args.embed == null &&
+        (embeddedParam === false || embeddedParam === "false")
+      ) {
+        embed = false;
+      }
+      if (
+        embeddedParam === true ||
+        embeddedParam === false ||
+        embeddedParam === "true" ||
+        embeddedParam === "false"
+      ) {
+        delete params?.embed;
+      }
+
+      const chrome =
+        typeof args.chrome === "string"
+          ? args.chrome
+          : chromeParam === "full" || chromeParam === "minimal"
+            ? chromeParam
+            : undefined;
+      if (chromeParam === "full" || chromeParam === "minimal") {
+        delete params?.chrome;
+      }
+      if (params && Object.keys(params).length === 0) params = undefined;
+
       const directViewPath = embed && view ? viewToAppPath(view) : null;
       const relUrl = path
         ? appendParamsToPath(path, params)
@@ -364,7 +397,7 @@ function openAppTool(
               ownerEmail,
               orgId: ctx?.orgId,
               targetPath,
-              scope: typeof args.chrome === "string" ? args.chrome : null,
+              scope: chrome ?? null,
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
             embedStartUrl = requestMeta?.origin

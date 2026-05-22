@@ -1,5 +1,48 @@
 # @agent-native/core
 
+## 0.22.30
+
+### Patch Changes
+
+- 3b1a0e5: Accept nested `params.embed` and `params.chrome` values in MCP `open_app` calls.
+
+## 0.22.29
+
+### Patch Changes
+
+- a899300: Allow MCP App embed fetches to follow Agent-Native open redirects in Claude.
+
+## 0.22.28
+
+### Patch Changes
+
+- 4a5dc8d: Retry transient agent-chat route-missing startup responses and harden Dispatch MCP embed fallback behavior.
+
+## 0.22.27
+
+### Patch Changes
+
+- 5986cd0: Keep MCP Apps resource CSP and permissions on UI resources instead of tool descriptors.
+- 5986cd0: Add a reusable interactive starfield background with subtle cursor attraction.
+
+## 0.22.26
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
+## 0.22.25
+
+### Patch Changes
+
+- b76bf4f: Bust MCP App shell resource caches so host CSP metadata refreshes after embed changes.
+
+## 0.22.24
+
+### Patch Changes
+
+- b275383: Allow MCP app embed wrappers to connect to configured frame domains so Claude can transplant cross-app embeds.
+
 ## 0.22.23
 
 ### Patch Changes

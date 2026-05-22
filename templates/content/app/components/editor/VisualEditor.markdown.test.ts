@@ -66,6 +66,23 @@ function triggerTextInput(editor: Editor, text: string) {
   return handled;
 }
 
+function triggerKeyDown(editor: Editor, key: string) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+  });
+  let handled = false;
+
+  editor.view.someProp("handleKeyDown", (handler: any) => {
+    if (handled) return true;
+    handled = handler(editor.view, event) === true;
+    return handled;
+  });
+
+  return handled;
+}
+
 function insertPlainText(editor: Editor, text: string) {
   const { from, to } = editor.state.selection;
   editor.view.dispatch(editor.state.tr.insertText(text, from, to));
@@ -440,6 +457,168 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
       ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("round-trips heading 4 blocks", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 4 },
+            content: [{ type: "text", text: "A precise subheading" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      expect(editor.getJSON()).toMatchObject({
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 4 },
+            content: [{ type: "text", text: "A precise subheading" }],
+          },
+        ],
+      });
+      expect(
+        serializeEditorToNfm((editor.storage as any).markdown.getMarkdown()),
+      ).toBe("#### A precise subheading");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(['"', "|"])(
+    "turns %s plus space into a block quote shortcut",
+    (marker) => {
+      const editor = createFullEditor();
+
+      try {
+        expect(triggerTextInput(editor, marker)).toBe(false);
+        expect(triggerTextInput(editor, " ")).toBe(true);
+        expect(editor.getJSON().content?.[0]).toMatchObject({
+          type: "blockquote",
+          content: [{ type: "paragraph" }],
+        });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("moves focus to the title from an empty first body line", async () => {
+    let joinedText: string | null = null;
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions({
+        onJoinTitle: (text) => {
+          joinedText = text;
+        },
+      }),
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph" },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "But lately" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(1);
+
+      expect(triggerKeyDown(editor, "Backspace")).toBe(true);
+      await Promise.resolve();
+      expect(joinedText).toBe("");
+      expect(editor.getJSON()).toMatchObject({
+        type: "doc",
+        content: [
+          { type: "paragraph" },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "But lately" }],
+          },
+        ],
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("moves focus to the title when deleting the only empty body line", async () => {
+    let joinedText: string | null = null;
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions({
+        onJoinTitle: (text) => {
+          joinedText = text;
+        },
+      }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+
+    try {
+      editor.commands.setTextSelection(1);
+
+      expect(triggerKeyDown(editor, "Delete")).toBe(true);
+      await Promise.resolve();
+      expect(joinedText).toBe("");
+      expect(editor.getJSON()).toMatchObject({
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("removes a non-empty first body line and passes its text to the title", async () => {
+    let joinedText: string | null = null;
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions({
+        onJoinTitle: (text) => {
+          joinedText = text;
+        },
+      }),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Move me up" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Keep me here" }],
+          },
+        ],
+      },
+    });
+
+    try {
+      editor.commands.setTextSelection(1);
+
+      expect(triggerKeyDown(editor, "Backspace")).toBe(true);
+      await Promise.resolve();
+      expect(joinedText).toBe("Move me up");
+      expect(editor.getJSON()).toMatchObject({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Keep me here" }],
+          },
+        ],
+      });
     } finally {
       editor.destroy();
     }

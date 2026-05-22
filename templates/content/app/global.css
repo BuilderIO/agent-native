@@ -318,6 +318,13 @@
   line-height: 1.4;
 }
 
+.notion-editor h4 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.9em 0 0.15em;
+  line-height: 1.45;
+}
+
 /* Paragraphs */
 .notion-editor p {
   margin: 0.5em 0;
@@ -329,7 +336,8 @@
 .notion-editor p.is-empty::before,
 .notion-editor h1.is-empty::before,
 .notion-editor h2.is-empty::before,
-.notion-editor h3.is-empty::before {
+.notion-editor h3.is-empty::before,
+.notion-editor h4.is-empty::before {
   content: attr(data-placeholder);
   float: left;
   color: hsl(var(--muted-foreground));
@@ -1710,6 +1718,68 @@ audio.media-block__content {
   cursor: grabbing;
 }
 
+.notion-editor-is-dragging,
+.notion-editor-is-dragging * {
+  cursor: grabbing !important;
+}
+
+.notion-block--dragging {
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.notion-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  max-width: min(720px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+  opacity: 0.55;
+  pointer-events: none;
+  filter: saturate(0.45);
+  will-change: transform;
+}
+
+.notion-drag-preview > * {
+  margin: 0 !important;
+  max-height: 180px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.notion-drag-preview,
+.notion-drag-preview * {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.notion-dropcursor {
+  background: hsl(210 100% 52%) !important;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px hsl(var(--background));
+}
+
+.notion-dropcursor.prosemirror-dropcursor-block {
+  height: 3px !important;
+  transform: translateY(-1px);
+}
+
+.notion-drop-indicator {
+  position: absolute;
+  z-index: 60;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(210 100% 52%);
+  box-shadow: 0 0 0 1px hsl(var(--background));
+  pointer-events: none;
+  transform: translateY(-1px);
+}
+
 /* Selected node outline (for toggle, callout, etc.) */
 .notion-editor .ProseMirror-selectednode {
   outline: 2px solid hsl(var(--primary) / 0.4);
@@ -1801,10 +1871,11 @@ audio.media-block__content {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   box-shadow:
-    0 4px 24px rgb(0 0 0 / 0.12),
+    0 10px 28px rgb(0 0 0 / 0.12),
+    0 2px 8px rgb(0 0 0 / 0.08),
     0 0 0 1px rgb(0 0 0 / 0.04);
-  min-width: 260px;
-  max-height: 360px;
+  min-width: 300px;
+  max-height: 380px;
   overflow-y: auto;
 }
 .slash-command-menu button {

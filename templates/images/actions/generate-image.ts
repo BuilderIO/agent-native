@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   writeAppState,
   readAppState,
+  deleteAppState,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -18,6 +19,7 @@ import {
   compilePrompt,
   DEFAULT_GENERATION_REFERENCE_LIMIT,
   generateWithManagedImageProvider,
+  isImageGenerationSetupError,
   selectReferences,
 } from "../server/lib/generation.js";
 import { getObject } from "../server/lib/storage.js";
@@ -183,6 +185,7 @@ export default defineAction({
         source: args.source,
         callerAppId: args.callerAppId,
       });
+      await deleteAppState("image-generation-setup").catch(() => {});
       let image = generated.image;
       let mimeType = generated.mimeType;
       if (args.includeLogo && library.canonicalLogoAssetId) {
@@ -293,6 +296,13 @@ export default defineAction({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Image generation failed.";
+      if (isImageGenerationSetupError(err)) {
+        await writeAppState("image-generation-setup", {
+          status: "needs-setup",
+          message,
+          at: nowIso(),
+        }).catch(() => {});
+      }
       await db
         .update(schema.imageGenerationRuns)
         .set({ status: "failed", error: message, completedAt: nowIso() })

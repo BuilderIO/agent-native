@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   addMinutes,
@@ -8,7 +8,11 @@ import {
   startOfMonth,
 } from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
-import { OpenSourceBadge, PoweredByBadge } from "@agent-native/core/client";
+import {
+  OpenSourceBadge,
+  PoweredByBadge,
+  StarfieldBackground,
+} from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
@@ -34,6 +38,27 @@ import type { Booking } from "@shared/api";
 import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";
+
+function BookingPageShell({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "relative min-h-screen overflow-x-hidden bg-background p-4",
+        className,
+      )}
+    >
+      <StarfieldBackground className="fixed inset-0 opacity-25 dark:opacity-60" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)]" />
+      <div className="relative z-10 flow-root">{children}</div>
+    </div>
+  );
+}
 
 export default function BookingPage() {
   const { slug, username } = useParams<{ slug: string; username?: string }>();
@@ -199,30 +224,30 @@ export default function BookingPage() {
 
   if (bookingLinkLoading || settingsLoading || availabilityLoading) {
     return (
-      <div className="min-h-screen bg-background p-4">
+      <BookingPageShell>
         <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">
           <Spinner className="size-8 text-foreground" />
         </div>
-      </div>
+      </BookingPageShell>
     );
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
+      <BookingPageShell>
+        <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card/95 p-8 text-center shadow-xl shadow-background/20 backdrop-blur">
           <h1 className="text-xl font-semibold">Booking link not found</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This meeting type may have been removed or is no longer active.
           </p>
         </div>
-      </div>
+      </BookingPageShell>
     );
   }
 
   return (
-    <div className="relative min-h-screen bg-background p-4 pb-20">
-      <div className="absolute top-4 right-4">
+    <BookingPageShell className="pb-20">
+      <div className="absolute top-4 right-4 z-20">
         <ThemeToggle />
       </div>
       <div className="mx-auto mt-[7.5vh] w-full max-w-lg">
@@ -421,6 +446,6 @@ export default function BookingPage() {
       </div>
       <OpenSourceBadge />
       <PoweredByBadge />
-    </div>
+    </BookingPageShell>
   );
 }

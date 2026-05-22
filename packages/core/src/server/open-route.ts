@@ -22,9 +22,10 @@
  * no privileged state.
  */
 import type { H3Event } from "h3";
-import { defineEventHandler, getMethod } from "h3";
+import { defineEventHandler, getHeader, getMethod } from "h3";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
 import { appStatePut, appStateGet } from "../application-state/store.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
@@ -35,6 +36,10 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+} from "../shared/mcp-embed-headers.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -96,10 +101,32 @@ function safeRelativePath(raw: string | undefined | null): string | null {
   return raw;
 }
 
-function redirect(location: string): Response {
+function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
+  headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+  headers.set("Referrer-Policy", "no-referrer");
+  const origin = getHeader(event, "origin");
+  if (isMcpEmbedCorsOrigin(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+    headers.set("Access-Control-Allow-Headers", MCP_EMBED_CORS_ALLOW_HEADERS);
+    headers.set("Access-Control-Expose-Headers", "Location");
+  }
+  return headers;
+}
+
+function redirect(
+  event: H3Event,
+  location: string,
+  embedRedirect: boolean,
+): Response {
   // Native web Response (not h3 v2's reworked sendRedirect) — matches the
   // redirect pattern used elsewhere in auth.ts.
-  return new Response("", { status: 302, headers: { Location: location } });
+  const headers = new Headers({ Location: location });
+  if (embedRedirect) addMcpEmbedHeaders(event, headers);
+  return new Response("", { status: 302, headers });
 }
 
 function appendSearchParams(target: string, params: URLSearchParams): string {
@@ -258,6 +285,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     target = withCollapsedAgentSidebarParam(target);
     target = withConfiguredRedirectBasePath(target);
 
-    return redirect(target);
+    return redirect(event, target, requestHasEmbedAuthMarker(event));
   });
 }

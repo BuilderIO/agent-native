@@ -29,6 +29,8 @@ const DISPATCH_NAME = "Agent-Native Dispatch";
 const DISPATCH_DESCRIPTION =
   "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
 const DISPATCH_COLOR = "#14B8A6";
+const TARGET_EMBED_SESSION_ATTEMPTS = 3;
+const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 
 export interface DispatchMcpAccessibleApp {
   id: string;
@@ -236,6 +238,11 @@ export async function listGrantedDispatchMcpApps(): Promise<
   return apps.filter((app) => app.granted);
 }
 
+export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
+  const apps = await listGrantedDispatchMcpApps();
+  return Array.from(new Set(apps.map((app) => appOrigin(app))));
+}
+
 export async function resolveGrantedDispatchMcpApp(
   app: string,
 ): Promise<DispatchMcpAccessibleApp> {
@@ -321,13 +328,23 @@ export async function openGrantedDispatchMcpApp(input: {
         params: input.params,
       });
   const url = `${appBaseUrl(target)}${relUrl}`;
-  const embedSession = input.embed
-    ? await createGrantedDispatchMcpEmbedSession({
+  let embedSession: Awaited<
+    ReturnType<typeof createGrantedDispatchMcpEmbedSession>
+  > | null = null;
+  if (input.embed) {
+    try {
+      embedSession = await createGrantedDispatchMcpEmbedSession({
         app: target.id,
         url,
         chrome: input.chrome,
-      })
-    : null;
+      });
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not pre-mint MCP embed session for ${target.id}:`,
+        error,
+      );
+    }
+  }
   return {
     app: target.id,
     ...(view ? { view } : {}),
@@ -362,6 +379,79 @@ function parseMcpToolTextResult(result: unknown): Record<string, unknown> {
     }
   }
   throw new Error("Target app did not return an embed session.");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTargetMcpError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error ?? "");
+  if (
+    /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+    message,
+  );
+}
+
+function targetMcpRetryDelay(attempt: number): number {
+  const base =
+    TARGET_EMBED_SESSION_RETRY_BASE_MS * Math.pow(2, Math.max(0, attempt - 1));
+  return base + Math.floor(Math.random() * 100);
+}
+
+async function callTargetCreateEmbedSession(input: {
+  app: DispatchMcpAccessibleApp;
+  token: string;
+  url: string;
+  chrome?: "full" | "minimal";
+}): Promise<unknown> {
+  const serverId = "target";
+  for (let attempt = 1; ; attempt += 1) {
+    const manager = new McpClientManager({
+      servers: {
+        [serverId]: {
+          type: "http",
+          url: `${appBaseUrl(input.app)}/_agent-native/mcp`,
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+          },
+        },
+      },
+    });
+    try {
+      await manager.start();
+      return await manager.callTool(
+        buildMcpToolName(serverId, "create_embed_session"),
+        {
+          url: input.url,
+          chrome: input.chrome ?? "full",
+        },
+      );
+    } catch (error) {
+      if (
+        attempt >= TARGET_EMBED_SESSION_ATTEMPTS ||
+        !isRetryableTargetMcpError(error)
+      ) {
+        throw error;
+      }
+      await sleep(targetMcpRetryDelay(attempt));
+    } finally {
+      await manager.stop().catch((stopError) => {
+        console.warn("[dispatch] Failed to stop target MCP client:", stopError);
+      });
+    }
+  }
 }
 
 async function resolveDispatchEmbedTarget(input: {
@@ -477,62 +567,49 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
         getOrgA2ASecret(orgId).catch(() => null),
       ])
     : [null, null];
+  const usableOrgSecret =
+    typeof orgSecret === "string" && orgSecret.trim().length > 0;
+  const usableOrgDomain =
+    typeof orgDomain === "string" && orgDomain.trim().length > 0;
+  const useOrgSigning = usableOrgDomain && usableOrgSecret;
+  const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const token = await signA2AToken(
     userEmail,
-    orgDomain ?? undefined,
-    orgSecret ?? undefined,
+    signedOrgDomain,
+    useOrgSigning ? orgSecret.trim() : undefined,
     {
       expiresIn: "5m",
-      // Target MCP endpoints verify A2A JWTs with the deployment-wide
-      // A2A_SECRET. Prefer it for hosted cross-app embeds even when Dispatch
-      // also has an org-level secret available.
-      preferGlobalSecret: true,
+      // Prefer the synced org A2A secret when present because first-party
+      // production apps do not have to share the same deployment env secret.
+      // Fall back to the global A2A_SECRET for orgs that have not synced yet.
+      preferGlobalSecret: !useOrgSigning,
     },
   );
 
-  const serverId = "target";
-  const manager = new McpClientManager({
-    servers: {
-      [serverId]: {
-        type: "http",
-        url: `${appBaseUrl(target.app)}/_agent-native/mcp`,
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    },
+  const result = await callTargetCreateEmbedSession({
+    app: target.app,
+    token,
+    url: target.url,
+    chrome: input.chrome,
   });
-  await manager.start();
-  try {
-    const result = await manager.callTool(
-      buildMcpToolName(serverId, "create_embed_session"),
-      {
-        url: target.url,
-        chrome: input.chrome ?? "full",
-      },
-    );
-    const parsed = parseMcpToolTextResult(result) as {
-      startUrl?: string;
-      targetPath?: string;
-      expiresAt?: number;
-    };
-    if (!parsed.startUrl) {
-      throw new Error("Target app did not return an embed start URL.");
-    }
-    const output: {
-      startUrl: string;
-      targetPath?: string;
-      expiresAt?: number;
-      app: string;
-    } = {
-      startUrl: parsed.startUrl,
-      app: target.app.id,
-    };
-    if (parsed.targetPath) output.targetPath = parsed.targetPath;
-    if (typeof parsed.expiresAt === "number")
-      output.expiresAt = parsed.expiresAt;
-    return output;
-  } finally {
-    await manager.stop();
+  const parsed = parseMcpToolTextResult(result) as {
+    startUrl?: string;
+    targetPath?: string;
+    expiresAt?: number;
+  };
+  if (!parsed.startUrl) {
+    throw new Error("Target app did not return an embed start URL.");
   }
+  const output: {
+    startUrl: string;
+    targetPath?: string;
+    expiresAt?: number;
+    app: string;
+  } = {
+    startUrl: parsed.startUrl,
+    app: target.app.id,
+  };
+  if (parsed.targetPath) output.targetPath = parsed.targetPath;
+  if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
+  return output;
 }

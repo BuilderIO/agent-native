@@ -93,6 +93,8 @@ import {
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+const MAX_GENERATION_ATTEMPTS = 3;
+const AUTO_RETRY_DELAY_MS = 1200;
 
 type EditorMode = "comment" | "edit" | "draw";
 
@@ -235,13 +237,21 @@ export default function DesignEditor() {
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    attempt?: number;
   } | null>(null);
   const generationOutputReadyRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
+  const autoRetryTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
     if (generationCompleteTimerRef.current !== null) {
       window.clearTimeout(generationCompleteTimerRef.current);
       generationCompleteTimerRef.current = null;
+    }
+  }, []);
+  const clearAutoRetryTimer = useCallback(() => {
+    if (autoRetryTimerRef.current !== null) {
+      window.clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
     }
   }, []);
   const staleToastShownRef = useRef(false);
@@ -254,6 +264,7 @@ export default function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        attempt: pending.attempt ?? 1,
       });
       return true;
     }
@@ -323,7 +334,12 @@ export default function DesignEditor() {
 
   const { session } = useSession();
 
-  useEffect(() => clearGenerationCompleteTimer, [clearGenerationCompleteTimer]);
+  useEffect(() => {
+    return () => clearGenerationCompleteTimer();
+  }, [clearGenerationCompleteTimer]);
+  useEffect(() => {
+    return () => clearAutoRetryTimer();
+  }, [clearAutoRetryTimer]);
 
   // Current user info for collaborative presence
   const currentUser: CollabUser | undefined = session?.email
@@ -584,6 +600,7 @@ export default function DesignEditor() {
     });
     patchPendingGeneration(id, {
       runTabId,
+      attempt: pending.attempt ?? 1,
       startedAt: Date.now(),
     });
     setHasPendingGeneration(true);
@@ -863,41 +880,97 @@ export default function DesignEditor() {
     setDrawMode(false);
   }, [activeFile, pinMode, viewMode]);
 
+  const startRetryGeneration = useCallback(
+    (
+      promptState: NonNullable<typeof retryablePrompt>,
+      attempt: number,
+      mode: "manual" | "auto",
+    ) => {
+      if (!id || !design) return;
+      clearAutoRetryTimer();
+      const fileContext = formatUploadedFileContext(promptState.files);
+      const retryLine =
+        mode === "auto"
+          ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
+          : "(Retrying — the previous attempt did not complete.)";
+      const context = [
+        `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+        `User request: "${promptState.prompt}"`,
+        fileContext,
+        "",
+        retryLine,
+        ...designGenerationDirectives(id),
+      ].join("\n");
+      clearGenerationCompleteTimer();
+      setGenerationIssue(null);
+      const runTabId = agentSubmit(
+        `Generate design for "${design.title}": ${promptState.prompt}`,
+        context,
+        {
+          model: promptState.model,
+          engine: promptState.engine,
+          effort: promptState.effort,
+        },
+      );
+      patchPendingGeneration(id, {
+        prompt: promptState.prompt,
+        files: promptState.files,
+        title: design.title,
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+        attempt,
+        runTabId,
+        startedAt: Date.now(),
+      });
+      setHasPendingGeneration(true);
+      setRetryablePrompt(null);
+    },
+    [
+      id,
+      design,
+      agentSubmit,
+      clearAutoRetryTimer,
+      clearGenerationCompleteTimer,
+    ],
+  );
+
   const handleRetryGeneration = useCallback(() => {
-    if (!id || !design || !retryablePrompt) return;
-    const fileContext = formatUploadedFileContext(retryablePrompt.files);
-    const context = [
-      `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
-      `User request: "${retryablePrompt.prompt}"`,
-      fileContext,
-      "",
-      "(Retrying — the previous attempt did not complete.)",
-      ...designGenerationDirectives(id),
-    ].join("\n");
-    clearGenerationCompleteTimer();
-    setGenerationIssue(null);
-    const runTabId = agentSubmit(
-      `Generate design for "${design.title}": ${retryablePrompt.prompt}`,
-      context,
-      {
-        model: retryablePrompt.model,
-        engine: retryablePrompt.engine,
-        effort: retryablePrompt.effort,
-      },
+    if (!retryablePrompt) return;
+    startRetryGeneration(
+      retryablePrompt,
+      (retryablePrompt.attempt ?? 1) + 1,
+      "manual",
     );
-    patchPendingGeneration(id, {
-      prompt: retryablePrompt.prompt,
-      files: retryablePrompt.files,
-      title: design.title,
-      model: retryablePrompt.model,
-      engine: retryablePrompt.engine,
-      effort: retryablePrompt.effort,
-      runTabId,
-      startedAt: Date.now(),
-    });
-    setHasPendingGeneration(true);
-    setRetryablePrompt(null);
-  }, [id, design, retryablePrompt, agentSubmit, clearGenerationCompleteTimer]);
+  }, [retryablePrompt, startRetryGeneration]);
+
+  useEffect(() => {
+    clearAutoRetryTimer();
+    if (
+      !retryablePrompt ||
+      !generationIssue ||
+      generating ||
+      pendingGenerationActive
+    ) {
+      return;
+    }
+    const completedAttempt = retryablePrompt.attempt ?? 1;
+    if (completedAttempt >= MAX_GENERATION_ATTEMPTS) return;
+
+    autoRetryTimerRef.current = window.setTimeout(() => {
+      autoRetryTimerRef.current = null;
+      startRetryGeneration(retryablePrompt, completedAttempt + 1, "auto");
+    }, AUTO_RETRY_DELAY_MS);
+
+    return clearAutoRetryTimer;
+  }, [
+    retryablePrompt,
+    generationIssue,
+    generating,
+    pendingGenerationActive,
+    startRetryGeneration,
+    clearAutoRetryTimer,
+  ]);
 
   const handleCopyCodingHandoff = useCallback(() => {
     if (!id) return;
@@ -1673,6 +1746,7 @@ export default function DesignEditor() {
             files: [],
             title: design.title,
             runTabId,
+            attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);
@@ -1704,6 +1778,7 @@ export default function DesignEditor() {
             title: design.title,
             ...options,
             runTabId,
+            attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);
