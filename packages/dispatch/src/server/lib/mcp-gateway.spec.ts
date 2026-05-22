@@ -73,6 +73,7 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import {
   createGrantedDispatchMcpEmbedSession,
   listGrantedDispatchMcpApps,
+  listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
 } from "./mcp-gateway.js";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -145,6 +146,42 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("returns deduped origins for granted Dispatch MCP apps only", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      analyticsAgent,
+      {
+        ...analyticsAgent,
+        id: "analytics-copy",
+        name: "Analytics Copy",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Mail",
+        url: "https://mail.agent-native.com/inbox",
+        color: "#2563EB",
+      },
+    ]);
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch", "analytics", "mail"],
+    });
+
+    const origins = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpAppOrigins(),
+    );
+
+    expect(origins).toEqual([
+      "http://localhost:8092",
+      "http://localhost:8086",
+      "https://mail.agent-native.com",
+    ]);
   });
 });
 

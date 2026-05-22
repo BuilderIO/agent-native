@@ -34,6 +34,11 @@ can still use `npx @agent-native/core connect <url>`, which mints a per-user,
 scoped, revocable token from a logged-in browser session; no shared secret is
 copied.
 
+Claude and ChatGPT can cache custom connector tool/resource metadata. After
+changing MCP App metadata or the shared `embedApp()` shell, validate with a
+fresh tool call; if the host still behaves like the old descriptor, reconnect
+the Claude connector or rescan/review the ChatGPT connector.
+
 Once connected, every action that produces or lists a navigable resource SHOULD
 return a deep link from a `link` builder, so the external agent can surface an
 **"Open in <app> →"** link that drops the user back into the running UI at the
@@ -301,6 +306,11 @@ third-party frame. `open_app({ app, path, embed: true })` is the generic
 escape hatch for routes like full dashboards, filtered inboxes, calendar
 drafts, analyses, or extension pages, and should be used liberally when the
 full app is the clearest review/edit surface.
+
+For Dispatch, keep the single connector path first-class: the `open_app`
+resource CSP should include the exact origins of apps granted through Dispatch,
+not broad sources like `https:`. This lets Claude's transplant path fetch the
+signed target app HTML while keeping the connector's resource surface narrow.
 
 Host sizing rule: the MCP resource shell owns a bounded inline height and the
 embedded route should scroll internally. `embedApp({ height })` defaults to a

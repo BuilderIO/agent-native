@@ -238,6 +238,11 @@ export async function listGrantedDispatchMcpApps(): Promise<
   return apps.filter((app) => app.granted);
 }
 
+export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
+  const apps = await listGrantedDispatchMcpApps();
+  return Array.from(new Set(apps.map((app) => appOrigin(app))));
+}
+
 export async function resolveGrantedDispatchMcpApp(
   app: string,
 ): Promise<DispatchMcpAccessibleApp> {

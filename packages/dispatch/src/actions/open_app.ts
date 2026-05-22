@@ -1,6 +1,15 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import {
+  defineAction,
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type ActionMcpAppCsp,
+  type ActionMcpAppCspBuilder,
+} from "@agent-native/core";
 import { z } from "zod";
-import { openGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
+import {
+  listGrantedDispatchMcpAppOrigins,
+  openGrantedDispatchMcpApp,
+} from "../server/lib/mcp-gateway.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
 const openAppSchema = z
@@ -37,6 +46,34 @@ const openAppSchema = z
     path: ["view"],
   });
 
+const localDevFrameSources = ["http://localhost:*", "http://127.0.0.1:*"];
+
+const dispatchOpenAppCsp: ActionMcpAppCspBuilder = async (
+  ctx,
+): Promise<ActionMcpAppCsp> => {
+  const appOrigins = (await listGrantedDispatchMcpAppOrigins()).filter(
+    (origin) => origin !== ctx.requestOrigin,
+  );
+  const routeSources = [
+    MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    ...appOrigins,
+    ...localDevFrameSources,
+  ];
+  return {
+    connectDomains: ["https://esm.sh", ...routeSources],
+    resourceDomains: ["https://esm.sh", ...routeSources],
+    frameDomains: routeSources,
+    baseUriDomains: routeSources,
+  };
+};
+
+const openAppResource = embedApp({
+  title: "Open app",
+  description: "Render the requested granted app route inline.",
+  iframeTitle: "Dispatch MCP app",
+  openLabel: "Open app",
+});
+
 export default defineAction({
   description:
     'Build a deep link or embeddable app route/component route for an app available through Dispatch MCP. Use app "dispatch" for Dispatch extension/tool pages. No side effects; surface the returned Open link to the user.',
@@ -56,12 +93,9 @@ export default defineAction({
     };
   },
   mcpApp: {
-    resource: embedApp({
-      title: "Open app",
-      description: "Render the requested granted app route inline.",
-      iframeTitle: "Dispatch MCP app",
-      openLabel: "Open app",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
-    }),
+    resource: {
+      ...openAppResource,
+      csp: dispatchOpenAppCsp,
+    },
   },
 });

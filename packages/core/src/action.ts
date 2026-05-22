@@ -132,7 +132,7 @@ export interface ActionMcpAppResourceConfig {
   mimeType?: typeof MCP_APP_MIME_TYPE;
   /** Extra resource/content metadata. `ui` is merged with the fields below. */
   _meta?: Record<string, unknown>;
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
   domain?: string;
   prefersBorder?: boolean;

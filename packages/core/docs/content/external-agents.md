@@ -205,6 +205,11 @@ That makes the same app surface available to every compatible host rather than b
 
 Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app.
 
+Claude and ChatGPT can cache tool and resource metadata for an existing custom
+connector. After changing MCP App metadata, verify with a fresh tool call; if
+the host still uses the old descriptor, reconnect the Claude connector or
+rescan/review the ChatGPT connector so it refreshes the catalog.
+
 ### First-class MCP App bridge {#mcp-app-bridge}
 
 MCP App embeds are route embeds, not separate mini-products. `embedApp()`
@@ -388,8 +393,11 @@ Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, ol
 
 `embedApp()` includes the MCP request origin in the resource CSP so the launcher
 can fetch and, when explicitly requested, frame the signed first-party app
-route. Only pass additional `frameDomains` for a custom MCP App that truly
-embeds a third-party player.
+route. Dispatch adds the exact origins for the granted apps to its `open_app`
+resource so a single Dispatch connector can inline Mail, Calendar, Slides, and
+the rest without allowing every HTTPS origin. Only pass additional frame or
+resource domains for a custom MCP App that truly embeds a third-party player or
+loads third-party assets.
 
 Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
 Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus

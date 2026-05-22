@@ -29,6 +29,7 @@ export {
   MCP_APP_RESOURCE_URI_META_KEY,
   type ActionMcpAppConfig,
   type ActionMcpAppCsp,
+  type ActionMcpAppCspBuilder,
   type ActionMcpAppHtmlBuilder,
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,

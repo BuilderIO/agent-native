@@ -689,6 +689,124 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("resolves function-valued MCP App CSP across tools and resources", async () => {
+    const dynamicCspCalls: any[] = [];
+    const dynamicCspConfig = {
+      ...config,
+      actions: {
+        "dynamic-review": {
+          tool: {
+            description: "Review with dynamic CSP",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              title: "Dynamic review",
+              html: "<!doctype html><html><body>Dynamic</body></html>",
+              csp: async (ctx: any) => {
+                dynamicCspCalls.push(ctx);
+                return {
+                  connectDomains: ["$requestOrigin", "https://api.example.com"],
+                  resourceDomains: ["https://cdn.example.com"],
+                  frameDomains: ["https://frame.example.com"],
+                  baseUriDomains: ["https://base.example.com"],
+                };
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const tools = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "tools/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    const tool = tools.result.tools.find(
+      (t: any) => t.name === "dynamic-review",
+    );
+    expect(tool._meta["openai/widgetCSP"]).toEqual({
+      connect_domains: [
+        "https://mail.agent-native.com",
+        "https://api.example.com",
+      ],
+      resource_domains: ["https://cdn.example.com"],
+      frame_domains: ["https://frame.example.com"],
+    });
+
+    const list = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 35,
+        method: "resources/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(list.result.resources[0]._meta.ui.csp).toEqual({
+      connectDomains: [
+        "https://mail.agent-native.com",
+        "https://api.example.com",
+      ],
+      resourceDomains: ["https://cdn.example.com"],
+      frameDomains: ["https://frame.example.com"],
+      baseUriDomains: ["https://base.example.com"],
+    });
+
+    const templates = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "resources/templates/list",
+        params: {},
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(templates.result.resourceTemplates[0]._meta.ui.csp).toEqual(
+      list.result.resources[0]._meta.ui.csp,
+    );
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 37,
+        method: "resources/read",
+        params: { uri: "ui://mail/dynamic-review/shell-v24" },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(read.result.contents[0]._meta.ui.csp).toEqual(
+      list.result.resources[0]._meta.ui.csp,
+    );
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 38,
+        method: "tools/call",
+        params: { name: "dynamic-review", arguments: {} },
+      },
+      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+    );
+    expect(call.result._meta["openai/widgetCSP"]).toEqual(
+      tool._meta["openai/widgetCSP"],
+    );
+    expect(dynamicCspCalls).toEqual(
+      expect.arrayContaining([
+        {
+          actionName: "dynamic-review",
+          appId: "mail",
+          requestOrigin: "https://mail.agent-native.com",
+        },
+      ]),
+    );
+  });
+
   it("keeps legacy unversioned MCP App resource reads working", async () => {
     const out = await callWeb(
       {
