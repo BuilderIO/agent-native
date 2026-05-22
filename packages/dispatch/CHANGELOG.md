@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.16
+
+### Patch Changes
+
+- 11362a2: Keep MCP App resource listing resilient to CSP metadata failures and invalid Dispatch app URLs.
+
 ## 0.8.15
 
 ### Patch Changes

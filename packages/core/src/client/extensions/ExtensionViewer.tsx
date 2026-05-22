@@ -39,6 +39,9 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import { buildExtensionHtml } from "../../extensions/html-shell.js";
+import { getThemeVars } from "../../extensions/theme.js";
+import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -87,6 +90,8 @@ interface Extension {
   description?: string;
   content?: string;
   updatedAt?: string;
+  ownerEmail?: string;
+  role?: ExtensionBridgeRole | null;
   canDelete?: boolean;
 }
 
@@ -102,6 +107,34 @@ function readExtensionTitleSuffix(): string | null {
 
 function extensionDocumentTitle(name: string, suffix: string | null): string {
   return suffix ? `${name} \u2014 ${suffix}` : `${name} \u2014 Extensions`;
+}
+
+function extensionRole(value: unknown): ExtensionBridgeRole {
+  return value === "owner" ||
+    value === "admin" ||
+    value === "editor" ||
+    value === "viewer"
+    ? value
+    : "viewer";
+}
+
+function buildExtensionViewerSrcDoc(
+  extension: Extension,
+  isDark: boolean,
+): string {
+  const role = extensionRole(extension.role);
+  return buildExtensionHtml(
+    extension.content ?? "",
+    getThemeVars(isDark),
+    isDark,
+    extension.id,
+    {
+      authorEmail: extension.ownerEmail ?? "",
+      viewerEmail: "",
+      isAuthor: role === "owner",
+      role,
+    },
+  );
 }
 
 function applyCanonicalLink(path: string): () => void {
@@ -550,6 +583,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       ),
     [extensionId, extension?.updatedAt, refreshKey],
   );
+  const iframeSrcDoc = useMemo(() => {
+    if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
+    return buildExtensionViewerSrcDoc(extension, isDark);
+  }, [extension, isDark]);
 
   useEffect(() => {
     setIframeReady(false);
@@ -729,7 +766,8 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           <iframe
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}`}
-            src={iframeSrc}
+            src={iframeSrcDoc ? undefined : iframeSrc}
+            srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
             sandbox="allow-scripts allow-forms"
             title={extension.name}

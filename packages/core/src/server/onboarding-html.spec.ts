@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOnboardingHtml } from "./onboarding-html.js";
+import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -73,6 +74,51 @@ describe("getOnboardingHtml", () => {
       "__anPath('/_agent-native/auth/ba/request-password-reset')",
     );
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
+  });
+
+  it("uses branded first-party marketing from the request host", () => {
+    const html = getOnboardingHtml({
+      requestHost: "dispatch.agent-native.com",
+    });
+
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Agent-Native Dispatch");
+    expect(html).toContain(
+      "Your AI agent manages secrets, orchestrates other agents",
+    );
+  });
+
+  it("has branded auth marketing for every core built-in template host", () => {
+    const coreSlugs = [
+      "calendar",
+      "content",
+      "slides",
+      "clips",
+      "brain",
+      "analytics",
+      "mail",
+      "dispatch",
+      "forms",
+      "design",
+      "starter",
+    ];
+
+    for (const slug of coreSlugs) {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+      });
+
+      expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain(BUILT_IN_AUTH_MARKETING[slug]!.appName);
+    }
+  });
+
+  it("keeps unknown apps on the compact generic auth page", () => {
+    const html = getOnboardingHtml({
+      requestHost: "workspace.example.com",
+    });
+
+    expect(html).not.toContain('class="marketing-panel"');
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {

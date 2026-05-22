@@ -85,6 +85,7 @@ import {
   RecorderEngine,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
+  type RecorderFinalizeResult,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
@@ -368,11 +369,15 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
 }
 
 function getRecordingErrorTitle(error: string): string {
-  if (/upload failed|chunk/i.test(error)) return "Upload failed";
+  if (isUploadFailureError(error)) return "Upload failed";
   if (isScreenPermissionError(error)) return "Screen recording needs access";
   if (isCameraPermissionError(error)) return "Camera needs access";
   if (isMicrophonePermissionError(error)) return "Microphone needs access";
   return "Couldn't start recording";
+}
+
+function isUploadFailureError(error: string): boolean {
+  return /upload failed|chunk|reset-chunks|re-upload/i.test(error);
 }
 
 function friendlyRecordingErrorMessage(error: string): string {
@@ -391,8 +396,8 @@ function friendlyRecordingErrorMessage(error: string): string {
   if (isMicrophonePermissionError(error)) {
     return "Clips could not start the microphone. Allow microphone access, then try again.";
   }
-  if (/upload failed|chunk/i.test(error)) {
-    return "The recording could not finish uploading. Check video storage, then try again.";
+  if (isUploadFailureError(error)) {
+    return "The recording could not finish uploading. Retry the upload before starting over.";
   }
   if (error.length > 220) {
     return "Something blocked the recorder before it could start.";
@@ -482,11 +487,13 @@ function RecordingErrorCard({
   error,
   mode,
   micDeviceId,
+  canRetryUpload,
   onTryAgain,
 }: {
   error: string;
   mode: RecordingMode;
   micDeviceId: string | null;
+  canRetryUpload: boolean;
   onTryAgain: () => void;
 }) {
   const guidance = permissionGuidance(error, { mode, micDeviceId });
@@ -537,7 +544,7 @@ function RecordingErrorCard({
       <div className="space-y-3 p-6">
         <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
           <IconRefresh className="h-4 w-4" />
-          Try again
+          {canRetryUpload ? "Retry upload" : "Try again"}
         </Button>
         {(policyError || embeddedScreenError) && (
           <Button
@@ -1329,6 +1336,37 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
   // -------------------------------------------------------------------------
+  const finishSavedRecording = useCallback(
+    async (recordingId: string, result: RecorderFinalizeResult) => {
+      // Recording is fully saved — clear refs so that if anything below throws
+      // and the user clicks "Try again", doCancel() won't trash a good recording.
+      pendingRef.current = null;
+      engineRef.current = null;
+      setCameraStream(null);
+      setPreviewStream(null);
+      setCompressionProgress(null);
+      setUiState("complete");
+      if (result.waitingForStorage) {
+        toast.info("Recording is ready to upload", {
+          description:
+            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+          duration: 12_000,
+        });
+      } else {
+        toast.success("Recording saved");
+      }
+
+      await writeAppState("navigate", {
+        view: "recording",
+        recordingId,
+      }).catch(() => {});
+      setTimeout(() => {
+        navigate(`/r/${recordingId}`);
+      }, 50);
+    },
+    [navigate],
+  );
+
   const doStop = useCallback(async () => {
     const engine = engineRef.current;
     const pending = pendingRef.current;
@@ -1380,30 +1418,7 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
-      // Recording is fully saved — clear refs so that if anything below throws
-      // and the user clicks "Try again", doCancel() won't trash a good recording.
-      pendingRef.current = null;
-      engineRef.current = null;
-      setCameraStream(null);
-      setPreviewStream(null);
-      setUiState("complete");
-      if (stopResult.waitingForStorage) {
-        toast.info("Recording is ready to upload", {
-          description:
-            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
-          duration: 12_000,
-        });
-      } else {
-        toast.success("Recording saved");
-      }
-
-      await writeAppState("navigate", {
-        view: "recording",
-        recordingId: pending.id,
-      });
-      setTimeout(() => {
-        navigate(`/r/${pending.id}`);
-      }, 50);
+      await finishSavedRecording(pending.id, stopResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       // Distinguish user-initiated cancel from real failure. When the user
@@ -1438,10 +1453,41 @@ export default function RecordRoute() {
         duration: 12_000,
       });
     }
-  }, [navigate, liveTranscription]);
+  }, [finishSavedRecording, liveTranscription]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
+
+  const retryFailedUpload = useCallback(async () => {
+    const engine = engineRef.current;
+    const pending = pendingRef.current;
+    if (!engine || !pending || !engine.canRetryUpload()) return;
+
+    setError(null);
+    setCompressionProgress(null);
+    setUiState("uploading");
+    try {
+      const retryResult = await engine.retryUpload();
+      await finishSavedRecording(pending.id, retryResult);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Upload failed";
+      fetch(pending.abortUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: message }),
+      }).catch(() => {});
+      setCompressionProgress(null);
+      setError(message);
+      setUiState("error");
+      toast.error("Upload failed", {
+        description: message,
+        duration: 12_000,
+      });
+    }
+  }, [finishSavedRecording]);
 
   const requestStop = useCallback(() => {
     const engine = engineRef.current;
@@ -1645,6 +1691,7 @@ export default function RecordRoute() {
     uiState === "compressing";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
+  const rememberedRecorderOptions = pendingStartOptsRef.current;
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Surface a back arrow whenever there's nothing in
@@ -1700,8 +1747,14 @@ export default function RecordRoute() {
                 ) : storageConfigured ? (
                   <PreRecordPanel
                     onStart={startFlow}
-                    initialMode={initialRecorderOptions.mode}
-                    initialDisplaySurface={initialRecorderOptions.surface}
+                    initialMode={
+                      rememberedRecorderOptions?.mode ??
+                      initialRecorderOptions.mode
+                    }
+                    initialDisplaySurface={
+                      rememberedRecorderOptions?.displaySurface ??
+                      initialRecorderOptions.surface
+                    }
                     onUpload={uploadFile}
                     cameraSize={cameraSize}
                     onCameraSizeChange={setCameraSize}
@@ -1877,10 +1930,15 @@ export default function RecordRoute() {
               error={error}
               mode={recordingMode}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
+              canRetryUpload={!!engineRef.current?.canRetryUpload()}
               onTryAgain={() => {
-                // Re-run the same flow with the current mode/surface — users
-                // expect "Try again" to retry, not to wipe their selections.
-                void restart();
+                if (engineRef.current?.canRetryUpload()) {
+                  void retryFailedUpload();
+                } else {
+                  // Re-run the same flow with the current mode/surface — users
+                  // expect "Try again" to retry, not to wipe their selections.
+                  void restart();
+                }
               }}
             />
           )}

@@ -221,6 +221,7 @@ export default function DesignEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [svgExporting, setSvgExporting] = useState(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
@@ -1131,10 +1132,110 @@ export default function DesignEditor() {
     }
   }, [fallbackExportName, triggerBlobDownload]);
 
+  const handleDownloadSvg = useCallback(async () => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Design Preview"]',
+    );
+    const doc = iframe?.contentDocument;
+    if (!doc?.documentElement) {
+      toast.error("Open a screen before exporting SVG");
+      return;
+    }
+
+    setSvgExporting(true);
+    try {
+      const width = Math.max(
+        doc.documentElement.scrollWidth,
+        doc.body?.scrollWidth ?? 0,
+        iframe?.clientWidth ?? 0,
+      );
+      const height = Math.max(
+        doc.documentElement.scrollHeight,
+        doc.body?.scrollHeight ?? 0,
+        iframe?.clientHeight ?? 0,
+      );
+      const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+      clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+      const stylesheetLinks = Array.from(
+        doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const clonedStylesheetLinks = Array.from(
+        clone.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const stylesheets = Array.from(doc.styleSheets);
+
+      stylesheetLinks.forEach((link, index) => {
+        const sheet = stylesheets.find(
+          (candidate) =>
+            (candidate as StyleSheet & { ownerNode?: Node | null })
+              .ownerNode === link,
+        ) as CSSStyleSheet | undefined;
+        let cssText = "";
+        try {
+          cssText = Array.from(sheet?.cssRules ?? [])
+            .map((rule) => rule.cssText)
+            .join("\n");
+        } catch {
+          // Cross-origin stylesheets cannot be read. Leave the original link in
+          // place instead of failing the whole export.
+          return;
+        }
+        if (!cssText.trim()) return;
+        const style = doc.createElement("style");
+        style.setAttribute(
+          "data-agent-native-inlined-stylesheet",
+          link.getAttribute("href") ?? "",
+        );
+        style.textContent = cssText;
+        clonedStylesheetLinks[index]?.replaceWith(style);
+      });
+      clone.querySelectorAll("script").forEach((node) => node.remove());
+      clone.style.width = `${width}px`;
+      clone.style.minHeight = `${height}px`;
+
+      const body = clone.querySelector("body") as HTMLElement | null;
+      if (body) {
+        body.style.margin = body.style.margin || "0";
+        body.style.width = `${width}px`;
+        body.style.minHeight = `${height}px`;
+      }
+
+      const serializedHtml = new XMLSerializer().serializeToString(clone);
+      const safeTitle =
+        design?.title
+          ?.replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;") || "Design export";
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
+  <title>${safeTitle}</title>
+  <foreignObject width="${width}" height="${height}">
+${serializedHtml}
+  </foreignObject>
+</svg>`;
+
+      triggerBlobDownload(
+        new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+        fallbackExportName("svg"),
+      );
+      toast.success("SVG downloaded");
+    } catch (error) {
+      console.error("SVG export failed:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Could not export SVG",
+      );
+    } finally {
+      setSvgExporting(false);
+    }
+  }, [design?.title, fallbackExportName, triggerBlobDownload]);
+
   const exportPending =
     exportHtmlMutation.isPending ||
     exportZipMutation.isPending ||
-    createCodingHandoffMutation.isPending;
+    createCodingHandoffMutation.isPending ||
+    svgExporting;
+  const zoomLabel = `${Math.round(zoom)}%`;
 
   if (!id) {
     navigate("/");
@@ -1354,8 +1455,8 @@ export default function DesignEditor() {
               >
                 <IconZoomOut className="w-3.5 h-3.5" />
               </Button>
-              <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
-                {zoom}%
+              <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
+                {zoomLabel}
               </span>
               <Button
                 variant="ghost"
@@ -1472,6 +1573,13 @@ export default function DesignEditor() {
                 >
                   <IconPhoto className="mr-2 h-4 w-4" />
                   Download PNG
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleDownloadSvg}
+                  disabled={!activeFile || svgExporting}
+                >
+                  <IconCode className="mr-2 h-4 w-4" />
+                  Download SVG
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleDownloadZip}

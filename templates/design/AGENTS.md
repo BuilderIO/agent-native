@@ -181,6 +181,7 @@ Write to `navigate` to move the user. The UI reads it, navigates, and auto-delet
 { "view": "editor", "designId": "abc123" }
 { "view": "list" }
 { "view": "design-systems" }
+{ "view": "design-systems", "designSystemId": "ds123" }
 { "path": "/present/abc123" }
 ```
 
@@ -296,14 +297,15 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Navigation
 
-| Action     | Args                             | Purpose                    |
-| ---------- | -------------------------------- | -------------------------- |
-| `navigate` | `--view list`                    | Navigate to design list    |
-| `navigate` | `--view editor --designId <id>`  | Navigate to design editor  |
-| `navigate` | `--view design-systems`          | Navigate to design systems |
-| `navigate` | `--view present --designId <id>` | Navigate to presentation   |
-| `navigate` | `--view templates`               | Navigate to templates      |
-| `navigate` | `--view settings`                | Navigate to settings       |
+| Action     | Args                                          | Purpose                           |
+| ---------- | --------------------------------------------- | --------------------------------- |
+| `navigate` | `--view list`                                 | Navigate to design list           |
+| `navigate` | `--view editor --designId <id>`               | Navigate to design editor         |
+| `navigate` | `--view design-systems`                       | Navigate to design systems        |
+| `navigate` | `--view design-systems --designSystemId <id>` | Open a design system detail sheet |
+| `navigate` | `--view present --designId <id>`              | Navigate to presentation          |
+| `navigate` | `--view templates`                            | Navigate to templates             |
+| `navigate` | `--view settings`                             | Navigate to settings              |
 
 ### Creating & Editing Designs
 
@@ -358,6 +360,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | ----------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `export-html`           | `--id <designId>`                                                  | Export as standalone HTML with CDN scripts                                                                                                        |
 | `export-zip`            | `--id <designId>`                                                  | Export as ZIP with all files + README                                                                                                             |
+| `export-svg`            | `--id <designId> [--width <px>] [--height <px>]`                   | Export as SVG with the design embedded in a foreignObject wrapper                                                                                 |
 | `export-pdf`            | `--id <designId>`                                                  | Prepare data for client-side PDF rendering                                                                                                        |
 | `export-coding-handoff` | `--id <designId> [--origin <appOrigin>] [--format markdown\|json]` | **Turn design into code.** Copy-ready prompt + tokenized raw-code URL; bundle reflects live (collab) content and the user's applied visual tweaks |
 
@@ -854,6 +857,7 @@ If Builder is not connected, fall back to `import-from-url --url "https://exampl
 | "Add a navigation bar"          | `get-design --id <id>`, add nav HTML to `index.html`, save                                                 |
 | "Export as HTML"                | `export-html --id <id>`                                                                                    |
 | "Export as ZIP"                 | `export-zip --id <id>`                                                                                     |
+| "Export as SVG"                 | `export-svg --id <id>`                                                                                     |
 | "Duplicate this design"         | `duplicate-design --id <id>`                                                                               |
 | "Set up brand identity for X"   | `analyze-brand-assets --websiteUrl "..."` then `create-design-system`                                      |
 | "Apply my brand to this design" | `get-design-system --id <id>` then regenerate with tokens                                                  |
@@ -1880,7 +1884,11 @@ All three return an editor deep link ("Open design") so external surfaces
 
 `export-html --id <id>` bundles all files into a single standalone HTML file with Tailwind CDN and Alpine.js included. The output works when double-clicked in a browser.
 
-When a user asks to download a design, export a design, or get the generated HTML, use `export-html --id <id>` or tell them to use the editor's Download menu. Do not send them to external HTML screenshot services. The editor Download menu supports direct HTML, PNG, ZIP, and coding-handoff downloads.
+When a user asks to download a design, export a design, or get the generated HTML, use `export-html --id <id>` or tell them to use the editor's Download menu. Do not send them to external HTML screenshot services. The editor Download menu supports direct HTML, PNG, SVG, ZIP, and coding-handoff downloads.
+
+### SVG Export
+
+`export-svg --id <id>` creates an SVG document with the standalone HTML embedded inside a `foreignObject`. In the editor, Download SVG uses the live iframe DOM for a more faithful visual snapshot of the current screen.
 
 ### ZIP Export
 

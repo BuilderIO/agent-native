@@ -75,6 +75,7 @@ import {
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
+  resolveGrantedDispatchMcpApp,
 } from "./mcp-gateway.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 
@@ -163,10 +164,24 @@ describe("Dispatch MCP gateway app discovery", () => {
         url: "https://mail.agent-native.com/inbox",
         color: "#2563EB",
       },
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+      {
+        id: "file-url",
+        name: "File URL",
+        description: "Unsupported manifest URL scheme",
+        url: "file:///tmp/app",
+        color: "#111827",
+      },
     ]);
     mocks.getUserSetting.mockResolvedValue({
       mode: "selected-apps",
-      selectedAppIds: ["dispatch", "analytics", "mail"],
+      selectedAppIds: ["dispatch", "analytics", "mail", "bad-url", "file-url"],
     });
 
     const origins = await runWithRequestContext(
@@ -176,12 +191,46 @@ describe("Dispatch MCP gateway app discovery", () => {
       },
       () => listGrantedDispatchMcpAppOrigins(),
     );
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
 
     expect(origins).toEqual([
       "http://localhost:8092",
       "http://localhost:8086",
       "https://mail.agent-native.com",
     ]);
+    expect(apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "analytics",
+      "mail",
+    ]);
+  });
+
+  it("rejects malformed granted app URLs before routing MCP actions", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => resolveGrantedDispatchMcpApp("bad-url"),
+      ),
+    ).rejects.toThrow(/invalid URL/);
   });
 });
 
@@ -434,6 +483,48 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
     expect(result).toEqual({
       app: "analytics",
+      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("skips malformed granted app URLs when matching embed URLs", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Mail",
+        url: "https://mail.agent-native.com",
+        color: "#2563EB",
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          url: "https://mail.agent-native.com/inbox",
+        }),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+      },
+    });
+    expect(result).toEqual({
+      app: "mail",
       startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
   });

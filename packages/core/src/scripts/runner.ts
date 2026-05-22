@@ -107,7 +107,7 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // it, db-exec / db-query / db-patch and any action that calls
   // `getRequestUserEmail()` see no identity and refuse to run. The
   // resolver picks up `AGENT_USER_EMAIL` if explicitly set, otherwise
-  // reads the most-recent signed-in session from the DB (dev-only,
+  // reads the DB session owner only when it is unambiguous (dev-only,
   // narrowly gated — see dev-session.ts).
   //
   // This wrap is intentionally a single point of injection: it covers

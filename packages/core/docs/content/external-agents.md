@@ -173,14 +173,14 @@ When the client requests no explicit scope, the app grants all three so the conn
 ## What you can do once connected {#what-you-can-do}
 
 Once your agent is connected, the available MCP tool surface depends on the
-host. Developer clients and bearer/static-token clients get the app's full
-action surface plus the `ask-agent` meta-tool that runs the full agent loop
-(the same entry point [A2A](/docs/a2a-protocol) uses). OAuth chat hosts that
-request `mcp:apps`, including Claude and ChatGPT, get a compact app-facing
-catalog instead: cross-app verbs such as `list_apps` and `open_app`, app-only
-embed helpers, and actions that explicitly declare `mcpApp`. In both cases,
-ask the agent to do real work and it hands back a link straight into the
-running app:
+host. Code/stdio developer clients get the app's full action surface plus the
+`ask-agent` meta-tool that runs the full agent loop (the same entry point
+[A2A](/docs/a2a-protocol) uses). Chat hosts, including Claude and ChatGPT, get
+a compact app-facing catalog by default even when they authenticate through a
+generic bearer/static-token path: cross-app verbs such as `list_apps`,
+`open_app`, and `ask_app`, plus the app-only embed helper. In both cases, ask
+the agent to do real work and it hands back a link straight into the running
+app:
 
 ```
 > draft an email to John about the Q3 report
@@ -201,6 +201,14 @@ declares `mcpApp`, the server advertises
 security metadata such as CSP and sandbox permissions lives on the resource
 entries and `resources/read` content, not on the tool descriptor.
 
+For ChatGPT/Claude-style OAuth app hosts, that discovery surface is compact by
+default: `tools/list` and `resources/list` advertise the generic `open_app`
+embed path instead of every action-specific MCP App resource. Use
+`open_app({ path, embed: true })` for first-class inline app previews. Keep
+action-specific MCP App resources for direct app connectors that disable the
+generic builtins, or mark an individual action with `mcpApp.compactCatalog: true`
+only when it truly needs to stay visible in chat-host discovery.
+
 That makes the same app surface available to every compatible host rather than building per-client shims. The current official MCP Apps client list includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support still varies by plan, release channel, and client version, so check the [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). ChatGPT custom MCP apps are available through developer mode for Business and Enterprise/Edu workspaces on ChatGPT web; see OpenAI's [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) notes.
 
 Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app.
@@ -209,6 +217,9 @@ Claude and ChatGPT can cache tool and resource metadata for an existing custom
 connector. After changing MCP App metadata, verify with a fresh tool call; if
 the host still uses the old descriptor, reconnect the Claude connector or
 rescan/review the ChatGPT connector so it refreshes the catalog.
+If Claude logs a warning about `_meta.ui.csp` or `_meta.ui.permissions` living
+on the tool descriptor after a deploy, that connector is using stale metadata:
+delete/reconnect the Claude connector and start a fresh chat.
 
 ### First-class MCP App bridge {#mcp-app-bridge}
 
@@ -243,6 +254,20 @@ When the ChatGPT or explicit diagnostic iframe path is used, the wrapper
 relays the same host actions over `agentNative.mcpHost.*` postMessage
 requests. Keep the result shape identical for both paths: return a focused
 `link` and concise structured content.
+
+Do not set standard `_meta.ui.domain` to an app URL. MCP Apps treats that field
+as host-specific: Claude validates `{hash}.claudemcpcontent.com`-style sandbox
+domains, while ChatGPT uses its own `openai/widgetDomain` metadata. Omit
+`ui.domain` unless you are deliberately emitting a host-specific value; the host
+will choose a default sandbox origin.
+
+Extension pages keep their sandbox in MCP chat embeds without navigating a
+second route iframe. Normal app usage renders
+`/_agent-native/extensions/:id/render` as a sandboxed child iframe. In MCP chat
+bridge mode the framework renders the same extension document as sandboxed
+`srcDoc` inside the route iframe, avoiding host `frame-ancestors` /
+`X-Frame-Options` failures while preserving `sandbox="allow-scripts
+allow-forms"`.
 
 The resource shell owns the outer host size. `embedApp({ height })` defaults
 to `560px`, clamps the shell to `320-900px`, and reserves `44px` for the small
@@ -307,7 +332,18 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
-For OAuth callers that request `mcp:apps`, the server intentionally advertises a compact `tools/list` catalog so app hosts do not ingest every internal action schema. The model sees app-facing builtins (`list_apps`, `open_app`, app-only `create_embed_session`) and actions with `mcpApp`. Stdio/static-token developer clients still get the full connected action surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools outside the compact app catalog. If a UI-capable host should be able to call a new action from an MCP App conversation, mark it with `mcpApp`; use `publicAgent` for non-UI read/ingest handoff tools.
+The server intentionally advertises tiny `tools/list` and `resources/list`
+catalogs by default for app hosts, including OAuth MCP Apps callers and
+generic authenticated remote HTTP/static-token callers, so hosts do not ingest
+every internal action schema or every action-specific UI resource. The model
+sees app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only
+`create_embed_session`) and routes inline UI through
+`open_app({ embed: true })`. Stdio/code developer clients can explicitly opt
+into the full connected action surface, and `publicAgent.expose` remains the
+opt-in for safe read/ingest tools outside the compact app catalog. If an
+individual
+UI action must remain visible to ChatGPT/Claude discovery, set
+`mcpApp.compactCatalog: true`, but treat that as a rare exception.
 
 For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
 
@@ -499,7 +535,7 @@ This is the unmanaged equivalent of what `connect` writes for you. See [MCP Prot
 
 ### Dev vs production tool surface {#dev-vs-prod}
 
-In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The full per-app surface appears when the request is authenticated as a real caller: a deployed / `AGENT_MODE=production` app, or a local app reached through `connect` / `agent-native mcp install` (which provisions a token so the caller has an identity). So if `tools/list` looks sparse, you are hitting an unauthenticated dev endpoint — connect (or present a token) rather than assuming the action is missing.
+In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). Stdio/code clients that use the `agent-native` proxy identify themselves and get the full developer catalog after auth. Chat-style remote HTTP callers stay on the compact app-facing catalog by default, even when authenticated, so ChatGPT/Claude cannot dump a huge full action catalog into the conversation.
 
 ### Switching first-party apps between prod and dev {#dev-switch}
 
@@ -568,5 +604,3 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.
 - [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`.
 - [Context Awareness](/docs/context-awareness) — the `navigate` / `application_state` contract the open route bridges to.
-  </content>
-  </invoke>

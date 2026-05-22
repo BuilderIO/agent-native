@@ -1,5 +1,39 @@
 # @agent-native/core
 
+## 0.22.35
+
+### Patch Changes
+
+- 6f76cbe: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+
+## 0.22.34
+
+### Patch Changes
+
+- bc9c866: Recover built-in auth marketing copy from hosted app request context.
+- bc9c866: Use branded first-party auth pages when the default auth guard serves before a template plugin.
+- bc9c866: Fix MCP Apps metadata and extension-page embeds for Claude and ChatGPT hosts.
+- bc9c866: Keep default SSR HTML cache headers public even when requests include auth cookies.
+
+## 0.22.33
+
+### Patch Changes
+
+- d0a107e: Default MCP Apps hosts to the compact generic app catalog instead of listing every action-specific UI resource.
+- d0a107e: Refuse to auto-bind CLI actions when multiple dev session owners exist.
+
+## 0.22.32
+
+### Patch Changes
+
+- 5c6b741: Emit MCP App widget domain metadata so ChatGPT can render submitted app templates.
+
+## 0.22.31
+
+### Patch Changes
+
+- 11362a2: Keep MCP App resource listing resilient to CSP metadata failures and invalid Dispatch app URLs.
+
 ## 0.22.30
 
 ### Patch Changes

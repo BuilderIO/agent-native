@@ -113,6 +113,14 @@ export interface MCPRequestMeta {
   /** Optional client preference for which URL the *markdown* link uses. */
   target?: "browser" | "desktop" | "terminal";
   /**
+   * Best-effort caller label derived from MCP transport headers. Chat-style
+   * remote hosts should stay on the compact catalog; code/stdio clients can
+   * explicitly identify themselves to keep the full action surface.
+   */
+  clientName?: string;
+  /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
+  fullCatalog?: boolean;
+  /**
    * The caller authenticated with a real credential (verified A2A/connect
    * JWT, matching ACCESS_TOKEN, or a forwarded owner-email header from
    * `agent-native mcp install`) — not the unauthenticated local dev-open
@@ -138,14 +146,9 @@ function isActionVisibleForOAuthScope(
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
+  "ask_app",
   "create_embed_session",
 ]);
-
-function isDispatchConfig(config: MCPConfig): boolean {
-  const id = (config.appId ?? "").toLowerCase();
-  const name = (config.name ?? "").toLowerCase();
-  return id === "dispatch" || name.includes("dispatch");
-}
 
 function isActionAdvertisedInCompactMcpAppCatalog(
   config: MCPConfig,
@@ -153,8 +156,20 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   entry: ActionEntry,
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-  if (name === "ask_app" && isDispatchConfig(config)) return true;
-  return Boolean(entry.mcpApp?.resource);
+  if (
+    (entry.mcpApp as { compactCatalog?: unknown } | undefined)
+      ?.compactCatalog === true
+  ) {
+    return true;
+  }
+  // If an app deliberately disables the generic open_app builtin, fall back to
+  // its action-specific MCP App tools so it still has a UI surface. The normal
+  // default is the opposite: keep chat-host catalogs tiny and route UI via
+  // open_app instead of listing every app action/template.
+  if (config.builtinCrossAppTools === false) {
+    return Boolean(entry.mcpApp?.resource);
+  }
+  return false;
 }
 
 const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
@@ -162,6 +177,8 @@ const NON_APP_OAUTH_CLIENT_RE =
   /\b(code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 const MCP_APP_OAUTH_REDIRECT_HOST_RE =
   /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
+const FULL_CATALOG_CLIENT_RE =
+  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 
 async function isKnownMcpAppOAuthClient(
   identity: MCPCallerIdentity | undefined,
@@ -217,6 +234,28 @@ async function isKnownMcpAppOAuthClient(
   }
 }
 
+function explicitlyRequestsFullMcpCatalog(
+  requestMeta: MCPRequestMeta | undefined,
+): boolean {
+  if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
+  if (requestMeta?.fullCatalog === true) return true;
+  return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
+}
+
+function shouldUseCompactMcpCatalogByDefault(
+  identity: MCPCallerIdentity | undefined,
+  requestMeta: MCPRequestMeta | undefined,
+): boolean {
+  if (explicitlyRequestsFullMcpCatalog(requestMeta)) return false;
+  // OAuth callers are classified through `isKnownMcpAppOAuthClient`: unknown
+  // OAuth clients compact by default, while known code/CLI clients stay full.
+  if (identity?.oauthClientId) return false;
+  // A real authenticated remote HTTP caller with no OAuth client metadata is
+  // usually a chat-host static-token connector. Keep it on the app-facing
+  // verbs so a host cannot dump every action schema into a giant tool card.
+  return requestMeta?.fullSurface === true;
+}
+
 interface ResolvedMcpAppResource {
   uri: string;
   legacyUris?: string[];
@@ -234,10 +273,35 @@ interface McpAppResourceContext {
   requestOrigin?: string;
 }
 
+interface VersionedMcpAppResourceUri {
+  uri: string;
+  legacyUris?: string[];
+}
+
 function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function originString(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function hostSpecificDomainString(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  try {
+    new URL(trimmed);
+    return undefined;
+  } catch {
+    return trimmed;
+  }
 }
 
 function withMcpChatBridgeParam(urlOrPath: string): string {
@@ -377,7 +441,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v25";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v26";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -387,7 +451,7 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
 
 function versionMcpAppResourceUri(
   rawUri: string,
-): { uri: string; legacyUris?: string[] } | null {
+): VersionedMcpAppResourceUri | null {
   const uri = rawUri.trim();
   if (!uri.startsWith("ui://")) return null;
   const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
@@ -406,6 +470,18 @@ function versionMcpAppResourceUri(
     uri: versionedUri,
     ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
   };
+}
+
+function getMcpAppResourceUri(
+  config: MCPConfig,
+  actionName: string,
+  entry: ActionEntry,
+): VersionedMcpAppResourceUri | null {
+  const resource = entry.mcpApp?.resource;
+  if (!resource) return null;
+  const baseUri =
+    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
+  return versionMcpAppResourceUri(baseUri);
 }
 
 function expandRequestOriginSources(
@@ -460,6 +536,7 @@ function mcpAppUiMeta(
       ? (base.ui as Record<string, unknown>)
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
+  delete ui.domain;
   if (resolvedCsp) {
     ui.csp = {
       ...resolvedCsp,
@@ -482,7 +559,15 @@ function mcpAppUiMeta(
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
-  if (resource.domain) ui.domain = resource.domain;
+  const hostSpecificDomain =
+    hostSpecificDomainString(resource.domain) ??
+    hostSpecificDomainString(existingUi.domain);
+  if (hostSpecificDomain) ui.domain = hostSpecificDomain;
+  const openAiWidgetDomain =
+    originString(resource.domain) ??
+    originString(ui.domain) ??
+    originString(existingUi.domain) ??
+    originString(requestMeta?.origin);
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -499,6 +584,9 @@ function mcpAppUiMeta(
   const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
+  }
+  if (openAiWidgetDomain && base["openai/widgetDomain"] == null) {
+    base["openai/widgetDomain"] = openAiWidgetDomain;
   }
   return Object.keys(base).length > 0 ? base : undefined;
 }
@@ -521,9 +609,7 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  const baseUri =
-    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
-  const resolvedUri = versionMcpAppResourceUri(baseUri);
+  const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
   const resolvedCsp = await resolveMcpAppCsp(resource, {
@@ -549,6 +635,23 @@ async function resolveMcpAppResource(
   };
 }
 
+async function resolveMcpAppResourceSafely(
+  config: MCPConfig,
+  actionName: string,
+  entry: ActionEntry,
+  requestMeta?: MCPRequestMeta,
+): Promise<ResolvedMcpAppResource | null> {
+  try {
+    return await resolveMcpAppResource(config, actionName, entry, requestMeta);
+  } catch (error) {
+    console.warn(
+      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved.`,
+      error,
+    );
+    return null;
+  }
+}
+
 async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
@@ -556,7 +659,7 @@ async function getMcpAppResources(
 ): Promise<ResolvedMcpAppResource[]> {
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
-      resolveMcpAppResource(config, name, entry, requestMeta),
+      resolveMcpAppResourceSafely(config, name, entry, requestMeta),
     ),
   );
   return resources.filter((resource): resource is ResolvedMcpAppResource =>
@@ -738,7 +841,8 @@ export async function createMCPServerForRequest(
   const compactMcpAppCatalog =
     (Array.isArray(effectiveIdentity?.oauthScopes) &&
       hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-    (await isKnownMcpAppOAuthClient(effectiveIdentity));
+    (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
+    shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -808,7 +912,7 @@ export async function createMCPServerForRequest(
       const tools = await Promise.all(
         Object.entries(advertisedActions).map(async ([name, entry]) => {
           const hasLink = typeof entry.link === "function";
-          const mcpAppResource = await resolveMcpAppResource(
+          const mcpAppResource = await resolveMcpAppResourceSafely(
             config,
             name,
             entry,
@@ -956,7 +1060,7 @@ export async function createMCPServerForRequest(
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
-        const mcpAppResource = await resolveMcpAppResource(
+        const mcpAppResource = await resolveMcpAppResourceSafely(
           config,
           name,
           entry,
@@ -1051,23 +1155,31 @@ export async function createMCPServerForRequest(
       async (request: any) => {
         return withCallerContext(async () => {
           const uri = request.params?.uri;
-          const candidates = await Promise.all(
-            Object.entries(advertisedActions).map(async ([name, entry]) => ({
-              actionName: name,
-              resource: await resolveMcpAppResource(
-                config,
-                name,
-                entry,
-                requestMeta,
-              ),
-            })),
-          );
-          const found = candidates.find(
-            (candidate) =>
-              candidate.resource?.uri === uri ||
-              candidate.resource?.legacyUris?.includes(uri),
-          );
-          if (!found?.resource) {
+          let found: {
+            actionName: string;
+            resource: ResolvedMcpAppResource;
+          } | null = null;
+          for (const [name, entry] of Object.entries(advertisedActions)) {
+            const resourceUri = getMcpAppResourceUri(config, name, entry);
+            if (
+              !resourceUri ||
+              (resourceUri.uri !== uri &&
+                !resourceUri.legacyUris?.includes(uri))
+            ) {
+              continue;
+            }
+            const resource = await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            );
+            if (resource) {
+              found = { actionName: name, resource };
+            }
+            break;
+          }
+          if (!found) {
             throw new Error(`MCP App resource not found: ${uri}`);
           }
           return {

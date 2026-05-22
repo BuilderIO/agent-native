@@ -715,6 +715,21 @@ export function embedApp(
       }, frameLoadTimeoutMs);
     }
 
+    function refreshExpiredEmbedSession() {
+      clearFrameReadyTimer();
+      clearFrameLoadTimer();
+      appFrameReady = false;
+      if (!openUrl) {
+        renderFrameFallback();
+        return;
+      }
+      openStartUrl = "";
+      startedFor = "";
+      lastFrameSrc = "";
+      setMessage("Refreshing app session");
+      void launchEmbed();
+    }
+
     function shouldSelfNavigateToApp() {
       const mode = typeof toolInput.embedMode === "string"
         ? toolInput.embedMode
@@ -896,6 +911,10 @@ export function embedApp(
         appFrameReady = true;
         clearFrameLoadTimer();
         clearFrameReadyTimer();
+        return;
+      }
+      if (event.data.type === "agentNative.embedSessionExpired") {
+        refreshExpiredEmbedSession();
         return;
       }
       if (event.data.type === "agentNative.submitChat") {

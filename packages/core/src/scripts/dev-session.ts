@@ -9,20 +9,16 @@
  * this helper every db-* CLI run hands the user a stack trace.
  *
  * What this does: when the runner is about to dispatch, resolve a real
- * email by reading the most-recent row from the legacy `sessions` table
- * (the same table that `addSession()` writes from google-oauth.ts and the
- * A2A receiver fallback already consults). The runner then wraps dispatch
- * in `runWithRequestContext({ userEmail })` so the action sees a real
- * identity.
+ * email from the legacy `sessions` table (the same table that
+ * `addSession()` writes from google-oauth.ts and the A2A receiver fallback
+ * already consults). The runner then wraps dispatch in
+ * `runWithRequestContext({ userEmail })` so the action sees a real identity.
  *
- * SHARED-DEV-BOX CAVEAT: the `SELECT email FROM sessions ORDER BY
- * created_at DESC LIMIT 1` query is unscoped — on a machine where
- * multiple developers have signed in (or after a `pnpm action …` run
- * from another team's app), this will bind to whoever signed in most
- * recently across *all* sessions in the DB. If that is wrong, set
- * `AGENT_USER_EMAIL=<your-email>` in your shell or `.env`; explicit env
- * always wins. A `[dev-session]` log line is emitted so wrong-binding
- * is easy to spot.
+ * SHARED-DEV-BOX CAVEAT: this table is unscoped. To avoid silently binding
+ * to another developer, auto-binding only happens when the table contains
+ * exactly one distinct real email. If multiple developers have signed in,
+ * set `AGENT_USER_EMAIL=<your-email>` in your shell or `.env`; explicit env
+ * always wins.
  *
  * Strict gating mirrors the A2A precedent in
  * `server/agent-chat-plugin.ts` (search for "latest session"):
@@ -61,13 +57,31 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
   try {
     const { getDbExec } = await import("../db/client.js");
     const { rows } = await getDbExec().execute({
-      sql: `SELECT email FROM sessions
-            WHERE email IS NOT NULL AND email <> ?
-            ORDER BY created_at DESC LIMIT 1`,
+      sql: `SELECT email
+            FROM (
+              SELECT TRIM(email) AS email, MAX(created_at) AS last_seen
+              FROM sessions
+              WHERE email IS NOT NULL AND TRIM(email) <> ?
+              GROUP BY TRIM(email)
+            ) AS session_owners
+            WHERE email <> ''
+            ORDER BY last_seen DESC
+            LIMIT 2`,
       args: [DEV_FALLBACK_EMAIL],
     });
-    const email = rows[0]?.email as string | undefined;
-    if (!email || email.trim().length === 0) return undefined;
+    const emails = rows
+      .map((row) => (typeof row.email === "string" ? row.email.trim() : ""))
+      .filter((email) => email.length > 0);
+    if (emails.length === 0) return undefined;
+    if (emails.length > 1) {
+      console.warn(
+        `[dev-session] multiple session owners found (${emails.join(
+          ", ",
+        )}); set AGENT_USER_EMAIL=<email> to choose one`,
+      );
+      return undefined;
+    }
+    const email = emails[0];
     console.log(
       `[dev-session] auto-bound to ${email} (set AGENT_USER_EMAIL to override)`,
     );

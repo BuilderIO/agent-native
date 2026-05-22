@@ -122,6 +122,48 @@ function textResponse(
   });
 }
 
+function expiredEmbedSessionResponse(event: H3Event): Response {
+  setEmbedStartResponseHeaders(event);
+  return new Response(
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embedded app session expired</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: Canvas; color: CanvasText; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    main { max-width: 520px; text-align: center; }
+    h1 { margin: 0 0 8px; font-size: 16px; line-height: 1.25; }
+    p { margin: 0; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Embedded app session expired</h1>
+    <p>This chat preview is refreshing. If it does not reload, ask the chat to open the app again.</p>
+  </main>
+  <script>
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "agentNative.embedSessionExpired" }, "*");
+      }
+    } catch {}
+  </script>
+</body>
+</html>`,
+    {
+      status: 401,
+      headers: embedStartResponseHeaders(event, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      }),
+    },
+  );
+}
+
 export function buildEmbedStartPath(ticket: string): string {
   const qs = new URLSearchParams({ ticket });
   return `${getConfiguredAppBasePath()}${EMBED_START_PATH}?${qs}`;
@@ -178,7 +220,7 @@ export function createEmbedStartRouteHandler(
       expectedOrgId: existingSession?.orgId ?? null,
     });
     if (!consumed) {
-      return textResponse(event, "Invalid or expired embed session.", 401);
+      return expiredEmbedSessionResponse(event);
     }
 
     const target = normalizeEmbedTargetPath(consumed.targetPath);

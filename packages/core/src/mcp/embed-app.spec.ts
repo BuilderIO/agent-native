@@ -75,6 +75,9 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.openLink"');
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
+    expect(html).toContain('"agentNative.embedSessionExpired"');
+    expect(html).toContain("refreshExpiredEmbedSession");
+    expect(html).toContain('openStartUrl = "";');
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("function openLinkRecordFrom(value)");
     expect(html).toContain("return withChatBridgeParam(value)");
