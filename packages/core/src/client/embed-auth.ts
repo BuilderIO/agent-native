@@ -16,6 +16,9 @@ const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
 const AUTH_FAILURE_HEADER = "x-agent-native-auth-circuit-breaker";
+const MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID =
+  "agent-native-mcp-chat-bridge-viewport";
+const MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT = 560;
 
 type AuthFailureRecord = {
   status: number;
@@ -157,6 +160,79 @@ export function isEmbedAuthActive(): boolean {
   if (getEmbedAuthToken()) return true;
   const mode = currentUrl(win)?.searchParams.get(EMBED_MODE_QUERY_PARAM);
   return mode === "1" || mode === "true";
+}
+
+function ensureMcpChatBridgeViewportClamp(win: Window): void {
+  if (!isEmbedMcpChatBridgeActive()) return;
+  const doc = win.document;
+  if (!doc?.head) return;
+  if (!doc.getElementById(MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID)) {
+    const style = doc.createElement("style");
+    style.id = MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID;
+    const height = `${MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT}px`;
+    style.textContent = `
+html,
+body {
+  min-height: 0 !important;
+  height: ${height} !important;
+  max-height: ${height} !important;
+  overflow: hidden !important;
+}
+
+#root,
+#__next,
+[data-agent-native-app-root] {
+  min-height: 0 !important;
+  height: ${height} !important;
+  max-height: ${height} !important;
+  overflow: hidden !important;
+}
+`;
+    doc.head.appendChild(style);
+  }
+  notifyMcpChatBridgeViewportHeight(win);
+}
+
+function notifyMcpChatBridgeViewportHeight(win: Window): void {
+  const height = MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT;
+  const notify = () => {
+    try {
+      const openai = (
+        win as Window & {
+          openai?: {
+            notifyIntrinsicHeight?: (payload: { height: number }) => void;
+          };
+        }
+      ).openai;
+      openai?.notifyIntrinsicHeight?.({ height });
+    } catch {
+      // Host bridge availability varies by client; sizing is best-effort.
+    }
+
+    try {
+      if (win.parent && win.parent !== win) {
+        win.parent.postMessage(
+          {
+            jsonrpc: "2.0",
+            method: "ui/notifications/size-changed",
+            params: { height },
+          },
+          "*",
+        );
+      }
+    } catch {
+      // Cross-host embeds can deny parent messaging in tests or strict sandboxes.
+    }
+  };
+
+  notify();
+  try {
+    win.requestAnimationFrame?.(() => notify());
+    win.setTimeout?.(notify, 250);
+    win.setTimeout?.(notify, 1000);
+  } catch {
+    // Timers are a progressive enhancement for late host bridge initialization.
+  }
 }
 
 /** Internal test helper. Do not use in app code. */
@@ -372,6 +448,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     storeToken(urlToken, win);
     stripTokenFromUrl(win);
   }
+  ensureMcpChatBridgeViewportClamp(win);
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;

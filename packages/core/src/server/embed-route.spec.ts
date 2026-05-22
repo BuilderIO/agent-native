@@ -158,4 +158,28 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
+
+  it("preserves the MCP chat bridge flag on the signed app route", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("GET", {
+        ticket: "ticket-123",
+        __an_mcp_chat_bridge: "1",
+      }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/inbox?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
+    );
+  });
 });

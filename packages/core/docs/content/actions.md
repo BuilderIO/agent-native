@@ -199,16 +199,17 @@ export default defineAction({
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
-It does not request nested `frameDomains` unless you pass them explicitly; keep
-normal product UI on the single-frame route-navigation path for Claude
-compatibility.
+ChatGPT uses a controlled route iframe to avoid web-sandbox auto-height
+feedback loops. Claude web uses a single-frame mount path automatically: the
+launcher fetches the signed route HTML inside Claude's MCP resource frame,
+mounts the real app document there, and rewrites app-origin network calls back
+to the original app with the embed token.
 
 Embedded routes can use the exported client helpers for the MCP App host
-bridge. Under the hood, routes receive `agentNative.mcpHostContext` and may
-post `agentNative.mcpHost.updateModelContext`,
-`agentNative.mcpHost.openLink`, or
-`agentNative.mcpHost.requestDisplayMode`; the wrapper replies with
-`agentNative.mcpHost.response`.
+bridge. Direct and Claude-mounted route embeds post standard `ui/*` JSON-RPC
+messages to the host, while the ChatGPT controlled-frame path and explicit
+nested-iframe diagnostic path proxy `agentNative.mcpHost.*` messages through
+the launch wrapper.
 
 ## Standard actions {#standard-actions}
 

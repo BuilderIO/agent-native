@@ -25,6 +25,7 @@ describe("embed auth client", () => {
       writable: true,
       value: vi.fn(async () => new Response("ok")),
     });
+    delete (window as Window & { openai?: unknown }).openai;
   });
 
   it("persists the URL token before stripping it from browser-visible history", async () => {
@@ -63,6 +64,30 @@ describe("embed auth client", () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("clamps MCP chat bridge embeds to a stable viewport height", async () => {
+    const notifyIntrinsicHeight = vi.fn();
+    Object.defineProperty(window, "openai", {
+      configurable: true,
+      writable: true,
+      value: { notifyIntrinsicHeight },
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+
+    const style = document.getElementById(
+      "agent-native-mcp-chat-bridge-viewport",
+    );
+    expect(style?.textContent).toContain("height: 560px !important");
+    expect(style?.textContent).toContain("overflow: hidden !important");
+    expect(notifyIntrinsicHeight).toHaveBeenCalledWith({ height: 560 });
   });
 
   it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {

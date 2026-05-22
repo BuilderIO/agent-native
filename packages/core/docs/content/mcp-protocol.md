@@ -78,8 +78,16 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 `embedApp()` is the low-level URL-first MCP App helper. It reads the action
 result's open link, asks the app-only `create_embed_session` tool to mint a
-route-scoped session, then navigates the MCP App frame itself to the resulting
-app route. For normal action authoring, use `embedRoute()` when the action's
+route-scoped session, then launches the resulting app route. ChatGPT and hosts
+that allow direct route hydration launch the same signed app URL, but ChatGPT
+keeps it in a controlled route iframe to avoid a web-sandbox auto-height
+feedback loop. Claude web currently proxies MCP App content under
+`claudemcpcontent.com`; direct route navigation can fetch app HTML there
+without reliably running the framework bootstrap, and a second nested iframe is
+easy for the host to block. For Claude, `embedApp()` fetches the signed app
+HTML and mounts the real route document into the existing MCP resource frame,
+with app-origin requests routed back to the original app using the embed token.
+For normal action authoring, use `embedRoute()` when the action's
 `link` and `mcpApp` should come from the same pure route builder. The route
 itself should derive state from the URL and normal app data fetching.
 
@@ -93,8 +101,9 @@ JSON-RPC messages:
 | `ui/open-link`            | `{ url }`                          |
 | `ui/request-display-mode` | `{ mode }`                         |
 
-An explicit `embedMode: "iframe"` / `renderMode: "iframe"` diagnostic path
-keeps the old wrapper-to-route postMessage relay:
+The ChatGPT controlled-frame path and any explicit `embedMode: "iframe"` /
+`renderMode: "iframe"` diagnostic path use the wrapper-to-route postMessage
+relay:
 
 | Direction       | Type                                     | Payload shape                                 |
 | --------------- | ---------------------------------------- | --------------------------------------------- |
@@ -104,9 +113,9 @@ keeps the old wrapper-to-route postMessage relay:
 | route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                         |
 | wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }`          |
 
-`embedApp()` only includes `frameDomains` when you pass them explicitly.
-Claude currently restricts third-party nested iframe domains, so normal
-full-app embeds should stay on the direct route-navigation path.
+`embedApp()` includes the MCP request origin in the resource CSP so the
+launcher can fetch and, when explicitly requested, frame the signed first-party
+route. Pass additional `frameDomains` only for custom third-party frames.
 
 Host-mediated open links keep the iframe from choosing its own browser target.
 Model context updates are opt-in and hidden from the user-facing transcript.

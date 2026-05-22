@@ -18,6 +18,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   isClaudeMcpContentOrigin,
@@ -32,10 +33,17 @@ function withConfiguredBasePath(path: string): string {
   return `${base}${path}`;
 }
 
-function appendEmbedParams(target: string, token: string): string {
+function appendEmbedParams(
+  target: string,
+  token: string,
+  chatBridgeActive = false,
+): string {
   const url = new URL(target, "http://agent-native.invalid");
   url.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
   url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+  if (chatBridgeActive) {
+    url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+  }
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -119,6 +127,14 @@ export function buildEmbedStartPath(ticket: string): string {
   return `${getConfiguredAppBasePath()}${EMBED_START_PATH}?${qs}`;
 }
 
+function firstQueryValue(value: unknown): string {
+  return typeof value === "string"
+    ? value
+    : Array.isArray(value) && typeof value[0] === "string"
+      ? value[0]
+      : "";
+}
+
 export interface EmbedStartRouteOptions {
   getExistingSession?: (event: H3Event) => Promise<AuthSession | null>;
 }
@@ -152,7 +168,8 @@ export function createEmbedStartRouteHandler(
       return textResponse(event, "Method not allowed", 405);
     }
 
-    const rawTicket = getQuery(event)?.ticket;
+    const query = getQuery(event) ?? {};
+    const rawTicket = query.ticket;
     const ticket = Array.isArray(rawTicket) ? rawTicket[0] : rawTicket;
     const existingSession = await options
       .getExistingSession?.(event)
@@ -178,8 +195,13 @@ export function createEmbedStartRouteHandler(
     setEmbedSessionCookie(event, token);
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
+    const chatBridgeActive =
+      firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "1" ||
+      firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "true";
     const location = withConfiguredBasePath(
-      withCollapsedAgentSidebarParam(appendEmbedParams(target, token)),
+      withCollapsedAgentSidebarParam(
+        appendEmbedParams(target, token, chatBridgeActive),
+      ),
     );
     return redirectWithStagedCookies(event, location);
   });

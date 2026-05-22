@@ -300,18 +300,23 @@ Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
 metadata and still need the "Open in … →" link. `embedApp()` uses that link as
 its launch target, calls the app-only `create_embed_session` helper, exchanges
-a one-time SQL ticket at `/_agent-native/embed/start`, then navigates the MCP
-App resource frame itself to the real app route with a short-lived browser
-session. This avoids the fragile "iframe inside the host's iframe" shape that
-Claude and some ChatGPT surfaces block or paint blank. A nested iframe remains
-available only as an explicit diagnostic fallback (`embedMode: "iframe"` /
-`renderMode: "iframe"` / `nested: true`); pass `frameDomains` only for that
-diagnostic or for a custom MCP App that truly embeds a third-party frame.
-Claude currently restricts third-party `frameDomains`, so normal product UI
-must stay on the direct route-navigation path. `open_app({ app, path, embed:
-true })` is the generic escape hatch for routes like full dashboards, filtered
-inboxes, calendar drafts, analyses, or extension pages, and should be used
-liberally when the full app is the clearest review/edit surface.
+a one-time SQL ticket at `/_agent-native/embed/start`, then launches the real
+app route with a short-lived browser session. ChatGPT uses a controlled route
+iframe to avoid web-sandbox auto-height feedback loops. Standard hosts that can
+hydrate the route directly navigate the MCP App frame itself. Claude web
+currently proxies MCP App content through `claudemcpcontent.com`; direct route
+navigation can fetch app HTML there without reliably running the framework
+bootstrap, and a second nested iframe is easy for the host to block. For
+Claude, `embedApp()` fetches the signed route HTML and mounts the real app
+document into the existing MCP resource frame, with app-origin requests routed
+back to the app using the embed token. You can force the nested diagnostic
+iframe with `embedMode: "iframe"` /
+`renderMode: "iframe"` / `nested: true` when debugging host behavior. Pass
+additional `frameDomains` only for a custom MCP App that truly embeds a
+third-party frame. `open_app({ app, path, embed: true })` is the generic
+escape hatch for routes like full dashboards, filtered inboxes, calendar
+drafts, analyses, or extension pages, and should be used liberally when the
+full app is the clearest review/edit surface.
 
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email

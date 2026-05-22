@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AppBridge,
   PostMessageTransport,
@@ -12,8 +18,9 @@ import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
 
-const DEFAULT_IFRAME_HEIGHT = 360;
-const MAX_IFRAME_HEIGHT = 900;
+export const DEFAULT_MCP_APP_IFRAME_HEIGHT = 650;
+const MIN_IFRAME_HEIGHT = 220;
+const VIEWPORT_MARGIN = 16;
 const SANDBOX_FLAGS = "allow-scripts allow-forms allow-popups";
 
 export interface McpAppRendererProps {
@@ -29,8 +36,9 @@ type ResourceUiMeta = {
 
 export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const desiredHeightRef = useRef(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const [loadedSrcDoc, setLoadedSrcDoc] = useState<string | null>(null);
-  const [height, setHeight] = useState(DEFAULT_IFRAME_HEIGHT);
+  const [height, setHeight] = useState(DEFAULT_MCP_APP_IFRAME_HEIGHT);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const resourceHtml = app.resource ? htmlFromResource(app.resource) : "";
@@ -46,10 +54,67 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
   );
 
   useEffect(() => {
+    desiredHeightRef.current = DEFAULT_MCP_APP_IFRAME_HEIGHT;
+    setHeight(
+      clampMcpAppHeight(
+        DEFAULT_MCP_APP_IFRAME_HEIGHT,
+        availableMcpAppHeight(iframeRef.current),
+      ),
+    );
     setLoadedSrcDoc(null);
     setReady(false);
     setError(null);
   }, [srcDoc]);
+
+  const applyHeight = useCallback((desiredHeight?: number) => {
+    if (
+      typeof desiredHeight === "number" &&
+      Number.isFinite(desiredHeight) &&
+      desiredHeight > 0
+    ) {
+      desiredHeightRef.current = desiredHeight;
+    }
+    setHeight(
+      clampMcpAppHeight(
+        desiredHeightRef.current,
+        availableMcpAppHeight(iframeRef.current),
+      ),
+    );
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        applyHeight();
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update, { passive: true });
+    window.visualViewport?.addEventListener("resize", update, {
+      passive: true,
+    });
+    document.addEventListener("scroll", update, true);
+
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    if (observer) {
+      observer.observe(document.documentElement);
+      const parent = iframeRef.current?.parentElement;
+      if (parent) observer.observe(parent);
+    }
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      document.removeEventListener("scroll", update, true);
+      observer?.disconnect();
+    };
+  }, [applyHeight, srcDoc]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -70,7 +135,10 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         },
       },
       {
-        hostContext: buildHostContext(app) as any,
+        hostContext: buildHostContext(
+          app,
+          availableMcpAppHeight(iframe),
+        ) as any,
       },
     );
 
@@ -78,9 +146,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       if (typeof nextHeight !== "number" || !Number.isFinite(nextHeight)) {
         return;
       }
-      setHeight(
-        Math.min(MAX_IFRAME_HEIGHT, Math.max(220, Math.ceil(nextHeight))),
-      );
+      applyHeight(nextHeight);
     });
     bridge.addEventListener("initialized", () => {
       if (closed) return;
@@ -148,7 +214,14 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
           void (bridge as any).close?.().catch?.(() => undefined);
         });
     };
-  }, [app, loadedSrcDoc, srcDoc, supportedPermissions, uiMeta.csp]);
+  }, [
+    app,
+    applyHeight,
+    loadedSrcDoc,
+    srcDoc,
+    supportedPermissions,
+    uiMeta.csp,
+  ]);
 
   if (!resourceHtml) {
     return (
@@ -292,7 +365,7 @@ function escapeAttribute(value: string): string {
     .replace(/</g, "&lt;");
 }
 
-function buildHostContext(app: AgentMcpAppPayload) {
+function buildHostContext(app: AgentMcpAppPayload, maxHeight: number) {
   const root =
     typeof window !== "undefined"
       ? getComputedStyle(document.documentElement)
@@ -326,7 +399,7 @@ function buildHostContext(app: AgentMcpAppPayload) {
     locale: typeof navigator !== "undefined" ? navigator.language : undefined,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     containerDimensions: {
-      maxHeight: MAX_IFRAME_HEIGHT,
+      maxHeight,
       maxWidth: typeof window !== "undefined" ? window.innerWidth : undefined,
     },
     styles: {
@@ -393,6 +466,45 @@ function errorToolResult(message: string): CallToolResult {
     content: [{ type: "text", text: `Error: ${message}` }],
     isError: true,
   };
+}
+
+function finitePositiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+export function availableMcpAppHeight(
+  element: HTMLElement | null | undefined,
+): number {
+  if (typeof window === "undefined") return DEFAULT_MCP_APP_IFRAME_HEIGHT;
+
+  const viewportHeight =
+    finitePositiveNumber(window.visualViewport?.height) ??
+    finitePositiveNumber(window.innerHeight) ??
+    DEFAULT_MCP_APP_IFRAME_HEIGHT;
+
+  if (!element) {
+    return Math.max(1, Math.floor(viewportHeight - VIEWPORT_MARGIN * 2));
+  }
+
+  const rect = element.getBoundingClientRect();
+  const top = Number.isFinite(rect.top)
+    ? Math.max(VIEWPORT_MARGIN, rect.top)
+    : VIEWPORT_MARGIN;
+  return Math.max(1, Math.floor(viewportHeight - top - VIEWPORT_MARGIN));
+}
+
+export function clampMcpAppHeight(
+  desiredHeight: number,
+  maxVisibleHeight: number,
+): number {
+  const maxHeight =
+    finitePositiveNumber(maxVisibleHeight) ?? DEFAULT_MCP_APP_IFRAME_HEIGHT;
+  const desired =
+    finitePositiveNumber(desiredHeight) ?? DEFAULT_MCP_APP_IFRAME_HEIGHT;
+  const minimum = Math.min(MIN_IFRAME_HEIGHT, maxHeight);
+  return Math.max(minimum, Math.min(maxHeight, Math.ceil(desired)));
 }
 
 function isSafeExternalUrl(value: string): boolean {

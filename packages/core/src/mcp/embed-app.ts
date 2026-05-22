@@ -6,9 +6,9 @@ const MCP_APP_IMPORT =
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
-export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT = 720;
-export const DEFAULT_MCP_APP_SHELL_HEIGHT =
-  DEFAULT_MCP_APP_VIEWPORT_HEIGHT + MCP_APP_WRAPPER_CHROME_HEIGHT;
+export const DEFAULT_MCP_APP_SHELL_HEIGHT = 560;
+export const DEFAULT_MCP_APP_VIEWPORT_HEIGHT =
+  DEFAULT_MCP_APP_SHELL_HEIGHT - MCP_APP_WRAPPER_CHROME_HEIGHT;
 
 export interface EmbedAppOptions {
   title?: string;
@@ -42,10 +42,10 @@ export function embedApp(
     Math.min(900, options.height ?? DEFAULT_MCP_APP_SHELL_HEIGHT),
   );
   const viewportHeight = height - MCP_APP_WRAPPER_CHROME_HEIGHT;
-  const frameDomains =
-    options.frameDomains && options.frameDomains.length > 0
-      ? [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE, ...options.frameDomains]
-      : undefined;
+  const frameDomains = [
+    MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    ...(options.frameDomains ?? []),
+  ];
 
   return {
     title,
@@ -56,19 +56,19 @@ export function embedApp(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: Canvas; color: CanvasText; }
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: Canvas; color: CanvasText; --agent-native-shell-height: ${height}px; --agent-native-viewport-height: ${viewportHeight}px; }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    .shell { display: grid; gap: 8px; min-height: ${height}px; padding: 0; }
+    .shell { display: grid; gap: 8px; min-height: var(--agent-native-shell-height); padding: 0; }
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, Canvas); }
     .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; color: color-mix(in srgb, CanvasText 72%, Canvas); }
     .actions { display: flex; align-items: center; gap: 6px; }
     button { min-height: 28px; border: 1px solid color-mix(in srgb, CanvasText 14%, Canvas); border-radius: 7px; background: Canvas; color: CanvasText; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 0 9px; }
     button:disabled { opacity: .55; cursor: default; }
-    .stage { position: relative; min-height: ${viewportHeight}px; }
-    iframe { display: block; width: 100%; height: ${viewportHeight}px; border: 0; background: Canvas; }
-    .message { display: grid; place-items: center; min-height: ${viewportHeight}px; padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
-    .fallback { display: grid; align-content: center; justify-items: center; gap: 12px; min-height: ${viewportHeight}px; padding: 24px; background: Canvas; color: CanvasText; text-align: center; }
+    .stage { position: relative; min-height: var(--agent-native-viewport-height); }
+    iframe { display: block; width: 100%; height: var(--agent-native-viewport-height); border: 0; background: Canvas; }
+    .message { display: grid; place-items: center; min-height: var(--agent-native-viewport-height); padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
+    .fallback { display: grid; align-content: center; justify-items: center; gap: 12px; min-height: var(--agent-native-viewport-height); padding: 24px; background: Canvas; color: CanvasText; text-align: center; }
     .fallback-title { max-width: 440px; font-size: 14px; font-weight: 700; }
     .fallback-copy { max-width: 520px; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.45; }
     .fallback-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
@@ -103,7 +103,8 @@ export function embedApp(
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
-    const intrinsicHeight = ${height};
+    const defaultIntrinsicHeight = ${height};
+    const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
     let app = null;
     let openAiBridge = null;
     let toolInput = {};
@@ -133,6 +134,40 @@ export function embedApp(
       return value && typeof value === "object" && !Array.isArray(value)
         ? value
         : {};
+    }
+
+    function finiteNumber(value) {
+      return typeof value === "number" && Number.isFinite(value) && value > 0
+        ? value
+        : null;
+    }
+
+    function contextMaxHeight(context) {
+      if (!context || typeof context !== "object") return null;
+      return finiteNumber(context.maxHeight) ||
+        finiteNumber(context.containerDimensions && context.containerDimensions.maxHeight);
+    }
+
+    function visibleIntrinsicHeight() {
+      const context = hostState().context || {};
+      const hostMaxHeight = contextMaxHeight(context);
+      if (hostMaxHeight) return Math.floor(hostMaxHeight);
+      const viewportHeight = finiteNumber(window.visualViewport && window.visualViewport.height) ||
+        finiteNumber(window.innerHeight);
+      return Math.floor(viewportHeight || defaultIntrinsicHeight);
+    }
+
+    function applyIntrinsicHeight(nextHeight) {
+      const boundedHeight = Math.min(
+        defaultIntrinsicHeight,
+        Math.floor(nextHeight || defaultIntrinsicHeight)
+      );
+      const height = Math.max(320, boundedHeight);
+      const viewportHeight = Math.max(0, height - chromeHeight);
+      document.documentElement.style.setProperty("--agent-native-shell-height", height + "px");
+      document.documentElement.style.setProperty("--agent-native-viewport-height", viewportHeight + "px");
+      if (appFrame) appFrame.style.height = viewportHeight + "px";
+      return height;
     }
 
     function parseToolResult(params) {
@@ -216,10 +251,6 @@ export function embedApp(
       }
     }
 
-    function isClaudeMcpContentHost() {
-      return /^[a-f0-9]{32}\\.claudemcpcontent\\.com$/i.test(window.location.hostname);
-    }
-
     function isEmbedStartUrl(value) {
       if (typeof value !== "string" || !value) return false;
       try {
@@ -250,36 +281,9 @@ export function embedApp(
       );
     }
 
-    function safeJsonForInlineScript(value) {
-      return JSON.stringify(value).replace(/</g, "\\\\u003c");
-    }
-
-    function externalEmbedBootstrapMarkup(config) {
-      const json = safeJsonForInlineScript(config);
-      const script =
-        '<script>' +
-        '(function(){' +
-        'var config=' + json + ';' +
-        'window.__AGENT_NATIVE_EXTERNAL_EMBED=config;' +
-        'try{' +
-        'if(config.token){sessionStorage.setItem("agent-native:embed-auth-token",config.token);}' +
-        'if(config.chatBridgeActive&&config.token){sessionStorage.setItem("agent-native:mcp-chat-bridge",config.token);}' +
-        '}catch(_err){}' +
-        'function appOrigin(){try{return new URL(config.origin).origin;}catch(_err){return "";}}' +
-        'function targetPath(){return config.target||location.pathname+location.search;}' +
-        'function rewrittenUrl(value,appendToken){var origin=appOrigin();if(!origin)return null;var url;try{url=new URL(value,location.href);}catch(_err){return null;}if(url.origin!==location.origin&&url.origin!==origin)return null;if(url.origin!==origin){var app=new URL(origin);url.protocol=app.protocol;url.host=app.host;}if(appendToken&&config.token&&url.pathname==="/_agent-native/events"){url.searchParams.set(config.embedTokenParam,config.token);}return url.toString();}' +
-        'function authHeaders(input,init){var headers=new Headers(init&&init.headers?init.headers:(input instanceof Request?input.headers:undefined));if(config.token&&!headers.has("Authorization"))headers.set("Authorization","Bearer "+config.token);if(!headers.has(config.embedTargetHeader))headers.set(config.embedTargetHeader,targetPath());return headers;}' +
-        'if(typeof fetch==="function"){var originalFetch=fetch.bind(window);window.fetch=function(input,init){var raw=input instanceof Request?input.url:String(input);var url=rewrittenUrl(raw,false);if(!url)return originalFetch(input,init);var nextInit=Object.assign({},init||{},{headers:authHeaders(input,init),credentials:"omit"});if(input instanceof Request){return originalFetch(new Request(url,input),nextInit);}return originalFetch(url,nextInit);};}' +
-        'if(typeof XMLHttpRequest!=="undefined"){var originalOpen=XMLHttpRequest.prototype.open;var originalSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url){var rewritten=rewrittenUrl(url,false);this.__agentNativeExternalEmbed=!!rewritten;return originalOpen.call(this,method,rewritten||url,arguments.length>2?arguments[2]:true,arguments[3],arguments[4]);};XMLHttpRequest.prototype.send=function(body){if(this.__agentNativeExternalEmbed){try{if(config.token)this.setRequestHeader("Authorization","Bearer "+config.token);this.setRequestHeader(config.embedTargetHeader,targetPath());}catch(_err){}}return originalSend.call(this,body);};}' +
-        'if(typeof EventSource!=="undefined"){var OriginalEventSource=EventSource;window.EventSource=function(url,options){return new OriginalEventSource(rewrittenUrl(url,true)||url,options);};window.EventSource.prototype=OriginalEventSource.prototype;}' +
-        '})();' +
-        '<\\/script>';
-      return script + '<base href="' + esc(config.baseHref) + '">';
-    }
-
-    function prepareTransplantedHtml(html, appUrl) {
+    function embedConfigForAppUrl(appUrl) {
       const sanitizedTarget = localPathFromUrl(appUrl, false);
-      const config = {
+      return {
         origin: appUrl.origin,
         href: appUrl.href,
         baseHref: appUrl.origin + appUrl.pathname,
@@ -290,12 +294,202 @@ export function embedApp(
         embedTokenParam: "__an_embed_token",
         embedTargetHeader: "x-agent-native-embed-target"
       };
-      const bootstrap = externalEmbedBootstrapMarkup(config);
-      const rewritten = rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin);
-      if (/<head[\\s>]/i.test(rewritten)) {
-        return rewritten.replace(/<head([^>]*)>/i, "<head$1>" + bootstrap);
+    }
+
+    function installExternalEmbedRuntime(config) {
+      window.__AGENT_NATIVE_EXTERNAL_EMBED = config;
+      try {
+        if (config.target) {
+          window.history.replaceState(window.history.state, "", config.target);
+        }
+      } catch (_err) {}
+      try {
+        if (config.token) {
+          sessionStorage.setItem("agent-native:embed-auth-token", config.token);
+        }
+        if (config.chatBridgeActive && config.token) {
+          sessionStorage.setItem("agent-native:mcp-chat-bridge", config.token);
+        }
+      } catch (_err) {}
+      if (window.__agentNativeExternalEmbedRuntimeInstalled) return;
+      window.__agentNativeExternalEmbedRuntimeInstalled = true;
+      function appOrigin() {
+        try {
+          return new URL(config.origin).origin;
+        } catch (_err) {
+          return "";
+        }
       }
-      return bootstrap + rewritten;
+      function targetPath() {
+        return config.target || location.pathname + location.search;
+      }
+      function rewrittenUrl(value, appendToken) {
+        const origin = appOrigin();
+        if (!origin) return null;
+        let url;
+        try {
+          url = new URL(value, location.href);
+        } catch (_err) {
+          return null;
+        }
+        if (url.origin !== location.origin && url.origin !== origin) return null;
+        if (url.origin !== origin) {
+          const app = new URL(origin);
+          url.protocol = app.protocol;
+          url.host = app.host;
+        }
+        if (appendToken && config.token && url.pathname === "/_agent-native/events") {
+          url.searchParams.set(config.embedTokenParam, config.token);
+        }
+        return url.toString();
+      }
+      function authHeaders(input, init) {
+        const headers = new Headers(
+          init && init.headers ? init.headers : input instanceof Request ? input.headers : undefined
+        );
+        if (config.token && !headers.has("Authorization")) {
+          headers.set("Authorization", "Bearer " + config.token);
+        }
+        if (!headers.has(config.embedTargetHeader)) {
+          headers.set(config.embedTargetHeader, targetPath());
+        }
+        return headers;
+      }
+      if (typeof fetch === "function") {
+        const originalFetch = fetch.bind(window);
+        window.fetch = function(input, init) {
+          const raw = input instanceof Request ? input.url : String(input);
+          const url = rewrittenUrl(raw, false);
+          if (!url) return originalFetch(input, init);
+          const nextInit = Object.assign({}, init || {}, {
+            headers: authHeaders(input, init),
+            credentials: "omit"
+          });
+          if (input instanceof Request) {
+            return originalFetch(new Request(url, input), nextInit);
+          }
+          return originalFetch(url, nextInit);
+        };
+      }
+      if (typeof XMLHttpRequest !== "undefined") {
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(method, url) {
+          const rewritten = rewrittenUrl(url, false);
+          this.__agentNativeExternalEmbed = !!rewritten;
+          return originalOpen.call(
+            this,
+            method,
+            rewritten || url,
+            arguments.length > 2 ? arguments[2] : true,
+            arguments[3],
+            arguments[4]
+          );
+        };
+        XMLHttpRequest.prototype.send = function(body) {
+          if (this.__agentNativeExternalEmbed) {
+            try {
+              if (config.token) this.setRequestHeader("Authorization", "Bearer " + config.token);
+              this.setRequestHeader(config.embedTargetHeader, targetPath());
+            } catch (_err) {}
+          }
+          return originalSend.call(this, body);
+        };
+      }
+      if (typeof EventSource !== "undefined") {
+        const OriginalEventSource = EventSource;
+        window.EventSource = function(url, options) {
+          return new OriginalEventSource(rewrittenUrl(url, true) || url, options);
+        };
+        window.EventSource.prototype = OriginalEventSource.prototype;
+      }
+    }
+
+    function copyDocumentElementAttributes(source) {
+      const target = document.documentElement;
+      for (const attr of Array.from(target.attributes)) {
+        target.removeAttribute(attr.name);
+      }
+      for (const attr of Array.from(source.attributes)) {
+        target.setAttribute(attr.name, attr.value);
+      }
+    }
+
+    function importChildren(source, target) {
+      target.replaceChildren(
+        ...Array.from(source.childNodes).map((node) => document.importNode(node, true))
+      );
+    }
+
+    function isModuleScript(script) {
+      return (script.getAttribute("type") || "").trim().toLowerCase() === "module";
+    }
+
+    function isRunnableClassicScript(script) {
+      const type = (script.getAttribute("type") || "").trim().toLowerCase();
+      return !type || type === "text/javascript" || type === "application/javascript";
+    }
+
+    function runClassicScript(script) {
+      const next = document.createElement("script");
+      for (const attr of Array.from(script.attributes)) {
+        if (attr.name === "type") continue;
+        next.setAttribute(attr.name, attr.value);
+      }
+      if (script.src) {
+        next.src = script.src;
+      } else {
+        next.textContent = script.textContent || "";
+      }
+      document.body.appendChild(next);
+      next.remove();
+    }
+
+    function rootRelativeSpecifiersToAbsolute(code, appOrigin) {
+      return String(code).replace(/(["'])\\/(?!\\/)/g, "$1" + appOrigin + "/");
+    }
+
+    function moduleCodeToClassicAsync(code, appOrigin) {
+      return rootRelativeSpecifiersToAbsolute(code, appOrigin)
+        .replace(
+          /\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const $1 = await import($2);"
+        )
+        .replace(/\\bimport\\s+(["'][^"']+["'])\\s*;?/g, "await import($1);")
+        .replace(/\\bimport\\((["'][^"']+["'])\\)\\s*;?/g, "await import($1);");
+    }
+
+    function runModuleScriptAsClassic(script, appOrigin) {
+      const code = moduleCodeToClassicAsync(script.textContent || "", appOrigin);
+      const runner = document.createElement("script");
+      runner.textContent =
+        "(async()=>{" +
+        code +
+        "})().catch((err)=>{console.error('[agent-native] transplanted app module failed',err);document.body.setAttribute('data-agent-native-hydration-error',String(err&&err.message||err));});";
+      document.body.appendChild(runner);
+      runner.remove();
+    }
+
+    function mountTransplantedHtml(html, appUrl) {
+      const config = embedConfigForAppUrl(appUrl);
+      installExternalEmbedRuntime(config);
+      const parsed = new DOMParser().parseFromString(
+        rewriteRootRelativeHtmlUrls(removeHtmlCspMeta(html), appUrl.origin),
+        "text/html"
+      );
+      const scripts = Array.from(parsed.querySelectorAll("script"));
+      copyDocumentElementAttributes(parsed.documentElement);
+      importChildren(parsed.head, document.head);
+      const base = document.createElement("base");
+      base.href = config.baseHref;
+      document.head.prepend(base);
+      importChildren(parsed.body, document.body);
+      for (const script of scripts) {
+        if (isRunnableClassicScript(script)) runClassicScript(script);
+      }
+      for (const script of scripts) {
+        if (isModuleScript(script)) runModuleScriptAsClassic(script, appUrl.origin);
+      }
     }
 
     async function transplantAppDocument(src) {
@@ -317,10 +511,8 @@ export function embedApp(
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
-      const prepared = prepareTransplantedHtml(html, appUrl);
-      document.open();
-      document.write(prepared);
-      document.close();
+      mountTransplantedHtml(html, appUrl);
+      notifyHostHeightRepeatedly();
     }
 
     function wantsEmbed() {
@@ -471,6 +663,28 @@ export function embedApp(
       return true;
     }
 
+    function isClaudeMcpContentHost() {
+      try {
+        return /(^|\\.)claudemcpcontent\\.com$/i.test(window.location.hostname || "");
+      } catch {
+        return false;
+      }
+    }
+
+    function isChatGptSandboxHost() {
+      try {
+        const host = window.location.hostname || "";
+        const appParam = new URL(window.location.href).searchParams.get("app");
+        return /(^|\\.)oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
+      } catch {
+        return false;
+      }
+    }
+
+    function shouldRenderControlledAppFrame() {
+      return !!openAiBridge || isChatGptSandboxHost();
+    }
+
     function navigateToAppFrame(src) {
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -517,11 +731,19 @@ export function embedApp(
     }
 
     function notifyHostHeight() {
+      const height = applyIntrinsicHeight(visibleIntrinsicHeight());
       if (!openAiBridge || typeof openAiBridge.notifyIntrinsicHeight !== "function") {
+        if (app && typeof app.sendSizeChanged === "function") {
+          try {
+            app.sendSizeChanged({ height });
+          } catch (err) {
+            console.warn("[agent-native] MCP host rejected size update", err);
+          }
+        }
         return;
       }
       try {
-        openAiBridge.notifyIntrinsicHeight({ height: intrinsicHeight });
+        openAiBridge.notifyIntrinsicHeight({ height });
       } catch (err) {
         console.warn("[agent-native] ChatGPT rejected intrinsic height update", err);
       }
@@ -617,6 +839,22 @@ export function embedApp(
       }
     });
 
+    function notifyHostHeightSoon() {
+      requestAnimationFrame(() => notifyHostHeight());
+    }
+
+    function notifyHostHeightRepeatedly() {
+      notifyHostHeight();
+      [0, 250, 1000, 2500].forEach((delay) => {
+        setTimeout(() => notifyHostHeight(), delay);
+      });
+    }
+
+    window.addEventListener("resize", notifyHostHeightSoon, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", notifyHostHeightSoon, { passive: true });
+    }
+
     async function launchEmbed() {
       if (!openUrl) {
         setMessage("Open link was not available.");
@@ -635,9 +873,15 @@ export function embedApp(
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (isClaudeMcpContentHost()) {
             await transplantAppDocument(embedUrl);
+          } else if (shouldRenderControlledAppFrame()) {
+            renderFrame(embedUrl);
           } else {
             navigateToAppFrame(embedUrl);
           }
+          return;
+        }
+        if (!selfNavigate && isEmbedStartUrl(embedUrl)) {
+          renderFrame(embedUrl);
           return;
         }
         const result = await callEmbedSessionTool({
@@ -653,6 +897,8 @@ export function embedApp(
         if (selfNavigate) {
           if (isClaudeMcpContentHost()) {
             await transplantAppDocument(data.startUrl);
+          } else if (shouldRenderControlledAppFrame()) {
+            renderFrame(data.startUrl);
           } else {
             navigateToAppFrame(data.startUrl);
           }
@@ -765,7 +1011,11 @@ export function embedApp(
 
     async function startMcpAppsBridge() {
       const { App } = await import("${MCP_APP_IMPORT}");
-      app = new App({ name: "Agent Native Embed", version: "1.0.0" }, {});
+      app = new App(
+        { name: "Agent Native Embed", version: "1.0.0" },
+        {},
+        { autoResize: false }
+      );
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};
       };
@@ -778,10 +1028,12 @@ export function embedApp(
       };
       app.onhostcontextchanged = () => {
         updateDisplayButton();
+        notifyHostHeight();
         sendHostContext();
       };
       await app.connect();
       updateDisplayButton();
+      notifyHostHeight();
       sendHostContext();
     }
 
@@ -800,7 +1052,7 @@ export function embedApp(
         ...(options.frameDomains ?? []),
       ],
       baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
-      ...(frameDomains ? { frameDomains } : {}),
+      frameDomains,
     },
     prefersBorder: false,
   };
