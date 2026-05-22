@@ -67,6 +67,7 @@ import {
   prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
+import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -232,15 +233,6 @@ function fullTextSegmentJson(
   durationMs: number | null | undefined,
 ): string {
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
-}
-
-function providerTranscriptText(
-  text: string | null | undefined,
-  segments: Array<{ text: string }>,
-): string {
-  return (
-    text?.trim() || segments.map((segment) => segment.text.trim()).join(" ")
-  ).trim();
 }
 
 async function failEmptyProviderTranscript({
@@ -794,7 +786,11 @@ export default defineAction({
             text: s.text.trim(),
           }))
           .filter((segment) => segment.text);
-        const fullText = providerTranscriptText(builderResult.text, segments);
+        const normalizedTranscript = normalizeProviderTranscript(
+          builderResult.text,
+          segments,
+        );
+        const fullText = normalizedTranscript.fullText;
 
         const preserved = await preserveReadyTranscriptIfAvailable({
           db,
@@ -819,7 +815,7 @@ export default defineAction({
           status: "ready",
           failureReason: null,
           language: builderResult.language ?? "en",
-          segmentsJson: JSON.stringify(segments),
+          segmentsJson: JSON.stringify(normalizedTranscript.segments),
           fullText,
           now,
         });
@@ -849,12 +845,12 @@ export default defineAction({
 
         const elapsedMs = Date.now() - startedAt;
         console.log(
-          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${segments.length} segments)`,
+          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
         );
         return {
           recordingId: args.recordingId,
           status: "ready" as const,
-          segments: segments.length,
+          segments: normalizedTranscript.segments.length,
           provider: "builder",
         };
       } catch (err) {
@@ -1027,7 +1023,11 @@ export default defineAction({
           text: s.text.trim(),
         }))
         .filter((segment) => segment.text);
-      const fullText = providerTranscriptText(data.text, segments);
+      const normalizedTranscript = normalizeProviderTranscript(
+        data.text,
+        segments,
+      );
+      const fullText = normalizedTranscript.fullText;
 
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
@@ -1052,7 +1052,7 @@ export default defineAction({
         status: "ready",
         failureReason: null,
         language: data.language ?? "en",
-        segmentsJson: JSON.stringify(segments),
+        segmentsJson: JSON.stringify(normalizedTranscript.segments),
         fullText,
         now,
       });
@@ -1082,12 +1082,12 @@ export default defineAction({
 
       const elapsedMs = Date.now() - startedAt;
       console.log(
-        `Transcribed recording ${args.recordingId} via ${provider.name} (${provider.model}) in ${elapsedMs}ms (${segments.length} segments)`,
+        `Transcribed recording ${args.recordingId} via ${provider.name} (${provider.model}) in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
       );
       return {
         recordingId: args.recordingId,
         status: "ready" as const,
-        segments: segments.length,
+        segments: normalizedTranscript.segments.length,
         provider: provider.name,
       };
     } catch (err) {
