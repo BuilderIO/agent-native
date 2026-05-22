@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import ffmpegStaticPath from "ffmpeg-static";
 
 const AUDIO_EXTRACTION_TIMEOUT_MS = 30_000;
 const SILENCE_MAX_VOLUME_DB = -60;
 const STDERR_LIMIT = 16 * 1024;
+const requireFromThisFile = createRequire(import.meta.url);
+let cachedFfmpegStaticPath: string | null | undefined;
 
 export type AudioOnlyExtractionErrorCode =
   | "NO_AUDIO_TRACK"
@@ -176,10 +178,25 @@ function outputForSourceMimeType(mimeType: string): {
 
 function ffmpegCommand(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  if (ffmpegStaticPath && existsSync(ffmpegStaticPath)) {
-    return ffmpegStaticPath;
+  return resolveFfmpegStaticPath() ?? "ffmpeg";
+}
+
+function resolveFfmpegStaticPath(): string | null {
+  if (cachedFfmpegStaticPath !== undefined) {
+    return cachedFfmpegStaticPath;
   }
-  return "ffmpeg";
+
+  try {
+    const resolved = requireFromThisFile("ffmpeg-static");
+    cachedFfmpegStaticPath =
+      typeof resolved === "string" && resolved && existsSync(resolved)
+        ? resolved
+        : null;
+  } catch {
+    cachedFfmpegStaticPath = null;
+  }
+
+  return cachedFfmpegStaticPath;
 }
 
 function isMissingAudioTrack(stderr: string): boolean {
