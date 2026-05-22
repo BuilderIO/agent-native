@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.26
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
 ## 0.22.25
 
 ### Patch Changes
