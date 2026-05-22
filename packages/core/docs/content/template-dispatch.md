@@ -56,6 +56,11 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
   and credential references, then grant apps such as Brain, Analytics, Mail, or
   Dispatch access without copying raw secrets. App-specific source
   configuration stays in the app that uses the provider.
+- **Expose one MCP connector.** Add
+  `https://dispatch.agent-native.com/_agent-native/mcp` in Claude, ChatGPT,
+  Codex, Cursor, or another MCP host, then choose which workspace apps the
+  connector can reach from Dispatch's **Agents** page. Use a direct app URL
+  only when that host should be isolated to one app.
 - **Keep company context global.** Put personas, positioning, messaging, company facts, brand guidelines, and guardrails in Dispatch Resources once, then preview the effective workspace -> app/org -> personal stack for any app/user or inspect the stack from an app card's Context view.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
 - **Review dream proposals.** Dispatch Dreams inspect prior agent runs and create source-backed proposals for what the workspace should remember, which stale notes should be cleaned up, and which repeated lessons should become skills or jobs.
@@ -71,7 +76,7 @@ _How it works under the hood (for developers)._
 - **Remote agent registry.** A2A manifests live in `remote-agents/*.json` — one per app. Dispatch calls them using the `call-agent` action. In a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed.
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
-- **MCP hub mode.** Dispatch can act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list.
+- **MCP hub mode.** Dispatch can act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 
 ## Dreams {#dreams}
 
