@@ -66,7 +66,11 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import {
+  getOnboardingHtml,
+  getResetPasswordHtml,
+  type OnboardingHtmlOptions,
+} from "./onboarding-html.js";
 import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
@@ -854,6 +858,48 @@ interface AuthGuardConfig {
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+function getRequestHost(event: H3Event): string | undefined {
+  return (
+    getHeader(event, "x-forwarded-host") ??
+    getHeader(event, "host") ??
+    undefined
+  );
+}
+
+function getOnboardingHtmlOptions(
+  options: AuthOptions,
+  event?: H3Event,
+  rawPath?: string,
+): OnboardingHtmlOptions {
+  return {
+    googleOnly: options.googleOnly,
+    marketing: options.marketing,
+    googleSignInNotice: options.googleSignInNotice,
+    googleAuthMode: options.googleAuthMode,
+    requestHost: event ? getRequestHost(event) : undefined,
+    requestPath: rawPath,
+  };
+}
+
+function getAuthOnboardingHtml(
+  options: AuthOptions,
+  event?: H3Event,
+  rawPath?: string,
+): string {
+  return getOnboardingHtml(getOnboardingHtmlOptions(options, event, rawPath));
+}
+
+function getOnboardingLoginHtmlConfig(
+  options: AuthOptions,
+): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml"> {
+  if (options.loginHtml) return { loginHtml: options.loginHtml };
+  return {
+    loginHtml: getAuthOnboardingHtml(options),
+    getLoginHtml: (event, rawPath) =>
+      getAuthOnboardingHtml(options, event, rawPath),
+  };
+}
 
 function resolveWorkspaceAppAudience(
   options: Pick<AuthOptions, "workspaceAppAudience"> = {},
@@ -3083,16 +3129,9 @@ async function mountBetterAuthRoutes(
 
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
-  const loginHtml =
-    options.loginHtml ??
-    getOnboardingHtml({
-      googleOnly: options.googleOnly,
-      marketing: options.marketing,
-      googleSignInNotice: options.googleSignInNotice,
-      googleAuthMode: options.googleAuthMode,
-    });
+  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
   _authGuardConfig = {
-    loginHtml,
+    ...loginHtmlConfig,
     publicPaths,
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -3355,14 +3394,9 @@ export async function autoMountAuth(
         options.marketing ||
         options.googleSignInNotice
       ) {
-        _authGuardConfig.loginHtml =
-          options.loginHtml ??
-          getOnboardingHtml({
-            googleOnly: options.googleOnly,
-            marketing: options.marketing,
-            googleSignInNotice: options.googleSignInNotice,
-            googleAuthMode: options.googleAuthMode,
-          });
+        const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+        _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
+        _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
       if (options.publicPaths) {
         _authGuardConfig.publicPaths = [
@@ -3499,16 +3533,9 @@ export async function autoMountAuth(
     // CRITICAL: Even if Better Auth fails, register the auth guard so
     // unauthenticated users can't access the app. They'll see the login
     // page but won't be able to sign in until the DB is available.
-    const loginHtml =
-      options.loginHtml ??
-      getOnboardingHtml({
-        googleOnly: options.googleOnly,
-        marketing: options.marketing,
-        googleSignInNotice: options.googleSignInNotice,
-        googleAuthMode: options.googleAuthMode,
-      });
+    const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
     _authGuardConfig = {
-      loginHtml,
+      ...loginHtmlConfig,
       publicPaths,
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
