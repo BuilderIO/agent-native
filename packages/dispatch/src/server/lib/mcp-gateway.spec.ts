@@ -368,7 +368,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("prefers the shared A2A secret when minting cross-app MCP embed tokens", async () => {
+  it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
 
@@ -389,6 +389,34 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "owner@example.test",
       "builder.io",
       "org-specific-secret",
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: false,
+      },
+    );
+  });
+
+  it("falls back to the shared A2A secret when no org secret is available", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue(null);
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: true,

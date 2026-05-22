@@ -7,29 +7,37 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
 const isJtiRevokedMock = vi.fn();
 const touchTokenUsedMock = vi.fn(async () => {});
+const getA2ASecretByDomainMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   isJtiRevoked: (...a: any[]) => isJtiRevokedMock(...a),
   touchTokenUsed: (...a: any[]) => touchTokenUsedMock(...a),
+}));
+vi.mock("../org/context.js", () => ({
+  getA2ASecretByDomain: (...a: any[]) => getA2ASecretByDomainMock(...a),
+  resolveOrgByDomain: vi.fn(async () => null),
 }));
 
 const { verifyAuth } = await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
-const enc = new TextEncoder().encode(SECRET);
 
-async function sign(claims: Record<string, unknown>): Promise<string> {
+async function sign(
+  claims: Record<string, unknown>,
+  secret = SECRET,
+): Promise<string> {
   return new jose.SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("1h")
-    .sign(enc);
+    .sign(new TextEncoder().encode(secret));
 }
 
 describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getA2ASecretByDomainMock.mockResolvedValue(null);
     process.env.A2A_SECRET = SECRET;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
@@ -47,6 +55,28 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity?.userEmail).toBe("a@example.com");
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an ordinary A2A JWT signed with the caller org secret", async () => {
+    process.env.A2A_SECRET = "different-global-secret";
+    getA2ASecretByDomainMock.mockResolvedValue("org-a2a-secret");
+    const token = await sign(
+      { sub: "a@example.com", org_domain: "builder.io" },
+      "org-a2a-secret",
+    );
+
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      allowDevOpen: false,
+    });
+
+    expect(res.authed).toBe(true);
+    expect(res.identity).toEqual({
+      userEmail: "a@example.com",
+      orgDomain: "builder.io",
+    });
+    expect(res.fullSurface).toBe(true);
+    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {

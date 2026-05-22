@@ -545,10 +545,10 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     orgSecret ?? undefined,
     {
       expiresIn: "5m",
-      // Target MCP endpoints verify A2A JWTs with the deployment-wide
-      // A2A_SECRET. Prefer it for hosted cross-app embeds even when Dispatch
-      // also has an org-level secret available.
-      preferGlobalSecret: true,
+      // Prefer the synced org A2A secret when present because first-party
+      // production apps do not have to share the same deployment env secret.
+      // Fall back to the global A2A_SECRET for orgs that have not synced yet.
+      preferGlobalSecret: !orgSecret,
     },
   );
 
