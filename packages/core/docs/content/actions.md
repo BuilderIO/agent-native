@@ -152,7 +152,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/static-token developer clients see the full connected action surface. OAuth app hosts that request `mcp:apps` get a compact catalog containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers); action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
+With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/code developer clients can see the full connected action surface. Chat-style app hosts, including OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers, get a compact catalog containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers); action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
 
 For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
 Use the shared full-app embed helper when the action needs an inline experience.
