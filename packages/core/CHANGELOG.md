@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.22
+
+### Patch Changes
+
+- 1a9d1c0: Mint same-app MCP embed sessions during app launches so Claude can render embedded apps without iframe-originated tool calls.
+
 ## 0.22.21
 
 ### Patch Changes
