@@ -12,11 +12,11 @@
 [build.environment]
   NITRO_PRESET = "netlify"
 
-# SSR pages: cache 1h, serve stale for 24h while revalidating
+# SSR pages: keep browsers fresh, let the CDN serve stale while revalidating.
 [[headers]]
   for = "/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+    Cache-Control = "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600"
 
 # Static assets: immutable long cache
 [[headers]]

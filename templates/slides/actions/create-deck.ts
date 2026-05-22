@@ -15,12 +15,6 @@ import { getDeckUrl } from "./_app-url.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
   content: z.string().describe("Full HTML content of the slide"),
@@ -89,7 +83,6 @@ export default defineAction({
       description: "Open the generated deck in the real Slides editor.",
       iframeTitle: "Agent-Native Slides",
       openLabel: "Open deck",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

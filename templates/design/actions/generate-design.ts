@@ -11,12 +11,6 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -110,7 +104,6 @@ export default defineAction({
       description: "Open the generated design in the real Design editor.",
       iframeTitle: "Agent-Native Design",
       openLabel: "Open design",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

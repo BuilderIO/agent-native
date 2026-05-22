@@ -4,6 +4,8 @@ const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) =>
+    event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
@@ -21,10 +23,15 @@ vi.mock("./embed-session.js", () => ({
 
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 
-function fakeEvent(method: string, query: Record<string, string> = {}) {
+function fakeEvent(
+  method: string,
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+) {
   return {
     method,
     query,
+    headers,
     res: {
       headers: {
         getSetCookie: () => [],
@@ -119,6 +126,60 @@ describe("createEmbedStartRouteHandler", () => {
       expect.anything(),
       "Cross-Origin-Resource-Policy",
       "cross-origin",
+    );
+  });
+
+  it("allows Claude MCP content frames to fetch embed start redirects", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          origin:
+            "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
+  it("preserves the MCP chat bridge flag on the signed app route", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("GET", {
+        ticket: "ticket-123",
+        __an_mcp_chat_bridge: "1",
+      }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/inbox?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
     );
   });
 });

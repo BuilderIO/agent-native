@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMcpAppCsp,
+  clampMcpAppHeight,
+  DEFAULT_MCP_APP_IFRAME_HEIGHT,
   supportedMcpAppPermissions,
 } from "./McpAppRenderer.js";
 
@@ -14,6 +16,14 @@ describe("McpAppRenderer security helpers", () => {
         clipboardWrite: {},
       }),
     ).toEqual({ clipboardWrite: {} });
+  });
+
+  it("defaults to 650px and caps reported height to the visible viewport", () => {
+    expect(DEFAULT_MCP_APP_IFRAME_HEIGHT).toBe(650);
+    expect(clampMcpAppHeight(1200, 700)).toBe(700);
+    expect(clampMcpAppHeight(420, 700)).toBe(420);
+    expect(clampMcpAppHeight(120, 700)).toBe(220);
+    expect(clampMcpAppHeight(420, 180)).toBe(180);
   });
 
   it("builds a restrictive CSP and drops invalid source expressions", () => {

@@ -25,6 +25,7 @@ describe("embed auth client", () => {
       writable: true,
       value: vi.fn(async () => new Response("ok")),
     });
+    delete (window as Window & { openai?: unknown }).openai;
   });
 
   it("persists the URL token before stripping it from browser-visible history", async () => {
@@ -63,6 +64,30 @@ describe("embed auth client", () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("clamps MCP chat bridge embeds to a stable viewport height", async () => {
+    const notifyIntrinsicHeight = vi.fn();
+    Object.defineProperty(window, "openai", {
+      configurable: true,
+      writable: true,
+      value: { notifyIntrinsicHeight },
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+
+    const style = document.getElementById(
+      "agent-native-mcp-chat-bridge-viewport",
+    );
+    expect(style?.textContent).toContain("height: 560px !important");
+    expect(style?.textContent).toContain("overflow: hidden !important");
+    expect(notifyIntrinsicHeight).toHaveBeenCalledWith({ height: 560 });
   });
 
   it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {
@@ -104,6 +129,43 @@ describe("embed auth client", () => {
     const headers = new Headers(init?.headers);
     expect(headers.get("Authorization")).toBe("Bearer stored-token");
     expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
+  });
+
+  it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
+    window.history.replaceState(null, "", "/inbox?embedded=1");
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    const originalOrigin = Object.getOwnPropertyDescriptor(
+      window.location,
+      "origin",
+    );
+    Object.defineProperty(window.location, "origin", {
+      configurable: true,
+      get: () => "null",
+    });
+    const originalFetch = vi.fn(async () => new Response("ok"));
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    try {
+      const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+      ensureEmbedAuthFetchInterceptor();
+
+      await window.fetch("/api/emails?view=inbox");
+
+      const [, init] = originalFetch.mock.calls[0]!;
+      const headers = new Headers(init?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer stored-token");
+      expect(headers.get(EMBED_TARGET_HEADER)).toBe("/inbox?embedded=1");
+    } finally {
+      if (originalOrigin) {
+        Object.defineProperty(window.location, "origin", originalOrigin);
+      } else {
+        delete (window.location as unknown as { origin?: string }).origin;
+      }
+    }
   });
 
   it("does not add embed credentials to cross-origin fetches", async () => {

@@ -33,9 +33,18 @@ import {
   type WorkspaceCoreExports,
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const AUTHENTICATED_SSR_CACHE_CONTROL =
+  "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -302,14 +311,75 @@ function injectHeadScript(html, script) {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
-async function rewriteMountedResponse(response, basePath) {
-  const sentryClientConfigScript = getSentryClientConfigScript();
-  if (!basePath && !sentryClientConfigScript) return response;
+const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+const AUTHENTICATED_SSR_CACHE_CONTROL = ${JSON.stringify(AUTHENTICATED_SSR_CACHE_CONTROL)};
+const EMBED_SESSION_COOKIE = ${JSON.stringify(EMBED_SESSION_COOKIE)};
+const EMBED_TOKEN_QUERY_PARAM = ${JSON.stringify(EMBED_TOKEN_QUERY_PARAM)};
+const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
+const BETTER_AUTH_SESSION_COOKIE_RE = /\\.session_(?:token|data)$/;
 
+function isAuthenticatedCookieName(name) {
+  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
+  const bareName = String(name || "").replace(/^__(?:Secure|Host)-/, "");
+  return (
+    bareName === EMBED_SESSION_COOKIE ||
+    bareName === "an_session" ||
+    bareName === "an_session_workspace" ||
+    bareName.startsWith("an_session_") ||
+    bareName === "an.session_token" ||
+    bareName === "an.session_data" ||
+    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
+  );
+}
+
+function requestHasAuthenticatedCookie(cookieHeader) {
+  if (!cookieHeader) return false;
+  return String(cookieHeader)
+    .split(";")
+    .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
+    .filter(Boolean)
+    .some(isAuthenticatedCookieName);
+}
+
+function requestHasAuthSignal(request) {
+  const url = new URL(request.url);
+  return Boolean(
+    request.headers.get("authorization") ||
+    requestHasAuthenticatedCookie(request.headers.get("cookie")) ||
+    url.searchParams.has(EMBED_TOKEN_QUERY_PARAM) ||
+    url.searchParams.has("_session")
+  );
+}
+
+function applyDefaultSsrCacheHeader(headers, status, hasAuthSignal) {
+  if (headers.has("cache-control")) return;
+  if (status < 200 || status >= 400) return;
+
+  const contentType = (headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/html")) return;
+
+  headers.set(
+    "cache-control",
+    hasAuthSignal ? AUTHENTICATED_SSR_CACHE_CONTROL : DEFAULT_SSR_CACHE_CONTROL,
+  );
+}
+
+async function rewriteMountedResponse(response, basePath, hasAuthSignal) {
+  const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
+  applyDefaultSsrCacheHeader(headers, response.status, hasAuthSignal);
+
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  if (!basePath && !sentryClientConfigScript) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   const contentType = headers.get("content-type") || "";
@@ -381,7 +451,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -413,6 +483,7 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
+    const hasAuthSignal = requestHasAuthSignal(event.req);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -423,9 +494,10 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
+        hasAuthSignal,
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath);
+    return rewriteMountedResponse(await rrHandler(request), basePath, hasAuthSignal);
   }));
 
   _handler = app.fetch.bind(app);
@@ -1296,6 +1368,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
+    routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // For edge presets (cloudflare, deno), bundle all deps — node_modules
     // aren't available at runtime. Netlify/Vercel/Node have node_modules.
     ...(preset.startsWith("cloudflare") || preset.startsWith("deno")

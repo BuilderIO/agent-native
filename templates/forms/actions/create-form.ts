@@ -61,7 +61,6 @@ export default defineAction({
         "Open the generated form in the real Forms editor so the user can edit fields, settings, publishing, and integrations.",
       iframeTitle: "Agent-Native Forms",
       openLabel: "Open in Forms",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
       height: 900,
     }),
   },

@@ -16,6 +16,9 @@ const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 const AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const GUARDED_METHODS = new Set(["GET", "HEAD"]);
 const AUTH_FAILURE_HEADER = "x-agent-native-auth-circuit-breaker";
+const MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID =
+  "agent-native-mcp-chat-bridge-viewport";
+const MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT = 560;
 
 type AuthFailureRecord = {
   status: number;
@@ -159,6 +162,79 @@ export function isEmbedAuthActive(): boolean {
   return mode === "1" || mode === "true";
 }
 
+function ensureMcpChatBridgeViewportClamp(win: Window): void {
+  if (!isEmbedMcpChatBridgeActive()) return;
+  const doc = win.document;
+  if (!doc?.head) return;
+  if (!doc.getElementById(MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID)) {
+    const style = doc.createElement("style");
+    style.id = MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID;
+    const height = `${MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT}px`;
+    style.textContent = `
+html,
+body {
+  min-height: 0 !important;
+  height: ${height} !important;
+  max-height: ${height} !important;
+  overflow: hidden !important;
+}
+
+#root,
+#__next,
+[data-agent-native-app-root] {
+  min-height: 0 !important;
+  height: ${height} !important;
+  max-height: ${height} !important;
+  overflow: hidden !important;
+}
+`;
+    doc.head.appendChild(style);
+  }
+  notifyMcpChatBridgeViewportHeight(win);
+}
+
+function notifyMcpChatBridgeViewportHeight(win: Window): void {
+  const height = MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT;
+  const notify = () => {
+    try {
+      const openai = (
+        win as Window & {
+          openai?: {
+            notifyIntrinsicHeight?: (payload: { height: number }) => void;
+          };
+        }
+      ).openai;
+      openai?.notifyIntrinsicHeight?.({ height });
+    } catch {
+      // Host bridge availability varies by client; sizing is best-effort.
+    }
+
+    try {
+      if (win.parent && win.parent !== win) {
+        win.parent.postMessage(
+          {
+            jsonrpc: "2.0",
+            method: "ui/notifications/size-changed",
+            params: { height },
+          },
+          "*",
+        );
+      }
+    } catch {
+      // Cross-host embeds can deny parent messaging in tests or strict sandboxes.
+    }
+  };
+
+  notify();
+  try {
+    win.requestAnimationFrame?.(() => notify());
+    win.setTimeout?.(notify, 250);
+    win.setTimeout?.(notify, 1000);
+  } catch {
+    // Timers are a progressive enhancement for late host bridge initialization.
+  }
+}
+
 /** Internal test helper. Do not use in app code. */
 export function _resetEmbedAuthForTests(): void {
   installed = false;
@@ -189,11 +265,22 @@ function currentEmbedTarget(win: Window): string {
   return `${win.location.pathname}${win.location.search}`;
 }
 
+function currentAppOrigin(win: Window): string | null {
+  const url = currentUrl(win);
+  if (url?.origin && url.origin !== "null") return url.origin;
+  try {
+    const origin = win.location.origin;
+    return origin && origin !== "null" ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
   try {
     return input instanceof Request
       ? new URL(input.url)
-      : new URL(String(input), win.location.origin);
+      : new URL(String(input), currentUrl(win)?.href ?? win.location.href);
   } catch {
     return null;
   }
@@ -201,7 +288,8 @@ function inputUrl(input: RequestInfo | URL, win: Window): URL | null {
 
 function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   const url = inputUrl(input, win);
-  return !!url && url.origin === win.location.origin;
+  const origin = currentAppOrigin(win);
+  return !!url && !!origin && url.origin === origin;
 }
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
@@ -340,7 +428,8 @@ function requestUrlAndKey(
     }
   | undefined {
   const url = inputUrl(input, win);
-  if (!url || url.origin !== win.location.origin) return undefined;
+  const origin = currentAppOrigin(win);
+  if (!url || !origin || url.origin !== origin) return undefined;
   const method = requestMethod(input, init);
   return {
     key: authFailureKey(method, url),
@@ -359,6 +448,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     storeToken(urlToken, win);
     stripTokenFromUrl(win);
   }
+  ensureMcpChatBridgeViewportClamp(win);
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;

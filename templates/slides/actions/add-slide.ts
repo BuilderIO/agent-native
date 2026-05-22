@@ -24,12 +24,6 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 // In-process serialization per deckId. `add-slide` is intentionally advertised
 // as a sequential write, but the lock still protects against accidental
 // concurrent calls and any direct integrations that bypass agent guidance.
@@ -93,7 +87,6 @@ export default defineAction({
       description: "Open the updated deck in the real Slides editor.",
       iframeTitle: "Agent-Native Slides",
       openLabel: "Open deck",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

@@ -8,6 +8,11 @@ import {
   runNitroBuildPipeline,
 } from "./build.js";
 
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const AUTHENTICATED_SSR_CACHE_CONTROL =
+  "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
 const tempDirs: string[] = [];
 
 function makeTempDir(): string {
@@ -155,6 +160,9 @@ export default (event) =>
     expect(html).toContain('href="/docs/next"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('url("/docs/hero.png")');
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
 
     const redirect = await worker.fetch(
       new Request("https://app.test/docs/redirect", { method: "GET" }),
@@ -163,6 +171,40 @@ export default (event) =>
     );
     expect(redirect.status).toBe(302);
     expect(redirect.headers.get("location")).toBe("/docs/login");
+  });
+
+  it("uses private SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox", {
+        method: "GET",
+        headers: { cookie: "an_session=1" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      AUTHENTICATED_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox", {
+        method: "GET",
+        headers: { cookie: "sidebar:state=collapsed" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {

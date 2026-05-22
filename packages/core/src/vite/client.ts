@@ -7,6 +7,12 @@ import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  MCP_EMBED_STATIC_ASSET_HEADERS,
+  mcpEmbedStaticAssetRouteRules,
+} from "../shared/mcp-embed-headers.js";
 
 import { fileURLToPath } from "url";
 
@@ -629,6 +635,31 @@ function embedDevFrameHeaders(): Plugin {
     apply: "serve",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
+        const origin = String(req.headers.origin ?? "");
+        if (isMcpEmbedCorsOrigin(origin)) {
+          res.setHeader("Access-Control-Allow-Origin", origin);
+          res.setHeader("Vary", "Origin");
+          res.setHeader(
+            "Access-Control-Allow-Methods",
+            "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+          );
+          res.setHeader(
+            "Access-Control-Allow-Headers",
+            MCP_EMBED_CORS_ALLOW_HEADERS,
+          );
+          for (const [name, value] of Object.entries(
+            MCP_EMBED_STATIC_ASSET_HEADERS,
+          )) {
+            if (name === "Access-Control-Allow-Origin") continue;
+            res.setHeader(name, value);
+          }
+          if (req.method === "OPTIONS") {
+            res.statusCode = 204;
+            res.end();
+            return;
+          }
+        }
+
         const cookieHeader = String(req.headers.cookie ?? "");
         let hasEmbedMarker = /\ban_embed_session=/.test(cookieHeader);
         try {
@@ -1098,6 +1129,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             nitroVitePlugin({
               serverDir: "./server",
               ...(options.nitro ?? {}),
+              routeRules: {
+                ...mcpEmbedStaticAssetRouteRules(appBasePath),
+                ...((options.nitro as { routeRules?: Record<string, any> })
+                  ?.routeRules ?? {}),
+              },
             } as any),
           ]),
       reactPluginInstance,

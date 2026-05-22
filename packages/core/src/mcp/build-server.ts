@@ -232,6 +232,49 @@ function metadataObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function mcpAppEmbedOpenLinkMeta(
+  result: unknown,
+  resource: ResolvedMcpAppResource,
+  meta: MCPRequestMeta | undefined,
+): Record<string, unknown> {
+  const out = metadataObject(result);
+  const embedStartUrl =
+    typeof out.embedStartUrl === "string"
+      ? out.embedStartUrl
+      : out.embed === true &&
+          typeof out.url === "string" &&
+          out.url.includes("/_agent-native/embed/start")
+        ? out.url
+        : null;
+  if (!embedStartUrl) return {};
+
+  const webUrl = toAbsoluteOpenUrl(embedStartUrl, meta?.origin);
+  const deepLinkUrl =
+    typeof out.deepLinkUrl === "string" ? out.deepLinkUrl : null;
+  const fallbackLabel = resource.title ?? resource.name ?? "app";
+  const label =
+    typeof out.app === "string" && out.app.trim()
+      ? `Open ${out.app.trim()}`
+      : fallbackLabel;
+  const view =
+    typeof out.view === "string" && out.view.trim()
+      ? out.view.trim()
+      : typeof out.path === "string" && out.path.trim()
+        ? out.path.trim()
+        : undefined;
+
+  return {
+    "agent-native/openLink": {
+      label,
+      ...(view ? { view } : {}),
+      webUrl,
+      desktopUrl: deepLinkUrl
+        ? toAbsoluteOpenUrl(deepLinkUrl, meta?.origin)
+        : webUrl,
+    },
+  };
+}
+
 /**
  * Build the deep-link content block + structured `_meta` for a tool result.
  * Best-effort: any throw / nullish link is swallowed so a bad `link` builder
@@ -308,7 +351,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v3";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v22";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -852,6 +895,7 @@ export async function createMCPServerForRequest(
 
       try {
         const result = await entry.run((args as Record<string, string>) ?? {});
+        const rawResult = isMcpActionResult(result) ? result.raw : result;
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
@@ -864,18 +908,18 @@ export async function createMCPServerForRequest(
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
-          isMcpActionResult(result) ? result.raw : result,
+          rawResult,
           requestMeta,
         );
         const responseMeta: Record<string, unknown> = {
           ...(_meta ?? {}),
+          ...(mcpAppResource
+            ? mcpAppEmbedOpenLinkMeta(rawResult, mcpAppResource, requestMeta)
+            : {}),
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
         const structuredContent = mcpAppResource
-          ? mcpAppStructuredContent(
-              isMcpActionResult(result) ? result.raw : result,
-              responseMeta,
-            )
+          ? mcpAppStructuredContent(rawResult, responseMeta)
           : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)

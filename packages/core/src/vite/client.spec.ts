@@ -160,6 +160,71 @@ describe("Vite MCP embed headers", () => {
       "cross-origin",
     );
   });
+
+  it("adds CORS/CORP headers to null-origin sandbox subresources in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/app/entry.client.tsx", headers: { origin: "null" } },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Access-Control-Allow-Origin",
+      "null",
+    );
+    expect(setHeader).toHaveBeenCalledWith("Vary", "Origin");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Access-Control-Allow-Headers",
+      expect.stringContaining("X-Agent-Native-Embed-Target"),
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("answers null-origin sandbox preflights before Nitro dev middleware", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const res = { setHeader: vi.fn(), end: vi.fn(), statusCode: 200 };
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "OPTIONS",
+        url: "/_agent-native/poll",
+        headers: { origin: "null" },
+      },
+      res,
+      next,
+    );
+
+    expect(res.statusCode).toBe(204);
+    expect(res.end).toHaveBeenCalledOnce();
+    expect(next).not.toHaveBeenCalled();
+  });
 });
 
 describe("Vite connection reset noise", () => {

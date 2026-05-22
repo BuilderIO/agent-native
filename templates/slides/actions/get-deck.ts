@@ -4,12 +4,6 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 function stripHtml(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
@@ -45,7 +39,6 @@ export default defineAction({
       description: "Open the deck in the real Slides editor.",
       iframeTitle: "Agent-Native Slides",
       openLabel: "Open deck",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

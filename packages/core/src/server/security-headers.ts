@@ -50,8 +50,12 @@
  * us most of the protection.
  */
 
-import { defineEventHandler, setResponseHeader } from "h3";
+import { defineEventHandler, getHeader, setResponseHeader } from "h3";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
+import {
+  isClaudeMcpContentOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+} from "../shared/mcp-embed-headers.js";
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
@@ -89,6 +93,7 @@ export function createSecurityHeadersMiddleware() {
   const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
     const embedFrameRequest = requestHasEmbedAuthMarker(event);
+    const requestOrigin = getHeader(event, "origin");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     if (isProduction && !embedFrameRequest) {
       setResponseHeader(event, "X-Frame-Options", "DENY");
@@ -108,6 +113,20 @@ export function createSecurityHeadersMiddleware() {
       "Cross-Origin-Resource-Policy",
       embedFrameRequest ? "cross-origin" : "same-site",
     );
+    if (embedFrameRequest && isClaudeMcpContentOrigin(requestOrigin)) {
+      setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);
+      setResponseHeader(event, "Vary", "Origin");
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Methods",
+        "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+      );
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Headers",
+        MCP_EMBED_CORS_ALLOW_HEADERS,
+      );
+    }
     if (isHttpsRequest(event)) {
       setResponseHeader(event, "Strict-Transport-Security", HSTS);
     }

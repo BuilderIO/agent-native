@@ -7,12 +7,6 @@ import {
 import { z } from "zod";
 import { getAnalysis } from "../server/lib/dashboards-store";
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 export default defineAction({
   description: "Get a saved ad-hoc analysis by ID, including its full results.",
   schema: z.object({
@@ -27,7 +21,6 @@ export default defineAction({
       description: "Open the saved analysis in the real Analytics UI.",
       iframeTitle: "Agent-Native Analytics",
       openLabel: "Open analysis",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

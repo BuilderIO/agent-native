@@ -6,11 +6,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 
 const SNIPPET_RADIUS = 80;
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
 
 type RecordingMatchPanel = "transcript" | "comments" | null;
 
@@ -110,7 +105,6 @@ export default defineAction({
       description: "Open the best matching recording in the real Clips player.",
       iframeTitle: "Agent-Native Clips",
       openLabel: "Open clip",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

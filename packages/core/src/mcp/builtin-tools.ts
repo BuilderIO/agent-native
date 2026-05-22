@@ -248,7 +248,10 @@ function listAppsTool(
 // open_app
 // ---------------------------------------------------------------------------
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function openAppTool(
+  config: MCPConfig,
+  _requestMeta?: { origin?: string },
+): ActionEntry {
   return {
     tool: tool(
       "Build a deep link that opens an app at a specific view/record or " +
@@ -323,9 +326,10 @@ function openAppTool(config: MCPConfig): ActionEntry {
       // the wrong app (e.g. open_app({app:"calendar"}) served from Mail).
       // Same-app / standalone keeps the relative path (current behavior).
       const targetApp = await resolveTargetAppOrigin(config, app);
-      const url = targetApp
+      const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
+      const url = appUrl;
 
       return {
         app,
@@ -337,7 +341,13 @@ function openAppTool(config: MCPConfig): ActionEntry {
     },
     link: ({ result }) => {
       if (!result || typeof result !== "object") return null;
-      const r = result as { url?: string; app?: string; view?: string };
+      const r = result as {
+        url?: string;
+        app?: string;
+        view?: string;
+        embed?: boolean;
+      };
+      if (r.embed) return null;
       if (!r.url) return null;
       return {
         url: r.url,
@@ -735,7 +745,7 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta),
     create_embed_session: createEmbedSessionTool(requestMeta),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),

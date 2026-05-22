@@ -18,8 +18,20 @@
 import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
-import { getSession } from "./auth.js";
+import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+
+export const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+export const AUTHENTICATED_SSR_CACHE_CONTROL =
+  "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
+const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
 /**
  * Read the active org for a request without forcing every template to bundle
@@ -135,6 +147,58 @@ function injectHeadScript(html: string, script: string | null): string {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+function requestHasAuthSignal(event: H3Event): boolean {
+  const headers = event.req.headers;
+  return Boolean(
+    headers.get("authorization") ||
+    requestHasAuthenticatedCookie(headers.get("cookie")) ||
+    event.url.searchParams.has(EMBED_TOKEN_QUERY_PARAM) ||
+    event.url.searchParams.has("_session") ||
+    requestHasEmbedAuthMarker(event),
+  );
+}
+
+function requestHasAuthenticatedCookie(cookieHeader: string | null): boolean {
+  if (!cookieHeader) return false;
+  return cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
+    .filter((name): name is string => Boolean(name))
+    .some(isAuthenticatedCookieName);
+}
+
+function isAuthenticatedCookieName(name: string): boolean {
+  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
+  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
+  return (
+    bareName === COOKIE_NAME ||
+    bareName === EMBED_SESSION_COOKIE ||
+    bareName === "an_session" ||
+    bareName === "an_session_workspace" ||
+    bareName.startsWith("an_session_") ||
+    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_token` ||
+    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_data` ||
+    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
+  );
+}
+
+function applyDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  hasAuthSignal: boolean,
+) {
+  if (headers.has("cache-control")) return;
+  if (status < 200 || status >= 400) return;
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/html")) return;
+
+  headers.set(
+    "cache-control",
+    hasAuthSignal ? AUTHENTICATED_SSR_CACHE_CONTROL : DEFAULT_SSR_CACHE_CONTROL,
+  );
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
     pathname.startsWith("/.well-known/") ||
@@ -156,14 +220,23 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
+  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
-  if (!basePath && !sentryClientConfigScript) return response;
-
   const headers = new Headers(response.headers);
+  applyDefaultSsrCacheHeader(headers, response.status, hasAuthSignal);
+
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  if (!basePath && !sentryClientConfigScript) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   const contentType = headers.get("content-type") ?? "";
@@ -210,10 +283,13 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // unauthenticated branch even when the user is logged in — which broke
       // shared-deck "Presentation link" access for non-public decks.
       let session: Awaited<ReturnType<typeof getSession>> | null = null;
-      try {
-        session = await getSession(event);
-      } catch {
-        // Auth lookup failures must not break SSR; treat as unauthenticated.
+      const hasAuthSignal = requestHasAuthSignal(event);
+      if (hasAuthSignal) {
+        try {
+          session = await getSession(event);
+        } catch {
+          // Auth lookup failures must not break SSR; treat as unauthenticated.
+        }
       }
       const orgId = session?.email ? await readOrgIdForEvent(event) : undefined;
       const ctx = {
@@ -236,11 +312,13 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
             headers: response.headers,
           }),
           basePath,
+          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
+        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

@@ -219,38 +219,55 @@ Claude Code and other CLI-first clients still receive the same resources and met
 
 MCP App embeds are route embeds, not separate mini-products. `embedApp()`
 starts from the action's `link` target, creates a short-lived embed session,
-and by default navigates the MCP App frame itself to that app route. That keeps
-Claude and ChatGPT on a single iframe instead of relying on a nested app iframe.
-Design embedded routes so a reload with the same URL reconstructs the same view.
+and launches that signed app route. Standard MCP Apps hosts can navigate the
+MCP App frame itself. ChatGPT gets a controlled route iframe because its web
+sandbox can otherwise auto-size a full app route into a feedback loop. Claude
+web currently proxies MCP App content through `claudemcpcontent.com`; direct
+route navigation can fetch the app HTML there without reliably running the
+framework bootstrap, and a second nested iframe is easy for the host to block.
+For Claude, the launcher fetches the signed app HTML and mounts that document
+into the existing MCP resource frame, then rewrites app-origin
+fetch/XHR/EventSource calls back to the app with the embed token. The app still
+renders the normal route and React components. Design embedded routes so a
+reload with the same signed URL reconstructs the same view.
 
 ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
 document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
 then calls `create_embed_session` via `window.openai.callTool(...)`. Standard
-MCP Apps hosts use the `ui/*` JSON-RPC bridge. After the direct navigation, the
-loaded app route can still call `ui/update-model-context`, `ui/message`,
-`ui/open-link`, and `ui/request-display-mode` through the host bridge helpers.
-Keep the result shape identical for both paths: return a focused `link` and
-concise structured content.
+MCP Apps hosts use the `ui/*` JSON-RPC bridge. Direct and Claude-mounted routes
+can call `ui/update-model-context`, `ui/message`, `ui/open-link`, and
+`ui/request-display-mode` through the host bridge helpers. When the ChatGPT or
+explicit diagnostic iframe path is used, the wrapper relays the same host
+actions over `agentNative.mcpHost.*` postMessage requests. Keep the result
+shape identical for both paths: return a focused `link` and concise structured
+content.
 
-An explicit nested iframe diagnostic path remains available with
-`embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or
-`frame: "iframe"`. Use it only when debugging host behavior. If that diagnostic
-iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user
-can retry inline, open a freshly minted embed session through the host, or use
-the visible route URL. Keep the action's `link` target useful on its own because
-it is still the universal escape hatch.
+The resource shell owns the outer host size. Keep embedded app routes
+internally scrollable and let the launcher report a bounded intrinsic height
+rather than the full document height; otherwise host auto-resize can turn a
+normal app page into a very tall chat artifact. A changed shell only affects
+new MCP App resources and new tool calls. Old ChatGPT/Claude conversation
+frames can keep the previous resource behavior, so verify sizing with a fresh
+inline render before judging a fix.
+
+You can force the nested diagnostic iframe with `embedMode: "iframe"`,
+`renderMode: "iframe"`, `nested: true`, or `frame: "iframe"` when debugging
+host behavior. If the iframe is blocked, `embedApp()` replaces it with an
+open-app fallback: the user can retry inline, open a freshly minted embed
+session through the host, or use the visible route URL. Keep the action's
+`link` target useful on its own because it is still the universal escape hatch.
 
 The host bridge is deliberately small:
 
-| Mode              | Message type                          | Use it for                               |
-| ----------------- | ------------------------------------- | ---------------------------------------- |
-| direct            | `ui/update-model-context`             | Hidden context for the host model        |
-| direct            | `ui/message`                          | Post a visible user turn into the host   |
-| direct            | `ui/open-link`                        | Open an external or app URL via the host |
-| direct            | `ui/request-display-mode`             | Request `inline`, `fullscreen`, or `pip` |
-| nested diagnostic | `agentNative.mcpHostContext`          | Theme, locale, host platform, dimensions |
-| nested diagnostic | `agentNative.embeddedAppReady`        | Confirm the route iframe loaded          |
-| nested diagnostic | `agentNative.mcpHost.*` / `.response` | Wrapper relay for host requests          |
+| Mode                     | Message type                          | Use it for                               |
+| ------------------------ | ------------------------------------- | ---------------------------------------- |
+| direct / Claude          | `ui/update-model-context`             | Hidden context for the host model        |
+| direct / Claude          | `ui/message`                          | Post a visible user turn into the host   |
+| direct / Claude          | `ui/open-link`                        | Open an external or app URL via the host |
+| direct / Claude          | `ui/request-display-mode`             | Request `inline`, `fullscreen`, or `pip` |
+| ChatGPT / iframe wrapper | `agentNative.mcpHostContext`          | Theme, locale, host platform, dimensions |
+| ChatGPT / iframe wrapper | `agentNative.embeddedAppReady`        | Confirm the route iframe loaded          |
+| ChatGPT / iframe wrapper | `agentNative.mcpHost.*` / `.response` | Wrapper relay for host requests          |
 
 Embedded routes can use `updateMcpAppModelContext()`,
 `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`,
@@ -352,7 +369,6 @@ export default defineAction({
       description: "Open the generated draft in the real Mail compose UI.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
     }),
   },
 });
@@ -362,9 +378,16 @@ The MCP server advertises extension `io.modelcontextprotocol/ui`, adds `_meta.ui
 
 Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients, older hosts, and any host that does not render MCP Apps will ignore the UI metadata and still need the `"Open in … →"` link. `embedApp()` uses that link as its launch target, calls the app-only `create_embed_session` helper, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the target route with a short-lived browser session plus a bearer fallback for same-origin fetches. `open_app({ app, path, embed: true })` is the generic escape hatch for routes such as full dashboards, filtered inboxes, calendar draft views, analyses, and extension pages, and should be used liberally when the full app is the clearest review/edit surface.
 
+`embedApp()` includes the MCP request origin in the resource CSP so the launcher
+can fetch and, when explicitly requested, frame the signed first-party app
+route. Only pass additional `frameDomains` for a custom MCP App that truly
+embeds a third-party player.
+
 Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
 Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus
-`ui/message`; `submit: false` remains local prefill/review behavior.
+`ui/message`, so a button in the embedded app can intentionally continue the
+Claude/ChatGPT conversation from the selected app state. `submit: false`
+remains local prefill/review behavior.
 
 ### The `link` contract {#link-contract}
 
@@ -509,6 +532,9 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - Test MCP Apps with the lightweight fixtures around `embedApp()` and
   `McpAppRenderer`; they cover CSP, host context, app launch, and bridge
   message behavior without needing a real external host.
+- When validating ChatGPT or Claude web, trigger a fresh tool call after shell
+  changes and measure the visible iframe. Previously rendered frames in the
+  same conversation may still show cached height or launch behavior.
 
 **Don't**
 

@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("defaults to direct no-nested-frame navigation after minting an embed session", () => {
+  it("defaults to direct navigation except inside Claude's proxied MCP content frame", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -28,8 +28,24 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("shouldSelfNavigateToApp");
+    expect(html).toContain("isChatGptSandboxHost");
+    expect(html).toContain("oaiusercontent");
+    expect(html).toContain('appParam === "chatgpt"');
+    expect(html).toContain("shouldRenderControlledAppFrame");
+    expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
     expect(html).toContain("window.location.replace(src)");
+    expect(html).toContain("isClaudeMcpContentHost");
+    expect(html).toContain("transplantAppDocument");
+    expect(html).toContain("__agentNativeExternalEmbedRuntimeInstalled");
+    expect(html).not.toContain("/_agent-native/embed/runtime.js");
+    expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
+    expect(html).toContain("window.history.replaceState");
+    expect(html).toContain("mountTransplantedHtml");
+    expect(html).toContain("moduleCodeToClassicAsync");
+    expect(html).toContain("await import($1)");
+    expect(html).toContain("claudemcpcontent");
     expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
+    expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
     expect(html).toContain("if (selfNavigate)");
     expect(html).toContain('"agentNative.submitChat"');
@@ -41,7 +57,8 @@ describe("embedApp", () => {
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain('typeof openLink === "object"');
     expect(html).not.toContain("shouldDirectRenderEmbed");
-    expect(html).not.toContain("claudemcpcontent.com");
+    expect(html).toContain("claudemcpcontent\\.com");
+    expect(html).toContain("isClaudeMcpContentHost()");
     expect(html).not.toContain("window.location.href = data.startUrl");
     expect(html).toContain("__an_mcp_chat_bridge");
     expect(html).toContain('data-app-title="Dashboard"');
@@ -51,19 +68,36 @@ describe("embedApp", () => {
     expect(html).toContain(
       'toolInput.embed === false || toolInput.embed === "false"',
     );
-    expect(html).toContain("min-height: 764px");
-    expect(html).toContain("height: 720px");
-    expect(resource.csp?.frameDomains).toContain(
+    expect(html).toContain("--agent-native-shell-height: 560px");
+    expect(html).toContain("--agent-native-viewport-height: 516px");
+    expect(html).toContain("min-height: var(--agent-native-viewport-height)");
+    expect(html).toContain("Math.min(");
+    expect(html).toContain("defaultIntrinsicHeight");
+    expect(html).toContain("Math.floor(nextHeight || defaultIntrinsicHeight)");
+    expect(html).toContain("notifyHostHeightRepeatedly");
+    expect(html).toContain("{ autoResize: false }");
+    expect(html).toContain("openAiBridge.notifyIntrinsicHeight({ height })");
+    expect(html).toContain("app.sendSizeChanged({ height })");
+    expect(resource.csp?.frameDomains).toEqual([
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    );
+    ]);
     expect(resource.csp?.resourceDomains).toContain(
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     );
     expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
+    expect(resource.csp?.connectDomains).toContain(
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    );
+    expect(resource.csp?.baseUriDomains).toEqual([
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+    ]);
   });
 
   it("retains nested iframe mode as an explicit diagnostic fallback", () => {
-    const resource = embedApp({ title: "Dashboard" });
+    const resource = embedApp({
+      title: "Dashboard",
+      frameDomains: ["https://analytics.example.com"],
+    });
     const html =
       typeof resource.html === "function"
         ? resource.html({ actionName: "open_app", appId: "analytics" })
@@ -80,6 +114,10 @@ describe("embedApp", () => {
     expect(html).toContain('toolInput.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
+    expect(resource.csp?.frameDomains).toEqual([
+      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+      "https://analytics.example.com",
+    ]);
   });
 
   it("checks for ChatGPT's window.openai bridge before loading the standard bridge module", () => {
@@ -90,7 +128,9 @@ describe("embedApp", () => {
         : resource.html;
 
     const openAiIndex = html.indexOf("window.openai");
-    const dynamicImportIndex = html.indexOf("await import");
+    const dynamicImportIndex = html.indexOf(
+      'await import("https://esm.sh/@modelcontextprotocol',
+    );
 
     expect(openAiIndex).toBeGreaterThanOrEqual(0);
     expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
@@ -104,8 +144,8 @@ describe("embedApp", () => {
         ? resource.html({ actionName: "open_app", appId: "analytics" })
         : resource.html;
 
-    expect(html).toContain("min-height: 900px");
-    expect(html).toContain("height: 856px");
+    expect(html).toContain("--agent-native-shell-height: 900px");
+    expect(html).toContain("--agent-native-viewport-height: 856px");
   });
 
   it("provides a local MCP App payload fixture for renderer tests", () => {
@@ -129,11 +169,15 @@ describe("embedApp", () => {
           ui: {
             prefersBorder: false,
             csp: {
-              frameDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
               resourceDomains: [
                 "https://esm.sh",
                 MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
               ],
+              connectDomains: [
+                "https://esm.sh",
+                MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+              ],
+              baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
             },
           },
         },

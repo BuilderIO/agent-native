@@ -42,7 +42,6 @@ export default defineAction({
         "Open the generated draft in the real Content editor so the user can revise, format, organize, and publish it.",
       iframeTitle: "Agent-Native Content",
       openLabel: "Open in Content",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
       height: 900,
     }),
   },

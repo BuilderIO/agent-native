@@ -15,12 +15,6 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 
-const MCP_APP_FRAME_DOMAINS = [
-  "https:",
-  "http://localhost:*",
-  "http://127.0.0.1:*",
-];
-
 /**
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
  * Variables declared on the dashboard take priority; filter `default` values
@@ -449,7 +443,6 @@ export default defineAction({
       description: "Open the updated dashboard in the real Analytics UI.",
       iframeTitle: "Agent-Native Analytics",
       openLabel: "Open dashboard",
-      frameDomains: MCP_APP_FRAME_DOMAINS,
       height: 680,
     }),
   },

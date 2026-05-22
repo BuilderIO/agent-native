@@ -282,7 +282,6 @@ export default defineAction({
       description: "Open the generated draft in the real Mail compose UI.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
     }),
   },
 });
@@ -301,15 +300,30 @@ Keep the existing `link` builder even when adding `mcpApp`. CLI-only clients,
 older hosts, and any host that does not render MCP Apps will ignore the UI
 metadata and still need the "Open in … →" link. `embedApp()` uses that link as
 its launch target, calls the app-only `create_embed_session` helper, exchanges
-a one-time SQL ticket at `/_agent-native/embed/start`, then navigates the MCP
-App resource frame itself to the real app route with a short-lived browser
-session. This avoids the fragile "iframe inside the host's iframe" shape that
-Claude and some ChatGPT surfaces block or paint blank. A nested iframe remains
-available only as an explicit diagnostic fallback (`embedMode: "iframe"` /
-`renderMode: "iframe"` / `nested: true`). `open_app({ app, path, embed: true })`
-is the generic escape hatch for routes like full dashboards, filtered inboxes,
-calendar drafts, analyses, or extension pages, and should be used liberally
-when the full app is the clearest review/edit surface.
+a one-time SQL ticket at `/_agent-native/embed/start`, then launches the real
+app route with a short-lived browser session. ChatGPT uses a controlled route
+iframe to avoid web-sandbox auto-height feedback loops. Standard hosts that can
+hydrate the route directly navigate the MCP App frame itself. Claude web
+currently proxies MCP App content through `claudemcpcontent.com`; direct route
+navigation can fetch app HTML there without reliably running the framework
+bootstrap, and a second nested iframe is easy for the host to block. For
+Claude, `embedApp()` fetches the signed route HTML and mounts the real app
+document into the existing MCP resource frame, with app-origin requests routed
+back to the app using the embed token. You can force the nested diagnostic
+iframe with `embedMode: "iframe"` /
+`renderMode: "iframe"` / `nested: true` when debugging host behavior. Pass
+additional `frameDomains` only for a custom MCP App that truly embeds a
+third-party frame. `open_app({ app, path, embed: true })` is the generic
+escape hatch for routes like full dashboards, filtered inboxes, calendar
+drafts, analyses, or extension pages, and should be used liberally when the
+full app is the clearest review/edit surface.
+
+Host sizing rule: the MCP resource shell owns a bounded inline height and the
+embedded route should scroll internally. Do not re-enable host SDK auto-resize
+for full-app route embeds; Claude and ChatGPT can otherwise measure the whole
+document and create a huge chat iframe. After changing the shell or `ui://`
+resource version, verify with a fresh tool call because old conversation frames
+keep the behavior they were rendered with.
 
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email
@@ -411,6 +425,9 @@ connect or present a token rather than assuming the action is missing.
 - Do use `embedApp()` / `open_app({ embed: true })` when the right UI is the
   existing React app at a specific route, including full app routes and focused
   component routes like an Analytics chart embed.
+- Do test real ChatGPT/Claude web behavior with a fresh inline render after any
+  resource-shell or host-bridge change; old frames are not proof that a new
+  shell is still broken.
 - Do build the URL with `buildDeepLink(...)` — it is the single source of truth
   for the open-route format.
 - Do keep `link` pure and synchronous; return `null` when there's nothing to
@@ -432,6 +449,8 @@ connect or present a token rather than assuming the action is missing.
 - Don't replace deep links with MCP Apps; non-UI clients still need the link.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
+- Don't use nested iframes for Claude web as the normal route; use the
+  single-frame mounted route path and reserve nested iframes for diagnostics.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

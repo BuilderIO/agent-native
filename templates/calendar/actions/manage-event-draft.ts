@@ -187,7 +187,6 @@ export default defineAction({
         "Open the draft in the real Calendar event editor so the user can review attendees, time, location, conferencing, and reminders.",
       iframeTitle: "Agent-Native Calendar",
       openLabel: "Open in Calendar",
-      frameDomains: ["https:", "http://localhost:*", "http://127.0.0.1:*"],
       height: 900,
     }),
   },

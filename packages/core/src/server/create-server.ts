@@ -16,6 +16,12 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -169,6 +175,17 @@ export function createServer(
       defineEventHandler((event) => {
         const requestOrigin = getRequestHeader(event, "origin");
         const method = getMethod(event);
+        const requestedHeaders = String(
+          getRequestHeader(event, "access-control-request-headers") ?? "",
+        )
+          .toLowerCase()
+          .split(",")
+          .map((header) => header.trim());
+        const embedCorsRequest =
+          isMcpEmbedCorsOrigin(requestOrigin) &&
+          (requestedHeaders.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            Boolean(getRequestHeader(event, EMBED_TARGET_HEADER)) ||
+            Boolean(getRequestHeader(event, "authorization")));
 
         /**
          * Decide whether the requesting origin is allowed. We never fall back
@@ -178,11 +195,13 @@ export function createServer(
          * permissive enough that some clients followed through with the
          * credentialed request.
          */
-        const allowedOrigin = getAllowedCorsOrigin(requestOrigin, {
-          allowedOrigins,
-          allowAnyOriginWhenNoAllowlist: !isProduction,
-          allowLocalhostWhenNoAllowlist: true,
-        });
+        const allowedOrigin = embedCorsRequest
+          ? requestOrigin
+          : getAllowedCorsOrigin(requestOrigin, {
+              allowedOrigins,
+              allowAnyOriginWhenNoAllowlist: !isProduction,
+              allowLocalhostWhenNoAllowlist: true,
+            });
         // No origin header at all (same-origin fetch, server-to-server) and
         // no allowlist → fall through with `*`-equivalent behaviour: omit
         // ACAO entirely and let the browser apply its same-origin default.
@@ -199,7 +218,13 @@ export function createServer(
           // apps that share a same-site cookie with the web app). The
           // wildcard `*` is spec-incompatible with credentials, so only
           // set this when we're echoing a concrete origin.
-          setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+          if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Credentials",
+              "true",
+            );
+          }
         } else if (!requestOrigin) {
           // No origin header — preserve the legacy permissive behaviour for
           // tools/scripts that hit the API directly (no credentialed CORS
@@ -215,7 +240,7 @@ export function createServer(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+          MCP_EMBED_CORS_ALLOW_HEADERS,
         );
 
         if (method === "OPTIONS") {

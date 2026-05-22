@@ -1,4 +1,7 @@
-import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+import {
+  createH3SSRHandler,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "@agent-native/core/server/ssr-handler";
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
 import fs from "fs";
 import path from "path";
@@ -21,6 +24,7 @@ export default async function docsHeadHandler(event: H3Event) {
       "content-length",
       String(Buffer.byteLength(asset.content)),
     );
+    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     if (asset.contentType.startsWith("text/markdown")) {
       setHeader(
