@@ -338,6 +338,7 @@ function parseMcpToolTextResult(result: unknown): Record<string, unknown> {
       (part) => part?.type === "text" && typeof part.text === "string",
     )?.text;
     if (typeof text === "string" && text.trim()) {
+      if ((result as any).isError) throw new Error(text.trim());
       const parsed = JSON.parse(text);
       if (parsed && typeof parsed === "object") return parsed;
     }
