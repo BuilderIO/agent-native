@@ -61,6 +61,9 @@ describe("embedApp", () => {
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
+    expect(html).toContain(
+      "const startUrl = withChatBridgeParam(data.startUrl)",
+    );
     expect(html).toContain("if (selfNavigate)");
     expect(html).toContain('"agentNative.submitChat"');
     expect(html).toContain('"agentNative.mcpHostContext"');

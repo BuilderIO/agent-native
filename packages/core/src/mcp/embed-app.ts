@@ -964,16 +964,17 @@ export function embedApp(
           setMessage(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
+        const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
           if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
-            await transplantAppDocument(data.startUrl);
+            await transplantAppDocument(startUrl);
           } else if (shouldRenderControlledAppFrame()) {
-            renderFrame(data.startUrl);
+            renderFrame(startUrl);
           } else {
-            navigateToAppFrame(data.startUrl);
+            navigateToAppFrame(startUrl);
           }
         } else {
-          renderFrame(data.startUrl);
+          renderFrame(startUrl);
         }
       } catch (err) {
         startedFor = "";
