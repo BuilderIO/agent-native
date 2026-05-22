@@ -17,7 +17,9 @@ import {
   IconPencil,
   IconArrowUp,
   IconInfoCircle,
+  IconMusic,
   IconPhoto,
+  IconVideo,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -26,7 +28,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 
 interface SlashCommandMenuProps {
@@ -293,8 +294,6 @@ export function SlashCommandMenu({
   const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const imageInsertPosRef = useRef<number | null>(null);
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -375,17 +374,46 @@ export function SlashCommandMenu({
 
   const imageCommand: CommandItem = {
     title: "Image",
-    description: "Upload image",
+    description: "Upload or embed image",
     icon: IconPhoto,
     action: (editor) => {
-      imageInsertPosRef.current = editor.state.selection.from;
-      imageInputRef.current?.click();
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
+        .run();
+    },
+  };
+
+  const videoCommand: CommandItem = {
+    title: "Video",
+    description: "Upload or embed video",
+    icon: IconVideo,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "video", attrs: { src: null } })
+        .run();
+    },
+  };
+
+  const audioCommand: CommandItem = {
+    title: "Audio",
+    description: "Upload or embed audio",
+    icon: IconMusic,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "audio", attrs: { src: null } })
+        .run();
     },
   };
 
   const allCommands = isTurnInto
     ? turnIntoCommands
-    : [generateCommand, imageCommand, ...commands];
+    : [generateCommand, imageCommand, videoCommand, audioCommand, ...commands];
 
   const filteredCommands = allCommands.filter(
     (cmd) =>
@@ -395,42 +423,6 @@ export function SlashCommandMenu({
 
   function handleGenerateSubmit() {
     submitGeneratePrompt(generatePrompt);
-  }
-
-  async function handleImageFilePicked(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-
-    const toastId = toast.loading("Uploading image...");
-    try {
-      const src = await uploadImageFile(file);
-      const imageBlock = {
-        type: "image",
-        attrs: { src, alt: file.name },
-      };
-      const insertPos = imageInsertPosRef.current;
-      imageInsertPosRef.current = null;
-
-      if (insertPos !== null) {
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(
-            Math.min(insertPos, editor.state.doc.content.size),
-            imageBlock,
-          )
-          .run();
-      } else {
-        editor.chain().focus().insertContent(imageBlock).run();
-      }
-      toast.success("Image added", { id: toastId });
-    } catch (error) {
-      imageInsertPosRef.current = null;
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
-    }
   }
 
   const executeCommand = useCallback(
@@ -592,16 +584,6 @@ export function SlashCommandMenu({
 
   return (
     <>
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        tabIndex={-1}
-        aria-hidden="true"
-        onChange={handleImageFilePicked}
-      />
-
       {/* Slash command menu */}
       {isOpen && position && filteredCommands.length > 0 && (
         <div

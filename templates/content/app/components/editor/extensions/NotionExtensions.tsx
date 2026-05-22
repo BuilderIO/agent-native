@@ -18,8 +18,6 @@ import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 const BLOCK_ATOM_TAGS = [
   "page",
   "database",
-  "audio",
-  "video",
   "file",
   "pdf",
   "bookmark",

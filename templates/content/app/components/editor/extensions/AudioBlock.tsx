@@ -14,12 +14,9 @@ import {
   IconDownload,
   IconDots,
   IconMessageCircle,
-  IconMinus,
-  IconPhoto,
-  IconPlus,
+  IconMusic,
   IconRefresh,
   IconTrash,
-  IconX,
 } from "@tabler/icons-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { toast } from "sonner";
@@ -41,22 +38,22 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
-import type { ContentImageOptions } from "./ImageNode";
+import { audioUploadErrorMessage, uploadAudioFile } from "../image-upload";
+import type { ContentAudioOptions } from "./AudioNode";
 
-type ImageSourceTab = "upload" | "link";
+type AudioSourceTab = "upload" | "link";
 type ResizeDirection = "left" | "right";
 
-interface ImageResizeState {
+interface AudioResizeState {
   direction: ResizeDirection;
   maxWidth: number;
   startWidth: number;
   startX: number;
 }
 
-const MIN_IMAGE_WIDTH = 160;
+const MIN_AUDIO_WIDTH = 260;
 
-function normalizedImageWidth(value: unknown): number | null {
+function normalizedAudioWidth(value: unknown): number | null {
   const width =
     typeof value === "number"
       ? value
@@ -67,25 +64,22 @@ function normalizedImageWidth(value: unknown): number | null {
   return Math.round(width);
 }
 
-function clampImageWidth(width: number, maxWidth: number): number {
-  return Math.round(Math.min(Math.max(width, MIN_IMAGE_WIDTH), maxWidth));
+function clampAudioWidth(width: number, maxWidth: number): number {
+  return Math.round(Math.min(Math.max(width, MIN_AUDIO_WIDTH), maxWidth));
 }
 
-function imageDownloadName(src: string, alt: string): string {
-  const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
-  if (cleanAlt) return cleanAlt.toLowerCase();
-
+function audioDownloadName(src: string): string {
   try {
     const pathname = new URL(src).pathname;
     const name = pathname.split("/").filter(Boolean).pop();
     if (name) return decodeURIComponent(name);
   } catch {}
 
-  return "image";
+  return "audio";
 }
 
-async function downloadImage(src: string, alt: string) {
-  const filename = imageDownloadName(src, alt);
+async function downloadAudio(src: string) {
+  const filename = audioDownloadName(src);
 
   try {
     const response = await fetch(src);
@@ -99,7 +93,7 @@ async function downloadImage(src: string, alt: string) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    toast.success("Image download started.");
+    toast.success("Audio download started.");
   } catch {
     const anchor = document.createElement("a");
     anchor.href = src;
@@ -109,64 +103,20 @@ async function downloadImage(src: string, alt: string) {
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
-    toast.info("Opened image in a new tab.");
+    toast.info("Opened audio in a new tab.");
   }
 }
 
-async function blobToPng(blob: Blob): Promise<Blob> {
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close();
-    throw new Error("Canvas unavailable");
-  }
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close();
-
-  const pngBlob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/png");
-  });
-  if (!pngBlob) throw new Error("Image conversion failed");
-  return pngBlob;
-}
-
-async function copyImage(src: string) {
+async function copyAudio(src: string) {
   try {
-    if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
-      throw new Error("Image clipboard unavailable");
-    }
-
-    const response = await fetch(src);
-    if (!response.ok) throw new Error("Copy failed");
-    const blob = await response.blob();
-    const clipboardItem = ClipboardItem as typeof ClipboardItem & {
-      supports?: (type: string) => boolean;
-    };
-    const originalType = blob.type || "image/png";
-    const canCopyOriginalType =
-      originalType.startsWith("image/") &&
-      (!clipboardItem.supports || clipboardItem.supports(originalType));
-    const imageBlob = canCopyOriginalType ? blob : await blobToPng(blob);
-    const imageType = canCopyOriginalType ? originalType : "image/png";
-
-    await navigator.clipboard.write([
-      new ClipboardItem({ [imageType]: imageBlob }),
-    ]);
-    toast.success("Image copied.");
+    await navigator.clipboard.writeText(src);
+    toast.success("Copied audio URL.");
   } catch {
-    try {
-      await navigator.clipboard.writeText(src);
-      toast.info("Copied image URL.");
-    } catch {
-      toast.error("Could not copy image.");
-    }
+    toast.error("Could not copy audio.");
   }
 }
 
-export function ImageBlock({
+export function AudioBlock({
   node,
   editor,
   deleteNode,
@@ -178,28 +128,23 @@ export function ImageBlock({
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
-  const [sourceTab, setSourceTab] = useState<ImageSourceTab>("upload");
-  const [imageUrl, setImageUrl] = useState("");
-  const [altPopoverOpen, setAltPopoverOpen] = useState(false);
-  const [altDraft, setAltDraft] = useState("");
+  const [sourceTab, setSourceTab] = useState<AudioSourceTab>("upload");
+  const [audioUrl, setAudioUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
-  const lightboxImageRef = useRef<HTMLImageElement>(null);
+  const lightboxAudioRef = useRef<HTMLAudioElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
-  const resizeStateRef = useRef<ImageResizeState | null>(null);
+  const resizeStateRef = useRef<AudioResizeState | null>(null);
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
-  const alt = (node.attrs.alt as string) || "";
   const isUploading = Boolean(node.attrs.uploadId);
-  const width = normalizedImageWidth(node.attrs.width);
+  const width = normalizedAudioWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const options = extension.options as ContentImageOptions;
+  const options = extension.options as ContentAudioOptions;
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -223,7 +168,7 @@ export function ImageBlock({
   }, [selected, sourcePanelOpen]);
 
   function handleComment() {
-    if (!options.onImageComment) return;
+    if (!options.onAudioComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
     const coords = editor.view.coordsAtPos(
       typeof position === "number" ? position : editor.state.selection.from,
@@ -235,77 +180,55 @@ export function ImageBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onImageComment(
-      alt.trim() ? `Image: ${alt.trim()}` : "Image",
-      offsetTop,
-    );
-  }
-
-  function openAltEditor() {
-    setAltDraft(alt);
-    setAltPopoverOpen(true);
+    options.onAudioComment("Audio", offsetTop);
   }
 
   function openReplacePanel() {
     setSourceTab("upload");
-    setImageUrl("");
+    setAudioUrl("");
     setSourcePanelDismissed(false);
     setSourcePanelOpen(true);
   }
 
   function handleLightboxOpenChange(open: boolean) {
     setLightboxOpen(open);
-    if (!open) {
-      setLightboxZoomed(false);
-    }
   }
 
   function openLightbox() {
     setSourcePanelOpen(false);
-    setLightboxZoomed(false);
     setLightboxOpen(true);
   }
 
   function handleLightboxViewportPointerDown(
     event: ReactPointerEvent<HTMLDivElement>,
   ) {
-    const image = lightboxImageRef.current;
-    if (!image) return;
+    const audio = lightboxAudioRef.current;
+    if (!audio) return;
 
-    const imageRect = image.getBoundingClientRect();
+    const audioRect = audio.getBoundingClientRect();
     const rootFontSize = Number.parseFloat(
       window.getComputedStyle(document.documentElement).fontSize,
     );
     const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
-    const isFarOutsideImage =
-      event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer ||
-      event.clientY < imageRect.top - closeBuffer ||
-      event.clientY > imageRect.bottom + closeBuffer;
+    const isFarOutsideAudio =
+      event.clientX < audioRect.left - closeBuffer ||
+      event.clientX > audioRect.right + closeBuffer ||
+      event.clientY < audioRect.top - closeBuffer ||
+      event.clientY > audioRect.bottom + closeBuffer;
 
-    if (isFarOutsideImage) {
+    if (isFarOutsideAudio) {
       handleLightboxOpenChange(false);
     }
   }
 
-  function updateAltText(nextAlt: string) {
-    setAltDraft(nextAlt);
-    updateAttributes({ alt: nextAlt });
-  }
-
-  useEffect(() => {
-    if (!altPopoverOpen) return;
-    window.setTimeout(() => altInputRef.current?.focus(), 0);
-  }, [altPopoverOpen]);
-
-  function imageResizeMaxWidth() {
+  function audioResizeMaxWidth() {
     const wrapper = mediaBlockRef.current?.closest(".notion-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??
       mediaBlockRef.current?.getBoundingClientRect().width ??
-      MIN_IMAGE_WIDTH;
-    return Math.max(MIN_IMAGE_WIDTH, Math.floor(maxWidth));
+      MIN_AUDIO_WIDTH;
+    return Math.max(MIN_AUDIO_WIDTH, Math.floor(maxWidth));
   }
 
   function handleResizePointerDown(
@@ -317,14 +240,14 @@ export function ImageBlock({
     const rect = mediaBlockRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const maxWidth = imageResizeMaxWidth();
+    const maxWidth = audioResizeMaxWidth();
     resizeStateRef.current = {
       direction,
       maxWidth,
       startWidth: rect.width,
       startX: event.clientX,
     };
-    setDragWidth(clampImageWidth(rect.width, maxWidth));
+    setDragWidth(clampAudioWidth(rect.width, maxWidth));
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
   }
@@ -339,7 +262,7 @@ export function ImageBlock({
         resizeState.direction === "right"
           ? resizeState.startWidth + delta
           : resizeState.startWidth - delta;
-      setDragWidth(clampImageWidth(nextWidth, resizeState.maxWidth));
+      setDragWidth(clampAudioWidth(nextWidth, resizeState.maxWidth));
     }
 
     function handlePointerUp() {
@@ -367,25 +290,25 @@ export function ImageBlock({
     };
   }, [updateAttributes]);
 
-  async function handleImageFilePicked(event: ChangeEvent<HTMLInputElement>) {
+  async function handleAudioFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
 
-    const toastId = toast.loading("Uploading image...");
+    const toastId = toast.loading("Uploading audio...");
     try {
-      const nextSrc = await uploadImageFile(file);
+      const nextSrc = await uploadAudioFile(file);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
-      toast.success("Image added", { id: toastId });
+      toast.success("Audio added", { id: toastId });
     } catch (error) {
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
+      toast.error(audioUploadErrorMessage(error), { id: toastId });
     }
   }
 
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextSrc = imageUrl.trim();
+    const nextSrc = audioUrl.trim();
     if (!nextSrc) return;
 
     try {
@@ -394,12 +317,12 @@ export function ImageBlock({
         throw new Error("Invalid protocol");
       }
     } catch {
-      toast.error("Paste a valid image URL.");
+      toast.error("Paste a valid audio URL.");
       return;
     }
 
-    updateAttributes({ src: nextSrc, alt });
-    setImageUrl("");
+    updateAttributes({ src: nextSrc });
+    setAudioUrl("");
     setSourcePanelOpen(false);
   }
 
@@ -447,15 +370,15 @@ export function ImageBlock({
             <Input
               autoFocus
               type="url"
-              value={imageUrl}
-              onChange={(event) => setImageUrl(event.target.value)}
-              placeholder="Paste the image link..."
+              value={audioUrl}
+              onChange={(event) => setAudioUrl(event.target.value)}
+              placeholder="Paste the audio link..."
             />
             <Button type="submit" className="w-full">
-              {replace ? "Replace image" : "Embed image"}
+              {replace ? "Replace audio" : "Embed audio"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Works with any image from the web
+              Works with direct audio links from the web
             </p>
           </form>
         )}
@@ -489,18 +412,18 @@ export function ImageBlock({
               setSourcePanelOpen(true);
             }}
           >
-            <IconPhoto size={20} />
-            <span>{isUploading ? "Uploading image..." : "Add an image"}</span>
+            <IconMusic size={20} />
+            <span>{isUploading ? "Uploading audio..." : "Add audio"}</span>
           </button>
 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="audio/*"
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
-            onChange={handleImageFilePicked}
+            onChange={handleAudioFilePicked}
           />
 
           {showSourcePanel ? renderSourcePanel() : null}
@@ -513,7 +436,9 @@ export function ImageBlock({
     <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
       <div
         ref={mediaBlockRef}
-        className={`media-block ${selected ? "media-block--selected" : ""}`}
+        className={`media-block media-block--audio ${
+          selected ? "media-block--selected" : ""
+        }`}
         data-resized={activeWidth ? "true" : undefined}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => {
@@ -522,10 +447,11 @@ export function ImageBlock({
         }}
         style={activeWidth ? { width: `${activeWidth}px` } : undefined}
       >
-        <img
+        <audio
           src={src}
-          alt={alt || ""}
           className="media-block__content"
+          controls
+          preload="metadata"
           draggable={false}
           onDoubleClick={(event) => {
             event.preventDefault();
@@ -537,77 +463,20 @@ export function ImageBlock({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="audio/*"
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"
-          onChange={handleImageFilePicked}
+          onChange={handleAudioFilePicked}
         />
 
-        {isEditable && (alt.trim() || altPopoverOpen) ? (
-          <Popover open={altPopoverOpen} onOpenChange={setAltPopoverOpen}>
-            <Tooltip delayDuration={350}>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="media-block__alt-badge"
-                    aria-label="View and edit alt text"
-                    onClick={() => setAltDraft(alt)}
-                  >
-                    ALT
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent className="media-block__alt-tooltip" side="top">
-                {alt.trim() ? (
-                  <span className="media-block__alt-tooltip-text">{alt}</span>
-                ) : null}
-                <span className="media-block__alt-tooltip-help">
-                  Click to view and edit alt text
-                </span>
-              </TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              align="end"
-              className="media-block__alt-popover"
-              side="bottom"
-              sideOffset={8}
-            >
-              <div className="media-block__alt-popover-copy">
-                Add alt text to describe this image.
-              </div>
-              <button
-                type="button"
-                className="media-block__alt-popover-close"
-                aria-label="Close alt text editor"
-                onClick={() => setAltPopoverOpen(false)}
-              >
-                <IconX size={20} />
-              </button>
-              <Input
-                ref={altInputRef}
-                value={altDraft}
-                onChange={(event) => updateAltText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape" || event.key === "Enter") {
-                    event.preventDefault();
-                    setAltPopoverOpen(false);
-                  }
-                }}
-                placeholder="Describe this image"
-              />
-            </PopoverContent>
-          </Popover>
-        ) : null}
-
-        {isEditable && (
+        {isEditable ? (
           <>
             <button
               type="button"
               className="media-block__resize-handle media-block__resize-handle--left"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize image from left"
+              aria-label="Resize audio from left"
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "left")}
@@ -616,7 +485,7 @@ export function ImageBlock({
               type="button"
               className="media-block__resize-handle media-block__resize-handle--right"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize image from right"
+              aria-label="Resize audio from right"
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "right")}
@@ -642,7 +511,7 @@ export function ImageBlock({
                     type="button"
                     onClick={handleComment}
                     className="media-block__toolbar-btn"
-                    aria-label="Comment on image"
+                    aria-label="Comment on audio"
                   >
                     <IconMessageCircle size={16} />
                   </button>
@@ -656,7 +525,7 @@ export function ImageBlock({
                     type="button"
                     onClick={openLightbox}
                     className="media-block__toolbar-btn"
-                    aria-label="Expand image"
+                    aria-label="Expand audio"
                   >
                     <IconArrowsMaximize size={16} />
                   </button>
@@ -668,9 +537,9 @@ export function ImageBlock({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void downloadImage(src, alt)}
+                    onClick={() => void downloadAudio(src)}
                     className="media-block__toolbar-btn"
-                    aria-label="Download image"
+                    aria-label="Download audio"
                   >
                     <IconDownload size={16} />
                   </button>
@@ -683,7 +552,7 @@ export function ImageBlock({
                   <button
                     type="button"
                     className="media-block__toolbar-btn"
-                    aria-label="More image actions"
+                    aria-label="More audio actions"
                     data-media-dropdown-trigger
                     title="More"
                     onPointerDown={(event) => {
@@ -704,25 +573,8 @@ export function ImageBlock({
                   sideOffset={8}
                   role="menu"
                 >
-                  <div className="media-block__dropdown-label">Image</div>
+                  <div className="media-block__dropdown-label">Audio</div>
                   <div className="media-block__dropdown-group">
-                    <button
-                      type="button"
-                      className="media-block__dropdown-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setMoreMenuOpen(false);
-                        openAltEditor();
-                      }}
-                    >
-                      <span
-                        className="media-block__dropdown-icon media-block__dropdown-icon--text"
-                        aria-hidden="true"
-                      >
-                        ALT
-                      </span>
-                      <span>Alt text</span>
-                    </button>
                     <button
                       type="button"
                       className="media-block__dropdown-item"
@@ -746,7 +598,7 @@ export function ImageBlock({
                       role="menuitem"
                       onClick={() => {
                         setMoreMenuOpen(false);
-                        void copyImage(src);
+                        void copyAudio(src);
                       }}
                     >
                       <span
@@ -755,7 +607,7 @@ export function ImageBlock({
                       >
                         <IconCopy size={18} />
                       </span>
-                      <span>Copy image</span>
+                      <span>Copy audio</span>
                     </button>
                   </div>
                   <div
@@ -783,7 +635,7 @@ export function ImageBlock({
               </Popover>
             </div>
           </>
-        )}
+        ) : null}
 
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
 
@@ -795,59 +647,26 @@ export function ImageBlock({
               aria-describedby={undefined}
               onOpenAutoFocus={(event) => event.preventDefault()}
             >
-              <DialogTitle className="sr-only">Image preview</DialogTitle>
+              <DialogTitle className="sr-only">Audio preview</DialogTitle>
               <div
                 className="media-lightbox__viewport"
                 onPointerDown={handleLightboxViewportPointerDown}
               >
-                <button
-                  type="button"
-                  className="media-lightbox__image-button"
-                  data-zoomed={lightboxZoomed ? "true" : undefined}
-                  aria-label={
-                    lightboxZoomed ? "Zoom image out" : "Zoom image in"
-                  }
-                  aria-pressed={lightboxZoomed}
-                  onClick={() => setLightboxZoomed((zoomed) => !zoomed)}
-                >
-                  <img
-                    ref={lightboxImageRef}
-                    src={src}
-                    alt={alt || ""}
-                    className="media-lightbox__image"
-                    draggable={false}
-                  />
-                </button>
+                <audio
+                  ref={lightboxAudioRef}
+                  src={src}
+                  className="media-lightbox__audio"
+                  controls
+                  preload="metadata"
+                />
               </div>
 
-              <div className="media-lightbox__toolbar" aria-label="Image view">
+              <div className="media-lightbox__toolbar" aria-label="Audio view">
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Zoom out"
-                  disabled={!lightboxZoomed}
-                  onClick={() => setLightboxZoomed(false)}
-                >
-                  <IconMinus size={17} />
-                </button>
-                <span className="media-lightbox__zoom-value">
-                  {lightboxZoomed ? "150%" : "100%"}
-                </span>
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label="Zoom in"
-                  disabled={lightboxZoomed}
-                  onClick={() => setLightboxZoomed(true)}
-                >
-                  <IconPlus size={17} />
-                </button>
-                <span className="media-lightbox__separator" aria-hidden />
-                <button
-                  type="button"
-                  className="media-lightbox__toolbar-btn"
-                  aria-label="Download image"
-                  onClick={() => void downloadImage(src, alt)}
+                  aria-label="Download audio"
+                  onClick={() => void downloadAudio(src)}
                 >
                   <IconDownload size={17} />
                 </button>
@@ -855,7 +674,7 @@ export function ImageBlock({
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Close image preview"
+                  aria-label="Close audio preview"
                   onClick={() => handleLightboxOpenChange(false)}
                 >
                   <IconArrowsMinimize size={17} />

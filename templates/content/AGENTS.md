@@ -140,7 +140,7 @@ plain-text strip of the markdown.
 | `list-comments` | `--documentId <id>`                                            | List all comment threads |
 | `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
-### Image Blocks
+### Media Blocks
 
 Documents support image blocks as markdown images: `![alt text](https://...)`.
 The UI uploads local image files through the framework
@@ -148,8 +148,41 @@ The UI uploads local image files through the framework
 storage path. If image upload fails because storage is not configured, tell the
 user to connect Builder.io in Settings -> File uploads. Agents can add images
 that already have a hosted URL by using `edit-document` or `update-document` to
-insert markdown image syntax. Do not embed base64 image data in document
-content.
+insert markdown image syntax. Agents can update image alt text by editing the
+text inside the markdown brackets. Uploaded or dropped images should not infer
+alt text from the file name; leave alt text empty until the user writes it. The
+UI exposes hover controls for commenting on an image, editing alt text in place
+from the image's bottom-right ALT badge, copying or downloading the image,
+replacing it through the Upload/Link picker, resizing it with side handles,
+expanding it into a lightbox preview with 100%/150% zoom controls, and removing
+it. Resized images serialize as HTML `<img>` tags with a `width` attribute so
+the size persists in markdown. The slash-command Image block may be empty
+(`![]()`) until the user chooses Upload or Link. Do not embed base64 image data
+in document content.
+
+Documents also support video blocks as HTML video tags:
+`<video src="https://..." controls></video>`. The UI uploads local video files
+through the same file-upload endpoint and slash-command Video blocks may be
+empty until the user chooses Upload or Link. Agents can add videos with hosted
+URLs by inserting HTML video syntax; do not embed base64 video data in document
+content. Video blocks expose the same core hover controls as images: comment,
+expand into a lightbox player, download, replace through the Upload/Link picker,
+copy the video URL, resize with side handles, and delete. Resized videos
+serialize with a `width` attribute so the size persists in markdown. Videos do
+not use image alt text; add descriptive surrounding copy, captions, or transcript
+content when accessibility context is needed.
+
+Documents also support audio blocks as HTML audio tags:
+`<audio src="https://..." controls></audio>`. The UI uploads local audio files
+through the same file-upload endpoint and slash-command Audio blocks may be
+empty until the user chooses Upload or Link. Agents can add hosted audio by
+inserting HTML audio syntax; do not embed base64 audio data in document content.
+Audio blocks expose hover controls for comment, expand into a player, download,
+replace through the Upload/Link picker, copy the audio URL, resize with side
+handles, and delete. Resized audio serializes with a `width` attribute so the
+size persists in markdown. Audio does not use image alt text; add descriptive
+surrounding copy, captions, or transcript content when accessibility context is
+needed.
 
 ### Sharing
 
