@@ -102,6 +102,12 @@ a huge chat artifact. Host conversations also keep already-rendered iframes, so
 after changing the resource shell or `ui://` version, test a fresh tool call
 rather than re-measuring an old frame.
 
+If a user reopens an older chat after a one-time embed start ticket expires,
+the start route returns a small refresh page and posts
+`agentNative.embedSessionExpired` to the wrapper. `embedApp()` clears the stale
+start URL and asks the app-only `create_embed_session` tool for a fresh ticket
+when it still has the original app route.
+
 Default direct embeds talk to the MCP Apps host through standard `ui/*`
 JSON-RPC messages:
 
@@ -159,7 +165,7 @@ request. Embedded routes must remain functional in the default inline mode.
 
 ## Tools {#tools}
 
-Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+Stdio/code developer clients can see all connected app actions as MCP tools. Chat-style app hosts, including OAuth callers that request `mcp:apps` and generic authenticated remote HTTP/static-token callers, get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
 
 The mapping is direct:
 
