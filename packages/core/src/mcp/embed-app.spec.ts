@@ -30,6 +30,8 @@ describe("embedApp", () => {
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
     );
+    expect(html).toContain("function embedStartUrlFrom(data)");
+    expect(html).toContain("openStartUrl = embedStartUrlFrom(data)");
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("isChatGptSandboxHost");
     expect(html).toContain("oaiusercontent");
@@ -52,7 +54,9 @@ describe("embedApp", () => {
     expect(html).toContain('mode === "transplant"');
     expect(html).toContain('toolInput.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
-    expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
+    expect(html).toContain(
+      "const embedUrl = openStartUrl || withChatBridgeParam(openUrl)",
+    );
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
     expect(html).toContain("if (selfNavigate)");
@@ -114,13 +118,18 @@ describe("embedApp", () => {
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
-    expect(html).toContain("let url = withChatBridgeParam(openUrl)");
+    expect(html).toContain(
+      "let url = openStartUrl || withChatBridgeParam(openUrl)",
+    );
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("function embedSessionArgsFor(value)");
     expect(html).toContain("? { path: value, chrome }");
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain(
+      "const embedUrl = openStartUrl || withChatBridgeParam(openUrl)",
     );
     expect(html).toContain("callEmbedSessionTool(embedSessionArgsFor(url))");
     expect(html).toContain("frameReadyMessageDelays");

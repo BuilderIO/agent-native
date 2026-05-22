@@ -88,6 +88,10 @@ host APIs and bounded height control.
 For normal action authoring, use `embedRoute()` when the action's
 `link` and `mcpApp` should come from the same pure route builder. The route
 itself should derive state from the URL and normal app data fetching.
+Same-app `open_app({ embed: true })` returns a server-minted `embedStartUrl`
+so the resource can launch without a second iframe-originated tool call;
+custom actions can return the same field when they already know the target
+route.
 
 The outer MCP resource reports a bounded inline height to the host and the app
 route scrolls internally. Do not rely on host auto-resize measuring the full

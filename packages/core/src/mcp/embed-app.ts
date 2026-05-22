@@ -112,6 +112,7 @@ export function embedApp(
     let openAiBridge = null;
     let toolInput = {};
     let openUrl = "";
+    let openStartUrl = "";
     let startedFor = "";
     let appFrame = null;
     let appFrameReady = false;
@@ -196,6 +197,15 @@ export function embedApp(
         : "";
       const record = data && typeof data === "object" ? data : {};
       return metaUrl || record.url || record.deepLink || record.openUrl || "";
+    }
+
+    function embedStartUrlFrom(data) {
+      const record = data && typeof data === "object" ? data : {};
+      return typeof record.embedStartUrl === "string"
+        ? record.embedStartUrl
+        : typeof record.startUrl === "string"
+          ? record.startUrl
+          : "";
     }
 
     function hostState() {
@@ -624,12 +634,14 @@ export function embedApp(
     }
 
     async function openFallbackExternal() {
-      let url = withChatBridgeParam(openUrl);
+      let url = openStartUrl || withChatBridgeParam(openUrl);
       try {
-        const result = await callEmbedSessionTool(embedSessionArgsFor(url));
-        const data = parseToolResult(result);
-        if (typeof data.startUrl === "string" && data.startUrl) {
-          url = data.startUrl;
+        if (!isEmbedStartUrl(url)) {
+          const result = await callEmbedSessionTool(embedSessionArgsFor(url));
+          const data = parseToolResult(result);
+          if (typeof data.startUrl === "string" && data.startUrl) {
+            url = data.startUrl;
+          }
         }
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
@@ -890,7 +902,7 @@ export function embedApp(
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
-        const embedUrl = withChatBridgeParam(openUrl);
+        const embedUrl = openStartUrl || withChatBridgeParam(openUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);
@@ -991,6 +1003,7 @@ export function embedApp(
       const params = openAiToolResultParams(bridge);
       const data = parseToolResult(params);
       openUrl = openLinkFrom(params, data);
+      openStartUrl = embedStartUrlFrom(data);
       updateTitle(data);
       updateOpenButton();
       updateDisplayButton();
@@ -1040,6 +1053,7 @@ export function embedApp(
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
         openUrl = openLinkFrom(params, data);
+        openStartUrl = embedStartUrlFrom(data);
         updateTitle(data);
         updateOpenButton();
         void launchEmbed();

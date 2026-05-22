@@ -33,6 +33,7 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDeepLink } from "../server/deep-link.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import type { MCPConfig } from "./build-server.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
 import { embedApp } from "./embed-app.js";
@@ -110,6 +111,16 @@ function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
   if (!base || path === base || path.startsWith(`${base}/`)) return path;
   return `${base}${path}`;
+}
+
+function withMcpChatBridgeParam(path: string): string {
+  try {
+    const url = new URL(path, "http://agent-native.invalid");
+    url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -250,7 +261,7 @@ function listAppsTool(
 
 function openAppTool(
   config: MCPConfig,
-  _requestMeta?: { origin?: string },
+  requestMeta?: { origin?: string },
 ): ActionEntry {
   return {
     tool: tool(
@@ -330,12 +341,49 @@ function openAppTool(
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
       const url = appUrl;
+      let embedStartUrl: string | undefined;
+      let embedTargetPath: string | undefined;
+      let embedExpiresAt: number | undefined;
+
+      if (embed && !targetApp) {
+        const { getRequestContext } =
+          await import("../server/request-context.js");
+        const ctx = getRequestContext();
+        const ownerEmail = ctx?.userEmail?.trim();
+        if (ownerEmail) {
+          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+            await import("../server/embed-session.js");
+          const { buildEmbedStartPath } =
+            await import("../server/embed-route.js");
+          const targetPath = normalizeEmbedTargetPath(
+            withMcpChatBridgeParam(url),
+            requestMeta?.origin,
+          );
+          if (targetPath) {
+            const ticket = await createEmbedSessionTicket({
+              ownerEmail,
+              orgId: ctx?.orgId,
+              targetPath,
+              scope: typeof args.chrome === "string" ? args.chrome : null,
+            });
+            const startPath = buildEmbedStartPath(ticket.ticket);
+            embedStartUrl = requestMeta?.origin
+              ? new URL(startPath, requestMeta.origin).toString()
+              : startPath;
+            embedTargetPath = targetPath;
+            embedExpiresAt = ticket.expiresAt;
+          }
+        }
+      }
 
       return {
         app,
         ...(view ? { view } : {}),
         ...(path ? { path } : {}),
         url,
+        ...(embedStartUrl ? { embedStartUrl } : {}),
+        ...(embedTargetPath ? { embedTargetPath } : {}),
+        ...(embedExpiresAt ? { embedExpiresAt } : {}),
         embed,
       };
     },
