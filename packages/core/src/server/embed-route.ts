@@ -21,7 +21,7 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
-  isClaudeMcpContentOrigin,
+  isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
@@ -84,7 +84,7 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
-  return isClaudeMcpContentOrigin(origin) ? origin : null;
+  return isMcpEmbedCorsOrigin(origin) ? origin : null;
 }
 
 function embedStartResponseHeaders(

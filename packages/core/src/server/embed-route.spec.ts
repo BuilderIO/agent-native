@@ -159,6 +159,27 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
 
+  it("allows opaque sandboxed MCP app frames to fetch embed start redirects", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "ticket-123" }, { origin: "null" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("null");
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+
   it("preserves the MCP chat bridge flag on the signed app route", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "steve@example.com",
