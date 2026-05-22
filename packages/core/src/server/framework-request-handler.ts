@@ -213,6 +213,10 @@ export function trackPluginInit(
   options: { paths?: string[] } = {},
 ): void {
   if (!nitroApp) return;
+  // Ensure the readiness gate exists even when the tracked plugin is the first
+  // framework code to run in a serverless isolate. Otherwise an immediate
+  // first request can fall through before the plugin registers its routes.
+  getH3App(nitroApp);
   // Attach a no-op catch so the promise doesn't surface as an unhandled
   // rejection when Nitro v3 drops the async return value. The actual error
   // is still observable when awaitPluginsReady() re-awaits the promise.

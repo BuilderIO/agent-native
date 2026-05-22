@@ -212,6 +212,38 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("installs the readiness gate when async plugin init is tracked first", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+          ok: true,
+        }));
+        resolve();
+      };
+    });
+    let settled = false;
+
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
   it("does not treat similar non-prefixed paths as framework routes", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();

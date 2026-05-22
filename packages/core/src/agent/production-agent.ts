@@ -74,6 +74,7 @@ import {
 } from "../shared/reasoning-effort.js";
 import { isAgentActionStopError } from "../action.js";
 import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
+import { extensionIdFromPathname } from "../extensions/path.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -2208,6 +2209,10 @@ export function createProductionAgentHandler(
         if (url && (url.pathname || url.search || url.hash)) {
           const lines: string[] = [];
           if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+          const extensionId = url.pathname
+            ? extensionIdFromPathname(url.pathname)
+            : null;
+          if (extensionId) lines.push(`extensionId: ${extensionId}`);
           if (url.search) lines.push(`search: ${url.search}`);
           if (url.hash) lines.push(`hash: ${url.hash}`);
           if (url.searchParams && Object.keys(url.searchParams).length > 0) {
