@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.24
+
+### Patch Changes
+
+- b275383: Allow MCP app embed wrappers to connect to configured frame domains so Claude can transplant cross-app embeds.
+
 ## 0.22.23
 
 ### Patch Changes
