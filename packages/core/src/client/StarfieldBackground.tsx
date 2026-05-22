@@ -163,7 +163,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
   float cursorLift = 1. - smoothstep(.04, .48, length(uv - pointerUv));
   cursorLift = cursorLift * cursorLift * (3. - 2. * cursorLift) * uPointer.z;
-  m *= 1. + cursorLift * .55;
+  m *= 1. + cursorLift * 1.6;
 
   // Gray instead of rainbow
   vec3 baseCol = vec3(0.35) * uDark + vec3(0.12) * (1.0 - uDark);
