@@ -300,6 +300,9 @@ export async function openGrantedDispatchMcpApp(input: {
   url: string;
   embed?: boolean;
   chrome?: "full" | "minimal";
+  embedStartUrl?: string;
+  embedTargetPath?: string;
+  embedExpiresAt?: number;
 }> {
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
@@ -317,13 +320,28 @@ export async function openGrantedDispatchMcpApp(input: {
         view,
         params: input.params,
       });
+  const url = `${appBaseUrl(target)}${relUrl}`;
+  const embedSession = input.embed
+    ? await createGrantedDispatchMcpEmbedSession({
+        app: target.id,
+        url,
+        chrome: input.chrome,
+      })
+    : null;
   return {
     app: target.id,
     ...(view ? { view } : {}),
     ...(path ? { path } : {}),
-    url: `${appBaseUrl(target)}${relUrl}`,
+    url,
     ...(input.embed === true ? { embed: true } : {}),
     ...(input.chrome ? { chrome: input.chrome } : {}),
+    ...(embedSession?.startUrl ? { embedStartUrl: embedSession.startUrl } : {}),
+    ...(embedSession?.targetPath
+      ? { embedTargetPath: embedSession.targetPath }
+      : {}),
+    ...(typeof embedSession?.expiresAt === "number"
+      ? { embedExpiresAt: embedSession.expiresAt }
+      : {}),
   };
 }
 

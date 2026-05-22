@@ -170,6 +170,43 @@ describe("openGrantedDispatchMcpApp", () => {
       url: "http://localhost:8092/extensions/ext-1/github-stars-over-time",
       embed: true,
       chrome: "minimal",
+      embedStartUrl:
+        "http://localhost:8092/_agent-native/embed/start?ticket=ticket-123",
+      embedTargetPath: "/extensions/ext-1/github-stars-over-time",
+      embedExpiresAt: 12345,
+    });
+  });
+
+  it("pre-mints cross-app embed sessions for MCP app hosts", async () => {
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards?range=30d",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "http://localhost:8086/dashboards?range=30d",
+        chrome: "minimal",
+      },
+    );
+    expect(result).toEqual({
+      app: "analytics",
+      path: "/dashboards?range=30d",
+      url: "http://localhost:8086/dashboards?range=30d",
+      embed: true,
+      chrome: "minimal",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
   });
 
