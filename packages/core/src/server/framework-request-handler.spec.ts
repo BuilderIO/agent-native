@@ -149,6 +149,41 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("holds framework requests before already-registered middleware runs", async () => {
+    let release!: () => void;
+    let pluginsReady = false;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        pluginsReady = true;
+        resolve();
+      };
+    });
+    const observedPluginReadiness: boolean[] = [];
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~middleware"].push(async (_event: any, next: any) => {
+      observedPluginReadiness.push(pluginsReady);
+      return next();
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/_agent-native/mcp", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/_agent-native/mcp");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observedPluginReadiness).toEqual([]);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(observedPluginReadiness).toEqual([true]);
+  });
+
   it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
     const nitroApp = createNitroApp();
     markDefaultPluginProvided(nitroApp, "agent-chat");

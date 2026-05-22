@@ -155,8 +155,12 @@ export function getH3App(nitroApp: any): H3AppShim {
       // Fall through — the actual route handler runs next.
       return undefined;
     }) as EventHandler;
-    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate);
-    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate);
+    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate, {
+      prepend: true,
+    });
+    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
+      prepend: true,
+    });
   }
 
   return shim;
@@ -255,14 +259,21 @@ function installPluginReadyPlaceholders(
   for (const path of paths) {
     if (!path || installed.has(path)) continue;
     installed.add(path);
-    app.use(path, (async (event: H3Event) => {
-      const eventAny = event as any;
-      await awaitPluginsReady(
-        nitroApp,
-        eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
-      );
-      return undefined;
-    }) as EventHandler);
+    registerMiddleware(
+      nitroApp,
+      path,
+      (async (event: H3Event) => {
+        const eventAny = event as any;
+        await awaitFrameworkRoutesReadyForRequest(
+          nitroApp,
+          eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
+        );
+        return undefined;
+      }) as EventHandler,
+      {
+        prepend: true,
+      },
+    );
   }
 }
 
@@ -312,6 +323,7 @@ function registerMiddleware(
   nitroApp: any,
   path: string,
   handler: EventHandler,
+  options: { prepend?: boolean } = {},
 ) {
   const h3 = nitroApp.h3;
   if (!h3 || !Array.isArray(h3["~middleware"])) {
@@ -460,7 +472,11 @@ function registerMiddleware(
     }
   };
 
-  h3["~middleware"].push(middleware);
+  if (options.prepend) {
+    h3["~middleware"].unshift(middleware);
+  } else {
+    h3["~middleware"].push(middleware);
+  }
 }
 
 /**
