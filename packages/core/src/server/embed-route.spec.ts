@@ -129,6 +129,24 @@ describe("createEmbedStartRouteHandler", () => {
     );
   });
 
+  it("returns a refreshable expired-session page for stale embed tickets", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue(null);
+
+    const handler = createEmbedStartRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "expired-ticket" }),
+    );
+    const html = await res.text();
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(html).toContain("Embedded app session expired");
+    expect(html).toContain("agentNative.embedSessionExpired");
+    expect(html).not.toContain("Invalid or expired embed session");
+  });
+
   it("allows Claude MCP content frames to fetch embed start redirects", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "steve@example.com",
