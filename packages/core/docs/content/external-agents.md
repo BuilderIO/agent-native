@@ -220,27 +220,27 @@ Claude Code and other CLI-first clients still receive the same resources and met
 MCP App embeds are route embeds, not separate mini-products. `embedApp()`
 starts from the action's `link` target, creates a short-lived embed session,
 and launches that signed app route. Standard MCP Apps hosts can navigate the
-MCP App frame itself. ChatGPT gets a controlled route iframe because its web
-sandbox can otherwise auto-size a full app route into a feedback loop. Claude
-web currently proxies MCP App content through `claudemcpcontent.com`; direct
-route navigation can fetch the app HTML there without reliably running the
-framework bootstrap, and a second nested iframe is easy for the host to block.
-For Claude, the launcher fetches the signed app HTML and mounts that document
-into the existing MCP resource frame, then rewrites app-origin
-fetch/XHR/EventSource calls back to the app with the embed token. The app still
-renders the normal route and React components. Design embedded routes so a
-reload with the same signed URL reconstructs the same view.
+MCP App frame itself when the host can hydrate the route directly. Claude web
+uses a single-frame transplant path: the resource document fetches the signed
+app HTML and hydrates it inside Claude's MCP App iframe because Claude does not
+reliably allow app-owned child iframes or external frame navigation. ChatGPT
+web gets a controlled route iframe because its Apps bridge gives us stable
+`window.openai` host APIs and bounded height control. All paths point at the
+same signed app route and render the normal route and React components. Design
+embedded routes so a reload with the same signed URL reconstructs the same
+view.
 
 ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
 document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
 then calls `create_embed_session` via `window.openai.callTool(...)`. Standard
-MCP Apps hosts use the `ui/*` JSON-RPC bridge. Direct and Claude-mounted routes
-can call `ui/update-model-context`, `ui/message`, `ui/open-link`, and
-`ui/request-display-mode` through the host bridge helpers. When the ChatGPT or
-explicit diagnostic iframe path is used, the wrapper relays the same host
-actions over `agentNative.mcpHost.*` postMessage requests. Keep the result
-shape identical for both paths: return a focused `link` and concise structured
-content.
+MCP Apps hosts use the `ui/*` JSON-RPC bridge. Directly hydrated routes can
+call `ui/update-model-context`, `ui/message`, `ui/open-link`, and
+`ui/request-display-mode` through the host bridge helpers. Claude's
+transplanted route uses the same direct `ui/*` host bridge after hydration.
+When the ChatGPT or explicit diagnostic iframe path is used, the wrapper
+relays the same host actions over `agentNative.mcpHost.*` postMessage
+requests. Keep the result shape identical for both paths: return a focused
+`link` and concise structured content.
 
 The resource shell owns the outer host size. Keep embedded app routes
 internally scrollable and let the launcher report a bounded intrinsic height
@@ -250,24 +250,33 @@ new MCP App resources and new tool calls. Old ChatGPT/Claude conversation
 frames can keep the previous resource behavior, so verify sizing with a fresh
 inline render before judging a fix.
 
-You can force the nested diagnostic iframe with `embedMode: "iframe"`,
-`renderMode: "iframe"`, `nested: true`, or `frame: "iframe"` when debugging
-host behavior. If the iframe is blocked, `embedApp()` replaces it with an
+Claude uses the single-frame transplant path by default. You can also force it
+in other hosts with `embedMode: "transplant"` or `frame: "transplant"` when
+debugging host module-loading behavior. You can force the nested diagnostic iframe with
+`embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or
+`frame: "iframe"`. If the iframe is blocked, `embedApp()` replaces it with an
 open-app fallback: the user can retry inline, open a freshly minted embed
 session through the host, or use the visible route URL. Keep the action's
 `link` target useful on its own because it is still the universal escape hatch.
 
+When testing Claude through ngrok, use a production build (`agent-native build`
+then `agent-native start`) or a deployed preview/production URL. Claude's
+single-frame transplant path works with production asset chunks; raw Vite dev
+modules such as `/app/root.tsx` can be protected by app auth and fail dynamic
+imports from the Claude resource origin.
+
 The host bridge is deliberately small:
 
-| Mode                     | Message type                          | Use it for                               |
-| ------------------------ | ------------------------------------- | ---------------------------------------- |
-| direct / Claude          | `ui/update-model-context`             | Hidden context for the host model        |
-| direct / Claude          | `ui/message`                          | Post a visible user turn into the host   |
-| direct / Claude          | `ui/open-link`                        | Open an external or app URL via the host |
-| direct / Claude          | `ui/request-display-mode`             | Request `inline`, `fullscreen`, or `pip` |
-| ChatGPT / iframe wrapper | `agentNative.mcpHostContext`          | Theme, locale, host platform, dimensions |
-| ChatGPT / iframe wrapper | `agentNative.embeddedAppReady`        | Confirm the route iframe loaded          |
-| ChatGPT / iframe wrapper | `agentNative.mcpHost.*` / `.response` | Wrapper relay for host requests          |
+| Mode                   | Message type                          | Use it for                               |
+| ---------------------- | ------------------------------------- | ---------------------------------------- |
+| direct host route      | `ui/update-model-context`             | Hidden context for the host model        |
+| direct host route      | `ui/message`                          | Post a visible user turn into the host   |
+| direct host route      | `ui/open-link`                        | Open an external or app URL via the host |
+| direct host route      | `ui/request-display-mode`             | Request `inline`, `fullscreen`, or `pip` |
+| Claude transplant      | `ui/*`                                | Same direct host bridge after hydration  |
+| ChatGPT / iframe route | `agentNative.mcpHostContext`          | Theme, locale, host platform, dimensions |
+| ChatGPT / iframe route | `agentNative.embeddedAppReady`        | Confirm the route iframe loaded          |
+| ChatGPT / iframe route | `agentNative.mcpHost.*` / `.response` | Wrapper relay for host requests          |
 
 Embedded routes can use `updateMcpAppModelContext()`,
 `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`,

@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("defaults to direct navigation except inside Claude's proxied MCP content frame", () => {
+  it("renders a controlled app frame for ChatGPT and direct/transplant paths for Claude", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -27,6 +27,9 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
+    expect(html).toContain(
+      'const record = data && typeof data === "object" ? data : {}',
+    );
     expect(html).toContain("shouldSelfNavigateToApp");
     expect(html).toContain("isChatGptSandboxHost");
     expect(html).toContain("oaiusercontent");
@@ -34,6 +37,8 @@ describe("embedApp", () => {
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
     expect(html).toContain("window.location.replace(src)");
+    expect(html).toContain("return !!openAiBridge || isChatGptSandboxHost();");
+    expect(html).toContain("shouldTransplantAppDocument");
     expect(html).toContain("isClaudeMcpContentHost");
     expect(html).toContain("transplantAppDocument");
     expect(html).toContain("__agentNativeExternalEmbedRuntimeInstalled");
@@ -44,6 +49,9 @@ describe("embedApp", () => {
     expect(html).toContain("moduleCodeToClassicAsync");
     expect(html).toContain("await import($1)");
     expect(html).toContain("claudemcpcontent");
+    expect(html).toContain('mode === "transplant"');
+    expect(html).toContain('toolInput.frame === "transplant"');
+    expect(html).toContain("isClaudeMcpContentHost()");
     expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
@@ -109,7 +117,18 @@ describe("embedApp", () => {
     expect(html).toContain("let url = withChatBridgeParam(openUrl)");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
-    expect(html).toContain("}, 30000)");
+    expect(html).toContain("function embedSessionArgsFor(value)");
+    expect(html).toContain("? { path: value, chrome }");
+    expect(html).toContain(
+      "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
+    );
+    expect(html).toContain("callEmbedSessionTool(embedSessionArgsFor(url))");
+    expect(html).toContain("frameReadyMessageDelays");
+    expect(html).toContain("[0, 200, 500, 1500, 3000, 7000, 15000, 30000]");
+    expect(html).toContain("const frameReadyTimeoutMs = 45000");
+    expect(html).toContain("const frameLoadTimeoutMs = 45000");
+    expect(html).toContain("}, frameReadyTimeoutMs)");
+    expect(html).toContain("}, frameLoadTimeoutMs)");
     expect(html).toContain('mode === "iframe" || mode === "nested"');
     expect(html).toContain('toolInput.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');

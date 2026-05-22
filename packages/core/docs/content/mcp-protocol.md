@@ -78,15 +78,13 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 `embedApp()` is the low-level URL-first MCP App helper. It reads the action
 result's open link, asks the app-only `create_embed_session` tool to mint a
-route-scoped session, then launches the resulting app route. ChatGPT and hosts
-that allow direct route hydration launch the same signed app URL, but ChatGPT
-keeps it in a controlled route iframe to avoid a web-sandbox auto-height
-feedback loop. Claude web currently proxies MCP App content under
-`claudemcpcontent.com`; direct route navigation can fetch app HTML there
-without reliably running the framework bootstrap, and a second nested iframe is
-easy for the host to block. For Claude, `embedApp()` fetches the signed app
-HTML and mounts the real route document into the existing MCP resource frame,
-with app-origin requests routed back to the original app using the embed token.
+route-scoped session, then launches the resulting app route. Standard hosts
+hydrate the signed route by navigating the MCP App frame itself. Claude web
+uses a single-frame transplant path that fetches the signed app HTML and
+hydrates it inside Claude's MCP App iframe because Claude does not reliably
+allow app-owned child iframes or external frame navigation. ChatGPT web keeps
+the signed app URL in a controlled route iframe for stable `window.openai`
+host APIs and bounded height control.
 For normal action authoring, use `embedRoute()` when the action's
 `link` and `mcpApp` should come from the same pure route builder. The route
 itself should derive state from the URL and normal app data fetching.
@@ -107,6 +105,11 @@ JSON-RPC messages:
 | `ui/message`              | `{ role: "user", content }`        |
 | `ui/open-link`            | `{ url }`                          |
 | `ui/request-display-mode` | `{ mode }`                         |
+
+Claude's transplanted route uses the same `ui/*` bridge after hydration. Test
+Claude against deployed/preview URLs or a local production build served with
+`agent-native start`; raw Vite dev modules can be app-auth protected and fail
+dynamic imports from Claude's resource origin.
 
 The ChatGPT controlled-frame path and any explicit `embedMode: "iframe"` /
 `renderMode: "iframe"` diagnostic path use the wrapper-to-route postMessage

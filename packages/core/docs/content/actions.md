@@ -199,17 +199,18 @@ export default defineAction({
 This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
 
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
-ChatGPT uses a controlled route iframe to avoid web-sandbox auto-height
-feedback loops. Claude web uses a single-frame mount path automatically: the
-launcher fetches the signed route HTML inside Claude's MCP resource frame,
-mounts the real app document there, and rewrites app-origin network calls back
-to the original app with the embed token.
+Standard hosts navigate the MCP App frame directly to that signed route.
+Claude web uses a single-frame transplant path that hydrates the signed app
+HTML inside Claude's MCP App iframe because Claude does not reliably allow
+app-owned child iframes or external frame navigation. ChatGPT web uses a
+controlled route iframe for stable `window.openai` host APIs and bounded height
+control.
 
 Embedded routes can use the exported client helpers for the MCP App host
-bridge. Direct and Claude-mounted route embeds post standard `ui/*` JSON-RPC
-messages to the host, while the ChatGPT controlled-frame path and explicit
-nested-iframe diagnostic path proxy `agentNative.mcpHost.*` messages through
-the launch wrapper.
+bridge. Direct route embeds and Claude's transplanted route post standard
+`ui/*` JSON-RPC messages to the host, while the ChatGPT controlled-frame path
+and explicit diagnostic iframe path proxy `agentNative.mcpHost.*` messages
+through the launch wrapper.
 When a submitted app prompt should continue the host chat, call
 `sendToAgentChat()` from the embedded route; it sends hidden model context and
 then posts a visible user message through the host bridge where supported.
