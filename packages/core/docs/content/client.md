@@ -81,6 +81,10 @@ message, so it stays model-visible without being posted as user-facing chat.
 `submit: false` keeps the local prefill/review behavior because MCP Apps do not
 define a standard draft-prefill API.
 
+Internally this is the submitted-chat path sometimes surfaced as
+`agentNative.submitChat`; app code should call `sendToAgentChat()` rather than
+posting that event directly.
+
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 

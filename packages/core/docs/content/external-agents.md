@@ -571,5 +571,3 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.
 - [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`.
 - [Context Awareness](/docs/context-awareness) — the `navigate` / `application_state` contract the open route bridges to.
-  </content>
-  </invoke>
