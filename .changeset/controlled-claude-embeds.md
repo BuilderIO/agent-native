@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Use a controlled route iframe for Claude MCP App embeds and keep the single-frame transplant path diagnostic-only.
+Use Claude single-frame transplant rendering and ChatGPT controlled route frames for MCP App embeds.

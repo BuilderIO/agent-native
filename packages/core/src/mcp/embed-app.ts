@@ -105,6 +105,9 @@ export function embedApp(
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
     const defaultIntrinsicHeight = ${height};
     const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
+    const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
+    const frameReadyTimeoutMs = 45000;
+    const frameLoadTimeoutMs = 45000;
     let app = null;
     let openAiBridge = null;
     let toolInput = {};
@@ -191,7 +194,8 @@ export function embedApp(
       const metaUrl = openLink && typeof openLink === "object" && typeof openLink.webUrl === "string"
         ? openLink.webUrl
         : "";
-      return metaUrl || data.url || data.deepLink || data.openUrl || "";
+      const record = data && typeof data === "object" ? data : {};
+      return metaUrl || record.url || record.deepLink || record.openUrl || "";
     }
 
     function hostState() {
@@ -229,7 +233,7 @@ export function embedApp(
 
     function sendFrameReadyMessages(frame) {
       const originPayload = { type: "agentNative.frameOrigin", origin: window.location.origin };
-      [0, 200, 500, 1500].forEach((delay) => {
+      frameReadyMessageDelays.forEach((delay) => {
         setTimeout(() => {
           try { frame.contentWindow && frame.contentWindow.postMessage(originPayload, "*"); } catch {}
           sendHostContext();
@@ -249,6 +253,13 @@ export function embedApp(
       } catch {
         return value;
       }
+    }
+
+    function embedSessionArgsFor(value) {
+      const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
+      return typeof value === "string" && value.startsWith("/")
+        ? { path: value, chrome }
+        : { url: value, chrome };
     }
 
     function isEmbedStartUrl(value) {
@@ -579,7 +590,7 @@ export function embedApp(
       clearFrameReadyTimer();
       appFrameReadyTimer = setTimeout(() => {
         if (!appFrameReady && appFrame === frame) renderFrameFallback();
-      }, 7000);
+      }, frameReadyTimeoutMs);
     }
 
     function renderFrameFallback() {
@@ -615,10 +626,7 @@ export function embedApp(
     async function openFallbackExternal() {
       let url = withChatBridgeParam(openUrl);
       try {
-        const result = await callEmbedSessionTool({
-          url,
-          chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
-        });
+        const result = await callEmbedSessionTool(embedSessionArgsFor(url));
         const data = parseToolResult(result);
         if (typeof data.startUrl === "string" && data.startUrl) {
           url = data.startUrl;
@@ -649,7 +657,7 @@ export function embedApp(
       notifyHostHeight();
       appFrameLoadTimer = setTimeout(() => {
         if (!appFrameReady && appFrame === frame) renderFrameFallback();
-      }, 30000);
+      }, frameLoadTimeoutMs);
     }
 
     function shouldSelfNavigateToApp() {
@@ -669,7 +677,11 @@ export function embedApp(
         : typeof toolInput.renderMode === "string"
           ? toolInput.renderMode
           : "";
-      return mode === "transplant" || toolInput.frame === "transplant";
+      return (
+        mode === "transplant" ||
+        toolInput.frame === "transplant" ||
+        isClaudeMcpContentHost()
+      );
     }
 
     function isClaudeMcpContentHost() {
@@ -691,7 +703,7 @@ export function embedApp(
     }
 
     function shouldRenderControlledAppFrame() {
-      return !!openAiBridge || isChatGptSandboxHost() || isClaudeMcpContentHost();
+      return !!openAiBridge || isChatGptSandboxHost();
     }
 
     function navigateToAppFrame(src) {
@@ -893,10 +905,7 @@ export function embedApp(
           renderFrame(embedUrl);
           return;
         }
-        const result = await callEmbedSessionTool({
-          url: embedUrl,
-          chrome: typeof toolInput.chrome === "string" ? toolInput.chrome : "full"
-        });
+        const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl));
         const data = parseToolResult(result);
         if (typeof data.startUrl !== "string" || !data.startUrl) {
           startedFor = "";
