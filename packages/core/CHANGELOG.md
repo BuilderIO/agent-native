@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.31
+
+### Patch Changes
+
+- 11362a2: Keep MCP App resource listing resilient to CSP metadata failures and invalid Dispatch app URLs.
+
 ## 0.22.30
 
 ### Patch Changes
