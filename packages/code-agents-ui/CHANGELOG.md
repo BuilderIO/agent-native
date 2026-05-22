@@ -1,5 +1,12 @@
 # @agent-native/code-agents-ui
 
+## 0.1.46
+
+### Patch Changes
+
+- Updated dependencies [56e5abc]
+  - @agent-native/core@0.22.21
+
 ## 0.1.45
 
 ### Patch Changes

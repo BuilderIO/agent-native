@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.21
+
+### Patch Changes
+
+- 56e5abc: Use Claude single-frame transplant rendering and ChatGPT controlled route frames for MCP App embeds.
+
 ## 0.22.20
 
 ### Patch Changes
