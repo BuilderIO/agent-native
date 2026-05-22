@@ -18,9 +18,11 @@ import {
   IconPhoto,
   IconPlus,
   IconRefresh,
+  IconSparkles,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { sendToAgentChat } from "@agent-native/core/client";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -55,6 +57,8 @@ interface ImageResizeState {
 }
 
 const MIN_IMAGE_WIDTH = 160;
+const MAX_AGENT_IMAGE_DIMENSION = 1600;
+const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
 
 function normalizedImageWidth(value: unknown): number | null {
   const width =
@@ -166,6 +170,183 @@ async function copyImage(src: string) {
   }
 }
 
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Could not read image"));
+      }
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Image read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function imageBlobToAgentDataUrl(blob: Blob): Promise<string> {
+  if (!blob.type.startsWith("image/")) {
+    throw new Error("Unsupported image type");
+  }
+
+  if (typeof createImageBitmap !== "function") {
+    return await blobToDataUrl(blob);
+  }
+
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(
+    1,
+    MAX_AGENT_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return await blobToDataUrl(blob);
+  }
+
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+  if (!dataUrl || dataUrl === "data:,") return await blobToDataUrl(blob);
+  return dataUrl;
+}
+
+async function imageDataUrlForAgent(src: string): Promise<string | null> {
+  if (src.startsWith("data:image/")) return src;
+
+  try {
+    const response = await fetch(src);
+    if (!response.ok) throw new Error("Image fetch failed");
+    const blob = await response.blob();
+    return await imageBlobToAgentDataUrl(blob);
+  } catch {
+    return null;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function takeLastWords(value: string, limit: number): string {
+  const matches = Array.from(value.matchAll(/\S+/g));
+  if (matches.length <= limit) return value.trim();
+
+  const firstIncluded = matches[matches.length - limit];
+  return value.slice(firstIncluded.index).trim();
+}
+
+function takeFirstWords(value: string, limit: number): string {
+  const matches = Array.from(value.matchAll(/\S+/g));
+  if (matches.length <= limit) return value.trim();
+
+  const lastIncluded = matches[limit - 1];
+  return value.slice(0, lastIncluded.index + lastIncluded[0].length).trim();
+}
+
+function imageOccurrenceIndex({
+  editor,
+  getPos,
+  src,
+}: {
+  editor: NodeViewProps["editor"];
+  getPos: NodeViewProps["getPos"];
+  src: string;
+}) {
+  const currentPosition = typeof getPos === "function" ? getPos() : null;
+  let occurrenceIndex = 0;
+  let matchingIndex = 0;
+
+  editor.state.doc.descendants((child, position) => {
+    if (child.type.name !== "image" || child.attrs.src !== src) return;
+    if (position === currentPosition) {
+      occurrenceIndex = matchingIndex;
+      return false;
+    }
+    matchingIndex += 1;
+  });
+
+  return occurrenceIndex;
+}
+
+function imageMarkdownCandidates(markdown: string, src: string) {
+  const escapedSrc = escapeRegExp(src);
+  const escapedHtmlSrc = escapeRegExp(escapeHtmlAttribute(src));
+  const candidates: Array<{ index: number; text: string }> = [];
+  const patterns = [
+    new RegExp(
+      `<img\\b[^>]*\\bsrc=["'](?:${escapedSrc}|${escapedHtmlSrc})["'][^>]*\\/?>`,
+      "g",
+    ),
+    new RegExp(`!\\[[^\\]]*\\]\\(${escapedSrc}(?:\\s+"[^"]*")?\\)`, "g"),
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of markdown.matchAll(pattern)) {
+      if (match.index === undefined) continue;
+      candidates.push({ index: match.index, text: match[0] });
+    }
+  }
+
+  return candidates.sort((a, b) => a.index - b.index);
+}
+
+function buildAltTextArticleContext({
+  editor,
+  getPos,
+  src,
+}: {
+  editor: NodeViewProps["editor"];
+  getPos: NodeViewProps["getPos"];
+  src: string;
+}): string | null {
+  const markdownStorage = (editor.storage as any)?.markdown;
+  const getMarkdown = markdownStorage?.getMarkdown;
+  if (typeof getMarkdown !== "function") return null;
+
+  const markdown = String(getMarkdown.call(markdownStorage) ?? "");
+  if (!markdown.trim()) return null;
+
+  const candidates = imageMarkdownCandidates(markdown, src);
+  if (!candidates.length) return null;
+
+  const occurrence = imageOccurrenceIndex({ editor, getPos, src });
+  const image = candidates[Math.min(occurrence, candidates.length - 1)];
+  const imageEnd = image.index + image.text.length;
+  const before = takeLastWords(
+    markdown.slice(0, image.index),
+    ALT_TEXT_CONTEXT_WORD_LIMIT,
+  );
+  const after = takeFirstWords(
+    markdown.slice(imageEnd),
+    ALT_TEXT_CONTEXT_WORD_LIMIT,
+  );
+
+  return [
+    before,
+    "<!-- IMAGE TO DESCRIBE START -->",
+    image.text,
+    "<!-- IMAGE TO DESCRIBE END -->",
+    after,
+  ]
+    .filter((part) => part.trim())
+    .join("\n\n");
+}
+
 export function ImageBlock({
   node,
   editor,
@@ -186,6 +367,7 @@ export function ImageBlock({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
@@ -293,10 +475,59 @@ export function ImageBlock({
     updateAttributes({ alt: nextAlt });
   }
 
+  async function handleGenerateAltText() {
+    const documentId = options.documentId;
+    if (!documentId) {
+      toast.error("Could not find the current document.");
+      return;
+    }
+
+    const toastId = toast.loading("Generating alt text...");
+    setIsGeneratingAlt(true);
+
+    try {
+      const imageDataUrl = await imageDataUrlForAgent(src);
+      const articleContext = buildAltTextArticleContext({
+        editor,
+        getPos,
+        src,
+      });
+      sendToAgentChat({
+        message: "Generate alt text for this image and add it to the image.",
+        context: [
+          "The user clicked the alt text generator for an image block in Content.",
+          `Document ID: ${documentId}`,
+          `Image URL: ${src}`,
+          `Current alt text: ${alt.trim() || "(empty)"}`,
+          articleContext
+            ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
+            : "Article context could not be serialized from the editor.",
+          imageDataUrl
+            ? "The image contents are attached to this message."
+            : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
+          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, and altText so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
+          "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
+        ].join("\n"),
+        images: imageDataUrl ? [imageDataUrl] : undefined,
+        submit: true,
+      });
+      toast.success("Generating alt text...", { id: toastId });
+    } catch {
+      toast.error("Could not start alt text generation.", { id: toastId });
+    } finally {
+      setIsGeneratingAlt(false);
+    }
+  }
+
   useEffect(() => {
     if (!altPopoverOpen) return;
     window.setTimeout(() => altInputRef.current?.focus(), 0);
   }, [altPopoverOpen]);
+
+  useEffect(() => {
+    if (!altPopoverOpen) return;
+    setAltDraft(alt);
+  }, [alt, altPopoverOpen]);
 
   function imageResizeMaxWidth() {
     const wrapper = mediaBlockRef.current?.closest(".notion-editor");
@@ -585,18 +816,35 @@ export function ImageBlock({
               >
                 <IconX size={20} />
               </button>
-              <Input
-                ref={altInputRef}
-                value={altDraft}
-                onChange={(event) => updateAltText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape" || event.key === "Enter") {
-                    event.preventDefault();
-                    setAltPopoverOpen(false);
-                  }
-                }}
-                placeholder="Describe this image"
-              />
+              <div className="media-block__alt-input-row">
+                <Input
+                  ref={altInputRef}
+                  value={altDraft}
+                  onChange={(event) => updateAltText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" || event.key === "Enter") {
+                      event.preventDefault();
+                      setAltPopoverOpen(false);
+                    }
+                  }}
+                  placeholder="Describe this image"
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="media-block__alt-generate"
+                      aria-label="Generate alt text"
+                      aria-busy={isGeneratingAlt}
+                      disabled={isGeneratingAlt}
+                      onClick={() => void handleGenerateAltText()}
+                    >
+                      <IconSparkles size={18} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Generate alt text</TooltipContent>
+                </Tooltip>
+              </div>
             </PopoverContent>
           </Popover>
         ) : null}

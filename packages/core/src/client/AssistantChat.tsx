@@ -272,6 +272,39 @@ async function getImageFileDataURL(file: File): Promise<string> {
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
 
+function imageContentTypeFromDataUrl(dataUrl: string): string {
+  const match = /^data:([^;,]+)/.exec(dataUrl);
+  return match?.[1] || "image/jpeg";
+}
+
+function imageExtensionFromContentType(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/gif") return "gif";
+  return "jpg";
+}
+
+function createAgentImageAttachments(
+  images?: readonly string[],
+): QueuedAttachment[] | undefined {
+  const validImages = (images ?? []).filter((image) => image.trim().length > 0);
+  if (validImages.length === 0) return undefined;
+
+  return validImages.map((image, index) => {
+    const contentType = imageContentTypeFromDataUrl(image);
+    const extension = imageExtensionFromContentType(contentType);
+    const name = `image-${index + 1}.${extension}`;
+    return {
+      id: `agent-chat-image-${index + 1}`,
+      type: "image",
+      name,
+      contentType,
+      status: { type: "complete" },
+      content: [{ type: "image", image }],
+    };
+  });
+}
+
 function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
@@ -3177,9 +3210,9 @@ function PlanModeCallout({
 
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
-  sendMessage(text: string): void;
+  sendMessage(text: string, images?: string[]): void;
   /** Queue a message to send after the current run finishes */
-  queueMessage(text: string): void;
+  queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
   /** Focus the composer input */
@@ -4374,19 +4407,16 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           await waitForThreadRunToClear(apiUrl, threadId);
-          const content: Array<
-            { type: "text"; text: string } | { type: "image"; image: string }
-          > = [{ type: "text", text: next.text }];
-          if (next.images) {
-            for (const img of next.images) {
-              content.push({ type: "image", image: img });
-            }
-          }
+          const imageAttachments = createAgentImageAttachments(next.images);
+          const messageAttachments =
+            next.attachments && next.attachments.length > 0
+              ? next.attachments
+              : (imageAttachments ?? []);
           threadRuntime.append({
             role: "user",
-            content,
-            ...(next.attachments && next.attachments.length > 0
-              ? { attachments: next.attachments }
+            content: [{ type: "text", text: next.text }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
               : {}),
             ...createUserMessageRunConfig(next.references, next.requestMode),
           } as Parameters<typeof threadRuntime.append>[0]);
@@ -4516,6 +4546,11 @@ const AssistantChatInner = forwardRef<
       // direct sends.
       markNearBottom();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      const imageAttachments = createAgentImageAttachments(images);
+      const messageAttachments = [
+        ...(queuedAttachments ?? []),
+        ...(imageAttachments ?? []),
+      ];
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -4537,25 +4572,18 @@ const AssistantChatInner = forwardRef<
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             text,
             images,
-            attachments: queuedAttachments,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
             references,
             requestMode: effectiveRequestMode,
           },
         ]);
       } else {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text }];
-        if (images) {
-          for (const img of images) {
-            content.push({ type: "image", image: img });
-          }
-        }
         threadRuntime.append({
           role: "user",
-          content,
-          ...(queuedAttachments && queuedAttachments.length > 0
-            ? { attachments: queuedAttachments }
+          content: [{ type: "text", text }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
             : {}),
           ...createUserMessageRunConfig(references, effectiveRequestMode),
         } as Parameters<typeof threadRuntime.append>[0]);
@@ -4568,11 +4596,11 @@ const AssistantChatInner = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      sendMessage(text: string) {
-        addToQueue(text);
+      sendMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
-      queueMessage(text: string) {
-        addToQueue(text);
+      queueMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
       isRunning() {
         return thread.isRunning;

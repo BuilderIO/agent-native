@@ -13,11 +13,13 @@ import {
   IconCopy,
   IconDownload,
   IconDots,
+  IconFileText,
   IconMessageCircle,
   IconRefresh,
   IconTrash,
   IconVideo,
 } from "@tabler/icons-react";
+import { sendToAgentChat } from "@agent-native/core/client";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,7 @@ interface VideoResizeState {
 }
 
 const MIN_VIDEO_WIDTH = 200;
+const VIDEO_TRANSCRIPT_PLACEHOLDER = "Transcribing video...";
 
 function normalizedVideoWidth(value: unknown): number | null {
   const width =
@@ -198,6 +201,51 @@ export function VideoBlock({
   function openLightbox() {
     setSourcePanelOpen(false);
     setLightboxOpen(true);
+  }
+
+  function insertTranscriptPlaceholder() {
+    if (!editor.schema.nodes.notionToggle) return VIDEO_TRANSCRIPT_PLACEHOLDER;
+    const position = typeof getPos === "function" ? getPos() : null;
+    if (typeof position !== "number") return VIDEO_TRANSCRIPT_PLACEHOLDER;
+    const insertAt = position + node.nodeSize;
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        insertAt,
+        `<details open><summary>Transcript</summary><p>${VIDEO_TRANSCRIPT_PLACEHOLDER}</p></details>`,
+      )
+      .setNodeSelection(insertAt)
+      .scrollIntoView()
+      .run();
+
+    return VIDEO_TRANSCRIPT_PLACEHOLDER;
+  }
+
+  function handleTranscribe() {
+    const documentId = options.documentId;
+    if (!documentId) {
+      toast.error("Could not find the current document.");
+      return;
+    }
+
+    const placeholderText = insertTranscriptPlaceholder();
+    setMoreMenuOpen(false);
+    sendToAgentChat({
+      message: "Transcribe this video and add the transcript below it.",
+      context: [
+        "The user clicked Transcribe on a video block in Content.",
+        `Document ID: ${documentId}`,
+        `Media type: video`,
+        `Media URL: ${src}`,
+        `Transcript placeholder text: ${placeholderText}`,
+        "Call the transcribe-media action now with documentId, mediaUrl, mediaType, and placeholderText. The Transcript toggle with this exact placeholder was just inserted directly below the video block for this request; replace only that placeholder with the transcript. Do not skip the action because another transcript already exists elsewhere in the document.",
+        "After the action succeeds, do not quote or paste the transcript in chat. Give one short confirmation that the Transcript toggle below the video block was updated.",
+      ].join("\n"),
+      submit: true,
+    });
+    toast.success("Transcription started.");
   }
 
   function handleLightboxViewportPointerDown(
@@ -575,6 +623,20 @@ export function VideoBlock({
                 >
                   <div className="media-block__dropdown-label">Video</div>
                   <div className="media-block__dropdown-group">
+                    <button
+                      type="button"
+                      className="media-block__dropdown-item"
+                      role="menuitem"
+                      onClick={handleTranscribe}
+                    >
+                      <span
+                        className="media-block__dropdown-icon"
+                        aria-hidden="true"
+                      >
+                        <IconFileText size={18} />
+                      </span>
+                      <span>Transcribe</span>
+                    </button>
                     <button
                       type="button"
                       className="media-block__dropdown-item"

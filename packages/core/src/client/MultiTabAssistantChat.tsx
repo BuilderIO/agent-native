@@ -59,6 +59,11 @@ interface ModelSelection {
   effort?: ReasoningEffort;
 }
 
+interface PendingSend {
+  message: string;
+  images?: string[];
+}
+
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {
@@ -757,7 +762,7 @@ export function MultiTabAssistantChat({
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
-  const pendingSends = useRef<Map<string, string>>(new Map());
+  const pendingSends = useRef<Map<string, PendingSend>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
@@ -1274,6 +1279,13 @@ export function MultiTabAssistantChat({
       const tabId = event.data.data?.tabId;
       const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
+      const rawImages = event.data.data?.images;
+      const images = Array.isArray(rawImages)
+        ? rawImages.filter(
+            (image): image is string =>
+              typeof image === "string" && image.length > 0,
+          )
+        : undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -1313,9 +1325,9 @@ export function MultiTabAssistantChat({
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
-          ref.sendMessage(fullMessage);
+          ref.sendMessage(fullMessage, images);
         } else {
-          pendingSends.current.set(threadId, fullMessage);
+          pendingSends.current.set(threadId, { message: fullMessage, images });
         }
       };
 
@@ -1348,10 +1360,10 @@ export function MultiTabAssistantChat({
 
   // Process pending sends when refs mount
   useEffect(() => {
-    for (const [tabId, message] of pendingSends.current) {
+    for (const [tabId, pending] of pendingSends.current) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => ref.sendMessage(message), 50);
+        setTimeout(() => ref.sendMessage(pending.message, pending.images), 50);
         pendingSends.current.delete(tabId);
       }
     }

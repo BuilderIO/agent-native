@@ -566,6 +566,7 @@ interface VisualEditorProps {
 }
 
 interface VisualEditorExtensionOptions {
+  documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
   user?: { name: string; color: string } | null;
@@ -876,6 +877,7 @@ export async function uploadAndInsertAudioFiles(
 }
 
 export function createVisualEditorExtensions({
+  documentId,
   ydoc,
   localAwareness,
   user,
@@ -916,14 +918,17 @@ export function createVisualEditorExtensions({
     }),
     ImageNode.configure({
       HTMLAttributes: { class: "notion-image" },
+      documentId,
       onImageComment,
     }),
     VideoNode.configure({
       HTMLAttributes: { class: "notion-video" },
+      documentId,
       onVideoComment: onImageComment,
     }),
     AudioNode.configure({
       HTMLAttributes: { class: "notion-audio" },
+      documentId,
       onAudioComment: onImageComment,
     }),
     CustomTable.configure({
@@ -1011,13 +1016,22 @@ export function VisualEditor({
   const extensions = useMemo(
     () =>
       createVisualEditorExtensions({
+        documentId,
         ydoc,
         localAwareness,
         user,
         onImageComment: onComment,
         onJoinTitle,
       }),
-    [ydoc, localAwareness, user?.name, user?.color, onComment, onJoinTitle],
+    [
+      documentId,
+      ydoc,
+      localAwareness,
+      user?.name,
+      user?.color,
+      onComment,
+      onJoinTitle,
+    ],
   );
 
   const editor = useEditor({

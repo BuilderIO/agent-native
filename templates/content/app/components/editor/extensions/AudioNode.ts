@@ -5,6 +5,7 @@ import { AudioBlock } from "./AudioBlock";
 
 export interface ContentAudioOptions {
   HTMLAttributes: Record<string, unknown>;
+  documentId?: string;
   onAudioComment?: (quotedText: string, offsetTop: number) => void;
 }
 
@@ -55,6 +56,7 @@ export const AudioNode = Node.create<ContentAudioOptions>({
   addOptions() {
     return {
       HTMLAttributes: {},
+      documentId: undefined,
       onAudioComment: undefined,
     };
   },

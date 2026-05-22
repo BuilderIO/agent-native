@@ -133,7 +133,10 @@ describe("createAgentChatAdapter", () => {
           },
           {
             role: "user",
-            content: [{ type: "text", text: "Review @[app.tsx|file]" }],
+            content: [
+              { type: "text", text: "Review @[app.tsx|file]" },
+              { type: "image", image: "data:image/jpeg;base64,inline" },
+            ],
             attachments: [
               {
                 name: "screen.png",
@@ -242,6 +245,12 @@ describe("createAgentChatAdapter", () => {
           name: "transcript.txt",
           contentType: "text/plain",
           text: "Transcript text",
+        },
+        {
+          type: "image",
+          name: "image",
+          contentType: "image/jpeg",
+          data: "data:image/jpeg;base64,inline",
         },
       ],
     });

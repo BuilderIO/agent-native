@@ -4,6 +4,7 @@ import { ImageBlock } from "./ImageBlock";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
 export interface ContentImageOptions extends ImageOptions {
+  documentId?: string;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
 }
 
@@ -60,6 +61,7 @@ export const ImageNode = Image.extend<ContentImageOptions>({
   addOptions() {
     return {
       ...this.parent?.(),
+      documentId: undefined,
       onImageComment: undefined,
     };
   },

@@ -13,11 +13,13 @@ import {
   IconCopy,
   IconDownload,
   IconDots,
+  IconFileText,
   IconMessageCircle,
   IconMusic,
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import { sendToAgentChat } from "@agent-native/core/client";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,7 @@ interface AudioResizeState {
 }
 
 const MIN_AUDIO_WIDTH = 260;
+const AUDIO_TRANSCRIPT_PLACEHOLDER = "Transcribing audio...";
 
 function normalizedAudioWidth(value: unknown): number | null {
   const width =
@@ -138,6 +141,7 @@ export function AudioBlock({
   const lightboxAudioRef = useRef<HTMLAudioElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<AudioResizeState | null>(null);
+  const hoverHideTimeoutRef = useRef<number | null>(null);
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
@@ -145,6 +149,30 @@ export function AudioBlock({
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
   const options = extension.options as ContentAudioOptions;
+
+  function clearHoverHideTimeout() {
+    if (hoverHideTimeoutRef.current === null) return;
+    window.clearTimeout(hoverHideTimeoutRef.current);
+    hoverHideTimeoutRef.current = null;
+  }
+
+  function showAudioControls() {
+    clearHoverHideTimeout();
+    setIsHovered(true);
+  }
+
+  function hideAudioControlsSoon() {
+    clearHoverHideTimeout();
+    hoverHideTimeoutRef.current = window.setTimeout(() => {
+      setIsHovered(false);
+      setMoreMenuOpen(false);
+      hoverHideTimeoutRef.current = null;
+    }, 450);
+  }
+
+  useEffect(() => {
+    return clearHoverHideTimeout;
+  }, []);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -197,6 +225,51 @@ export function AudioBlock({
   function openLightbox() {
     setSourcePanelOpen(false);
     setLightboxOpen(true);
+  }
+
+  function insertTranscriptPlaceholder() {
+    if (!editor.schema.nodes.notionToggle) return AUDIO_TRANSCRIPT_PLACEHOLDER;
+    const position = typeof getPos === "function" ? getPos() : null;
+    if (typeof position !== "number") return AUDIO_TRANSCRIPT_PLACEHOLDER;
+    const insertAt = position + node.nodeSize;
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        insertAt,
+        `<details open><summary>Transcript</summary><p>${AUDIO_TRANSCRIPT_PLACEHOLDER}</p></details>`,
+      )
+      .setNodeSelection(insertAt)
+      .scrollIntoView()
+      .run();
+
+    return AUDIO_TRANSCRIPT_PLACEHOLDER;
+  }
+
+  function handleTranscribe() {
+    const documentId = options.documentId;
+    if (!documentId) {
+      toast.error("Could not find the current document.");
+      return;
+    }
+
+    const placeholderText = insertTranscriptPlaceholder();
+    setMoreMenuOpen(false);
+    sendToAgentChat({
+      message: "Transcribe this audio and add the transcript below it.",
+      context: [
+        "The user clicked Transcribe on an audio block in Content.",
+        `Document ID: ${documentId}`,
+        `Media type: audio`,
+        `Media URL: ${src}`,
+        `Transcript placeholder text: ${placeholderText}`,
+        "Call the transcribe-media action now with documentId, mediaUrl, mediaType, and placeholderText. The Transcript toggle with this exact placeholder was just inserted directly below the audio block for this request; replace only that placeholder with the transcript. Do not skip the action because another transcript already exists elsewhere in the document.",
+        "After the action succeeds, do not quote or paste the transcript in chat. Give one short confirmation that the Transcript toggle below the audio block was updated.",
+      ].join("\n"),
+      submit: true,
+    });
+    toast.success("Transcription started.");
   }
 
   function handleLightboxViewportPointerDown(
@@ -440,11 +513,9 @@ export function AudioBlock({
           selected ? "media-block--selected" : ""
         }`}
         data-resized={activeWidth ? "true" : undefined}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => {
-          setIsHovered(false);
-          setMoreMenuOpen(false);
-        }}
+        data-controls-visible={controlsVisible ? "true" : undefined}
+        onMouseEnter={showAudioControls}
+        onMouseLeave={hideAudioControlsSoon}
         style={activeWidth ? { width: `${activeWidth}px` } : undefined}
       >
         <audio
@@ -495,6 +566,8 @@ export function AudioBlock({
               className="media-block__toolbar"
               data-visible={controlsVisible ? "true" : undefined}
               aria-hidden={!controlsVisible}
+              onMouseEnter={showAudioControls}
+              onMouseLeave={hideAudioControlsSoon}
               onMouseDown={(event) => {
                 if (
                   event.target instanceof Element &&
@@ -575,6 +648,20 @@ export function AudioBlock({
                 >
                   <div className="media-block__dropdown-label">Audio</div>
                   <div className="media-block__dropdown-group">
+                    <button
+                      type="button"
+                      className="media-block__dropdown-item"
+                      role="menuitem"
+                      onClick={handleTranscribe}
+                    >
+                      <span
+                        className="media-block__dropdown-icon"
+                        aria-hidden="true"
+                      >
+                        <IconFileText size={18} />
+                      </span>
+                      <span>Transcribe</span>
+                    </button>
                     <button
                       type="button"
                       className="media-block__dropdown-item"
