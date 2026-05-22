@@ -868,10 +868,25 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "ui://mail/healthy-review/shell-v25",
       );
 
-      const resources = await callWeb(
+      const brokenCall = await callWeb(
         {
           jsonrpc: "2.0",
           id: 40,
+          method: "tools/call",
+          params: { name: "broken-review", arguments: {} },
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(brokenCall.error).toBeUndefined();
+      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(
+        brokenCall.result._meta?.["openai/outputTemplate"],
+      ).toBeUndefined();
+
+      const resources = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 41,
           method: "resources/list",
           params: {},
         },
@@ -885,7 +900,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const templates = await callWeb(
         {
           jsonrpc: "2.0",
-          id: 41,
+          id: 42,
           method: "resources/templates/list",
           params: {},
         },
@@ -902,7 +917,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const read = await callWeb(
         {
           jsonrpc: "2.0",
-          id: 42,
+          id: 43,
           method: "resources/read",
           params: { uri: "ui://mail/healthy-review/shell-v25" },
         },

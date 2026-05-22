@@ -988,7 +988,7 @@ export async function createMCPServerForRequest(
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
-        const mcpAppResource = await resolveMcpAppResource(
+        const mcpAppResource = await resolveMcpAppResourceSafely(
           config,
           name,
           entry,
@@ -1096,7 +1096,7 @@ export async function createMCPServerForRequest(
             ) {
               continue;
             }
-            const resource = await resolveMcpAppResource(
+            const resource = await resolveMcpAppResourceSafely(
               config,
               name,
               entry,

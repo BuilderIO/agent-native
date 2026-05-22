@@ -172,7 +172,8 @@ function appBasePath(app: DispatchMcpAccessibleApp): string {
 }
 
 function appMatchesUrlPath(app: DispatchMcpAccessibleApp, url: URL): boolean {
-  if (url.origin !== appOrigin(app)) return false;
+  const origin = safeAppOrigin(app);
+  if (!origin || url.origin !== origin) return false;
   const basePath = appBasePath(app);
   if (!basePath) return true;
   return url.pathname === basePath || url.pathname.startsWith(`${basePath}/`);

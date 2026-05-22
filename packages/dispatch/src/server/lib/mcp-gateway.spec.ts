@@ -452,6 +452,48 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
+  it("skips malformed granted app URLs when matching embed URLs", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "bad-url",
+        name: "Bad URL",
+        description: "Invalid manifest URL",
+        url: "mail.agent-native.com",
+        color: "#111827",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Mail",
+        url: "https://mail.agent-native.com",
+        color: "#2563EB",
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          url: "https://mail.agent-native.com/inbox",
+        }),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://mail.agent-native.com/_agent-native/mcp",
+        }),
+      },
+    });
+    expect(result).toEqual({
+      app: "mail",
+      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
   it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");

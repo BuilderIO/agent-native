@@ -716,7 +716,10 @@ function DesignSystemDetailsSheet({
     setTitle(designSystem.title);
     setDescription(designSystem.description ?? "");
     setCustomInstructions(designSystem.customInstructions ?? "");
-  }, [designSystem]);
+    // Only rehydrate when the user opens a different design system. Query
+    // refetches can replace this object while the user is editing the sheet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designSystem?.id]);
 
   const parsed = useMemo(
     () => (designSystem ? parseDesignSystemData(designSystem.data) : null),
