@@ -77,7 +77,24 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     targetHeader === "browser"
       ? (targetHeader as MCPRequestMeta["target"])
       : undefined;
-  return { origin, target };
+  const clientName =
+    getRequestHeader(event, "x-agent-native-mcp-client")?.trim() ||
+    getRequestHeader(event, "user-agent")?.trim() ||
+    undefined;
+  const fullCatalogHeader = getRequestHeader(
+    event,
+    "x-agent-native-mcp-full-catalog",
+  )?.toLowerCase();
+  const fullCatalog =
+    fullCatalogHeader === "1" ||
+    fullCatalogHeader === "true" ||
+    fullCatalogHeader === "yes";
+  return {
+    origin,
+    target,
+    clientName,
+    ...(fullCatalog ? { fullCatalog } : {}),
+  };
 }
 
 function isLoopbackOrigin(origin: string | undefined): boolean {
