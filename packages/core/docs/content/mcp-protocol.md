@@ -148,7 +148,7 @@ request. Embedded routes must remain functional in the default inline mode.
 
 ## Tools {#tools}
 
-Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins and actions with `mcpApp`. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+Stdio/static-token developer clients see all connected app actions as MCP tools. OAuth callers that request `mcp:apps` get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
 
 The mapping is direct:
 
