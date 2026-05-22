@@ -276,7 +276,7 @@ export function embedApp(
       if (typeof value !== "string" || !value) return false;
       try {
         const url = new URL(value, window.location.href);
-        return /\\/_agent-native\\/embed\\/start$/.test(url.pathname);
+        return url.pathname.endsWith("/_agent-native/embed/start");
       } catch {
         return false;
       }
@@ -634,14 +634,12 @@ export function embedApp(
     }
 
     async function openFallbackExternal() {
-      let url = openStartUrl || withChatBridgeParam(openUrl);
+      let url = withChatBridgeParam(openUrl);
       try {
-        if (!isEmbedStartUrl(url)) {
-          const result = await callEmbedSessionTool(embedSessionArgsFor(url));
-          const data = parseToolResult(result);
-          if (typeof data.startUrl === "string" && data.startUrl) {
-            url = data.startUrl;
-          }
+        const result = await callEmbedSessionTool(embedSessionArgsFor(url));
+        const data = parseToolResult(result);
+        if (typeof data.startUrl === "string" && data.startUrl) {
+          url = withChatBridgeParam(data.startUrl);
         }
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
@@ -902,7 +900,7 @@ export function embedApp(
       setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
-        const embedUrl = openStartUrl || withChatBridgeParam(openUrl);
+        const embedUrl = withChatBridgeParam(openStartUrl || openUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);

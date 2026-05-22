@@ -55,7 +55,7 @@ describe("embedApp", () => {
     expect(html).toContain('toolInput.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
     expect(html).toContain(
-      "const embedUrl = openStartUrl || withChatBridgeParam(openUrl)",
+      "const embedUrl = withChatBridgeParam(openStartUrl || openUrl)",
     );
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
@@ -118,9 +118,7 @@ describe("embedApp", () => {
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
-    expect(html).toContain(
-      "let url = openStartUrl || withChatBridgeParam(openUrl)",
-    );
+    expect(html).toContain("let url = withChatBridgeParam(openUrl)");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("function embedSessionArgsFor(value)");
@@ -129,7 +127,10 @@ describe("embedApp", () => {
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
     );
     expect(html).toContain(
-      "const embedUrl = openStartUrl || withChatBridgeParam(openUrl)",
+      "const embedUrl = withChatBridgeParam(openStartUrl || openUrl)",
+    );
+    expect(html).toContain(
+      'url.pathname.endsWith("/_agent-native/embed/start")',
     );
     expect(html).toContain("callEmbedSessionTool(embedSessionArgsFor(url))");
     expect(html).toContain("frameReadyMessageDelays");
