@@ -248,47 +248,9 @@ function listAppsTool(
 // open_app
 // ---------------------------------------------------------------------------
 
-function absolutizeMaybe(pathOrUrl: string, origin?: string): string {
-  if (!origin) return pathOrUrl;
-  try {
-    return new URL(pathOrUrl, origin).toString();
-  } catch {
-    return pathOrUrl;
-  }
-}
-
-async function tryCreateSameAppEmbedStartUrl(
-  targetPath: string,
-  requestMeta?: { origin?: string },
-  chrome?: unknown,
-): Promise<string | null> {
-  try {
-    const { getRequestContext } = await import("../server/request-context.js");
-    const ctx = getRequestContext();
-    const ownerEmail = ctx?.userEmail?.trim();
-    if (!ownerEmail) return null;
-
-    const { createEmbedSessionTicket } =
-      await import("../server/embed-session.js");
-    const { buildEmbedStartPath } = await import("../server/embed-route.js");
-    const ticket = await createEmbedSessionTicket({
-      ownerEmail,
-      orgId: ctx?.orgId,
-      targetPath,
-      scope: typeof chrome === "string" ? chrome : null,
-    });
-    return absolutizeMaybe(
-      buildEmbedStartPath(ticket.ticket),
-      requestMeta?.origin,
-    );
-  } catch {
-    return null;
-  }
-}
-
 function openAppTool(
   config: MCPConfig,
-  requestMeta?: { origin?: string },
+  _requestMeta?: { origin?: string },
 ): ActionEntry {
   return {
     tool: tool(
@@ -367,22 +329,13 @@ function openAppTool(
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
-      const embedStartUrl =
-        embed && !targetApp
-          ? await tryCreateSameAppEmbedStartUrl(
-              sameAppUrl,
-              requestMeta,
-              args.chrome,
-            )
-          : null;
-      const url = embedStartUrl ?? appUrl;
+      const url = appUrl;
 
       return {
         app,
         ...(view ? { view } : {}),
         ...(path ? { path } : {}),
         url,
-        ...(embedStartUrl ? { embedStartUrl, deepLinkUrl: appUrl } : {}),
         embed,
       };
     },

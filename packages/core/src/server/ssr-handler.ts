@@ -18,16 +18,20 @@
 import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
-import { getSession } from "./auth.js";
+import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
 import { runWithRequestContext } from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
-import { EMBED_TOKEN_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 export const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 export const AUTHENTICATED_SSR_CACHE_CONTROL =
   "private, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
+const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
 /**
  * Read the active org for a request without forcing every template to bundle
@@ -160,7 +164,22 @@ function requestHasAuthenticatedCookie(cookieHeader: string | null): boolean {
     .split(";")
     .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
     .filter((name): name is string => Boolean(name))
-    .some((name) => !ANONYMOUS_SESSION_COOKIE_NAMES.has(name));
+    .some(isAuthenticatedCookieName);
+}
+
+function isAuthenticatedCookieName(name: string): boolean {
+  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
+  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
+  return (
+    bareName === COOKIE_NAME ||
+    bareName === EMBED_SESSION_COOKIE ||
+    bareName === "an_session" ||
+    bareName === "an_session_workspace" ||
+    bareName.startsWith("an_session_") ||
+    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_token` ||
+    bareName === `${BETTER_AUTH_COOKIE_PREFIX}.session_data` ||
+    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
+  );
 }
 
 function applyDefaultSsrCacheHeader(

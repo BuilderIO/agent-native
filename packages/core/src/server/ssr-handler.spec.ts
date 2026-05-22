@@ -22,6 +22,8 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./auth.js", () => ({
+  BETTER_AUTH_COOKIE_PREFIX: "an",
+  COOKIE_NAME: "an_session",
   getSession: mocks.getSession,
 }));
 
@@ -120,7 +122,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("uses private SSR caching when a page request carries auth signals", async () => {
+  it("uses private SSR caching when a page request carries a framework session cookie", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -130,7 +132,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(
       createEvent("/slides/private", "GET", {
-        headers: { cookie: "sid=1" },
+        headers: { cookie: "an_session=1" },
       }),
     );
 
@@ -159,6 +161,26 @@ describe("createH3SSRHandler", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
+  it("keeps public SSR caching for anonymous preference cookies", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/docs", "GET", {
+        headers: { cookie: "sidebar:state=collapsed" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
   it("uses private SSR caching when anonymous and authenticated cookies coexist", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
@@ -169,7 +191,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(
       createEvent("/docs", "GET", {
-        headers: { cookie: "an_docs_session=anon; sid=1" },
+        headers: { cookie: "an_docs_session=anon; an_session=1" },
       }),
     );
 
@@ -216,7 +238,9 @@ describe("createH3SSRHandler", () => {
     );
     const handler = createH3SSRHandler(() => ({})) as any;
 
-    await handler(createEvent("/", "GET", { headers: { cookie: "sid=1" } }));
+    await handler(
+      createEvent("/", "GET", { headers: { cookie: "an_session=1" } }),
+    );
 
     expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });

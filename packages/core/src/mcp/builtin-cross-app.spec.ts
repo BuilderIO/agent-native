@@ -157,6 +157,8 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       embed: true,
     });
     expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embedStartUrl).toBeUndefined();
+    expect(result.deepLinkUrl).toBeUndefined();
     expect(result.embed).toBe(true);
   });
 
