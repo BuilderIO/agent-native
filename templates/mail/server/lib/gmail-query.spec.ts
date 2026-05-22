@@ -127,6 +127,28 @@ describe("filterInboxScopedThreadMessages", () => {
     expect(filterInboxScopedThreadMessages([sentOnly], "inbox")).toEqual([]);
   });
 
+  it("excludes sent replies from custom label inbox previews", () => {
+    const received = message({
+      id: "received-old",
+      date: "2025-10-01T00:00:00.000Z",
+      labelIds: ["inbox", "customer success"],
+    });
+    const sentLatest = message({
+      id: "sent-latest",
+      date: "2026-05-21T00:00:00.000Z",
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages(
+        [received, sentLatest],
+        "inbox",
+        "customer success",
+      ).map((m) => m.id),
+    ).toEqual(["received-old"]);
+  });
+
   it("keeps the full thread preview for unread threads", () => {
     const unread = message({
       id: "unread-old",

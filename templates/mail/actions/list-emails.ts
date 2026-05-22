@@ -9,6 +9,7 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { filterInboxScopedThreadMessages } from "../server/lib/gmail-query.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 import { z } from "zod";
 
@@ -239,6 +240,7 @@ export default defineAction({
         );
       }
 
+      emails = filterInboxScopedThreadMessages(emails, view);
       emails = latestPerThread(emails).slice(0, limit);
 
       const payload = compact ? toCompact(emails) : emails;

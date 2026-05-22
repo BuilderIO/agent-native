@@ -38,6 +38,18 @@ describe("calendar event list cache helpers", () => {
         to: "2026-05-23T23:59:59.999Z",
       }),
     ).toBe(false);
+    expect(
+      calendarEventOverlapsListParams(event, {
+        from: "2026-05-22T17:00:00.000Z",
+        to: "2026-05-22T18:00:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      calendarEventOverlapsListParams(event, {
+        from: "2026-05-22T15:00:00.000Z",
+        to: "2026-05-22T16:00:00.000Z",
+      }),
+    ).toBe(false);
   });
 
   it("replaces an optimistic event with the created event and keeps the stable temp key", () => {

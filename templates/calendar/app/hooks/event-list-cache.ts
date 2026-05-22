@@ -14,7 +14,7 @@ export function calendarEventOverlapsListParams(
   const to = params?.to ? Date.parse(params.to) : Number.POSITIVE_INFINITY;
   if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
 
-  return end >= from && start <= to;
+  return end > from && start < to;
 }
 
 function sortCalendarEvents(events: CalendarEvent[]) {

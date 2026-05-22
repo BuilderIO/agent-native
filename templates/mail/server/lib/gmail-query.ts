@@ -91,8 +91,16 @@ function qualifiesForInboxThread(
   );
 }
 
-function qualifiesForThreadPreview(message: EmailMessage): boolean {
-  return !message.isDraft && !message.isTrashed;
+function qualifiesForThreadPreview(
+  message: EmailMessage,
+  label?: string,
+): boolean {
+  const isCustomLabel = label && !isInboxScopedAppLabel(label);
+  return (
+    !message.isDraft &&
+    !message.isTrashed &&
+    (!isCustomLabel || !message.isSent)
+  );
 }
 
 export function filterInboxScopedThreadMessages(
@@ -112,6 +120,6 @@ export function filterInboxScopedThreadMessages(
   return emails.filter(
     (message) =>
       includedThreads.has(threadKey(message)) &&
-      qualifiesForThreadPreview(message),
+      qualifiesForThreadPreview(message, label),
   );
 }
