@@ -209,6 +209,9 @@ Claude and ChatGPT can cache tool and resource metadata for an existing custom
 connector. After changing MCP App metadata, verify with a fresh tool call; if
 the host still uses the old descriptor, reconnect the Claude connector or
 rescan/review the ChatGPT connector so it refreshes the catalog.
+If Claude logs a warning about `_meta.ui.csp` or `_meta.ui.permissions` living
+on the tool descriptor after a deploy, that connector is using stale metadata:
+delete/reconnect the Claude connector and start a fresh chat.
 
 ### First-class MCP App bridge {#mcp-app-bridge}
 

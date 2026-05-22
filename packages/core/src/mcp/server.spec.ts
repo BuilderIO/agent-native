@@ -367,6 +367,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resourceUri: "ui://mail/echo-thing/shell-v25",
       visibility: ["model", "app"],
     });
+    expect(echo._meta?.ui?.csp).toBeUndefined();
+    expect(echo._meta?.ui?.permissions).toBeUndefined();
   });
 
   it("uses a compact tool catalog when the OAuth token has mcp:apps", async () => {
@@ -805,6 +807,139 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       ]),
     );
+  });
+
+  it("isolates MCP App CSP builder failures to the affected resource", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resourceFailure = new Error("csp store offline");
+    const failingCspConfig = {
+      ...config,
+      actions: {
+        "broken-review": {
+          tool: {
+            description: "Broken review",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              title: "Broken review",
+              html: "<!doctype html><html><body>Broken</body></html>",
+              csp: async () => {
+                throw resourceFailure;
+              },
+            },
+          },
+        },
+        "healthy-review": {
+          tool: {
+            description: "Healthy review",
+          },
+          run: async () => ({ ok: true }),
+          mcpApp: {
+            resource: {
+              title: "Healthy review",
+              html: "<!doctype html><html><body>Healthy</body></html>",
+              csp: {
+                connectDomains: ["https://healthy.example.com"],
+              },
+            },
+          },
+        },
+      },
+    };
+
+    try {
+      const tools = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 39,
+          method: "tools/list",
+          params: {},
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(tools.error).toBeUndefined();
+      const brokenTool = tools.result.tools.find(
+        (tool: any) => tool.name === "broken-review",
+      );
+      const healthyTool = tools.result.tools.find(
+        (tool: any) => tool.name === "healthy-review",
+      );
+      expect(brokenTool._meta?.["openai/outputTemplate"]).toBeUndefined();
+      expect(healthyTool._meta["openai/outputTemplate"]).toBe(
+        "ui://mail/healthy-review/shell-v25",
+      );
+
+      const brokenCall = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 40,
+          method: "tools/call",
+          params: { name: "broken-review", arguments: {} },
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(brokenCall.error).toBeUndefined();
+      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(
+        brokenCall.result._meta?.["openai/outputTemplate"],
+      ).toBeUndefined();
+
+      const resources = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 41,
+          method: "resources/list",
+          params: {},
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(resources.error).toBeUndefined();
+      expect(
+        resources.result.resources.map((resource: any) => resource.uri),
+      ).toEqual(["ui://mail/healthy-review/shell-v25"]);
+
+      const templates = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 42,
+          method: "resources/templates/list",
+          params: {},
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(templates.error).toBeUndefined();
+      expect(
+        templates.result.resourceTemplates.map(
+          (template: any) => template.uriTemplate,
+        ),
+      ).toEqual(["ui://mail/healthy-review/shell-v25"]);
+
+      const warnCallsBeforeRead = warn.mock.calls.length;
+      const read = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 43,
+          method: "resources/read",
+          params: { uri: "ui://mail/healthy-review/shell-v25" },
+        },
+        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+      );
+      expect(read.error).toBeUndefined();
+      expect(read.result.contents[0]).toEqual(
+        expect.objectContaining({
+          uri: "ui://mail/healthy-review/shell-v25",
+          text: expect.stringContaining("Healthy"),
+        }),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('"broken-review"'),
+        resourceFailure,
+      );
+      expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps legacy unversioned MCP App resource reads working", async () => {

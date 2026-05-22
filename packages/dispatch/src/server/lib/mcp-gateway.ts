@@ -145,8 +145,21 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
+  try {
+    const url = new URL(app.url);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function appOrigin(app: DispatchMcpAccessibleApp): string {
-  return new URL(app.url).origin;
+  const origin = safeAppOrigin(app);
+  if (!origin) throw new Error(`Invalid app URL for "${app.id}": ${app.url}`);
+  return origin;
 }
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
@@ -159,7 +172,8 @@ function appBasePath(app: DispatchMcpAccessibleApp): string {
 }
 
 function appMatchesUrlPath(app: DispatchMcpAccessibleApp, url: URL): boolean {
-  if (url.origin !== appOrigin(app)) return false;
+  const origin = safeAppOrigin(app);
+  if (!origin || url.origin !== origin) return false;
   const basePath = appBasePath(app);
   if (!basePath) return true;
   return url.pathname === basePath || url.pathname.startsWith(`${basePath}/`);
@@ -235,12 +249,12 @@ export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
   const { apps } = await listDispatchMcpApps();
-  return apps.filter((app) => app.granted);
+  return apps.filter((app) => app.granted && safeAppOrigin(app));
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
   const apps = await listGrantedDispatchMcpApps();
-  return Array.from(new Set(apps.map((app) => appOrigin(app))));
+  return Array.from(new Set(apps.flatMap((app) => safeAppOrigin(app) ?? [])));
 }
 
 export async function resolveGrantedDispatchMcpApp(
@@ -261,6 +275,11 @@ export async function resolveGrantedDispatchMcpApp(
   if (!match.granted) {
     throw new Error(
       `Dispatch MCP access to "${match.id}" is not granted. Open Dispatch > Agents to change MCP app access.`,
+    );
+  }
+  if (!safeAppOrigin(match)) {
+    throw new Error(
+      `Dispatch MCP app "${match.id}" has an invalid URL and cannot be opened through MCP.`,
     );
   }
   return match;

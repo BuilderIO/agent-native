@@ -74,6 +74,7 @@ const MODE_ITEMS: {
 
 const EXPORT_FORMATS = [
   { value: "zip", label: "Download ZIP" },
+  { value: "svg", label: "Download SVG" },
   { value: "pdf", label: "Export PDF" },
   { value: "html", label: "Export HTML" },
   { value: "coding-handoff", label: "Copy coding handoff" },
@@ -109,6 +110,7 @@ export function DesignToolbar({
 }: DesignToolbarProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
+  const zoomLabel = `${Math.round(zoom)}%`;
 
   const commitTitle = () => {
     setEditingTitle(false);
@@ -279,8 +281,8 @@ export function DesignToolbar({
         >
           <IconMinus className="h-3 w-3" />
         </Button>
-        <span className="min-w-[3rem] text-center text-xs text-muted-foreground">
-          {zoom}%
+        <span className="min-w-12 text-center text-xs tabular-nums text-muted-foreground">
+          {zoomLabel}
         </span>
         <Button
           variant="ghost"

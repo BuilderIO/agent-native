@@ -234,6 +234,11 @@ interface McpAppResourceContext {
   requestOrigin?: string;
 }
 
+interface VersionedMcpAppResourceUri {
+  uri: string;
+  legacyUris?: string[];
+}
+
 function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -387,7 +392,7 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
 
 function versionMcpAppResourceUri(
   rawUri: string,
-): { uri: string; legacyUris?: string[] } | null {
+): VersionedMcpAppResourceUri | null {
   const uri = rawUri.trim();
   if (!uri.startsWith("ui://")) return null;
   const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
@@ -406,6 +411,18 @@ function versionMcpAppResourceUri(
     uri: versionedUri,
     ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
   };
+}
+
+function getMcpAppResourceUri(
+  config: MCPConfig,
+  actionName: string,
+  entry: ActionEntry,
+): VersionedMcpAppResourceUri | null {
+  const resource = entry.mcpApp?.resource;
+  if (!resource) return null;
+  const baseUri =
+    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
+  return versionMcpAppResourceUri(baseUri);
 }
 
 function expandRequestOriginSources(
@@ -521,9 +538,7 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
-  const baseUri =
-    resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
-  const resolvedUri = versionMcpAppResourceUri(baseUri);
+  const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
   const resolvedCsp = await resolveMcpAppCsp(resource, {
@@ -549,6 +564,23 @@ async function resolveMcpAppResource(
   };
 }
 
+async function resolveMcpAppResourceSafely(
+  config: MCPConfig,
+  actionName: string,
+  entry: ActionEntry,
+  requestMeta?: MCPRequestMeta,
+): Promise<ResolvedMcpAppResource | null> {
+  try {
+    return await resolveMcpAppResource(config, actionName, entry, requestMeta);
+  } catch (error) {
+    console.warn(
+      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved.`,
+      error,
+    );
+    return null;
+  }
+}
+
 async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
@@ -556,7 +588,7 @@ async function getMcpAppResources(
 ): Promise<ResolvedMcpAppResource[]> {
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
-      resolveMcpAppResource(config, name, entry, requestMeta),
+      resolveMcpAppResourceSafely(config, name, entry, requestMeta),
     ),
   );
   return resources.filter((resource): resource is ResolvedMcpAppResource =>
@@ -808,7 +840,7 @@ export async function createMCPServerForRequest(
       const tools = await Promise.all(
         Object.entries(advertisedActions).map(async ([name, entry]) => {
           const hasLink = typeof entry.link === "function";
-          const mcpAppResource = await resolveMcpAppResource(
+          const mcpAppResource = await resolveMcpAppResourceSafely(
             config,
             name,
             entry,
@@ -956,7 +988,7 @@ export async function createMCPServerForRequest(
         const resultForClient = isMcpActionResult(result)
           ? result.text
           : result;
-        const mcpAppResource = await resolveMcpAppResource(
+        const mcpAppResource = await resolveMcpAppResourceSafely(
           config,
           name,
           entry,
@@ -1051,23 +1083,31 @@ export async function createMCPServerForRequest(
       async (request: any) => {
         return withCallerContext(async () => {
           const uri = request.params?.uri;
-          const candidates = await Promise.all(
-            Object.entries(advertisedActions).map(async ([name, entry]) => ({
-              actionName: name,
-              resource: await resolveMcpAppResource(
-                config,
-                name,
-                entry,
-                requestMeta,
-              ),
-            })),
-          );
-          const found = candidates.find(
-            (candidate) =>
-              candidate.resource?.uri === uri ||
-              candidate.resource?.legacyUris?.includes(uri),
-          );
-          if (!found?.resource) {
+          let found: {
+            actionName: string;
+            resource: ResolvedMcpAppResource;
+          } | null = null;
+          for (const [name, entry] of Object.entries(advertisedActions)) {
+            const resourceUri = getMcpAppResourceUri(config, name, entry);
+            if (
+              !resourceUri ||
+              (resourceUri.uri !== uri &&
+                !resourceUri.legacyUris?.includes(uri))
+            ) {
+              continue;
+            }
+            const resource = await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            );
+            if (resource) {
+              found = { actionName: name, resource };
+            }
+            break;
+          }
+          if (!found) {
             throw new Error(`MCP App resource not found: ${uri}`);
           }
           return {

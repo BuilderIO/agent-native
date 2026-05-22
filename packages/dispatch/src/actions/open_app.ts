@@ -101,7 +101,7 @@ const dispatchOpenAppCsp: ActionMcpAppCspBuilder = async (
   ctx,
 ): Promise<ActionMcpAppCsp> => {
   const appOrigins = (await listGrantedDispatchMcpAppOrigins()).filter(
-    (origin) => origin !== ctx.requestOrigin,
+    (origin) => !ctx.requestOrigin || origin !== ctx.requestOrigin,
   );
   const routeSources = [
     MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
