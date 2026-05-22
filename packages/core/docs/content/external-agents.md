@@ -12,28 +12,45 @@ The external-agent bridge closes the loop. First you connect your own agent to a
 
 ## Easy setup {#easy-setup}
 
-Add the hosted app as a remote MCP connector in your chat host, sign in, and enable it in a chat.
+Add one remote MCP connector to the host where you want to use Agent-Native.
 
-**Recommended for cross-app work:** connect Dispatch once:
+For workspace or cross-app work, use Dispatch:
 
 ```text
 https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
-Dispatch exposes a unified MCP gateway with `list_apps`, `ask_app`, and `open_app`. In Dispatch's **Agents** page, choose whether that gateway can reach all apps or only selected apps. This avoids adding Mail, Calendar, Analytics, Brain, and every workspace app as separate MCP resources.
+Dispatch is the single gateway for Mail, Calendar, Analytics, Brain, and your
+workspace apps. In Dispatch's **Agents** page, choose whether the gateway can
+reach all apps or only selected apps. The connected host then gets
+`list_apps`, `ask_app`, and `open_app`, filtered to that granted set.
 
-**Shortcut:** every hosted agent-native app serves a one-page connect helper at `https://<app>/_agent-native/mcp/connect` (for example [dispatch.agent-native.com/\_agent-native/mcp/connect](https://dispatch.agent-native.com/_agent-native/mcp/connect), [mail.agent-native.com/\_agent-native/mcp/connect](https://mail.agent-native.com/_agent-native/mcp/connect), [analytics.agent-native.com/\_agent-native/mcp/connect](https://analytics.agent-native.com/_agent-native/mcp/connect), or `https://<your-app>/_agent-native/mcp/connect`). It shows the MCP URL with a one-click copy button and a tab strip — Claude · ChatGPT · Cursor · Claude Code · Codex · Other — each with the exact steps or copy-able command for that host. Bookmark it and share with non-developer teammates; everything below is also reachable from that page.
+For one intentionally isolated app, use that app directly:
 
-Use the hosted app's MCP URL:
+```text
+https://mail.agent-native.com/_agent-native/mcp
+https://<your-app>.agent-native.com/_agent-native/mcp
+```
 
-| App       | Remote MCP URL                                         |
-| --------- | ------------------------------------------------------ |
-| Dispatch  | `https://dispatch.agent-native.com/_agent-native/mcp`  |
-| Mail      | `https://mail.agent-native.com/_agent-native/mcp`      |
-| Analytics | `https://analytics.agent-native.com/_agent-native/mcp` |
-| Any app   | `https://<app-host>/_agent-native/mcp`                 |
+Every hosted app also has a helper page at
+`https://<app>/_agent-native/mcp/connect` with the copyable URL and
+host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, and Other.
 
-When the chat host asks you to authorize Agent-Native, sign in with your workspace account and approve the MCP scopes:
+### Claude and ChatGPT OAuth {#oauth}
+
+Claude / Claude Desktop: add a custom connector, paste the MCP URL, click
+**Connect**, sign in with your Agent-Native account, approve the MCP scopes,
+and enable the connector in a chat. Claude Code uses the same URL: add it as a
+remote HTTP MCP server, run `/mcp`, then choose **Authenticate**.
+
+ChatGPT: use a workspace where custom MCP connectors or developer-mode apps are
+enabled, create a custom connector/app, paste the same MCP URL, choose OAuth,
+scan/discover tools, sign in with Agent-Native, approve the scopes, and enable
+the connector in a chat.
+
+OAuth grants are per host and per user. The host stores the tokens and
+mediates tool/resource calls, so inline MCP App previews never receive raw
+OAuth tokens. The scopes are:
 
 | Scope       | What it enables                                      |
 | ----------- | ---------------------------------------------------- |
@@ -41,54 +58,9 @@ When the chat host asks you to authorize Agent-Native, sign in with your workspa
 | `mcp:write` | Drafting, updating, and other mutating actions       |
 | `mcp:apps`  | Inline MCP Apps, charts, dashboards, drafts, and UIs |
 
-Each chat host stores its own authorization, so connect Claude, ChatGPT, and other hosts separately.
-
-### Claude and Claude Desktop {#claude-chat}
-
-1. Open Claude.
-2. Go to **Customize → Connectors**.
-3. Choose **Add custom connector**.
-4. Paste the remote MCP URL for the app.
-5. Click **Connect**.
-6. Sign in with your Agent-Native account, then approve `mcp:read`, `mcp:write`, and `mcp:apps`.
-7. Start a chat and enable the connector from the connector/tools menu.
-
-For Team or Enterprise workspaces, an owner or admin may need to add the connector under organization settings first. Each user still connects their own account once, so tool calls run as the signed-in user.
-
-### ChatGPT web {#chatgpt}
-
-ChatGPT's full MCP connector flow is currently workspace/admin gated. Use ChatGPT web in a workspace where custom MCP connectors are enabled.
-
-1. In ChatGPT, open **Workspace settings**.
-2. Enable the setting that allows custom MCP connectors or developer-mode connectors.
-3. Go to **Apps** or **Connectors**, then choose **Create** or **Add custom connector**.
-4. Paste the remote MCP URL for the app.
-5. Choose OAuth authentication.
-6. Scan or discover tools.
-7. Sign in with your Agent-Native account and approve the MCP scopes.
-8. Create the connector, then select it from a new chat's tools/apps menu.
-
-If the ChatGPT workspace does not expose custom MCP connectors, ask a workspace admin to enable them first.
-
-#### Recovering "Connector name already exists" {#chatgpt-drafts}
-
-ChatGPT creates a **draft** the moment you click **Create app** — even if you closed the OAuth popup before approving the scopes. The draft is not visible under **Enabled apps**, but it still owns the name, so retrying with the same name surfaces a `"Connector name already exists"` toast. Recovery is fully self-service in the ChatGPT UI:
-
-1. Open **Settings → Apps**.
-2. Scroll past **Enabled apps** and **Advanced settings** to the **Drafts** section (labeled _"Private apps you've created in developer mode"_).
-3. Click the draft with the conflicting name.
-4. Either press **Connect** to finish OAuth in place (no rename needed), or open the **⋯** overflow menu and choose **Delete** and re-add via **Advanced settings → Create app**.
-
-There is no "Drafts" tab on the **Add more / app directory** dialog, so non-admins sometimes miss the section entirely — it lives further down the same Settings → Apps page that lists enabled apps.
-
-### Cursor {#cursor}
-
-1. Open Cursor → **Settings → MCP**.
-2. Click **Add MCP Server**.
-3. Paste the remote MCP URL for the app and save.
-4. When Cursor prompts, sign in with your Agent-Native account and approve `mcp:read`, `mcp:write`, and `mcp:apps`.
-
-Cursor supports remote-OAuth MCP servers, so the paste-URL flow works the same as Claude — no terminal involved. Goose, Postman, MCPJam, and VS Code GitHub Copilot accept the same URL through their own MCP-server UIs once OAuth support is enabled in your build.
+Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
+MCP URL through their own MCP-server UIs when their build supports remote OAuth
+MCP servers.
 
 ### Quick test prompt {#quick-test}
 
