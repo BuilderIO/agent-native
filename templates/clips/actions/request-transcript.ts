@@ -63,6 +63,7 @@ import {
 } from "../shared/transcript-segments.js";
 import {
   AudioOnlyExtractionError,
+  assertAudioHasAudibleSignal,
   isNoExtractableAudioError,
   prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
@@ -644,6 +645,7 @@ export default defineAction({
     const userEmail = getRequestUserEmail() ?? ownerEmail;
     let builderError: string | null = null;
     let audioMediaPromise: Promise<AudioOnlyTranscriptionMedia> | null = null;
+    let audioSignalPromise: Promise<void> | null = null;
 
     const getAudioMedia = (
       rec: RecordingMediaRow,
@@ -670,6 +672,12 @@ export default defineAction({
         });
       })();
       return audioMediaPromise;
+    };
+    const ensureAudioHasSignal = (
+      media: AudioOnlyTranscriptionMedia,
+    ): Promise<void> => {
+      audioSignalPromise ??= assertAudioHasAudibleSignal(media);
+      return audioSignalPromise;
     };
 
     const [existingNativeTranscript] = await db
@@ -759,6 +767,7 @@ export default defineAction({
       let audioMedia: AudioOnlyTranscriptionMedia;
       try {
         audioMedia = await getAudioMedia(rec);
+        await ensureAudioHasSignal(audioMedia);
       } catch (err) {
         return failAudioOnlyPreparation({
           db,
@@ -973,6 +982,7 @@ export default defineAction({
     let audioMedia: AudioOnlyTranscriptionMedia;
     try {
       audioMedia = await getAudioMedia(rec);
+      await ensureAudioHasSignal(audioMedia);
     } catch (err) {
       return failAudioOnlyPreparation({
         db,

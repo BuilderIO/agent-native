@@ -6,10 +6,12 @@ import { join } from "node:path";
 import ffmpegStaticPath from "ffmpeg-static";
 
 const AUDIO_EXTRACTION_TIMEOUT_MS = 30_000;
+const SILENCE_MAX_VOLUME_DB = -60;
 const STDERR_LIMIT = 16 * 1024;
 
 export type AudioOnlyExtractionErrorCode =
   | "NO_AUDIO_TRACK"
+  | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED";
 
@@ -66,7 +68,8 @@ export function isAudioMimeType(mimeType: string | null | undefined): boolean {
 
 export function isNoExtractableAudioError(err: unknown): boolean {
   return (
-    err instanceof AudioOnlyExtractionError && err.code === "NO_AUDIO_TRACK"
+    err instanceof AudioOnlyExtractionError &&
+    (err.code === "NO_AUDIO_TRACK" || err.code === "NO_SPEECH_DETECTED")
   );
 }
 
@@ -233,6 +236,99 @@ async function runFfmpeg(args: string[]): Promise<void> {
       reject(new FfmpegRunError(`ffmpeg exited with code ${code}`, stderr));
     });
   });
+}
+
+async function runFfmpegForStderr(args: string[]): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const child = spawn(ffmpegCommand(), args, {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new FfmpegRunError("ffmpeg timed out", stderr));
+    }, AUDIO_EXTRACTION_TIMEOUT_MS);
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+    });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new FfmpegRunError(err.message, stderr));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve(stderr);
+        return;
+      }
+      reject(new FfmpegRunError(`ffmpeg exited with code ${code}`, stderr));
+    });
+  });
+}
+
+function parseVolumeDb(stderr: string, field: "mean" | "max"): number | null {
+  const match = stderr.match(
+    new RegExp(`${field}_volume:\\s*(-?inf|-?\\d+(?:\\.\\d+)?) dB`, "i"),
+  );
+  if (!match) return null;
+  return match[1] === "-inf" ? Number.NEGATIVE_INFINITY : Number(match[1]);
+}
+
+export async function analyzeAudioSignal({
+  audioBytes,
+  mimeType,
+}: AudioOnlyTranscriptionMedia): Promise<{
+  meanVolumeDb: number | null;
+  maxVolumeDb: number | null;
+}> {
+  if (audioBytes.byteLength === 0) {
+    throw new AudioOnlyExtractionError(
+      "NO_AUDIO_TRACK",
+      "No speech was detected because the recording media is empty.",
+    );
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), "clips-transcription-"));
+  const inputPath = join(dir, `input.${audioExtensionForMimeType(mimeType)}`);
+
+  try {
+    await writeFile(inputPath, audioBytes);
+    const stderr = await runFfmpegForStderr([
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      inputPath,
+      "-vn",
+      "-af",
+      "volumedetect",
+      "-f",
+      "null",
+      "-",
+    ]).catch((err) => {
+      throw mapFfmpegError(err);
+    });
+
+    return {
+      meanVolumeDb: parseVolumeDb(stderr, "mean"),
+      maxVolumeDb: parseVolumeDb(stderr, "max"),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function assertAudioHasAudibleSignal(
+  media: AudioOnlyTranscriptionMedia,
+): Promise<void> {
+  const signal = await analyzeAudioSignal(media);
+  const maxVolumeDb = signal.maxVolumeDb;
+  if (maxVolumeDb === null || maxVolumeDb <= SILENCE_MAX_VOLUME_DB) {
+    throw new AudioOnlyExtractionError(
+      "NO_SPEECH_DETECTED",
+      "No speech was detected because the recording audio is silent.",
+    );
+  }
 }
 
 export async function extractAudioOnlyWithFfmpeg({

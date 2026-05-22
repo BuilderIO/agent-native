@@ -2,9 +2,31 @@ import { describe, expect, it } from "vitest";
 import {
   AudioOnlyExtractionError,
   audioExtensionForMimeType,
+  assertAudioHasAudibleSignal,
   isAudioMimeType,
   prepareAudioOnlyTranscriptionMedia,
 } from "./audio-only-transcription";
+
+function silentWav(durationSeconds = 0.25): Uint8Array {
+  const sampleRate = 16000;
+  const samples = sampleRate * durationSeconds;
+  const dataBytes = samples * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+  return new Uint8Array(buffer);
+}
 
 describe("audio-only transcription media", () => {
   it("passes audio blobs through without extraction", async () => {
@@ -76,6 +98,19 @@ describe("audio-only transcription media", () => {
       code: "NO_AUDIO_TRACK",
       message:
         "No speech was detected because this recording has no audio track.",
+    });
+  });
+
+  it("rejects silent audio before cloud transcription", async () => {
+    const blob = new Blob([silentWav()], { type: "audio/wav" });
+    const media = await prepareAudioOnlyTranscriptionMedia({
+      blob,
+      recordingId: "rec-silent",
+    });
+
+    await expect(assertAudioHasAudibleSignal(media)).rejects.toMatchObject({
+      code: "NO_SPEECH_DETECTED",
+      message: "No speech was detected because the recording audio is silent.",
     });
   });
 
