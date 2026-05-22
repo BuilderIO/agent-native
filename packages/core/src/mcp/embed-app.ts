@@ -210,7 +210,9 @@ export function embedApp(
 
     function firstEmbedStartUrl(values) {
       for (const value of values) {
-        if (typeof value === "string" && value && isEmbedStartUrl(value)) return value;
+        if (typeof value === "string" && value && isEmbedStartUrl(value)) {
+          return withChatBridgeParam(value);
+        }
       }
       return "";
     }

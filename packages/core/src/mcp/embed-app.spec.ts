@@ -70,6 +70,7 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("function openLinkRecordFrom(value)");
+    expect(html).toContain("return withChatBridgeParam(value)");
     expect(html).not.toContain("shouldDirectRenderEmbed");
     expect(html).toContain("claudemcpcontent\\.com");
     expect(html).toContain("isClaudeMcpContentHost()");
