@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.29
+
+### Patch Changes
+
+- a899300: Allow MCP App embed fetches to follow Agent-Native open redirects in Claude.
+
 ## 0.22.28
 
 ### Patch Changes
