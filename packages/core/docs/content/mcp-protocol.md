@@ -78,15 +78,10 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 `embedApp()` is the low-level URL-first MCP App helper. It reads the action
 result's open link, asks the app-only `create_embed_session` tool to mint a
-route-scoped session, then launches the resulting app route. ChatGPT and hosts
-that allow direct route hydration launch the same signed app URL, but ChatGPT
-keeps it in a controlled route iframe to avoid a web-sandbox auto-height
-feedback loop. Claude web currently proxies MCP App content under
-`claudemcpcontent.com`; direct route navigation can fetch app HTML there
-without reliably running the framework bootstrap, and a second nested iframe is
-easy for the host to block. For Claude, `embedApp()` fetches the signed app
-HTML and mounts the real route document into the existing MCP resource frame,
-with app-origin requests routed back to the original app using the embed token.
+route-scoped session, then launches the resulting app route. ChatGPT and Claude
+web keep the signed app URL in a controlled route iframe to avoid web-sandbox
+auto-height feedback loops and proxied-origin module loading. Hosts that can
+hydrate the route directly can still navigate the MCP App frame itself.
 For normal action authoring, use `embedRoute()` when the action's
 `link` and `mcpApp` should come from the same pure route builder. The route
 itself should derive state from the URL and normal app data fetching.

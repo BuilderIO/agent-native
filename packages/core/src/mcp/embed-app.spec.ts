@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("defaults to direct navigation except inside Claude's proxied MCP content frame", () => {
+  it("renders a controlled app frame inside ChatGPT and Claude app hosts", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -34,6 +34,10 @@ describe("embedApp", () => {
     expect(html).toContain("shouldRenderControlledAppFrame");
     expect(html).toContain("} else if (shouldRenderControlledAppFrame())");
     expect(html).toContain("window.location.replace(src)");
+    expect(html).toContain(
+      "isChatGptSandboxHost() || isClaudeMcpContentHost()",
+    );
+    expect(html).toContain("shouldTransplantAppDocument");
     expect(html).toContain("isClaudeMcpContentHost");
     expect(html).toContain("transplantAppDocument");
     expect(html).toContain("__agentNativeExternalEmbedRuntimeInstalled");
@@ -44,6 +48,8 @@ describe("embedApp", () => {
     expect(html).toContain("moduleCodeToClassicAsync");
     expect(html).toContain("await import($1)");
     expect(html).toContain("claudemcpcontent");
+    expect(html).toContain('mode === "transplant"');
+    expect(html).toContain('toolInput.frame === "transplant"');
     expect(html).toContain("const embedUrl = withChatBridgeParam(openUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');

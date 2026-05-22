@@ -663,6 +663,15 @@ export function embedApp(
       return true;
     }
 
+    function shouldTransplantAppDocument() {
+      const mode = typeof toolInput.embedMode === "string"
+        ? toolInput.embedMode
+        : typeof toolInput.renderMode === "string"
+          ? toolInput.renderMode
+          : "";
+      return mode === "transplant" || toolInput.frame === "transplant";
+    }
+
     function isClaudeMcpContentHost() {
       try {
         return /(^|\\.)claudemcpcontent\\.com$/i.test(window.location.hostname || "");
@@ -682,7 +691,7 @@ export function embedApp(
     }
 
     function shouldRenderControlledAppFrame() {
-      return !!openAiBridge || isChatGptSandboxHost();
+      return !!openAiBridge || isChatGptSandboxHost() || isClaudeMcpContentHost();
     }
 
     function navigateToAppFrame(src) {
@@ -871,7 +880,7 @@ export function embedApp(
         const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(openUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
-          if (isClaudeMcpContentHost()) {
+          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(embedUrl);
@@ -895,7 +904,7 @@ export function embedApp(
           return;
         }
         if (selfNavigate) {
-          if (isClaudeMcpContentHost()) {
+          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
             await transplantAppDocument(data.startUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(data.startUrl);
