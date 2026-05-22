@@ -568,17 +568,25 @@ function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
-  const ui = metadataObject(resource._meta?.ui);
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
   return {
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
     "openai/widgetAccessible": true,
-    ...(Object.keys(ui).length > 0 ? { ui } : {}),
     ...(Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
+  };
+}
+
+function mcpAppToolUiMeta(
+  resource: ResolvedMcpAppResource,
+  visibility: unknown,
+): Record<string, unknown> {
+  return {
+    resourceUri: resource.uri,
+    visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
   };
 }
 
@@ -784,16 +792,11 @@ export async function createMCPServerForRequest(
             ? {
                 ...openAiToolDescriptorMeta(mcpAppResource),
                 [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
-                ui: {
-                  ...metadataObject(mcpAppResource._meta?.ui),
-                  ...(((rawToolMeta.ui as any) &&
-                  typeof rawToolMeta.ui === "object" &&
-                  !Array.isArray(rawToolMeta.ui)
-                    ? rawToolMeta.ui
-                    : {}) as Record<string, unknown>),
-                  resourceUri: mcpAppResource.uri,
-                  visibility: entry.mcpApp?.visibility ?? ["model", "app"],
-                },
+                ui: mcpAppToolUiMeta(
+                  mcpAppResource,
+                  entry.mcpApp?.visibility ??
+                    metadataObject(rawToolMeta.ui).visibility,
+                ),
               }
             : {}),
         };

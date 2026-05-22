@@ -362,18 +362,19 @@ ${
     var fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, [
       'precision highp float;',
-      'uniform float iTime;uniform vec2 iResolution;',
+      'uniform float iTime;uniform vec2 iResolution;uniform vec3 uPointer;',
       '#define S(a,b,t) smoothstep(a,b,t)',
       '#define NUM_LAYERS 4.',
       'float N21(vec2 p){vec3 a=fract(vec3(p.xyx)*vec3(213.897,653.453,253.098));a+=dot(a,a.yzx+79.76);return fract((a.x+a.y)*a.z);}',
       'vec2 GetPos(vec2 id,vec2 offs,float t){float n=N21(id+offs);float n1=fract(n*10.);float n2=fract(n*100.);float a=t+n;return offs+vec2(sin(a*n1),cos(a*n2))*.4;}',
+      'vec2 Attract(vec2 p,vec2 cursor,float strength){vec2 delta=cursor-p;float d=length(delta);float pull=1.-smoothstep(.08,1.9,d);pull=pull*pull*(3.-2.*pull);return p+delta*pull*.095*strength;}',
       'float df_line(vec2 a,vec2 b,vec2 p){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}',
       'float line(vec2 a,vec2 b,vec2 uv){float r1=.025;float r2=.006;float d=df_line(a,b,uv);float d2=length(a-b);float fade=S(1.5,.5,d2);fade+=S(.05,.02,abs(d2-.75));return S(r1,r2,d)*fade;}',
-      'float NetLayer(vec2 st,float n,float t){',
-      '  vec2 id=floor(st)+n;st=fract(st)-.5;',
-      '  vec2 p0=GetPos(id,vec2(-1,-1),t);vec2 p1=GetPos(id,vec2(0,-1),t);vec2 p2=GetPos(id,vec2(1,-1),t);',
-      '  vec2 p3=GetPos(id,vec2(-1,0),t);vec2 p4=GetPos(id,vec2(0,0),t);vec2 p5=GetPos(id,vec2(1,0),t);',
-      '  vec2 p6=GetPos(id,vec2(-1,1),t);vec2 p7=GetPos(id,vec2(0,1),t);vec2 p8=GetPos(id,vec2(1,1),t);',
+      'float NetLayer(vec2 st,float n,float t,vec2 pointer,float pointerStrength){',
+      '  vec2 cell=floor(st);vec2 id=cell+n;vec2 cursor=pointer-cell;st=fract(st)-.5;',
+      '  vec2 p0=Attract(GetPos(id,vec2(-1,-1),t),cursor,pointerStrength);vec2 p1=Attract(GetPos(id,vec2(0,-1),t),cursor,pointerStrength);vec2 p2=Attract(GetPos(id,vec2(1,-1),t),cursor,pointerStrength);',
+      '  vec2 p3=Attract(GetPos(id,vec2(-1,0),t),cursor,pointerStrength);vec2 p4=Attract(GetPos(id,vec2(0,0),t),cursor,pointerStrength);vec2 p5=Attract(GetPos(id,vec2(1,0),t),cursor,pointerStrength);',
+      '  vec2 p6=Attract(GetPos(id,vec2(-1,1),t),cursor,pointerStrength);vec2 p7=Attract(GetPos(id,vec2(0,1),t),cursor,pointerStrength);vec2 p8=Attract(GetPos(id,vec2(1,1),t),cursor,pointerStrength);',
       '  float m=0.;float sparkle=0.;float d;float s;float pulse;',
       '  m+=line(p4,p0,st);d=length(st-p0);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
       '  m+=line(p4,p1,st);d=length(st-p1);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
@@ -390,9 +391,10 @@ ${
       '}',
       'void mainImage(out vec4 fragColor,in vec2 fragCoord){',
       '  vec2 uv=(fragCoord-iResolution.xy*.5)/iResolution.y;',
-      '  float t=iTime*.03;float s=sin(t);float c=cos(t);mat2 rot=mat2(c,-s,s,c);vec2 st=uv*rot;',
+      '  float t=iTime*.03;float s=sin(t);float c=cos(t);mat2 rot=mat2(c,-s,s,c);vec2 st=uv*rot;vec2 pointerUv=(uPointer.xy-iResolution.xy*.5)/iResolution.y;',
       '  float m=0.;',
-      '  for(float i=0.;i<1.;i+=1./NUM_LAYERS){float z=fract(t+i);float size=mix(15.,1.,z);float fade=S(0.,.6,z)*S(1.,.8,z);m+=fade*NetLayer(st*size,i,iTime*0.3);}',
+      '  for(float i=0.;i<1.;i+=1./NUM_LAYERS){float z=fract(t+i);float size=mix(15.,1.,z);float fade=S(0.,.6,z)*S(1.,.8,z);vec2 pointerSt=pointerUv*rot*size;vec2 layerSt=st*size;float warp=1.-smoothstep(.15,2.7,length(layerSt-pointerSt));warp=warp*warp*(3.-2.*warp)*uPointer.z;layerSt-=(pointerSt-layerSt)*warp*.035;m+=fade*NetLayer(layerSt,i,iTime*0.3,pointerSt,uPointer.z);}',
+      '  float cursorLift=1.-smoothstep(.04,.48,length(uv-pointerUv));cursorLift=cursorLift*cursorLift*(3.-2.*cursorLift)*uPointer.z;m*=1.+cursorLift*1.6;',
       '  vec3 col=vec3(0.35)*m;col*=1.-dot(uv,uv);',
       '  float tt=min(iTime,5.0);col*=S(0.,20.,tt);',
       '  col=clamp(col,0.,1.);fragColor=vec4(col,1.);',
@@ -416,22 +418,58 @@ ${
 
     var uTime = gl.getUniformLocation(prog, 'iTime');
     var uRes = gl.getUniformLocation(prog, 'iResolution');
+    var uPointer = gl.getUniformLocation(prog, 'uPointer');
     var reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
     var reducedMotion = reducedMotionQuery ? reducedMotionQuery.matches : false;
+    var pointerDpr = 1, hasPointer = false;
+    var pointerX = 0, pointerY = 0, pointerStrength = 0;
+    var targetX = 0, targetY = 0, targetStrength = 0;
 
     function resize() {
       var w = window.innerWidth, h = window.innerHeight;
-      var dpr = Math.min(window.devicePixelRatio, 1.5);
-      canvas.width = w * dpr; canvas.height = h * dpr;
+      pointerDpr = Math.min(window.devicePixelRatio, 1.5);
+      canvas.width = w * pointerDpr; canvas.height = h * pointerDpr;
       gl.viewport(0, 0, canvas.width, canvas.height);
+      if (!hasPointer) {
+        pointerX = targetX = canvas.width * 0.5;
+        pointerY = targetY = canvas.height * 0.5;
+      }
+    }
+    function onPointerMove(event) {
+      var rect = canvas.getBoundingClientRect();
+      var x = event.clientX - rect.left;
+      var y = event.clientY - rect.top;
+      hasPointer = true;
+      targetX = x * pointerDpr;
+      targetY = (rect.height - y) * pointerDpr;
+      targetStrength = x >= 0 && x <= rect.width && y >= 0 && y <= rect.height ? 1 : 0;
+    }
+    function fadePointer() {
+      targetStrength = 0;
+    }
+    function easePointer(allowPointer) {
+      if (!allowPointer) {
+        pointerStrength = 0;
+        return;
+      }
+      pointerX += (targetX - pointerX) * 0.22;
+      pointerY += (targetY - pointerY) * 0.22;
+      pointerStrength += (targetStrength - pointerStrength) * 0.14;
+      if (pointerStrength < 0.001 && targetStrength === 0) pointerStrength = 0;
     }
     resize();
     window.addEventListener('resize', resize);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('mousemove', onPointerMove, { passive: true });
+    document.addEventListener('pointerleave', fadePointer, { passive: true });
+    window.addEventListener('blur', fadePointer);
 
     var start = performance.now(), last = 0, raf = 0, reducedMotionStaticTime = 20;
-    function draw(timeSeconds) {
+    function draw(timeSeconds, allowPointer) {
+      easePointer(allowPointer !== false && !reducedMotion);
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
     function render(now) {
@@ -458,12 +496,12 @@ ${
       if (reducedMotion) {
         stopAnimation();
         last = 0;
-        draw(reducedMotionStaticTime);
+        draw(reducedMotionStaticTime, false);
       } else {
         startAnimation();
       }
     }
-    draw(reducedMotion ? reducedMotionStaticTime : 0);
+    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
     if (reducedMotionQuery) {
       if (reducedMotionQuery.addEventListener) {
         reducedMotionQuery.addEventListener('change', onReducedMotionChange);
