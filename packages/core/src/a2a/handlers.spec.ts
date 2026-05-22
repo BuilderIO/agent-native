@@ -173,6 +173,10 @@ describe("handleJsonRpc", () => {
   beforeEach(() => {
     resolveOrgByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
   });
 
   afterEach(() => {

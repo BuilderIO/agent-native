@@ -137,16 +137,18 @@ agent has a predictable surface without guessing per-app action names:
 A same-named template action overrides a builtin (template-over-core
 precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
-For OAuth callers that request `mcp:apps`, the advertised `tools/list` catalog
-is intentionally compact so ChatGPT/Claude app hosts do not ingest every
-internal action schema. The model sees app-facing builtins (`list_apps`,
-`open_app`, app-only `create_embed_session`) and actions with `mcpApp`.
-Stdio/static-token developer clients still get the full connected action
-surface, and `publicAgent.expose` remains the opt-in for safe read/ingest tools
-outside the compact MCP Apps catalog. If a UI-capable host should be able to
-call a new action from an MCP App conversation, mark it with `mcpApp`; use
-`publicAgent` for non-UI read/ingest handoff tools instead of relying on
-incidental full-surface discovery.
+For OAuth callers that request `mcp:apps`, the advertised `tools/list` and
+`resources/list` catalogs are intentionally tiny so ChatGPT/Claude app hosts do
+not ingest every internal action schema or every action-specific UI resource.
+The model sees the generic app-facing verbs (`list_apps`, `open_app`,
+`ask_app`, and app-only `create_embed_session`) and routes UI through
+`open_app({ embed: true })`. Stdio/static-token developer clients still get
+the full connected action surface, and `publicAgent.expose` remains the opt-in
+for safe read/ingest tools outside the compact MCP Apps catalog. Do not rely on
+action-specific `mcpApp` resources appearing in ChatGPT/Claude discovery by
+default; use `open_app` for the first-class app embed path. If a specific
+action truly must remain visible in that compact app-host catalog, set
+`mcpApp.compactCatalog: true` as a rare escape hatch.
 
 ### 1b. Fast-path expectations for MCP Apps hosts
 

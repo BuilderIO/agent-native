@@ -145,6 +145,13 @@ export interface ActionMcpAppConfig {
    * action and the app iframe can call it back through the host bridge.
    */
   visibility?: Array<"model" | "app">;
+  /**
+   * Rare escape hatch for MCP Apps chat hosts. By default OAuth callers with
+   * `mcp:apps` see the generic app tools (`open_app`, `list_apps`, etc.) so
+   * hosts do not ingest every action-specific UI resource. Set this only when
+   * this specific action must stay visible in that compact catalog.
+   */
+  compactCatalog?: boolean;
 }
 
 /** Schema definition for a single action parameter (legacy JSON schema style). */

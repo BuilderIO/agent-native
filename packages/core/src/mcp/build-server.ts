@@ -138,14 +138,9 @@ function isActionVisibleForOAuthScope(
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
+  "ask_app",
   "create_embed_session",
 ]);
-
-function isDispatchConfig(config: MCPConfig): boolean {
-  const id = (config.appId ?? "").toLowerCase();
-  const name = (config.name ?? "").toLowerCase();
-  return id === "dispatch" || name.includes("dispatch");
-}
 
 function isActionAdvertisedInCompactMcpAppCatalog(
   config: MCPConfig,
@@ -153,8 +148,20 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   entry: ActionEntry,
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-  if (name === "ask_app" && isDispatchConfig(config)) return true;
-  return Boolean(entry.mcpApp?.resource);
+  if (
+    (entry.mcpApp as { compactCatalog?: unknown } | undefined)
+      ?.compactCatalog === true
+  ) {
+    return true;
+  }
+  // If an app deliberately disables the generic open_app builtin, fall back to
+  // its action-specific MCP App tools so it still has a UI surface. The normal
+  // default is the opposite: keep chat-host catalogs tiny and route UI via
+  // open_app instead of listing every app action/template.
+  if (config.builtinCrossAppTools === false) {
+    return Boolean(entry.mcpApp?.resource);
+  }
+  return false;
 }
 
 const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;

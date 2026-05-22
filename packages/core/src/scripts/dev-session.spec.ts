@@ -46,7 +46,7 @@ describe("resolveDevUserEmail", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("returns the latest sessions.email row in dev with AUTH_MODE unset", async () => {
+  it("returns the sole sessions.email owner in dev with AUTH_MODE unset", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "");
     vi.stubEnv("NODE_ENV", "development");
     const execute = vi.fn().mockResolvedValue({
@@ -61,12 +61,13 @@ describe("resolveDevUserEmail", () => {
     expect(execute).toHaveBeenCalledOnce();
     const call = execute.mock.calls[0][0];
     expect(call.sql).toContain("FROM sessions");
-    expect(call.sql).toContain("ORDER BY created_at DESC");
+    expect(call.sql).toContain("GROUP BY TRIM(email)");
+    expect(call.sql).toContain("LIMIT 2");
     // Sentinel must be excluded from the result set
     expect(call.args).toEqual(["local@localhost"]);
   });
 
-  it("returns the latest sessions.email row when AUTH_MODE === 'local'", async () => {
+  it("returns the sole sessions.email owner when AUTH_MODE === 'local'", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "");
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("AUTH_MODE", "local");
@@ -79,6 +80,24 @@ describe("resolveDevUserEmail", () => {
 
     const { resolveDevUserEmail } = await import("./dev-session.js");
     expect(await resolveDevUserEmail()).toBe("alice@local");
+  });
+
+  it("refuses to guess when multiple session owners exist", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "");
+    vi.stubEnv("NODE_ENV", "development");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const execute = vi.fn().mockResolvedValue({
+      rows: [{ email: "emma@builder.io" }, { email: "tim@builder.io" }],
+    });
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => ({ execute }),
+    }));
+
+    const { resolveDevUserEmail } = await import("./dev-session.js");
+    expect(await resolveDevUserEmail()).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      "[dev-session] multiple session owners found (emma@builder.io, tim@builder.io); set AGENT_USER_EMAIL=<email> to choose one",
+    );
   });
 
   it("returns undefined when sessions table is empty", async () => {

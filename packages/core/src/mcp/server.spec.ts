@@ -17,7 +17,72 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
 // MCP SDK itself is REAL — that's the whole point of these tests.
 vi.mock("./builtin-tools.js", () => ({
-  getBuiltinCrossAppTools: () => ({}),
+  getBuiltinCrossAppTools: () => ({
+    list_apps: {
+      tool: {
+        description: "List workspace apps",
+      },
+      readOnly: true,
+      run: async () => ({ apps: [] }),
+    },
+    open_app: {
+      tool: {
+        description: "Open a workspace app",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            path: { type: "string" },
+            embed: { type: "boolean" },
+          },
+        },
+      },
+      readOnly: true,
+      run: async () => ({ app: "mail", url: "/inbox", embed: true }),
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/open_app",
+          title: "Open app",
+          description: "Open the app inline.",
+          html: "<!doctype html><html><body>Open app</body></html>",
+        },
+      },
+    },
+    ask_app: {
+      tool: {
+        description: "Ask a workspace app",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["app", "message"],
+        },
+      },
+      run: async () => ({ response: "agent answer" }),
+    },
+    create_embed_session: {
+      tool: {
+        description: "Create an embed session",
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      run: async () => ({ startUrl: "/_agent-native/embed/start/mock" }),
+    },
+    create_workspace_app: {
+      tool: {
+        description: "Scaffold a workspace app",
+      },
+      run: async () => ({ url: "/new-app" }),
+    },
+    list_templates: {
+      tool: {
+        description: "List app templates",
+      },
+      readOnly: true,
+      run: async () => ({ templates: [] }),
+    },
+  }),
 }));
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
@@ -190,6 +255,9 @@ const config = {
 const veryLongInternalDescription = "INTERNAL_TOOL_BLOAT_SENTINEL ".repeat(
   1_000,
 );
+const veryLongMcpAppDescription = "MCP_APP_RESOURCE_BLOAT_SENTINEL ".repeat(
+  1_000,
+);
 
 const compactSurfaceConfig = {
   ...config,
@@ -230,6 +298,36 @@ const compactSurfaceConfig = {
           title: "Draft review",
           description: "Open the draft in Mail.",
           html: "<!doctype html><html><body>Draft</body></html>",
+        },
+      },
+    },
+  },
+};
+
+const compactSurfaceDefaultConfig = {
+  ...compactSurfaceConfig,
+  builtinCrossAppTools: true as const,
+  actions: {
+    ...compactSurfaceConfig.actions,
+    "bloated-widget": {
+      tool: {
+        description: veryLongMcpAppDescription,
+        parameters: {
+          type: "object" as const,
+          properties: {
+            hugeWidgetPayload: {
+              type: "string",
+              description: veryLongMcpAppDescription,
+            },
+          },
+        },
+      },
+      run: async () => ({ id: "widget-1", message: "Widget ready" }),
+      mcpApp: {
+        resource: {
+          title: "Bloated widget",
+          description: veryLongMcpAppDescription,
+          html: `<!doctype html><html><body>${veryLongMcpAppDescription}</body></html>`,
         },
       },
     },
@@ -395,6 +493,188 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
     expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("defaults MCP Apps hosts to a tiny generic catalog instead of browser-freezing action/resource dumps", async () => {
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 120,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceDefaultConfig,
+      },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toEqual([
+      "list_apps",
+      "open_app",
+      "ask_app",
+      "create_embed_session",
+    ]);
+    expect(names).not.toContain("echo-thing");
+    expect(names).not.toContain("review-draft");
+    expect(names).not.toContain("bloated-widget");
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("create_workspace_app");
+    expect(names).not.toContain("list_templates");
+    expect(JSON.stringify(toolsOut)).not.toContain(
+      "INTERNAL_TOOL_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(toolsOut)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(toolsOut).length).toBeLessThan(12_000);
+
+    const resourcesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 121,
+        method: "resources/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceDefaultConfig,
+      },
+    );
+
+    expect(resourcesOut.error).toBeUndefined();
+    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/open_app/shell-v25",
+    ]);
+    expect(JSON.stringify(resourcesOut)).not.toContain(
+      "INTERNAL_TOOL_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(resourcesOut)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
+
+    const templatesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 122,
+        method: "resources/templates/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceDefaultConfig,
+      },
+    );
+
+    expect(templatesOut.error).toBeUndefined();
+    expect(
+      templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
+    ).toEqual(["ui://mail/open_app/shell-v25"]);
+    expect(JSON.stringify(templatesOut)).not.toContain(
+      "INTERNAL_TOOL_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(templatesOut)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+    expect(JSON.stringify(templatesOut).length).toBeLessThan(8_000);
+
+    const hiddenRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 123,
+        method: "resources/read",
+        params: { uri: "ui://mail/review-draft/shell-v25" },
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceDefaultConfig,
+      },
+    );
+
+    expect(hiddenRead.error?.message).toContain("MCP App resource not found");
+
+    const bloatedResourceRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 126,
+        method: "resources/read",
+        params: { uri: "ui://mail/bloated-widget/shell-v25" },
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: compactSurfaceDefaultConfig,
+      },
+    );
+
+    expect(bloatedResourceRead.error?.message).toContain(
+      "MCP App resource not found",
+    );
+    expect(JSON.stringify(bloatedResourceRead)).not.toContain(
+      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
+    );
+  });
+
+  it("keeps explicitly opted-in actions in the compact MCP Apps catalog", async () => {
+    const optInConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "status-panel": {
+          tool: {
+            description: "Open a small status panel",
+          },
+          readOnly: true,
+          run: async () => ({ status: "ok" }),
+          mcpApp: {
+            compactCatalog: true,
+            resource: {
+              title: "Status panel",
+              html: "<!doctype html><html><body>Status</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 124,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: optInConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const names = out.result.tools.map((t: any) => t.name);
+    expect(names).toContain("status-panel");
+    expect(names).not.toContain("review-draft");
+
+    const resourcesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 125,
+        method: "resources/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: optInConfig,
+      },
+    );
+
+    expect(resourcesOut.error).toBeUndefined();
+    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/open_app/shell-v25",
+      "ui://mail/status-panel/shell-v25",
+    ]);
   });
 
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
