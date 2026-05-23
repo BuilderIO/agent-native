@@ -19,6 +19,7 @@ export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
 } from "./embed-auth.js";
 export {
   codeAgentTranscriptEventsToContent,

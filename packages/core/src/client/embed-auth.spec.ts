@@ -66,6 +66,47 @@ describe("embed auth client", () => {
     expect(reloadedModule.isEmbedMcpChatBridgeActive()).toBe(true);
   });
 
+  it("keeps MCP chat bridge mode in memory when sessionStorage is unavailable", async () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+
+    try {
+      window.history.replaceState(
+        null,
+        "",
+        `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      );
+
+      const first = await loadEmbedAuth();
+      first.ensureEmbedAuthFetchInterceptor();
+
+      expect(window.location.search).toBe(
+        `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+      );
+      expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+
+      window.history.replaceState(null, "", "/inbox?embedded=1");
+      expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+    } finally {
+      setItem.mockRestore();
+      getItem.mockRestore();
+      removeItem.mockRestore();
+    }
+  });
+
   it("clamps MCP chat bridge embeds to a stable viewport height", async () => {
     const notifyIntrinsicHeight = vi.fn();
     Object.defineProperty(window, "openai", {

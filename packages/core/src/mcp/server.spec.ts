@@ -390,6 +390,18 @@ async function mcpAppsAuthHeaders(
   return { authorization: `Bearer ${token}` };
 }
 
+async function mcpAppsFullCatalogHeaders(
+  options: {
+    clientId?: string;
+    scope?: string;
+  } = {},
+) {
+  return {
+    ...(await mcpAppsAuthHeaders(options)),
+    "x-agent-native-mcp-full-catalog": "1",
+  };
+}
+
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
     // A deployed app has a real token; the default makeWebEvent bearer
@@ -436,12 +448,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/list",
-      params: {},
-    });
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+    );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toContain("echo-thing");
@@ -485,9 +500,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -677,6 +690,69 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
+  it("preserves action-specific MCP App resources when builtins are disabled for app hosts", async () => {
+    const fallbackConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        "private-widget": {
+          tool: {
+            description: "Open a private widget",
+          },
+          run: async () => ({ status: "ok" }),
+          mcpApp: {
+            resource: {
+              title: "Private widget",
+              description: "Open a private widget.",
+              html: "<!doctype html><html><body>Private</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 127,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: fallbackConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.tools.map((t: any) => t.name)).toEqual([
+      "echo-thing",
+      "review-draft",
+      "private-widget",
+    ]);
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+
+    const resourcesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 128,
+        method: "resources/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: fallbackConfig,
+      },
+    );
+
+    expect(resourcesOut.error).toBeUndefined();
+    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/echo-thing/shell-v26",
+      "ui://mail/review-draft/shell-v26",
+      "ui://mail/private-widget/shell-v26",
+    ]);
+  });
+
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
     const out = await callWeb(
       {
@@ -724,9 +800,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -758,12 +832,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.resources.map((r: any) => r.uri)).toEqual(
-      expect.arrayContaining([
-        "ui://mail/echo-thing/shell-v26",
-        "ui://mail/review-draft/shell-v26",
-      ]),
-    );
+    expect(out.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/echo-thing/shell-v26",
+      "ui://mail/review-draft/shell-v26",
+    ]);
   });
 
   it("uses the compact catalog for generic remote web OAuth clients without mcp:apps", async () => {
@@ -791,9 +863,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -819,13 +889,41 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "review-draft"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
     expect(JSON.stringify(out).length).toBeLessThan(12_000);
+  });
+
+  it("does not treat ChatGPT or Claude Desktop user agents as full-catalog developer clients", async () => {
+    for (const userAgent of ["ChatGPT Desktop", "Claude Desktop"]) {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 270,
+          method: "tools/list",
+          params: {},
+        },
+        {
+          headers: {
+            ...(await mcpAppsAuthHeaders({
+              clientId: `agent-native-oauth-client-generated-${userAgent.replace(/\s+/g, "-").toLowerCase()}`,
+              scope: "mcp:read mcp:write",
+            })),
+            "user-agent": userAgent,
+          },
+          config: compactSurfaceConfig,
+        },
+      );
+
+      expect(out.error).toBeUndefined();
+      expect(out.result.tools.map((t: any) => t.name)).toEqual([
+        "echo-thing",
+        "review-draft",
+      ]);
+      expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+    }
   });
 
   it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
@@ -940,7 +1038,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders() },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
@@ -967,6 +1065,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       }),
     ]);
+    expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
 
   it("handles `resources/templates/list` with MCP App templates", async () => {
@@ -977,7 +1076,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/templates/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders() },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
@@ -999,7 +1098,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/echo-thing/shell-v26" },
       },
-      { headers: await mcpAppsAuthHeaders() },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
@@ -1027,6 +1126,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.contents[0].text).toContain(
       'data-origin="https://mail.agent-native.com"',
     );
+    expect(out.result.contents[0]._meta.ui.domain).toBeUndefined();
   });
 
   it("resolves function-valued MCP App CSP across tools and resources", async () => {
@@ -1065,7 +1165,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+      { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
     const tool = tools.result.tools.find(
       (t: any) => t.name === "dynamic-review",
@@ -1086,7 +1186,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+      { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
     expect(list.result.resources[0]._meta.ui.csp).toEqual({
       connectDomains: [
@@ -1105,7 +1205,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/templates/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+      { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
     expect(templates.result.resourceTemplates[0]._meta.ui.csp).toEqual(
       list.result.resources[0]._meta.ui.csp,
@@ -1118,7 +1218,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/dynamic-review/shell-v26" },
       },
-      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+      { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
     expect(read.result.contents[0]._meta.ui.csp).toEqual(
       list.result.resources[0]._meta.ui.csp,
@@ -1131,7 +1231,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "dynamic-review", arguments: {} },
       },
-      { headers: await mcpAppsAuthHeaders(), config: dynamicCspConfig },
+      { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
     expect(call.result._meta["openai/widgetCSP"]).toEqual(
       tool._meta["openai/widgetCSP"],
@@ -1194,7 +1294,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           method: "tools/list",
           params: {},
         },
-        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
       );
       expect(tools.error).toBeUndefined();
       const brokenTool = tools.result.tools.find(
@@ -1215,7 +1318,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           method: "tools/call",
           params: { name: "broken-review", arguments: {} },
         },
-        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
       );
       expect(brokenCall.error).toBeUndefined();
       expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
@@ -1230,7 +1336,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           method: "resources/list",
           params: {},
         },
-        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
       );
       expect(resources.error).toBeUndefined();
       expect(
@@ -1244,7 +1353,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           method: "resources/templates/list",
           params: {},
         },
-        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
       );
       expect(templates.error).toBeUndefined();
       expect(
@@ -1261,7 +1373,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           method: "resources/read",
           params: { uri: "ui://mail/healthy-review/shell-v26" },
         },
-        { headers: await mcpAppsAuthHeaders(), config: failingCspConfig },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
       );
       expect(read.error).toBeUndefined();
       expect(read.result.contents[0]).toEqual(
@@ -1288,7 +1403,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/echo-thing" },
       },
-      { headers: await mcpAppsAuthHeaders() },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
 
     expect(out.error).toBeUndefined();
@@ -1328,7 +1443,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(list.error).toBeUndefined();
@@ -1346,7 +1464,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/custom-review" },
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(read.error).toBeUndefined();
@@ -1385,7 +1506,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(list.error).toBeUndefined();
@@ -1403,7 +1527,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/custom-review/shell-v4" },
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(legacyRead.error).toBeUndefined();
@@ -1442,7 +1569,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(list.error).toBeUndefined();
@@ -1460,7 +1590,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/read",
         params: { uri: "ui://mail/custom-review?mode=compact#preview" },
       },
-      { headers: await mcpAppsAuthHeaders(), config: customResourceConfig },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: customResourceConfig,
+      },
     );
 
     expect(legacyRead.error).toBeUndefined();
@@ -1473,12 +1606,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `tools/call` and appends the deep-link block + `_meta`", async () => {
-    const out = await callWeb({
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: { name: "echo-thing", arguments: { value: "hello" } },
-    });
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+    );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
     // First block: concise model-visible status; the full app opens through
@@ -1551,7 +1687,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "open-app-embed", arguments: {} },
       },
-      { config: embedConfig },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
     );
 
     expect(out.error).toBeUndefined();
@@ -1562,17 +1701,82 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["agent-native/openLink"]).toMatchObject({
       label: "Open mail",
       view: "/inbox",
-      webUrl:
-        "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
+      webUrl: "https://mail.agent-native.com/inbox",
       desktopUrl: "https://mail.agent-native.com/inbox",
     });
+    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(
+      JSON.stringify(out.result._meta["agent-native/openLink"]),
+    ).not.toContain("test-ticket");
     expect(out.result.structuredContent).toMatchObject({
-      url: "/_agent-native/embed/start?ticket=test-ticket",
+      app: "mail",
+      path: "/inbox",
       openLink: {
-        webUrl:
-          "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
+        webUrl: "https://mail.agent-native.com/inbox",
       },
     });
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "test-ticket",
+    );
+  });
+
+  it("keeps embed-only start URLs as hidden open-link targets", async () => {
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-embed-only": {
+          tool: {
+            description: "Open an embed-only app",
+          },
+          run: async () => ({
+            app: "mail",
+            embedStartUrl: "/_agent-native/embed/start?ticket=only-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open embed-only app",
+              description: "Open the full app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 35,
+        method: "tools/call",
+        params: { name: "open-embed-only", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      label: "Open mail",
+      webUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+      desktopUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain("only-ticket");
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "only-ticket",
+    );
+    expect(out.result.structuredContent.openLink).toBeUndefined();
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {

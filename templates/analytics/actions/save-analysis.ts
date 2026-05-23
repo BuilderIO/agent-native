@@ -105,6 +105,7 @@ export default defineAction({
   }),
   http: false,
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Saved analysis",
       description: "Open the saved analysis in the real Analytics UI.",

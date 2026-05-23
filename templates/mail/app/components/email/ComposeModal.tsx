@@ -44,6 +44,7 @@ import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
+import { isMcpChatBridgeActive } from "@/lib/mcp-chat-bridge";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import {
@@ -404,7 +405,6 @@ export function ComposeModal({
       return;
     }
 
-    // Flush current state to file so agent can read it
     await onFlush(activeId);
 
     const context = [
@@ -421,9 +421,13 @@ export function ComposeModal({
       .filter(Boolean)
       .join("\n");
 
+    const hostBridgeActive = isMcpChatBridgeActive();
+    const draftContext = context || "(empty draft)";
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${context || "(empty draft)"}`,
+      context: hostBridgeActive
+        ? `The user is composing an email in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing draft by calling manage-draft with action "update", id "${activeId}", and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`
+        : `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
       submit: true,
     });
 

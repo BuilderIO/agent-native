@@ -110,6 +110,7 @@ export default defineAction({
       .describe("The 'from' account email address to send from"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Review email draft",
       description:

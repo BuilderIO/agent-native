@@ -46,6 +46,7 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Clip player",
       description: "Open this recording in the real Clips player.",

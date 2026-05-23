@@ -118,6 +118,8 @@ export interface MCPRequestMeta {
    * explicitly identify themselves to keep the full action surface.
    */
   clientName?: string;
+  /** Explicit framework client hint from `x-agent-native-mcp-client`. */
+  clientHint?: string;
   /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
   fullCatalog?: boolean;
   /**
@@ -151,9 +153,9 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
-  config: MCPConfig,
   name: string,
   entry: ActionEntry,
+  config: MCPConfig,
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (
@@ -162,23 +164,19 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   ) {
     return true;
   }
-  // If an app deliberately disables the generic open_app builtin, fall back to
-  // its action-specific MCP App tools so it still has a UI surface. The normal
-  // default is the opposite: keep chat-host catalogs tiny and route UI via
-  // open_app instead of listing every app action/template.
-  if (config.builtinCrossAppTools === false) {
-    return Boolean(entry.mcpApp?.resource);
+  if (config.builtinCrossAppTools === false && entry.mcpApp?.resource) {
+    return true;
   }
   return false;
 }
 
 const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
 const NON_APP_OAUTH_CLIENT_RE =
-  /\b(code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
+  /\b(code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 const MCP_APP_OAUTH_REDIRECT_HOST_RE =
   /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
 const FULL_CATALOG_CLIENT_RE =
-  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
+  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 
 async function isKnownMcpAppOAuthClient(
   identity: MCPCallerIdentity | undefined,
@@ -239,6 +237,9 @@ function explicitlyRequestsFullMcpCatalog(
 ): boolean {
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
   if (requestMeta?.fullCatalog === true) return true;
+  if (requestMeta?.clientHint) {
+    return FULL_CATALOG_CLIENT_RE.test(requestMeta.clientHint);
+  }
   return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
 }
 
@@ -319,6 +320,16 @@ function withMcpChatBridgeParam(urlOrPath: string): string {
   }
 }
 
+function isEmbedStartUrl(value: string): boolean {
+  try {
+    const base = "http://agent-native.invalid";
+    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
+    return url.pathname.includes("/_agent-native/embed/start");
+  } catch {
+    return value.includes("/_agent-native/embed/start");
+  }
+}
+
 function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
@@ -352,15 +363,27 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
+  const explicitOpenUrl = deepLinkUrl
+    ? deepLinkUrl
+    : typeof out.url === "string" && !isEmbedStartUrl(out.url)
+      ? out.url
+      : view;
+  const safeOpenUrl = explicitOpenUrl
+    ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
+    : webUrl;
 
   return {
+    "agent-native/embedStart": {
+      startUrl: webUrl,
+      ...(typeof out.embedExpiresAt === "number"
+        ? { expiresAt: out.embedExpiresAt }
+        : {}),
+    },
     "agent-native/openLink": {
       label,
       ...(view ? { view } : {}),
-      webUrl,
-      desktopUrl: deepLinkUrl
-        ? toAbsoluteOpenUrl(deepLinkUrl, meta?.origin)
-        : webUrl,
+      webUrl: safeOpenUrl,
+      desktopUrl: safeOpenUrl,
     },
   };
 }
@@ -743,10 +766,20 @@ function mcpAppStructuredContent(
       : primitiveValue(result)
         ? { result }
         : {};
+  for (const key of ["embedStartUrl", "startUrl"]) {
+    const value = out[key];
+    if (typeof value === "string" && isEmbedStartUrl(value)) delete out[key];
+  }
+  if (typeof out.url === "string" && isEmbedStartUrl(out.url)) {
+    delete out.url;
+  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
-    out.openLink = openLink;
     const webUrl = (openLink as Record<string, unknown>).webUrl;
+    if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
+      return Object.keys(out).length > 0 ? out : { status: "ok" };
+    }
+    out.openLink = openLink;
     if (typeof webUrl === "string" && !out.url) out.url = webUrl;
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
@@ -838,20 +871,21 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const compactMcpAppCatalog =
-    (Array.isArray(effectiveIdentity?.oauthScopes) &&
-      hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-    (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
-    shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
+  const compactMcpAppCatalog = explicitlyRequestsFullMcpCatalog(requestMeta)
+    ? false
+    : (Array.isArray(effectiveIdentity?.oauthScopes) &&
+        hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
+      (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
+      shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
-          isActionAdvertisedInCompactMcpAppCatalog(config, name, entry),
+          isActionAdvertisedInCompactMcpAppCatalog(name, entry, config),
         ),
       )
     : visibleActions;
   const supportsMcpApps =
-    compactMcpAppCatalog &&
+    compactMcpAppCatalog ||
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );

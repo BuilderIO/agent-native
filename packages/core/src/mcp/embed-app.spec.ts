@@ -27,10 +27,14 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.openExternal");
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
+    expect(html).toContain("prompt: message");
+    expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
     );
     expect(html).toContain("function embedStartUrlFrom(params, data)");
+    expect(html).toContain('"agent-native/embedStart"');
+    expect(html).toContain("embedStartRecord.startUrl");
     expect(html).toContain("openStartUrl = embedStartUrlFrom(params, data)");
     expect(html).toContain(
       'if (params.isError && typeof text === "string" && text.trim())',
@@ -264,6 +268,10 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("openAiBridge.openExternal");
     expect(fixture.html).toContain("openAiBridge.setOpenInAppUrl");
     expect(fixture.html).toContain("openAiBridge.sendFollowUpMessage");
+    expect(fixture.html).toContain("prompt: message");
+    expect(fixture.html).not.toContain(
+      'context.trim() + "\\\\n\\\\n" + message',
+    );
     expect(fixture.html).toContain('"agentNative.frameOrigin"');
     expect(fixture.html).toContain('"agentNative.embeddedAppReady"');
     expect(fixture.html).toContain('"agentNative.submitChat"');

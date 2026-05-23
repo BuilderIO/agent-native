@@ -45,6 +45,7 @@ export default defineAction({
       .describe("Design system ID to link to this design"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Design project",
       description: "Open the new design project in the real Design editor.",

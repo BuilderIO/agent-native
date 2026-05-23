@@ -181,6 +181,7 @@ export default defineAction({
       .describe("Account email to create the event on"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Review calendar invite",
       description:

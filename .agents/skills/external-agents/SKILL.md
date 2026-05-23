@@ -291,15 +291,17 @@ metadata and still need the "Open in … →" link. `embedApp()` uses that link 
 its launch target. Same-app `open_app({ embed: true })` mints the
 `/_agent-native/embed/start` ticket during the original tool call so production
 hosts do not need the iframe to make a second app-only helper call; custom
-actions can return `embedStartUrl` for the same fast path. Otherwise the
-resource falls back to the app-only `create_embed_session` helper. The embed
-start route exchanges a one-time SQL ticket, then launches the real app route
-with a short-lived browser session. Standard hosts navigate the MCP
-App frame directly. Claude web uses a single-frame transplant path that fetches
-the signed app HTML and hydrates it inside Claude's MCP App iframe because
-Claude does not reliably allow app-owned child iframes or external frame
-navigation. ChatGPT web uses a controlled route iframe for stable
-`window.openai` host APIs and bounded height control. You can force the
+actions can return `embedStartUrl` for the same fast path. The MCP layer keeps
+that ticket-bearing URL in hidden metadata and strips it from model-visible
+structured content and normal open-link metadata. Otherwise the resource falls
+back to the app-only `create_embed_session` helper. The embed start route
+exchanges a one-time SQL ticket, then launches the real app route with a
+short-lived browser session. Standard hosts navigate the MCP App frame
+directly. Claude web uses a single-frame transplant path that fetches the
+signed app HTML and hydrates it inside Claude's MCP App iframe because Claude
+does not reliably allow app-owned child iframes or external frame navigation.
+ChatGPT web uses a controlled route iframe for stable `window.openai` host APIs
+and bounded height control. You can force the
 single-frame transplant path in other hosts with `embedMode: "transplant"` or
 `frame: "transplant"` when debugging host module loading, or force the nested
 diagnostic iframe with `embedMode: "iframe"` /
@@ -342,8 +344,9 @@ keep the behavior they were rendered with.
 Inside embedded routes, `sendToAgentChat({ submit: true })` posts
 `agentNative.submitChat`; MCP App hosts receive that as model context plus a
 visible `ui/message` turn, so an inline preview can intentionally continue the
-Claude/ChatGPT conversation. `submit: false` stays local as a prefill/review
-path.
+Claude/ChatGPT conversation. Hidden context stays in model context; do not put
+internal app-state file instructions into the visible prompt. `submit: false`
+stays local as a prefill/review path.
 
 When testing Claude through ngrok, use a production build (`agent-native build`
 then `agent-native start`) or a deployed preview/production URL. Claude's
