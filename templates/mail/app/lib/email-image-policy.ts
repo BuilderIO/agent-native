@@ -143,6 +143,11 @@ export function processHtmlImages(
   }
 
   if (policy === "block-all") {
+    root.querySelectorAll("link[href]").forEach((link) => {
+      link.remove();
+      blocked++;
+    });
+
     root.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
       const [style, count] = stripCssRemoteResources(
         el.getAttribute("style") ?? "",

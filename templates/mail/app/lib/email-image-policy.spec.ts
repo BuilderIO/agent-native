@@ -42,6 +42,18 @@ describe("processHtmlImages", () => {
     expect(html).toContain("data:image/png;base64,abcd");
   });
 
+  it("removes link elements with remote hrefs", () => {
+    const input =
+      '<link href="https://cdn.example.com/email.css"><link href="https://cdn.example.com/font.woff2"><p>Hello</p>';
+
+    const [html, blockedCount] = processHtmlImages(input, "block-all");
+
+    expect(blockedCount).toBe(2);
+    expect(html).not.toContain("<link");
+    expect(html).not.toContain("https://cdn.example.com/email.css");
+    expect(html).not.toContain("https://cdn.example.com/font.woff2");
+  });
+
   it("removes legacy remote background resources", () => {
     const input =
       '<table background="https://cdn.example.com/bg.png"><tr><td>Hi</td></tr></table><video poster="https://cdn.example.com/poster.png"></video>';
