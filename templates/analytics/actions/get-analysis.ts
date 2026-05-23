@@ -16,6 +16,7 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Analysis preview",
       description: "Open the saved analysis in the real Analytics UI.",

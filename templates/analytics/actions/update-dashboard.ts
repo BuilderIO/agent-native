@@ -438,6 +438,7 @@ export default defineAction({
   }),
   http: false,
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Dashboard preview",
       description: "Open the updated dashboard in the real Analytics UI.",

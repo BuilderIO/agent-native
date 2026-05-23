@@ -201,7 +201,9 @@ This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes t
 The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
 Same-app `open_app({ embed: true })` mints that embed-start ticket during the
 original tool call, and custom actions can return `embedStartUrl` for the same
-fast path; otherwise the resource falls back to the app-only
+fast path. The MCP layer keeps ticket-bearing embed-start URLs in hidden
+metadata and removes them from model-visible `structuredContent` and open-link
+metadata; otherwise the resource falls back to the app-only
 `create_embed_session` helper.
 Standard hosts navigate the MCP App frame directly to that signed route.
 Claude web uses a single-frame transplant path that hydrates the signed app
@@ -217,7 +219,9 @@ and explicit diagnostic iframe path proxy `agentNative.mcpHost.*` messages
 through the launch wrapper.
 When a submitted app prompt should continue the host chat, call
 `sendToAgentChat()` from the embedded route; it sends hidden model context and
-then posts a visible user message through the host bridge where supported.
+then posts a visible user message through the host bridge where supported. Keep
+internal route/app-state instructions in the hidden context; the visible prompt
+should be the user's actual request.
 Design those routes with their own scrolling, because the MCP resource reports
 a bounded inline height rather than asking the host to size itself to the full
 app document. `embedApp({ height })` defaults to a `560px` shell, clamps to

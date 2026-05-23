@@ -89,9 +89,10 @@ For normal action authoring, use `embedRoute()` when the action's
 `link` and `mcpApp` should come from the same pure route builder. The route
 itself should derive state from the URL and normal app data fetching.
 Same-app `open_app({ embed: true })` returns a server-minted `embedStartUrl`
-so the resource can launch without a second iframe-originated tool call;
-custom actions can return the same field when they already know the target
-route.
+so the resource can launch without a second iframe-originated tool call. The
+server moves that ticket-bearing URL into hidden metadata and strips it from
+model-visible structured content and normal open-link metadata. Custom actions
+can return the same field when they already know the target route.
 
 The outer MCP resource reports a bounded inline height to the host and the app
 route scrolls internally. `embedApp({ height })` defaults to a `560px` shell,
@@ -158,14 +159,25 @@ Model context updates are opt-in and hidden from the user-facing transcript.
 `ui/message` is the portable way for an embedded app button to ask the host to
 post a visible user message and continue the chat. In agent-native routes,
 `sendToAgentChat()` uses `ui/update-model-context` plus `ui/message` when
-called from a submitted MCP App embed, while `submit: false` remains an
-in-route draft/prefill path.
+called from a submitted MCP App embed. Hidden context is sent through model
+context, while `ui/message` contains only the visible prompt. `submit: false`
+remains an in-route draft/prefill path.
 Display mode requests are best-effort: a host can honor, ignore, or reject the
 request. Embedded routes must remain functional in the default inline mode.
 
 ## Tools {#tools}
 
-Stdio/code developer clients can see all connected app actions as MCP tools. Chat-style app hosts, including OAuth callers that request `mcp:apps` and generic authenticated remote HTTP/static-token callers, get a compact app-host catalog: app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only `create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`. Their `resources/list` is compact too, normally advertising only the generic `open_app` embed resource. `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude app-host discovery small while preserving the full developer surface for local agents.
+Stdio/code developer clients can see all connected app actions as MCP tools
+when they explicitly request the full catalog. Chat-style app hosts, including
+OAuth callers that request `mcp:apps` and generic authenticated remote
+HTTP/static-token callers, get a compact app-host catalog by default:
+app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only
+`create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`.
+Their `resources/list` is compact too, normally advertising only the generic
+`open_app` embed resource. `publicAgent.expose` remains the opt-in for safe
+read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude
+app-host discovery small while preserving the full developer surface for local
+agents.
 
 The mapping is direct:
 

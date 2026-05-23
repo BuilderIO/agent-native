@@ -166,7 +166,7 @@ describe("sendToAgentChat", () => {
     expect(eventTypes).not.toContain("agent-panel:open");
   });
 
-  it("routes auto-submitted MCP App embeds to the parent host bridge without opening local chat", () => {
+  it("falls back to the MCP App wrapper relay when direct host messaging is unavailable", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
 
@@ -188,6 +188,24 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("continue with this selection");
     expect(payload.data.context).toBe("Selected item ids: a, b");
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "rewrite this",
+      context: "Hidden draft context",
+      submit: true,
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "rewrite this",
+      context: "Hidden draft context",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("lets direct MCP App frames handle auto-submitted prompts via JSON-RPC", () => {

@@ -369,10 +369,11 @@ export interface AgentPanelProps extends Omit<
   storageKey?: string;
   /**
    * Bind the chat to a specific resource (deck, design, dashboard, ...).
-   * When set, chats started inside the panel inherit this scope, the tab
-   * bar partitions per (storageKey, scope), and the user gets a "Working
-   * on {label}" badge with a Detach escape hatch. Templates compute this
-   * from the current route — see the `Layout` files for each template.
+   * When set, chats started inside the panel inherit this scope and tuck
+   * away when the user leaves that resource. General chats stay visible
+   * across resource navigation. Scoped chats get a context badge with a
+   * Detach escape hatch. Templates compute this from the current route —
+   * see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */

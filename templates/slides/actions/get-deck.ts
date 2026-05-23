@@ -34,6 +34,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Deck preview",
       description: "Open the deck in the real Slides editor.",

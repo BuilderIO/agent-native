@@ -142,6 +142,7 @@ export default defineAction({
     };
   },
   mcpApp: {
+    compactCatalog: true,
     resource: {
       ...openAppResource,
       csp: dispatchOpenAppCsp,

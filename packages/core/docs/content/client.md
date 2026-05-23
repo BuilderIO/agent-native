@@ -77,7 +77,8 @@ When the app route is running inside an MCP App embed created with `embedApp()`,
 auto-submitted messages (`submit` omitted or `true`) are forwarded to the MCP
 App host bridge, which asks the containing host to add hidden context and send
 the visible user turn. `context` is sent as model context before the visible
-message, so it stays model-visible without being posted as user-facing chat.
+message, so it stays model-visible without being posted as user-facing chat or
+concatenated into the host's visible prompt.
 `submit: false` keeps the local prefill/review behavior because MCP Apps do not
 define a standard draft-prefill API.
 

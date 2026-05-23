@@ -22,6 +22,7 @@ export default defineAction({
   readOnly: true,
   parallelSafe: true,
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Traffic dashboard",
       description:

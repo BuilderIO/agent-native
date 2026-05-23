@@ -238,10 +238,17 @@ export function embedApp(
     }
 
     function embedStartUrlFrom(params, data) {
+      const embedStart =
+        params && params._meta && params._meta["agent-native/embedStart"];
+      const embedStartRecord =
+        embedStart && typeof embedStart === "object" && !Array.isArray(embedStart)
+          ? embedStart
+          : {};
       const openLink = params && params._meta && params._meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       return firstEmbedStartUrl([
+        embedStartRecord.startUrl,
         record.embedStartUrl,
         record.startUrl,
         record.url,
@@ -885,7 +892,7 @@ export function embedApp(
       try {
         if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
           await openAiBridge.sendFollowUpMessage({
-            prompt: context.trim() ? context.trim() + "\\n\\n" + message : message,
+            prompt: message,
             scrollToBottom: true
           });
           return;

@@ -100,6 +100,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(100).default(30),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Clip search",
       description: "Open the best matching recording in the real Clips player.",

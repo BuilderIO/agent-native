@@ -352,6 +352,33 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
   });
 
+  it("does not concatenate hidden context into ChatGPT follow-up prompts", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    const setWidgetState = vi.fn();
+    vi.stubGlobal("openai", {
+      widgetState: { existing: true },
+      setWidgetState,
+      sendFollowUpMessage,
+    });
+
+    const result = sendMcpAppHostMessage({
+      context: "Hidden draft context",
+      message: "Rewrite the selected sentence",
+    });
+
+    await expect(result).resolves.toBe(true);
+    expect(setWidgetState).toHaveBeenCalledWith({
+      existing: true,
+      agentNativeChatContext: "Hidden draft context",
+    });
+    expect(sendFollowUpMessage).toHaveBeenCalledWith({
+      prompt: "Rewrite the selected sentence",
+      scrollToBottom: true,
+    });
+  });
+
   it("keeps direct MCP host helpers enabled after the URL token is stripped", async () => {
     const parent = parentWindow();
     setDirectParent(parent);

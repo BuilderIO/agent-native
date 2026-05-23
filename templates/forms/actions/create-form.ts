@@ -55,6 +55,7 @@ export default defineAction({
       .describe("Form status"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Edit form",
       description:

@@ -504,7 +504,7 @@ export function sendMcpAppHostMessage(
         });
       }
       await openAiBridge.sendFollowUpMessage({
-        prompt: context ? `${context}\n\n${chat.message}` : chat.message,
+        prompt: chat.message,
         scrollToBottom: true,
       });
       return true;

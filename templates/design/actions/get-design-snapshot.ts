@@ -30,6 +30,7 @@ export default defineAction({
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Design snapshot",
       description: "Open the current design in the real Design editor.",

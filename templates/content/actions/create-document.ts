@@ -36,6 +36,7 @@ export default defineAction({
     icon: z.string().optional().describe("Emoji icon"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Edit document",
       description:

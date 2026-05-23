@@ -77,10 +77,9 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     targetHeader === "browser"
       ? (targetHeader as MCPRequestMeta["target"])
       : undefined;
-  const clientName =
-    getRequestHeader(event, "x-agent-native-mcp-client")?.trim() ||
-    getRequestHeader(event, "user-agent")?.trim() ||
-    undefined;
+  const clientName = getRequestHeader(event, "user-agent")?.trim() || undefined;
+  const clientHint =
+    getRequestHeader(event, "x-agent-native-mcp-client")?.trim() || undefined;
   const fullCatalogHeader = getRequestHeader(
     event,
     "x-agent-native-mcp-full-catalog",
@@ -93,6 +92,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     origin,
     target,
     clientName,
+    clientHint,
     ...(fullCatalog ? { fullCatalog } : {}),
   };
 }

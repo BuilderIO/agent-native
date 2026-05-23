@@ -75,6 +75,7 @@ export {
 // Client
 export {
   sendToAgentChat,
+  isEmbedMcpChatBridgeActive,
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,

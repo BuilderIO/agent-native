@@ -106,6 +106,11 @@ export interface ActionMcpAppPermissions {
 export interface ActionMcpAppResourceMeta {
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
@@ -134,6 +139,11 @@ export interface ActionMcpAppResourceConfig {
   _meta?: Record<string, unknown>;
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
