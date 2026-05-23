@@ -22,6 +22,8 @@ export interface Tab {
   id: string;
   appId: string;
   title: string;
+  urlOpenNonce?: number;
+  urlPath?: string;
 }
 
 let nextTabId = 1;
@@ -32,6 +34,16 @@ function createTab(app: AppDefinition | AppConfig): Tab {
     appId: app.id,
     title: app.name,
   };
+}
+
+function safeDesktopOpenPath(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return undefined;
+  if (trimmed.startsWith("/\\")) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
+  if (/^\/[a-z][a-z0-9+.-]*:/i.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 // Per-app tab state: appId → { tabs, activeTabId }
@@ -113,6 +125,8 @@ export default function App() {
     runId?: string;
     nonce: number;
   }>();
+  const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
+    useState<DesktopOpenRequest | null>(null);
 
   // Load apps from persistent store
   useEffect(() => {
@@ -250,6 +264,67 @@ export default function App() {
     setShowSettings(false);
     setShowAddApp(false);
   }, []);
+
+  const handleDesktopOpenRequest = useCallback(
+    (request: DesktopOpenRequest): boolean => {
+      const goal = getCodeAgentGoal(request.goalId);
+      if (
+        goal ||
+        request.app === MIGRATION_APP_ID ||
+        request.app === CODE_AGENTS_SURFACE_ID
+      ) {
+        setCodeAgentsOpenRequest({
+          goalId:
+            goal?.id ??
+            (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
+          runId: request.runId,
+          nonce: Date.now(),
+        });
+        setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+        setShowSettings(false);
+        setShowAddApp(false);
+        return true;
+      }
+
+      const appId = request.app?.trim();
+      if (!appId) return true;
+      const targetApp = enabledApps.find((app) => app.id === appId);
+      if (!targetApp) return !loading;
+
+      activateApp(appId);
+      setShowSettings(false);
+      setShowAddApp(false);
+
+      const urlPath = safeDesktopOpenPath(request.path);
+      if (!urlPath) return true;
+      const urlOpenNonce = Date.now();
+
+      setAppTabs((prev) => {
+        const appState = prev[appId];
+        const tabs =
+          appState && appState.tabs.length > 0
+            ? appState.tabs
+            : [createTab(targetApp)];
+        const activeTabId =
+          appState?.activeTabId &&
+          tabs.some((tab) => tab.id === appState.activeTabId)
+            ? appState.activeTabId
+            : tabs[0].id;
+
+        return {
+          ...prev,
+          [appId]: {
+            tabs: tabs.map((tab) =>
+              tab.id === activeTabId ? { ...tab, urlOpenNonce, urlPath } : tab,
+            ),
+            activeTabId,
+          },
+        };
+      });
+      return true;
+    },
+    [activateApp, enabledApps, loading],
+  );
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
@@ -514,27 +589,16 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
     return window.electronAPI.codeAgents.onOpenRequest((request) => {
-      const goal = getCodeAgentGoal(request.goalId);
-      if (
-        !goal &&
-        request.app &&
-        request.app !== MIGRATION_APP_ID &&
-        request.app !== CODE_AGENTS_SURFACE_ID
-      ) {
-        return;
-      }
-      setCodeAgentsOpenRequest({
-        goalId:
-          goal?.id ??
-          (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
-        runId: request.runId,
-        nonce: Date.now(),
-      });
-      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
-      setShowSettings(false);
-      setShowAddApp(false);
+      setPendingDesktopOpenRequest(request);
     });
   }, []);
+
+  useEffect(() => {
+    if (!pendingDesktopOpenRequest) return;
+    if (handleDesktopOpenRequest(pendingDesktopOpenRequest)) {
+      setPendingDesktopOpenRequest(null);
+    }
+  }, [handleDesktopOpenRequest, pendingDesktopOpenRequest]);
 
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
@@ -720,6 +784,8 @@ export default function App() {
                 app={appDef}
                 appConfig={app}
                 isActive={isActive}
+                urlOpenNonce={tab.urlOpenNonce}
+                urlPath={tab.urlPath}
                 refreshKey={isActive ? refreshKey : 0}
                 onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
                 onAppsChanged={handleAppsChanged}

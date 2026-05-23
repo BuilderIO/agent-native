@@ -487,6 +487,11 @@ function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
   win.webContents.send(IPC.DEEP_LINK_OPEN, request);
 }
 
+function buildAppOpenRoutePath(parsed: URL): string {
+  const query = parsed.searchParams.toString();
+  return query ? `/_agent-native/open?${query}` : "/_agent-native/open";
+}
+
 function inferCodeAgentGoalIdFromRunId(
   runId: string | undefined,
 ): string | undefined {
@@ -562,6 +567,11 @@ async function handleDeepLink(url: string) {
               : (targetApp ?? targetGoal.appId),
           goalId: targetGoal.id,
           runId,
+        });
+      } else if (targetApp && getInjectionTargetForAppId(targetApp)) {
+        sendOpenRequestToRenderer({
+          app: targetApp,
+          path: buildAppOpenRoutePath(parsed),
         });
       } else {
         focusMainWindow();

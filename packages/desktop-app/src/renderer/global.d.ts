@@ -470,6 +470,7 @@ type CodeAgentHostMetadata = {
 type DesktopOpenRequest = {
   app?: string;
   goalId?: string;
+  path?: string;
   runId?: string;
 };
 
