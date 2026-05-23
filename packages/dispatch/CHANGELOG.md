@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.17
+
+### Patch Changes
+
+- 1c0b51e: Keep MCP App host catalogs compact by default, hide one-time embed tickets from model-visible output, and keep host follow-up prompts separate from hidden context.
+
 ## 0.8.16
 
 ### Patch Changes
