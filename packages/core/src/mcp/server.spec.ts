@@ -847,6 +847,49 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "ui://mail/review-draft/shell-v26",
       "ui://mail/private-widget/shell-v26",
     ]);
+
+    const templatesOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 131,
+        method: "resources/templates/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: fallbackConfig,
+      },
+    );
+
+    expect(templatesOut.error).toBeUndefined();
+    expect(
+      templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
+    ).toEqual([
+      "ui://mail/echo-thing/shell-v26",
+      "ui://mail/review-draft/shell-v26",
+      "ui://mail/private-widget/shell-v26",
+    ]);
+
+    const readOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 132,
+        method: "resources/read",
+        params: { uri: "ui://mail/private-widget/shell-v26" },
+      },
+      {
+        headers: await mcpAppsAuthHeaders(),
+        config: fallbackConfig,
+      },
+    );
+
+    expect(readOut.error).toBeUndefined();
+    expect(readOut.result.contents).toEqual([
+      expect.objectContaining({
+        uri: "ui://mail/private-widget/shell-v26",
+        text: expect.stringContaining("Private"),
+      }),
+    ]);
   });
 
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
@@ -1867,6 +1910,58 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "only-ticket",
     );
     expect(out.result.structuredContent.openLink).toBeUndefined();
+  });
+
+  it("keeps url-only embed start URLs hidden without exposing them as open links", async () => {
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-url-only-embed": {
+          tool: {
+            description: "Open an embed-only app through url",
+          },
+          run: async () => ({
+            app: "mail",
+            embed: true,
+            url: "/_agent-native/embed/start?ticket=url-only-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open url-only embed app",
+              description: "Open the full app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 135,
+        method: "tools/call",
+        params: { name: "open-url-only-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
+    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=url-only-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain("url-only-ticket");
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "url-only-ticket",
+    );
+    expect(out.result.structuredContent.openLink).toBeUndefined();
+    expect(out.result.structuredContent.url).toBeUndefined();
   });
 
   it("uses a durable root open link for root-path embed starts", async () => {

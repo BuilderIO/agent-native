@@ -32,6 +32,11 @@ vi.stubGlobal("window", {
 const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
 
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("sendToAgentChat", () => {
   beforeEach(() => {
     frameState.inBuilderFrame = false;
@@ -208,7 +213,7 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });
 
-  it("lets direct MCP App frames handle auto-submitted prompts via JSON-RPC", () => {
+  it("lets direct MCP App frames handle auto-submitted prompts via JSON-RPC", async () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
@@ -225,6 +230,46 @@ describe("sendToAgentChat", () => {
     });
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(dispatchEventSpy).not.toHaveBeenCalled();
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false },
+      }),
+    );
+  });
+
+  it("falls back to the wrapper relay if direct MCP App host messaging rejects the send", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(false));
+
+    const tabId = sendToAgentChat({
+      message: "continue with this selection",
+      context: "Selected item ids: a, b",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    await flushMicrotasks();
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("*");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("continue with this selection");
+    expect(payload.data.context).toBe("Selected item ids: a, b");
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false },
+      }),
+    );
   });
 
   it("keeps direct MCP App embed sessions on the local app chat path", () => {
