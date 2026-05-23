@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.39
+
+### Patch Changes
+
+- 1ed3ef8: Clear MCP app host generate loading state after direct host sends and fall back to the wrapper relay when direct sends fail.
+
 ## 0.22.38
 
 ### Patch Changes
