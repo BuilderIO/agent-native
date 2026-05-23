@@ -872,22 +872,20 @@ export function embedApp(
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
       if (!message.trim()) return;
-      const context = typeof chat.context === "string" ? chat.context : "";
-      if (context.trim()) {
-        try {
-          if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-            openAiBridge.setWidgetState({
-              ...objectValue(openAiBridge.widgetState),
-              agentNativeChatContext: context
-            });
-          } else if (app && typeof app.updateModelContext === "function") {
-            await app.updateModelContext({
-              content: [{ type: "text", text: context }]
-            });
-          }
-        } catch (err) {
-          console.warn("[agent-native] MCP host rejected model context update", err);
+      const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      try {
+        if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+          openAiBridge.setWidgetState({
+            ...objectValue(openAiBridge.widgetState),
+            agentNativeChatContext: context || null
+          });
+        } else if (app && typeof app.updateModelContext === "function") {
+          await app.updateModelContext({
+            content: context ? [{ type: "text", text: context }] : []
+          });
         }
+      } catch (err) {
+        console.warn("[agent-native] MCP host rejected model context update", err);
       }
       try {
         if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {

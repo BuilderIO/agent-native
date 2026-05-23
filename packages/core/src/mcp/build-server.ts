@@ -155,12 +155,16 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
 function isActionAdvertisedInCompactMcpAppCatalog(
   name: string,
   entry: ActionEntry,
+  config: MCPConfig,
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (
     (entry.mcpApp as { compactCatalog?: unknown } | undefined)
       ?.compactCatalog === true
   ) {
+    return true;
+  }
+  if (config.builtinCrossAppTools === false && entry.mcpApp?.resource) {
     return true;
   }
   return false;
@@ -359,14 +363,14 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
-  const safeOpenUrl = deepLinkUrl
-    ? toAbsoluteOpenUrl(deepLinkUrl, meta?.origin)
-    : toAbsoluteOpenUrl(
-        typeof out.url === "string" && !isEmbedStartUrl(out.url)
-          ? out.url
-          : view || "/",
-        meta?.origin,
-      );
+  const explicitOpenUrl = deepLinkUrl
+    ? deepLinkUrl
+    : typeof out.url === "string" && !isEmbedStartUrl(out.url)
+      ? out.url
+      : view;
+  const safeOpenUrl = explicitOpenUrl
+    ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
+    : webUrl;
 
   return {
     "agent-native/embedStart": {
@@ -771,8 +775,11 @@ function mcpAppStructuredContent(
   }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
-    out.openLink = openLink;
     const webUrl = (openLink as Record<string, unknown>).webUrl;
+    if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
+      return Object.keys(out).length > 0 ? out : { status: "ok" };
+    }
+    out.openLink = openLink;
     if (typeof webUrl === "string" && !out.url) out.url = webUrl;
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
@@ -873,7 +880,7 @@ export async function createMCPServerForRequest(
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
-          isActionAdvertisedInCompactMcpAppCatalog(name, entry),
+          isActionAdvertisedInCompactMcpAppCatalog(name, entry, config),
         ),
       )
     : visibleActions;

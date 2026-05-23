@@ -491,13 +491,13 @@ export function sendMcpAppHostMessage(
 
   return (async () => {
     const openAiBridge = readOpenAiBridge();
-    const context = chat.context?.trim();
+    const context = chat.context?.trim() || null;
     if (
       openAiBridge &&
       typeof openAiBridge.sendFollowUpMessage === "function"
     ) {
       updateSnapshotFromOpenAiBridge(openAiBridge);
-      if (context && typeof openAiBridge.setWidgetState === "function") {
+      if (typeof openAiBridge.setWidgetState === "function") {
         openAiBridge.setWidgetState({
           ...objectValue(openAiBridge.widgetState),
           agentNativeChatContext: context,
@@ -511,10 +511,13 @@ export function sendMcpAppHostMessage(
     }
 
     await waitForDirectMcpAppInitialized();
-    if (context) {
+    try {
       await postJsonRpcRequest("ui/update-model-context", {
-        content: [{ type: "text", text: context }],
+        content: context ? [{ type: "text", text: context }] : [],
       });
+    } catch {
+      // Best effort: a host without model-context support should still receive
+      // the visible chat message.
     }
     await postJsonRpcRequest("ui/message", {
       role: "user",

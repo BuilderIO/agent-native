@@ -500,7 +500,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual([]);
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -690,21 +690,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
-  it("does not fall back to action-specific resources when builtins are disabled for app hosts", async () => {
+  it("preserves action-specific MCP App resources when builtins are disabled for app hosts", async () => {
     const fallbackConfig = {
       ...compactSurfaceConfig,
       actions: {
         ...compactSurfaceConfig.actions,
         "private-widget": {
           tool: {
-            description: veryLongMcpAppDescription,
+            description: "Open a private widget",
           },
           run: async () => ({ status: "ok" }),
           mcpApp: {
             resource: {
               title: "Private widget",
-              description: veryLongMcpAppDescription,
-              html: `<!doctype html><html><body>${veryLongMcpAppDescription}</body></html>`,
+              description: "Open a private widget.",
+              html: "<!doctype html><html><body>Private</body></html>",
             },
           },
         },
@@ -725,11 +725,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.tools.map((t: any) => t.name)).toEqual([]);
+    expect(out.result.tools.map((t: any) => t.name)).toEqual([
+      "echo-thing",
+      "review-draft",
+      "private-widget",
+    ]);
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
-    expect(JSON.stringify(out)).not.toContain(
-      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
-    );
 
     const resourcesOut = await callWeb(
       {
@@ -745,10 +746,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(resourcesOut.error).toBeUndefined();
-    expect(resourcesOut.result.resources).toEqual([]);
-    expect(JSON.stringify(resourcesOut)).not.toContain(
-      "MCP_APP_RESOURCE_BLOAT_SENTINEL",
-    );
+    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/echo-thing/shell-v26",
+      "ui://mail/review-draft/shell-v26",
+      "ui://mail/private-widget/shell-v26",
+    ]);
   });
 
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
@@ -798,7 +800,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual([]);
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -830,7 +832,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.resources.map((r: any) => r.uri)).toEqual([]);
+    expect(out.result.resources.map((r: any) => r.uri)).toEqual([
+      "ui://mail/echo-thing/shell-v26",
+      "ui://mail/review-draft/shell-v26",
+    ]);
   });
 
   it("uses the compact catalog for generic remote web OAuth clients without mcp:apps", async () => {
@@ -858,7 +863,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual([]);
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -884,7 +889,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual([]);
+    expect(names).toEqual(["echo-thing", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -913,7 +918,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
 
       expect(out.error).toBeUndefined();
-      expect(out.result.tools.map((t: any) => t.name)).toEqual([]);
+      expect(out.result.tools.map((t: any) => t.name)).toEqual([
+        "echo-thing",
+        "review-draft",
+      ]);
       expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
     }
   });
@@ -1713,6 +1721,62 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "test-ticket",
     );
+  });
+
+  it("keeps embed-only start URLs as hidden open-link targets", async () => {
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-embed-only": {
+          tool: {
+            description: "Open an embed-only app",
+          },
+          run: async () => ({
+            app: "mail",
+            embedStartUrl: "/_agent-native/embed/start?ticket=only-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open embed-only app",
+              description: "Open the full app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 35,
+        method: "tools/call",
+        params: { name: "open-embed-only", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      label: "Open mail",
+      webUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+      desktopUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=only-ticket&__an_mcp_chat_bridge=1",
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain("only-ticket");
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "only-ticket",
+    );
+    expect(out.result.structuredContent.openLink).toBeUndefined();
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {
