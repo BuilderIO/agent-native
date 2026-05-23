@@ -1,7 +1,7 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
-import { processHtmlImages } from "./EmailThread";
+import { processHtmlImages } from "./email-image-policy";
 
 describe("processHtmlImages", () => {
   it("leaves CSS image URLs untouched when images are shown", () => {
