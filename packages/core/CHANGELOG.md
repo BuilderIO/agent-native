@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.40
+
+### Patch Changes
+
+- 4a8e279: Route MCP App embed open links through the desktop deep-link handler.
+
 ## 0.22.39
 
 ### Patch Changes
