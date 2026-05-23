@@ -555,6 +555,23 @@ interface VisualEditorProps {
   onJoinTitle?: (text: string) => void;
 }
 
+export function shouldSeedCollaborativeContent({
+  content,
+  currentMarkdown,
+  fragmentLength,
+}: {
+  content: string;
+  currentMarkdown: string;
+  fragmentLength: number;
+}): boolean {
+  const semanticMarkdown = currentMarkdown
+    .split(/\r?\n/)
+    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+    .join("\n")
+    .trim();
+  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+}
+
 interface VisualEditorExtensionOptions {
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
@@ -892,7 +909,16 @@ export function VisualEditor({
     // Skip if already seeded for this document
     if (seededDocRef.current === documentId) return;
     const fragment = ydoc.getXmlFragment("default");
-    if (fragment.length === 0) {
+    const currentMd = serializeEditorToNfm(
+      (editor.storage as any).markdown.getMarkdown(),
+    );
+    if (
+      shouldSeedCollaborativeContent({
+        content,
+        currentMarkdown: currentMd,
+        fragmentLength: fragment.length,
+      })
+    ) {
       isSettingContent.current = true;
       editor.commands.setContent(parseNfmForEditor(content));
       isSettingContent.current = false;
