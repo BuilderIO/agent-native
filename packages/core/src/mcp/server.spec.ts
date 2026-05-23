@@ -2028,6 +2028,234 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("redacts embed-ticket URLs from JSON.stringify text for actions without mcpApp.resource", async () => {
+    // Regression: even when an action does NOT declare `mcpApp.resource`, a
+    // result containing `embedStartUrl` (or any string holding a
+    // /_agent-native/embed/start?ticket=… URL) must NEVER leak into the
+    // model-visible `content[0].text`. The mcpApp.resource path strips embed
+    // fields via mcpAppStructuredContent; the JSON.stringify fallback now
+    // applies the same purge as a generic safety net.
+    const noResourceConfig = {
+      ...config,
+      actions: {
+        "raw-embed": {
+          tool: {
+            description: "Return an embed URL without declaring a resource",
+          },
+          run: async () => ({
+            embedStartUrl: "/_agent-native/embed/start?ticket=raw-leak-ticket",
+            label: "should still appear",
+          }),
+          readOnly: true,
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 200,
+        method: "tools/call",
+        params: { name: "raw-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: noResourceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content).toHaveLength(1);
+    const text = out.result.content[0].text;
+    expect(text).not.toContain("raw-leak-ticket");
+    expect(text).not.toContain("/_agent-native/embed/start");
+    expect(text).not.toContain("embedStartUrl");
+    // Non-sensitive fields are still visible.
+    expect(text).toContain("should still appear");
+  });
+
+  it("redacts embed-ticket URLs from string-typed results without mcpApp.resource", async () => {
+    // Sibling regression: when the action returns a raw string that happens to
+    // include the embed-start URL inline, that substring must be hidden too —
+    // the LLM should never receive a usable embed-ticket URL.
+    const noResourceConfig = {
+      ...config,
+      actions: {
+        "raw-embed-string": {
+          tool: {
+            description: "Return an embed URL inside a string",
+          },
+          run: async () =>
+            "Open this: /_agent-native/embed/start?ticket=string-leak",
+          readOnly: true,
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 201,
+        method: "tools/call",
+        params: { name: "raw-embed-string", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: noResourceConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content[0].text).not.toContain("string-leak");
+    expect(out.result.content[0].text).not.toContain(
+      "/_agent-native/embed/start",
+    );
+    expect(out.result.content[0].text).toContain("[hidden embed URL]");
+  });
+
+  it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
+    // Regression: internal embed-routing fields are carried in
+    // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT
+    // double-up in `structuredContent` (read by the LLM), where
+    // `embedTargetPath` would reveal the exact route + thread/draft id the
+    // user is looking at, `embedExpiresAt` would leak a timestamp, and
+    // `ticket`/`*Ticket` would surface single-use credentials.
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-thread": {
+          tool: {
+            description: "Open a specific mail thread inline",
+          },
+          run: async () => ({
+            app: "mail",
+            // `embedTargetPath` carries the exact route + thread id the
+            // user is viewing. It belongs in `_meta` (embed runtime) and
+            // MUST be stripped from structuredContent / text content.
+            embedStartUrl:
+              "/_agent-native/embed/start?ticket=open-thread-ticket",
+            embedTargetPath: "/inbox?threadId=embedded-thread-id-123",
+            embedExpiresAt: 1735689600,
+            ticket: "open-thread-ticket",
+            embedTicket: "open-thread-ticket",
+            uploadTicket: "secret-upload-token",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open thread",
+              description: "Open the thread inline.",
+              html: "<!doctype html><html><body>Thread</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 202,
+        method: "tools/call",
+        params: { name: "open-thread", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const sc = out.result.structuredContent;
+    expect(sc.embedStartUrl).toBeUndefined();
+    expect(sc.embedTargetPath).toBeUndefined();
+    expect(sc.embedExpiresAt).toBeUndefined();
+    expect(sc.ticket).toBeUndefined();
+    expect(sc.embedTicket).toBeUndefined();
+    expect(sc.uploadTicket).toBeUndefined();
+    // Make sure none of those sensitive strings leak into the JSON
+    // representation of structuredContent either.
+    const scJson = JSON.stringify(sc);
+    expect(scJson).not.toContain("open-thread-ticket");
+    expect(scJson).not.toContain("embedded-thread-id-123");
+    expect(scJson).not.toContain("1735689600");
+    expect(scJson).not.toContain("secret-upload-token");
+    // The _meta carrier is the legitimate home for the embed URL.
+    expect(out.result._meta["agent-native/embedStart"].startUrl).toContain(
+      "open-thread-ticket",
+    );
+    // The content text payload also stays clean (the embed routing fields
+    // would otherwise round-trip through conciseMcpAppToolText).
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "open-thread-ticket",
+    );
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "embedded-thread-id-123",
+    );
+  });
+
+  it("omits openLink when the only available 'view' is a bare name, not a route path", async () => {
+    // Regression: previously `safeViewOpenUrl = view` would turn a view name
+    // like "deck" into `${origin}/deck`, which 404s for apps that route
+    // `view: "deck"` at `/deck/:id`. The fix omits `openLink` entirely when
+    // there's no real path-like URL to open; the embedStart meta still
+    // carries the embed reference, so the host can launch the app inline
+    // without a bogus open URL.
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-deck-by-name": {
+          tool: {
+            description: "Open a slides deck via embed only",
+          },
+          run: async () => ({
+            app: "slides",
+            view: "deck",
+            embedStartUrl: "/_agent-native/embed/start?ticket=deck-name-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open deck",
+              description: "Open the deck inline.",
+              html: "<!doctype html><html><body>Deck</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 203,
+        method: "tools/call",
+        params: { name: "open-deck-by-name", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    // openLink must be absent — there is no real path to open.
+    expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
+    expect(out.result.structuredContent.openLink).toBeUndefined();
+    // The embedStart meta still carries the reference to launch the app.
+    expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=deck-name-ticket&__an_mcp_chat_bridge=1",
+    });
+    // No fabricated origin-relative URL leaks into the response.
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "https://mail.agent-native.com/deck",
+    );
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(
+      "https://mail.agent-native.com/deck",
+    );
+  });
+
   it("uses the agentnative:// desktop scheme on embed=true open links", async () => {
     // Regression: previously the embed=true path set
     // `desktopUrl === webUrl`, so the desktop app's URL-scheme handler

@@ -14,17 +14,31 @@ describe("buildDeepLink", () => {
     expect(url).toBe("/_agent-native/open?view=inbox&agentSidebar=closed");
   });
 
-  it("orders app, view, to, compose before params and the sidebar hint", () => {
+  it("orders app, view, to before params and the sidebar hint", () => {
     const url = buildDeepLink({
       app: "mail",
       view: "inbox",
       to: "/inbox/abc",
-      compose: "Zm9v",
       params: { threadId: "abc123" },
     });
     expect(url).toBe(
-      "/_agent-native/open?app=mail&view=inbox&to=%2Finbox%2Fabc&compose=Zm9v&threadId=abc123&agentSidebar=closed",
+      "/_agent-native/open?app=mail&view=inbox&to=%2Finbox%2Fabc&threadId=abc123&agentSidebar=closed",
     );
+  });
+
+  it("does not expose a `compose` field on DeepLinkInput", () => {
+    // Security: the prior `compose` field base64-encoded the full draft
+    // (subject + recipients + body) into the URL query string. MCP host
+    // LLMs see and can remember query strings, and shared chat transcripts
+    // would leak draft content. Drafts now live in app-state and the deep
+    // link only carries the draft id.
+    const url = buildDeepLink({
+      app: "mail",
+      view: "inbox",
+      params: { composeDraftId: "abc123" },
+    });
+    expect(url).not.toContain("compose=");
+    expect(url).toContain("composeDraftId=abc123");
   });
 
   it("drops null, undefined, and empty-string params but keeps false/0", () => {
@@ -48,7 +62,7 @@ describe("buildDeepLink", () => {
     expect(sp.get("zero")).toBe("0");
   });
 
-  it("omits optional app/to/compose when not provided", () => {
+  it("omits optional app/to when not provided", () => {
     const url = buildDeepLink({ view: "calendar", params: { eventId: "e1" } });
     expect(url).toBe(
       "/_agent-native/open?view=calendar&eventId=e1&agentSidebar=closed",

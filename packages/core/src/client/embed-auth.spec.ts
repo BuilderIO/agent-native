@@ -107,6 +107,80 @@ describe("embed auth client", () => {
     }
   });
 
+  it("keeps MCP chat bridge mode active when sessionStorage starts throwing mid-session", async () => {
+    // Boot with sessionStorage working so the bridge enrolls normally.
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+    expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    // Mid-session, sessionStorage starts denying access (e.g. third-party-cookie
+    // policy update in a sandboxed iframe, Safari private-browsing throttling).
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+
+    try {
+      // The flag should still be true even though sessionStorage now throws,
+      // because the in-memory bridge state was already captured.
+      expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+
+      // And it should survive even if the URL token also gets stripped.
+      window.history.replaceState(null, "", "/inbox?embedded=1");
+      expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
+  it("keeps MCP chat bridge mode active after the URL token is stripped", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+    expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    // Mimic a host that strips the bridge flag from the URL too after boot.
+    window.history.replaceState(null, "", "/inbox?embedded=1");
+
+    // The in-memory bridge state should still be authoritative.
+    expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("clears the MCP chat bridge when the embed token actually changes", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=token-a`,
+    );
+
+    const first = await loadEmbedAuth();
+    first.ensureEmbedAuthFetchInterceptor();
+    expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    // A different embed token (e.g. a different user session reusing the same
+    // page context) MUST drop the bridge — this is the real de-enrollment
+    // signal we still need to honor.
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=token-b`,
+    );
+
+    expect(first.isEmbedMcpChatBridgeActive()).toBe(false);
+  });
+
   it("clamps MCP chat bridge embeds to a stable viewport height", async () => {
     const notifyIntrinsicHeight = vi.fn();
     Object.defineProperty(window, "openai", {
