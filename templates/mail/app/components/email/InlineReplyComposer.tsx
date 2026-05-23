@@ -44,19 +44,15 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
+import {
+  getCurrentDraftBodyFromEditor,
+  splitQuotedContent,
+} from "./compose-draft-context";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
-
-function splitQuotedContent(body: string): [string, string] {
-  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return [body, ""];
-  return [body.slice(0, match.index), body.slice(match.index)];
-}
 
 export interface InlineReplyHandle {
   focusEditor: () => void;
@@ -283,16 +279,24 @@ export const InlineReplyComposer = forwardRef<
       return;
     }
     await onFlush(draft.id);
+    const promptDraft = {
+      ...draft,
+      body: getCurrentDraftBodyFromEditor({
+        draft,
+        editor: editorRef.current?.getEditor(),
+        signature: settings?.signature,
+      }),
+    };
     const context = [
-      draft.to && `To: ${draft.to}`,
-      draft.cc && `Cc: ${draft.cc}`,
-      draft.subject && `Subject: ${draft.subject}`,
+      promptDraft.to && `To: ${promptDraft.to}`,
+      promptDraft.cc && `Cc: ${promptDraft.cc}`,
+      promptDraft.subject && `Subject: ${promptDraft.subject}`,
       settings?.writingStyle?.trim() &&
         `User writing style:\n${settings.writingStyle.trim()}`,
       settings?.signature?.trim()
         ? `Configured signature:\n${settings.signature.trim()}`
         : "Configured signature: (none)",
-      draft.body && `Current draft:\n${draft.body}`,
+      promptDraft.body && `Current draft:\n${promptDraft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -450,7 +454,13 @@ export const InlineReplyComposer = forwardRef<
           onFlush={() => onFlush(draft.id)}
           isGenerating={isGenerating}
           draftId={draft.id}
-          draftBody={draft.body}
+          getCurrentDraftBody={(editor) =>
+            getCurrentDraftBodyFromEditor({
+              draft,
+              editor,
+              signature: settings?.signature,
+            })
+          }
           sendToAgent={sendToAgent}
         />
         {hasQuote && (

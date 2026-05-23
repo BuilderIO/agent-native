@@ -1869,7 +1869,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.structuredContent.openLink).toBeUndefined();
   });
 
-  it("does not invent a visible root open link for root-path embed starts", async () => {
+  it("uses a durable root open link for root-path embed starts", async () => {
     const embedConfig = {
       ...config,
       actions: {
@@ -1909,7 +1909,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result._meta["agent-native/openLink"]).toBeUndefined();
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      label: "Open dispatch",
+      view: "/",
+      webUrl: "https://mail.agent-native.com/",
+      desktopUrl: "https://mail.agent-native.com/",
+    });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=root-ticket&__an_mcp_chat_bridge=1",
@@ -1918,8 +1923,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "root-ticket",
     );
-    expect(out.result.structuredContent.openLink).toBeUndefined();
-    expect(out.result.structuredContent.url).toBeUndefined();
+    expect(out.result.structuredContent.openLink).toMatchObject({
+      webUrl: "https://mail.agent-native.com/",
+    });
+    expect(out.result.structuredContent.url).toBe(
+      "https://mail.agent-native.com/",
+    );
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {

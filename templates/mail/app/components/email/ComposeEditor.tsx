@@ -46,7 +46,7 @@ interface ComposeEditorProps {
   onFlush: () => Promise<unknown> | undefined;
   isGenerating: boolean;
   draftId: string;
-  draftBody: string;
+  getCurrentDraftBody: (editor: Editor) => string;
   sendToAgent: (opts: {
     message: string;
     context?: string;
@@ -67,7 +67,7 @@ export const ComposeEditor = forwardRef<
     onFlush,
     isGenerating,
     draftId,
-    draftBody,
+    getCurrentDraftBody,
     sendToAgent,
   },
   ref,
@@ -200,7 +200,7 @@ export const ComposeEditor = forwardRef<
         onFlush={onFlush}
         isGenerating={isGenerating}
         draftId={draftId}
-        draftBody={draftBody}
+        getCurrentDraftBody={getCurrentDraftBody}
         sendToAgent={sendToAgent}
       />
       <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />

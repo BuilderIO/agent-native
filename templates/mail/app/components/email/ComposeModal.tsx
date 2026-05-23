@@ -50,29 +50,16 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
+import {
+  getCurrentDraftBodyFromEditor,
+  splitQuotedContent,
+} from "./compose-draft-context";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
-
-/**
- * Split a compose body into the editable portion and the quoted history.
- * Returns [editable, quoted] — quoted is empty string when there's no quote.
- */
-function splitQuotedContent(body: string): [string, string] {
-  // Match "— On ..., ... wrote:" (reply) or "— Forwarded message —" (forward)
-  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
-
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return [body, ""];
-
-  const editable = body.slice(0, match.index);
-  const quoted = body.slice(match.index);
-  return [editable, quoted];
-}
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
@@ -405,17 +392,25 @@ export function ComposeModal({
     }
 
     await onFlush(activeId);
+    const promptDraft = {
+      ...activeDraft,
+      body: getCurrentDraftBodyFromEditor({
+        draft: activeDraft,
+        editor: editorRef.current?.getEditor(),
+        signature: settings?.signature,
+      }),
+    };
 
     const context = [
-      activeDraft.to && `To: ${activeDraft.to}`,
-      activeDraft.cc && `Cc: ${activeDraft.cc}`,
-      activeDraft.subject && `Subject: ${activeDraft.subject}`,
+      promptDraft.to && `To: ${promptDraft.to}`,
+      promptDraft.cc && `Cc: ${promptDraft.cc}`,
+      promptDraft.subject && `Subject: ${promptDraft.subject}`,
       settings?.writingStyle?.trim() &&
         `User writing style:\n${settings.writingStyle.trim()}`,
       settings?.signature?.trim()
         ? `Configured signature:\n${settings.signature.trim()}`
         : "Configured signature: (none)",
-      activeDraft.body && `Current draft:\n${activeDraft.body}`,
+      promptDraft.body && `Current draft:\n${promptDraft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -970,7 +965,13 @@ function ComposeBody({
         onFlush={() => onFlush(activeId)}
         isGenerating={isGenerating}
         draftId={activeId}
-        draftBody={activeDraft.body}
+        getCurrentDraftBody={(editor) =>
+          getCurrentDraftBodyFromEditor({
+            draft: activeDraft,
+            editor,
+            signature,
+          })
+        }
         sendToAgent={sendToAgent}
       />
       {hasQuote && (

@@ -363,7 +363,7 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
-  const safeViewOpenUrl = view && view !== "/" ? view : undefined;
+  const safeViewOpenUrl = view ? view : undefined;
   const explicitOpenUrl = deepLinkUrl
     ? deepLinkUrl
     : typeof out.url === "string" && !isEmbedStartUrl(out.url)
