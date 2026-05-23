@@ -2587,8 +2587,37 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   };
 }
 
+function isInlineImageUrl(value: string): boolean {
+  const lower = decodeHtmlEntities(value)
+    .trim()
+    .replace(/[\s\u0000-\u001f\u007f]+/g, "")
+    .toLowerCase();
+  return lower.startsWith("data:image/") || lower.startsWith("cid:");
+}
+
+function stripCssRemoteResources(css: string): [string, number] {
+  let blocked = 0;
+  const withoutImports = css.replace(
+    /@import\s+(?:url\(\s*)?(['"]?)[\s\S]*?\1\s*\)?[^;]*;?/gi,
+    () => {
+      blocked++;
+      return "";
+    },
+  );
+  const withoutRemoteUrls = withoutImports.replace(
+    /url\(\s*(['"]?)([\s\S]*?)\1\s*\)/gi,
+    (match, _quote: string, rawUrl: string) => {
+      if (isInlineImageUrl(rawUrl)) return match;
+      blocked++;
+      return "none";
+    },
+  );
+
+  return [withoutRemoteUrls, blocked];
+}
+
 /** Strip images from HTML based on policy. Returns [processedHtml, imageCount]. */
-function processHtmlImages(
+export function processHtmlImages(
   html: string,
   policy: "show" | "block-trackers" | "block-all",
 ): [string, number] {
@@ -2596,12 +2625,15 @@ function processHtmlImages(
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-  const images = doc.querySelectorAll("img");
+  const template = doc.createElement("template");
+  template.innerHTML = html;
+  const root = template.content;
+  const images = root.querySelectorAll("img");
   let blocked = 0;
 
   images.forEach((img) => {
     const src = img.getAttribute("src") || "";
-    if (!src || src.startsWith("data:") || src.startsWith("cid:")) return;
+    if (!src || isInlineImageUrl(src)) return;
 
     if (policy === "block-all") {
       img.removeAttribute("src");
@@ -2615,15 +2647,15 @@ function processHtmlImages(
 
   // Also strip tracking pixel style tags (1x1 images via CSS background)
   if (policy === "block-trackers" || policy === "block-all") {
-    doc.querySelectorAll('img[width="1"][height="1"]').forEach((img) => {
+    root.querySelectorAll('img[width="1"][height="1"]').forEach((img) => {
       img.remove();
       blocked++;
     });
-    doc.querySelectorAll('img[width="0"]').forEach((img) => {
+    root.querySelectorAll('img[width="0"]').forEach((img) => {
       img.remove();
       blocked++;
     });
-    doc
+    root
       .querySelectorAll(
         'img[style*="display:none"], img[style*="display: none"]',
       )
@@ -2633,7 +2665,46 @@ function processHtmlImages(
       });
   }
 
-  return [doc.body.innerHTML, blocked];
+  if (policy === "block-all") {
+    root.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
+      const [style, count] = stripCssRemoteResources(
+        el.getAttribute("style") ?? "",
+      );
+      if (count === 0) return;
+      blocked += count;
+      if (style.trim()) {
+        el.setAttribute("style", style);
+      } else {
+        el.removeAttribute("style");
+      }
+    });
+
+    root.querySelectorAll("style").forEach((styleEl) => {
+      const [css, count] = stripCssRemoteResources(styleEl.textContent ?? "");
+      if (count === 0) return;
+      blocked += count;
+      if (css.trim()) {
+        styleEl.textContent = css;
+      } else {
+        styleEl.remove();
+      }
+    });
+
+    root
+      .querySelectorAll<HTMLElement>(
+        "[background], [poster], source[src], video[src], audio[src], track[src]",
+      )
+      .forEach((el) => {
+        for (const attrName of ["background", "poster", "src"]) {
+          const value = el.getAttribute(attrName);
+          if (!value || isInlineImageUrl(value)) continue;
+          el.removeAttribute(attrName);
+          blocked++;
+        }
+      });
+  }
+
+  return [template.innerHTML, blocked];
 }
 
 function HtmlEmailBody({
@@ -2679,10 +2750,21 @@ function HtmlEmailBody({
         : imagePolicy
       : imagePolicy;
 
-  const [processedHtml, blockedCount] = useMemo(
-    () => processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy),
-    [sanitizedHtml.bodyHtml, effectivePolicy],
-  );
+  const processedEmailHtml = useMemo(() => {
+    const [headHtml, headBlockedCount] = processHtmlImages(
+      sanitizedHtml.headHtml,
+      effectivePolicy,
+    );
+    const [bodyHtml, bodyBlockedCount] = processHtmlImages(
+      sanitizedHtml.bodyHtml,
+      effectivePolicy,
+    );
+    return {
+      headHtml,
+      bodyHtml,
+      blockedCount: headBlockedCount + bodyBlockedCount,
+    };
+  }, [sanitizedHtml.headHtml, sanitizedHtml.bodyHtml, effectivePolicy]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2778,10 +2860,10 @@ function HtmlEmailBody({
 <html>
 <head>
   <meta charset="utf-8">
-  ${sanitizedHtml.headHtml}
+  ${processedEmailHtml.headHtml}
   <style>${iframeCss}  </style>
 </head>
-<body>${processedHtml}</body>
+<body>${processedEmailHtml.bodyHtml}</body>
 </html>`);
     doc.close();
 
@@ -3263,8 +3345,8 @@ function HtmlEmailBody({
       images.forEach((img) => img.removeEventListener("load", resize));
     };
   }, [
-    processedHtml,
-    sanitizedHtml.headHtml,
+    processedEmailHtml.bodyHtml,
+    processedEmailHtml.headHtml,
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
@@ -3334,7 +3416,7 @@ function HtmlEmailBody({
     // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedHtml]);
+  }, [searchTerm, processedEmailHtml.bodyHtml]);
 
   // Update which mark is "active" and scroll it into view
   useEffect(() => {
@@ -3359,7 +3441,7 @@ function HtmlEmailBody({
 
   const showBanner =
     effectivePolicy === "block-all" &&
-    blockedCount > 0 &&
+    processedEmailHtml.blockedCount > 0 &&
     (isEmbedded || !showImagesForThread);
 
   return (
