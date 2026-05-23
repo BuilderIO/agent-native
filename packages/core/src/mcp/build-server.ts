@@ -330,6 +330,43 @@ function isEmbedStartUrl(value: string): boolean {
   }
 }
 
+/**
+ * Recursively redact embed-ticket-bearing URLs from any value before it gets
+ * serialized into a model-visible text payload. Embed start URLs carry a
+ * single-use ticket that grants iframe access to the user's session — they
+ * MUST stay in `_meta` (where the embed runtime can consume them) and never
+ * appear in `content[].text` for the LLM. This is the generic safety net for
+ * actions that return `{ embedStartUrl, ... }` without declaring
+ * `mcpApp.resource` (the resource path already strips them via
+ * `mcpAppStructuredContent`).
+ *
+ * Depth-capped to avoid pathological / circular structures. Strings that
+ * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
+ * the URL) are replaced with `[hidden embed URL]`.
+ */
+function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
+  if (depth > 5) return value;
+  if (typeof value === "string") {
+    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof val === "string" && isEmbedStartUrl(val)) {
+        // Drop the key entirely for object-typed inputs so a tool result like
+        // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
+        continue;
+      }
+      out[key] = purgeEmbedStartUrls(val, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
@@ -363,12 +400,25 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
-  const safeViewOpenUrl = view ? view : undefined;
+  // Only fabricate an open URL when there is a real path-like value: an
+  // explicit deepLinkUrl, or a non-embed `out.url`, or a leading-slash
+  // `view`/`path` that's already a route. Bare view-name strings like
+  // "inbox" or "deck" must NOT be turned into `${origin}/inbox` — apps
+  // route views at app-specific paths (e.g. slides routes `view: "deck"`
+  // at `/deck/:id`), so a synthesized origin-relative URL is just a 404.
+  // In that case omit `openLink` entirely; the embedStart meta carries
+  // the actual launch reference.
+  const pathFromRouteLike =
+    view && view.startsWith("/")
+      ? view
+      : typeof out.path === "string" && out.path.trim().startsWith("/")
+        ? out.path.trim()
+        : undefined;
   const explicitOpenUrl = deepLinkUrl
     ? deepLinkUrl
     : typeof out.url === "string" && !isEmbedStartUrl(out.url)
       ? out.url
-      : safeViewOpenUrl;
+      : pathFromRouteLike;
   const safeOpenUrl = explicitOpenUrl
     ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
     : null;
@@ -778,6 +828,22 @@ function mcpAppStructuredContent(
   if (typeof out.url === "string" && isEmbedStartUrl(out.url)) {
     delete out.url;
   }
+  // Internal embed-routing fields belong in `_meta["agent-native/embedStart"]`
+  // (consumed by the embed runtime), not in `structuredContent` (read by the
+  // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
+  // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
+  // fields are single-use credentials. Drop all of them unconditionally.
+  for (const key of [
+    "embedTargetPath",
+    "embedExpiresAt",
+    "ticket",
+    "embedTicket",
+  ]) {
+    delete out[key];
+  }
+  for (const key of Object.keys(out)) {
+    if (/Ticket$/.test(key)) delete out[key];
+  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
@@ -1124,8 +1190,8 @@ export async function createMCPServerForRequest(
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
           : typeof resultForClient === "string"
-            ? resultForClient
-            : JSON.stringify(resultForClient);
+            ? (purgeEmbedStartUrls(resultForClient) as string)
+            : JSON.stringify(purgeEmbedStartUrls(resultForClient));
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {

@@ -106,8 +106,19 @@ export function isEmbedMcpChatBridgeActive(): boolean {
     return true;
   }
   const scope = currentMcpChatBridgeScope(win);
+  // Once we've enrolled in MCP bridge mode in this page, trust the in-memory
+  // flag. A null scope (because the URL token was stripped after enroll AND
+  // sessionStorage is denied — Safari private mode, third-party-cookie-blocked
+  // iframes, strict ChatGPT/Claude sandboxes) is NOT evidence of de-enrollment.
+  // Only an actual auth-scope CHANGE (a different non-null embed token) means
+  // we should clear the bridge.
   if (mcpChatBridgeActive) {
-    if (scope && mcpChatBridgeScope === scope) return true;
+    if (scope == null) return true;
+    if (mcpChatBridgeScope == null || mcpChatBridgeScope === scope) {
+      // Capture the scope now that we have one; future calls can compare.
+      mcpChatBridgeScope = scope;
+      return true;
+    }
     clearMcpChatBridge(win);
     return false;
   }
@@ -115,8 +126,14 @@ export function isEmbedMcpChatBridgeActive(): boolean {
     const storedScope = win.sessionStorage?.getItem(
       MCP_CHAT_BRIDGE_STORAGE_KEY,
     );
-    if (scope && storedScope === scope) return true;
-    if (storedScope && storedScope !== scope) {
+    if (storedScope && (scope == null || storedScope === scope)) {
+      // Promote the persisted enrollment into in-memory state so subsequent
+      // reads survive sessionStorage becoming unavailable later in the session.
+      mcpChatBridgeActive = true;
+      mcpChatBridgeScope = storedScope;
+      return true;
+    }
+    if (storedScope && scope != null && storedScope !== scope) {
       win.sessionStorage?.removeItem(MCP_CHAT_BRIDGE_STORAGE_KEY);
     }
     return false;

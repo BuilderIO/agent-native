@@ -10,7 +10,9 @@ import {
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
+  shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
 
@@ -63,6 +65,57 @@ describe("workspace dev startup", () => {
     await handle.ready;
 
     expect(fake.startedApps()).toEqual(["dispatch", "starter", "todo"]);
+  });
+
+  it("prewarms non-default apps in the background after the gateway is ready", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter", "todo"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        // Opt in to prewarm for this test (testEnv disables it by default).
+        WORKSPACE_NO_PREWARM: "",
+        WORKSPACE_PREWARM_DELAY_MS: "0",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    // Only the default app is started synchronously; prewarm catches up in
+    // the background.
+    expect(fake.startedApps().includes("dispatch")).toBe(true);
+
+    await waitUntil(() => {
+      const ids = new Set(fake.startedApps());
+      return ids.has("starter") && ids.has("todo");
+    });
+
+    expect(new Set(fake.startedApps())).toEqual(
+      new Set(["dispatch", "starter", "todo"]),
+    );
+  });
+
+  it("does not prewarm when --no-prewarm is passed", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter", "todo"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--no-prewarm"],
+      env: {
+        ...testEnv(),
+        WORKSPACE_NO_PREWARM: "",
+        WORKSPACE_PREWARM_DELAY_MS: "0",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    // Give any (hypothetically) scheduled prewarm a chance to fire.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.startedApps()).toEqual(["dispatch"]);
   });
 
   it("passes the public workspace OAuth origin separately from the local gateway", async () => {
@@ -436,6 +489,44 @@ describe("workspace dev helpers", () => {
     expect(shouldEagerStartWorkspaceApps([], {})).toBe(false);
   });
 
+  it("defaults prewarm on in lazy mode and respects opt-outs", () => {
+    expect(shouldPrewarmWorkspaceApps([], {})).toBe(true);
+    expect(shouldPrewarmWorkspaceApps(["--no-prewarm"], {})).toBe(false);
+    expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
+      false,
+    );
+    // Eager mode already starts every app — prewarm has nothing to do.
+    expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
+    expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
+      false,
+    );
+  });
+
+  it("parses prewarm concurrency from arg or env, falling back to 2", () => {
+    expect(workspacePrewarmConcurrency([], {})).toBe(2);
+    expect(workspacePrewarmConcurrency(["--prewarm-concurrency=4"], {})).toBe(
+      4,
+    );
+    expect(
+      workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "3" }),
+    ).toBe(3);
+    // Bogus values clamp back to the default.
+    expect(
+      workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "0" }),
+    ).toBe(2);
+    expect(
+      workspacePrewarmConcurrency([], {
+        WORKSPACE_PREWARM_CONCURRENCY: "nope",
+      }),
+    ).toBe(2);
+    // CLI flag wins over env.
+    expect(
+      workspacePrewarmConcurrency(["--prewarm-concurrency=5"], {
+        WORKSPACE_PREWARM_CONCURRENCY: "9",
+      }),
+    ).toBe(5);
+  });
+
   it("selects the boot app ids for lazy and eager startup", () => {
     const apps = [{ id: "dispatch" }, { id: "starter" }];
     expect(initialWorkspaceAppIds(apps, "dispatch", false)).toEqual([
@@ -478,6 +569,11 @@ function testEnv(): NodeJS.ProcessEnv {
     WORKSPACE_APP_PORT_START: "19100",
     WORKSPACE_NO_OPEN: "1",
     WORKSPACE_PROXY_READY_TIMEOUT_MS: "50",
+    // Existing assertions count "exec vite" spawns and expect just the
+    // default-app entry; the background prewarm queue would race those
+    // counters. Tests that exercise prewarm opt in explicitly by clearing
+    // this in their own env override.
+    WORKSPACE_NO_PREWARM: "1",
   };
 }
 

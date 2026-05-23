@@ -26,7 +26,12 @@ import { SPEED_OPTIONS } from "./player-controls";
 export interface SettingsPanelProps {
   recording: {
     id: string;
-    password: string | null;
+    /**
+     * Whether a password is currently set on the recording. The plaintext
+     * password is never sent to the client — the editor sees `hasPassword`
+     * and can either replace or clear the password, but never read it.
+     */
+    hasPassword: boolean;
     expiresAt: string | null;
     enableComments: boolean;
     enableReactions: boolean;
@@ -65,7 +70,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
     onSuccess: () => onRefetch?.(),
   });
 
-  const [password, setPassword] = useState(recording.password ?? "");
+  // The plaintext password is never sent to the client (see action
+  // `get-recording-player-data`). Start empty; the placeholder communicates
+  // whether one is currently set. Saving an empty value clears it, saving a
+  // non-empty value replaces it.
+  const [password, setPassword] = useState("");
   const [expiresAt, setExpiresAt] = useState(recording.expiresAt ?? "");
 
   function patch(fields: Record<string, unknown>) {
@@ -121,12 +130,19 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 type="text"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="No password"
+                placeholder={
+                  recording.hasPassword
+                    ? "Password is set — type to replace, leave empty + Save to clear"
+                    : "No password"
+                }
                 className="flex-1"
               />
               <Button
                 variant="outline"
-                onClick={() => patch({ password: password || null })}
+                onClick={() => {
+                  patch({ password: password || null });
+                  setPassword("");
+                }}
                 disabled={update.isPending}
               >
                 Save

@@ -109,25 +109,28 @@ function shouldProxyWaveformUrl(videoUrl: string): boolean {
 function getWaveformMediaUrl({
   recordingId,
   videoUrl,
-  password,
-  role,
 }: {
   recordingId: string;
   videoUrl: string | null;
-  password?: string | null;
-  role?: string | null;
 }): string | null {
   if (!videoUrl) return null;
   if (!shouldProxyWaveformUrl(videoUrl)) {
+    // Internal URLs already carry a short-lived `?t=<token>` for non-owner
+    // viewers of password-protected recordings (minted in
+    // `get-recording-player-data`). Pass through as-is.
     return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
   }
 
-  const params = new URLSearchParams();
-  if (password && role !== "owner") params.set("password", password);
-  const qs = params.toString();
-  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}${
-    qs ? `?${qs}` : ""
-  }`;
+  // Cross-origin provider URLs (R2 / S3 / Builder) get proxied through the
+  // same-origin `/api/video/:id` route for CORS reasons. We intentionally do
+  // NOT forward the password here — the plaintext password was previously
+  // appended via `?password=…`, but it isn't sent to this component anymore
+  // (the action returns `hasPassword: boolean` instead of the plaintext).
+  // For owners the proxy bypasses the password gate; for non-owner editors
+  // of password-protected recordings with cross-origin storage the waveform
+  // will be empty — they can still see / scrub the video, just not the
+  // waveform visualization.
+  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`;
 }
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
@@ -291,10 +294,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       getWaveformMediaUrl({
         recordingId,
         videoUrl,
-        password: recording?.password,
-        role: playerData?.role,
       }),
-    [recording?.password, recordingId, playerData?.role, videoUrl],
+    [recordingId, videoUrl],
   );
 
   useEffect(() => {
