@@ -363,14 +363,15 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
+  const safeViewOpenUrl = view ? view : undefined;
   const explicitOpenUrl = deepLinkUrl
     ? deepLinkUrl
     : typeof out.url === "string" && !isEmbedStartUrl(out.url)
       ? out.url
-      : view;
+      : safeViewOpenUrl;
   const safeOpenUrl = explicitOpenUrl
     ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
-    : webUrl;
+    : null;
 
   return {
     "agent-native/embedStart": {
@@ -379,12 +380,16 @@ function mcpAppEmbedOpenLinkMeta(
         ? { expiresAt: out.embedExpiresAt }
         : {}),
     },
-    "agent-native/openLink": {
-      label,
-      ...(view ? { view } : {}),
-      webUrl: safeOpenUrl,
-      desktopUrl: safeOpenUrl,
-    },
+    ...(safeOpenUrl
+      ? {
+          "agent-native/openLink": {
+            label,
+            ...(view ? { view } : {}),
+            webUrl: safeOpenUrl,
+            desktopUrl: safeOpenUrl,
+          },
+        }
+      : {}),
   };
 }
 

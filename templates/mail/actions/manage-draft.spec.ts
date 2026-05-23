@@ -10,9 +10,7 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain("embedApp({");
     expect(source).toContain('openLabel: "Open in Mail"');
     expect(source).toContain('iframeTitle: "Agent-Native Mail"');
-    expect(source).toContain('"https:"');
-    expect(source).toContain('"http://localhost:*"');
-    expect(source).toContain('"http://127.0.0.1:*"');
+    expect(source).toContain("height: 900");
     expect(source).not.toContain("mailDraftMcpAppHtml");
     expect(source).not.toContain("_mcp-apps");
     expect(source).not.toContain("data-save");

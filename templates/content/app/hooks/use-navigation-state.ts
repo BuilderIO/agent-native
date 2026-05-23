@@ -81,7 +81,7 @@ export function useNavigationState() {
     }).catch(() => {});
 
     const target = resolveNavTarget(navCommand);
-    if (target) navigate(target, { flushSync: true });
+    if (target) navigate(target);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }

@@ -62,6 +62,14 @@ function isAdminRole(role: string | undefined): boolean {
   return role === "owner" || role === "admin";
 }
 
+function isQueueContextUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("An active organization is required") ||
+    message.includes("Only members of this organization")
+  );
+}
+
 export function serializeQueuedDraft(row: any): QueuedEmailDraft {
   const draft = {
     id: row.id,
@@ -285,7 +293,13 @@ export async function listQueuedDrafts(input: {
   ownerEmail?: string;
   limit?: number;
 }): Promise<QueuedEmailDraft[]> {
-  const ctx = await requireQueueContext();
+  let ctx: QueueContext;
+  try {
+    ctx = await requireQueueContext();
+  } catch (error) {
+    if (isQueueContextUnavailable(error)) return [];
+    throw error;
+  }
   const scope = input.scope ?? "review";
   const status = input.status ?? "active";
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 200);
