@@ -35,6 +35,7 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { Spinner } from "@/components/ui/spinner";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import type { EmailMessage } from "@shared/types";
 import {
   DropdownMenu,
@@ -126,6 +127,7 @@ function emptyStateHintForView(view: string): string {
 
 export function InboxZero() {
   const [loaded, setLoaded] = useState(false);
+  const isEmbedded = isMcpEmbedSurface();
 
   // Toggle class on root so the header can go transparent
   useEffect(() => {
@@ -145,15 +147,19 @@ export function InboxZero() {
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Background image — fixed so it extends behind header + agent sidebar for blur */}
-      <img
-        src={imageUrl}
-        alt=""
-        onLoad={() => setLoaded(true)}
-        className={cn(
-          "fixed inset-0 h-full w-full object-cover",
-          loaded ? "opacity-100" : "opacity-0",
-        )}
-      />
+      {isEmbedded ? (
+        <div className="fixed inset-0 bg-[linear-gradient(135deg,hsl(220,18%,11%),hsl(203,22%,18%)_55%,hsl(168,24%,16%))]" />
+      ) : (
+        <img
+          src={imageUrl}
+          alt=""
+          onLoad={() => setLoaded(true)}
+          className={cn(
+            "fixed inset-0 h-full w-full object-cover",
+            loaded ? "opacity-100" : "opacity-0",
+          )}
+        />
+      )}
 
       {/* Persistent scrims keep white chrome readable across bright photos. */}
       <div className="fixed inset-0 bg-black/20" />

@@ -63,6 +63,7 @@ import { AccountFilterContext } from "@/hooks/use-account-filter";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import { appApiPath } from "@/lib/api-path";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Tooltip,
@@ -78,11 +79,6 @@ import {
 
 const BARE_ROUTES = new Set(["/email"]);
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
-
-function isMcpEmbedSurface(): boolean {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("embedded") === "1";
-}
 
 function AccountAvatar({
   email,

@@ -35,6 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { getResolvedTheme } from "@/lib/theme";
 import { appApiPath } from "@/lib/api-path";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -2657,6 +2658,7 @@ function HtmlEmailBody({
   const IFRAME_BG = hasDesignedBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
+  const isEmbedded = isMcpEmbedSurface();
 
   const imagePolicy = settings?.imagePolicy ?? "show";
   const trustedSenders = settings?.trustedSenders ?? [];
@@ -2669,8 +2671,9 @@ function HtmlEmailBody({
   const [showImagesForThread, setShowImagesForThread] = useState(false);
 
   // Determine effective policy for this email
-  const effectivePolicy =
-    isTrusted || showImagesForThread
+  const effectivePolicy = isEmbedded
+    ? "block-all"
+    : isTrusted || showImagesForThread
       ? imagePolicy === "block-all"
         ? "block-trackers" // trusted senders still get tracker blocking if policy isn't "show"
         : imagePolicy
@@ -3355,27 +3358,37 @@ function HtmlEmailBody({
   }, [activeLocalIdx, searchTerm]);
 
   const showBanner =
-    effectivePolicy === "block-all" && blockedCount > 0 && !showImagesForThread;
+    effectivePolicy === "block-all" &&
+    blockedCount > 0 &&
+    (isEmbedded || !showImagesForThread);
 
   return (
     <div>
       {showBanner && (
         <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-accent/60 text-[12px] text-muted-foreground">
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          <span>Images blocked.</span>
-          <button
-            onClick={() => setShowImagesForThread(true)}
-            className="text-primary hover:text-primary/80 font-medium transition-colors"
-          >
-            Show images
-          </button>
-          {senderEmail && (
-            <button
-              onClick={handleAlwaysTrust}
-              className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
-            >
-              Always from {senderEmail.split("@")[1]}
-            </button>
+          <span>
+            {isEmbedded
+              ? "Remote images hidden in this embed."
+              : "Images blocked."}
+          </span>
+          {!isEmbedded && (
+            <>
+              <button
+                onClick={() => setShowImagesForThread(true)}
+                className="text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                Show images
+              </button>
+              {senderEmail && (
+                <button
+                  onClick={handleAlwaysTrust}
+                  className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
+                >
+                  Always from {senderEmail.split("@")[1]}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
