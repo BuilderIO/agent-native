@@ -29,7 +29,11 @@ import {
 } from "../action.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
+import {
+  buildDeepLink,
+  toAbsoluteOpenUrl,
+  toDesktopOpenUrl,
+} from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -422,6 +426,40 @@ function mcpAppEmbedOpenLinkMeta(
   const safeOpenUrl = explicitOpenUrl
     ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
     : null;
+  // Build a desktop deep-link (`agentnative://open?app=…&view=…`) so the
+  // desktop app's URL-scheme handler routes the click instead of opening
+  // the bare web URL in a system browser. The embed=true path's
+  // `entry.link()` returns null (per `openAppTool`), so without this the
+  // safe fallback was webUrl twice — the same bug embed=false avoids by
+  // running through `buildLinkArtifacts` + `toDesktopOpenUrl`.
+  const desktopDeepLinkUrl = (() => {
+    if (!safeOpenUrl) return null;
+    const app =
+      typeof out.app === "string" && out.app.trim()
+        ? out.app.trim()
+        : undefined;
+    if (!app) return safeOpenUrl;
+    const viewParam =
+      typeof out.view === "string" && out.view.trim() ? out.view.trim() : "";
+    const toParam =
+      typeof out.path === "string" && out.path.trim()
+        ? out.path.trim()
+        : undefined;
+    const params =
+      out.params && typeof out.params === "object" && !Array.isArray(out.params)
+        ? (out.params as Record<
+            string,
+            string | number | boolean | null | undefined
+          >)
+        : undefined;
+    const deepLinkPath = buildDeepLink({
+      app,
+      view: viewParam,
+      ...(toParam ? { to: toParam } : {}),
+      ...(params ? { params } : {}),
+    });
+    return toDesktopOpenUrl(deepLinkPath);
+  })();
 
   return {
     "agent-native/embedStart": {
@@ -436,7 +474,7 @@ function mcpAppEmbedOpenLinkMeta(
             label,
             ...(view ? { view } : {}),
             webUrl: safeOpenUrl,
-            desktopUrl: safeOpenUrl,
+            desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
           },
         }
       : {}),

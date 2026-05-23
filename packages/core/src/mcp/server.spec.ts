@@ -1841,7 +1841,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open mail",
       view: "/inbox",
       webUrl: "https://mail.agent-native.com/inbox",
-      desktopUrl: "https://mail.agent-native.com/inbox",
+      desktopUrl:
+        "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2008,7 +2009,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open dispatch",
       view: "/",
       webUrl: "https://mail.agent-native.com/",
-      desktopUrl: "https://mail.agent-native.com/",
+      desktopUrl:
+        "agentnative://open?app=dispatch&view=&to=%2F&agentSidebar=closed",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2252,6 +2254,92 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "https://mail.agent-native.com/deck",
     );
+  });
+
+  it("uses the agentnative:// desktop scheme on embed=true open links", async () => {
+    // Regression: previously the embed=true path set
+    // `desktopUrl === webUrl`, so the desktop app's URL-scheme handler
+    // never fired and clicks on "Open in app" inside an MCP App embed
+    // opened the bare web URL in the system browser instead of routing
+    // through the desktop app. The fix derives a `buildDeepLink`-based
+    // `agentnative://open?app=…&view=…` (or `to=<path>`) URL so the
+    // desktop handler can route the click natively.
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-view-embed": {
+          tool: { description: "Open a view-based embed" },
+          run: async () => ({
+            app: "mail",
+            view: "inbox",
+            url: "/inbox",
+            embed: true,
+            embedStartUrl: "/_agent-native/embed/start?ticket=view-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open app",
+              description: "Open the full app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+        "open-path-embed": {
+          tool: { description: "Open a path-based embed" },
+          run: async () => ({
+            app: "calendar",
+            path: "/agenda",
+            url: "/agenda",
+            embed: true,
+            embedStartUrl: "/_agent-native/embed/start?ticket=path-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open app",
+              description: "Open the full app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const viewOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 50,
+        method: "tools/call",
+        params: { name: "open-view-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+    expect(viewOut.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: "https://mail.agent-native.com/inbox",
+      desktopUrl: "agentnative://open?app=mail&view=inbox&agentSidebar=closed",
+    });
+
+    const pathOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 51,
+        method: "tools/call",
+        params: { name: "open-path-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+    expect(pathOut.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: "https://mail.agent-native.com/agenda",
+      desktopUrl:
+        "agentnative://open?app=calendar&view=&to=%2Fagenda&agentSidebar=closed",
+    });
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {
