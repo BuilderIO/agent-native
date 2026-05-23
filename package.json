@@ -25,6 +25,7 @@
     "qa:composer-geometry": "tsx scripts/qa-composer-geometry-smoke.ts",
     "qa:dispatch-workspace-resources": "tsx scripts/qa-dispatch-workspace-resources-smoke.ts",
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
+    "test:mcp:e2e": "tsx scripts/e2e-mcp-test.ts",
     "lint": "pnpm fmt:check && pnpm typecheck",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",

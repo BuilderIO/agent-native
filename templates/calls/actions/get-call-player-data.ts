@@ -171,7 +171,11 @@ export default defineAction({
         failureReason: call.failureReason,
         source: call.source,
         sourceMeta: parseJson<Record<string, unknown>>(call.sourceMeta, {}),
-        password: call.password,
+        // Never send the plaintext call password to the client — viewers (and
+        // any MCP host LLM that proxies the action result) only need to know
+        // whether a password is set. The share dialog can clear/replace it
+        // without ever reading it. Mirrors the Clips player-data fix.
+        hasPassword: Boolean(call.password),
         expiresAt: call.expiresAt,
         shareIncludesSummary: Boolean(call.shareIncludesSummary),
         shareIncludesTranscript: Boolean(call.shareIncludesTranscript),
@@ -275,7 +279,7 @@ export default defineAction({
         description: s.description,
         startMs: s.startMs,
         endMs: s.endMs,
-        password: s.password,
+        hasPassword: Boolean(s.password),
         expiresAt: s.expiresAt,
         ownerEmail: s.ownerEmail,
         createdAt: s.createdAt,
