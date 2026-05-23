@@ -37,6 +37,10 @@ const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   settings: "/settings",
 };
 const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
+  // Dispatch's app root redirects to /overview. A ticket minted for the root
+  // should survive that first-hop redirect instead of falling back to the
+  // private deployment token gate.
+  "/": ["/overview"],
   "/dashboard": ["/adhoc/agent-native-templates-first-party"],
   "/dashboards": ["/adhoc/agent-native-templates-first-party"],
   "/traffic": ["/adhoc/agent-native-templates-first-party"],

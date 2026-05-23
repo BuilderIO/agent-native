@@ -136,7 +136,15 @@ describe("embedApp", () => {
     expect(html).toContain("renderFrameFallback");
     expect(html).toContain("openFallbackExternal");
     expect(html).toContain("let url = withChatBridgeParam(openUrl)");
-    expect(html).toContain("if (!url) url = withChatBridgeParam(openStartUrl)");
+    expect(html).toContain("const buttonUrl = openUrl");
+    expect(html).toContain("fallbackOpen.disabled = !openUrl");
+    expect(html).toContain(
+      '(openUrl ? \'<a class="fallback-url" href="\' + esc(openUrl)',
+    );
+    expect(html).not.toContain(
+      "if (!url) url = withChatBridgeParam(openStartUrl)",
+    );
+    expect(html).not.toContain("const buttonUrl = openUrl || openStartUrl");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
     expect(html).toContain("function embedSessionArgsFor(value)");

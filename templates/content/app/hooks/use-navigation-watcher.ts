@@ -55,7 +55,7 @@ export function useNavigationWatcher() {
                 path?: string;
               } | null;
               if (stateData?.path) {
-                navigate(stateData.path, { flushSync: true });
+                navigate(stateData.path);
               }
             }
           }

@@ -47,7 +47,7 @@ export default function IndexRoute() {
     if (documents && documents.length > 0) {
       const firstFavorite = documents.find((d) => d.isFavorite);
       const target = firstFavorite ?? documents[0];
-      navigate(`/page/${target.id}`, { replace: true, flushSync: true });
+      navigate(`/page/${target.id}`, { replace: true });
     }
   }, [documents, navigate]);
 
