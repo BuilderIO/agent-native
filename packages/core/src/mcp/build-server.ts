@@ -334,6 +334,22 @@ function isEmbedStartUrl(value: string): boolean {
   }
 }
 
+function routePathFromOpenUrl(value: string): string | null {
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+    const url = hasScheme
+      ? new URL(value)
+      : new URL(value, "http://agent-native.invalid");
+    const route = `${url.pathname}${url.search}${url.hash}`;
+    if (!route.startsWith("/") || route.startsWith("//")) return null;
+    if (route.startsWith("/\\")) return null;
+    if (/^\/[a-z][a-z0-9+.-]*:/i.test(route)) return null;
+    return route;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Recursively redact embed-ticket-bearing URLs from any value before it gets
  * serialized into a model-visible text payload. Embed start URLs carry a
@@ -426,12 +442,10 @@ function mcpAppEmbedOpenLinkMeta(
   const safeOpenUrl = explicitOpenUrl
     ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
     : null;
-  // Build a desktop deep-link (`agentnative://open?app=…&view=…`) so the
-  // desktop app's URL-scheme handler routes the click instead of opening
-  // the bare web URL in a system browser. The embed=true path's
-  // `entry.link()` returns null (per `openAppTool`), so without this the
-  // safe fallback was webUrl twice — the same bug embed=false avoids by
-  // running through `buildLinkArtifacts` + `toDesktopOpenUrl`.
+  // Embed open links expose the safe browser target in `webUrl`, but the
+  // desktop URL must enter the app through the registered scheme so Electron
+  // can focus the right webview. Preserve the full route/query in the `to`
+  // param; focus ids are often only present on `url`, not `out.params`.
   const desktopDeepLinkUrl = (() => {
     if (!safeOpenUrl) return null;
     const app =
@@ -439,12 +453,13 @@ function mcpAppEmbedOpenLinkMeta(
         ? out.app.trim()
         : undefined;
     if (!app) return safeOpenUrl;
+    if (isAgentNativeOpenDeepLink(safeOpenUrl)) {
+      return toDesktopOpenUrl(safeOpenUrl);
+    }
+    const targetRoute = routePathFromOpenUrl(safeOpenUrl);
+    if (!targetRoute) return safeOpenUrl;
     const viewParam =
       typeof out.view === "string" && out.view.trim() ? out.view.trim() : "";
-    const toParam =
-      typeof out.path === "string" && out.path.trim()
-        ? out.path.trim()
-        : undefined;
     const params =
       out.params && typeof out.params === "object" && !Array.isArray(out.params)
         ? (out.params as Record<
@@ -452,13 +467,14 @@ function mcpAppEmbedOpenLinkMeta(
             string | number | boolean | null | undefined
           >)
         : undefined;
-    const deepLinkPath = buildDeepLink({
-      app,
-      view: viewParam,
-      ...(toParam ? { to: toParam } : {}),
-      ...(params ? { params } : {}),
-    });
-    return toDesktopOpenUrl(deepLinkPath);
+    return toDesktopOpenUrl(
+      buildDeepLink({
+        app,
+        view: viewParam,
+        to: targetRoute,
+        ...(params ? { params } : {}),
+      }),
+    );
   })();
 
   return {
@@ -1222,9 +1238,20 @@ export async function createMCPServerForRequest(
             : {}),
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
+        const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
+        const toolVisibility = toolUiMeta.visibility;
+        const isAppOnlyVisibility =
+          Array.isArray(toolVisibility) &&
+          toolVisibility.length > 0 &&
+          toolVisibility.every((v) => v === "app");
         const structuredContent = mcpAppResource
           ? mcpAppStructuredContent(rawResult, responseMeta)
-          : undefined;
+          : isAppOnlyVisibility &&
+              rawResult &&
+              typeof rawResult === "object" &&
+              !Array.isArray(rawResult)
+            ? (rawResult as Record<string, unknown>)
+            : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
           : typeof resultForClient === "string"

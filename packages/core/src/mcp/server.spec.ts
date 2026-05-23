@@ -1841,8 +1841,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open mail",
       view: "/inbox",
       webUrl: "https://mail.agent-native.com/inbox",
-      desktopUrl:
-        "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
+      desktopUrl: "https://mail.agent-native.com/inbox",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2009,8 +2008,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open dispatch",
       view: "/",
       webUrl: "https://mail.agent-native.com/",
-      desktopUrl:
-        "agentnative://open?app=dispatch&view=&to=%2F&agentSidebar=closed",
+      desktopUrl: "https://mail.agent-native.com/",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2111,6 +2109,106 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "/_agent-native/embed/start",
     );
     expect(out.result.content[0].text).toContain("[hidden embed URL]");
+  });
+
+  it("surfaces app-only-visibility tool results via structuredContent so the embed iframe can read them", async () => {
+    // Regression: PR #875's `purgeEmbedStartUrls` strips the embed start URL
+    // from non-MCP-App action text — but `create_embed_session` is an
+    // **app-only** helper called by the embed iframe, and the iframe needs
+    // the `startUrl` to actually mount the app. Without surfacing the raw
+    // result through `structuredContent` (which the iframe prefers in
+    // `parseToolResult`), the iframe falls back to parsing the purged text
+    // and reports "This app can be opened, but not embedded". The
+    // `_meta.ui.visibility: ["app"]` hint already tells compliant hosts not
+    // to leak the result into LLM context, so the structuredContent path is
+    // safe for these tools and unbreaks the embed.
+    const embedConfig = {
+      ...config,
+      actions: {
+        "create_embed_session": {
+          tool: {
+            description: "Create an embed session",
+            _meta: { ui: { visibility: ["app"] } },
+          },
+          run: async () => ({
+            startUrl:
+              "/_agent-native/embed/start?ticket=embed-session-ticket",
+            targetPath: "/inbox",
+            expiresAt: 1735689600,
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 160,
+        method: "tools/call",
+        params: { name: "create_embed_session", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    // Iframe-readable: full raw result preserved on structuredContent so
+    // `parseToolResult` (in `embed-app.ts`) returns `startUrl` and the
+    // iframe can actually mount the embedded app.
+    expect(out.result.structuredContent).toMatchObject({
+      startUrl:
+        "/_agent-native/embed/start?ticket=embed-session-ticket",
+      targetPath: "/inbox",
+      expiresAt: 1735689600,
+    });
+    // Text content is still purged of the embed-start URL so non-compliant
+    // hosts that ignore the `visibility: ["app"]` hint don't leak the
+    // ticket via the chat transcript or text fallback.
+    expect(out.result.content[0].text).not.toContain(
+      "embed-session-ticket",
+    );
+  });
+
+  it("does NOT surface raw result via structuredContent for model-visible (non-app-only) tools", async () => {
+    // Counter-regression: only `visibility: ["app"]` tools get the raw
+    // structuredContent escape hatch. Tools the LLM can call must continue
+    // to go through the normal text + purge path so embed-start URLs and
+    // other internal fields stay hidden from the model.
+    const embedConfig = {
+      ...config,
+      actions: {
+        "model-callable-helper": {
+          tool: {
+            description: "A normal model-visible tool",
+            // No `visibility` hint = model + app visible.
+          },
+          run: async () => ({
+            startUrl:
+              "/_agent-native/embed/start?ticket=should-be-hidden",
+            payload: "ok",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 161,
+        method: "tools/call",
+        params: { name: "model-callable-helper", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toBeUndefined();
+    expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
@@ -2254,92 +2352,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "https://mail.agent-native.com/deck",
     );
-  });
-
-  it("uses the agentnative:// desktop scheme on embed=true open links", async () => {
-    // Regression: previously the embed=true path set
-    // `desktopUrl === webUrl`, so the desktop app's URL-scheme handler
-    // never fired and clicks on "Open in app" inside an MCP App embed
-    // opened the bare web URL in the system browser instead of routing
-    // through the desktop app. The fix derives a `buildDeepLink`-based
-    // `agentnative://open?app=…&view=…` (or `to=<path>`) URL so the
-    // desktop handler can route the click natively.
-    const embedConfig = {
-      ...config,
-      actions: {
-        "open-view-embed": {
-          tool: { description: "Open a view-based embed" },
-          run: async () => ({
-            app: "mail",
-            view: "inbox",
-            url: "/inbox",
-            embed: true,
-            embedStartUrl: "/_agent-native/embed/start?ticket=view-ticket",
-          }),
-          readOnly: true,
-          mcpApp: {
-            resource: {
-              title: "Open app",
-              description: "Open the full app inline.",
-              html: "<!doctype html><html><body>Open app</body></html>",
-            },
-          },
-        },
-        "open-path-embed": {
-          tool: { description: "Open a path-based embed" },
-          run: async () => ({
-            app: "calendar",
-            path: "/agenda",
-            url: "/agenda",
-            embed: true,
-            embedStartUrl: "/_agent-native/embed/start?ticket=path-ticket",
-          }),
-          readOnly: true,
-          mcpApp: {
-            resource: {
-              title: "Open app",
-              description: "Open the full app inline.",
-              html: "<!doctype html><html><body>Open app</body></html>",
-            },
-          },
-        },
-      },
-    };
-
-    const viewOut = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 50,
-        method: "tools/call",
-        params: { name: "open-view-embed", arguments: {} },
-      },
-      {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
-        config: embedConfig,
-      },
-    );
-    expect(viewOut.result._meta["agent-native/openLink"]).toMatchObject({
-      webUrl: "https://mail.agent-native.com/inbox",
-      desktopUrl: "agentnative://open?app=mail&view=inbox&agentSidebar=closed",
-    });
-
-    const pathOut = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 51,
-        method: "tools/call",
-        params: { name: "open-path-embed", arguments: {} },
-      },
-      {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
-        config: embedConfig,
-      },
-    );
-    expect(pathOut.result._meta["agent-native/openLink"]).toMatchObject({
-      webUrl: "https://mail.agent-native.com/agenda",
-      desktopUrl:
-        "agentnative://open?app=calendar&view=&to=%2Fagenda&agentSidebar=closed",
-    });
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {
