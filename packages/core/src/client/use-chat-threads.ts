@@ -159,17 +159,25 @@ export function useChatThreads(
   const persistedKeyRef = useRef(activeThreadKey);
   useEffect(() => {
     if (persistedKeyRef.current !== activeThreadKey) {
-      persistedKeyRef.current = activeThreadKey;
       const currentId = activeThreadIdRef.current;
       if (currentId) {
         const currentThreadScope = readKnownThreadScope(currentId);
-        if (
-          currentThreadScope !== undefined &&
-          threadCanStayVisibleInScope(currentThreadScope, scopeRef.current)
-        ) {
+        // Thread metadata not yet loaded from the server — we can't tell
+        // whether the visible chat is general (stays) or scoped-elsewhere
+        // (swaps). Defer until `threads` resolves and this effect re-runs;
+        // we intentionally do NOT update `persistedKeyRef` so the next
+        // render gets another shot. Without this guard, navigating into a
+        // resource before `GET /threads` resolves silently dropped the
+        // active general chat the user was just in.
+        if (currentThreadScope === undefined) {
+          return;
+        }
+        if (threadCanStayVisibleInScope(currentThreadScope, scopeRef.current)) {
+          persistedKeyRef.current = activeThreadKey;
           return;
         }
       }
+      persistedKeyRef.current = activeThreadKey;
       try {
         setActiveThreadId(localStorage.getItem(activeThreadKey));
       } catch {

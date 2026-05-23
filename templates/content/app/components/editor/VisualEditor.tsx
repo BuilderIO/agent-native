@@ -639,6 +639,16 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
+  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // awkwardly in narrow columns and the cell itself is already an affordance.
+  if (
+    node.type.name === "paragraph" &&
+    (hasAncestorType(editor, pos, "tableCell") ||
+      hasAncestorType(editor, pos, "tableHeader"))
+  ) {
+    return "";
+  }
+
   return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
 }
 
