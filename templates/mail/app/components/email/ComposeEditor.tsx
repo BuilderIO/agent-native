@@ -142,7 +142,7 @@ export const ComposeEditor = forwardRef<
     },
   });
 
-  // Sync content from outside (when agent updates compose.json)
+  // Sync content from outside (when the agent updates compose-{id} app-state)
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const currentMd = (editor.storage as any).markdown.getMarkdown();
