@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   format,
   startOfMonth,
@@ -1492,7 +1493,7 @@ function AccountAvatars() {
                   zIndex: accounts.length - i,
                 }}
               >
-                {account.photoUrl ? (
+                {account.photoUrl && !isMcpEmbedSurface() ? (
                   <img
                     src={account.photoUrl}
                     alt=""
@@ -1500,6 +1501,11 @@ function AccountAvatars() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
+                  // MCP host iframes (ChatGPT / Claude) ship strict COEP/CORP
+                  // headers that block cross-origin googleusercontent.com
+                  // avatars and produce noisy console errors. Fall back to a
+                  // same-origin initial chip when embedded. See
+                  // `templates/calendar/app/lib/mcp-embed.ts`.
                   <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
                     {account.email[0]?.toUpperCase()}
                   </div>
