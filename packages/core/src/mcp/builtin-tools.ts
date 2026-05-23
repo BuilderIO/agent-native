@@ -269,18 +269,19 @@ function openAppTool(
         "focused route/component. No side " +
         "effects — returns a URL the user can click to land in the running UI. " +
         "Set embed:true when a UI-capable MCP host should render the live app " +
-        "or focused route/component inline.",
+        "or focused route/component inline. Omit view and path to land on the " +
+        "app's home page.",
       {
         app: { type: "string", description: "App id, e.g. 'mail'" },
         view: {
           type: "string",
           description:
-            "Target view, e.g. 'inbox' (maps to navigate command). Optional when path is provided.",
+            "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
         },
         path: {
           type: "string",
           description:
-            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative.",
+            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
         },
         params: {
           type: "object",
@@ -306,9 +307,14 @@ function openAppTool(
     run: async (args: Record<string, any>) => {
       const app = String(args.app ?? "").trim();
       const view = String(args.view ?? "").trim();
-      const path = safeAppPath(args.path);
-      if (!app || (!view && !path)) {
-        throw new Error("open_app requires 'app' and either 'view' or 'path'.");
+      // `safeAppPath` rejects anything that isn't a leading-slash same-origin
+      // path. When the caller passes nothing, fall back to the app's root so a
+      // bare `open_app({app:"dispatch"})` lands on the home page instead of
+      // throwing. The model self-corrects on the retry today, but the extra
+      // round-trip wastes a turn and looks broken to the user.
+      const path = safeAppPath(args.path) || (view ? null : "/");
+      if (!app) {
+        throw new Error("open_app requires 'app'.");
       }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
