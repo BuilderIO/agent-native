@@ -79,6 +79,41 @@ import {
 const BARE_ROUTES = new Set(["/email"]);
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
+function isMcpEmbedSurface(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("embedded") === "1";
+}
+
+function AccountAvatar({
+  email,
+  photoUrl,
+  imageClassName,
+  fallbackClassName,
+}: {
+  email: string;
+  photoUrl?: string | null;
+  imageClassName: string;
+  fallbackClassName: string;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const shouldLoadRemoteAvatar =
+    !!photoUrl && !isMcpEmbedSurface() && !imageFailed;
+
+  if (shouldLoadRemoteAvatar) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        className={imageClassName}
+        referrerPolicy="no-referrer"
+        onError={() => setImageFailed(true)}
+      />
+    );
+  }
+
+  return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
+}
+
 /**
  * Routes that render the slim "standard layout" chrome instead of the full
  * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
@@ -1196,18 +1231,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                 zIndex: accounts.length - i,
                               }}
                             >
-                              {account.photoUrl ? (
-                                <img
-                                  src={account.photoUrl}
-                                  alt=""
-                                  className="h-7 w-7 rounded-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                                  {account.email[0]?.toUpperCase()}
-                                </div>
-                              )}
+                              <AccountAvatar
+                                email={account.email}
+                                photoUrl={account.photoUrl}
+                                imageClassName="h-7 w-7 rounded-full object-cover"
+                                fallbackClassName="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary"
+                              />
                             </div>
                           );
                         })}
@@ -1344,18 +1373,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               isActive ? "opacity-100" : "opacity-30",
                             )}
                           >
-                            {account.photoUrl ? (
-                              <img
-                                src={account.photoUrl}
-                                alt=""
-                                className="h-8 w-8 rounded-full object-cover shrink-0"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
-                                {account.email[0]?.toUpperCase()}
-                              </div>
-                            )}
+                            <AccountAvatar
+                              email={account.email}
+                              photoUrl={account.photoUrl}
+                              imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
+                              fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
+                            />
                             <span className="text-[13px] text-foreground truncate">
                               {account.email}
                             </span>
@@ -2148,18 +2171,12 @@ function AccountPopover({
                   )}
                 </span>
               </button>
-              {account.photoUrl ? (
-                <img
-                  src={account.photoUrl}
-                  alt=""
-                  className="h-6 w-6 rounded-full object-cover shrink-0"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0">
-                  {account.email[0]?.toUpperCase()}
-                </div>
-              )}
+              <AccountAvatar
+                email={account.email}
+                photoUrl={account.photoUrl}
+                imageClassName="h-6 w-6 rounded-full object-cover shrink-0"
+                fallbackClassName="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0"
+              />
               <span className="text-[13px] text-foreground/80 truncate flex-1">
                 {account.email}
               </span>
