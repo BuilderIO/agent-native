@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.37
+
+### Patch Changes
+
+- 12d3c0f: Fix MCP app host catalog and embed metadata edge cases.
+
 ## 0.22.36
 
 ### Patch Changes
