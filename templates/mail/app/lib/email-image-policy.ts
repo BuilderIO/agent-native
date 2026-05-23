@@ -64,12 +64,16 @@ export function decodeHtmlEntities(value: string): string {
   return decoded;
 }
 
-function isInlineImageUrl(value: string): boolean {
+function isAllowedNonRemoteResourceUrl(value: string): boolean {
   const lower = decodeHtmlEntities(value)
     .trim()
     .replace(/[\s\u0000-\u001f\u007f]+/g, "")
     .toLowerCase();
-  return lower.startsWith("data:image/") || lower.startsWith("cid:");
+  return (
+    lower.startsWith("data:image/") ||
+    lower.startsWith("cid:") ||
+    lower.startsWith("#")
+  );
 }
 
 function stripCssRemoteResources(css: string): [string, number] {
@@ -84,7 +88,7 @@ function stripCssRemoteResources(css: string): [string, number] {
   const withoutRemoteUrls = withoutImports.replace(
     /url\(\s*(['"]?)([\s\S]*?)\1\s*\)/gi,
     (match, _quote: string, rawUrl: string) => {
-      if (isInlineImageUrl(rawUrl)) return match;
+      if (isAllowedNonRemoteResourceUrl(rawUrl)) return match;
       blocked++;
       return "none";
     },
@@ -110,7 +114,7 @@ export function processHtmlImages(
 
   images.forEach((img) => {
     const src = img.getAttribute("src") || "";
-    if (!src || isInlineImageUrl(src)) return;
+    if (!src || isAllowedNonRemoteResourceUrl(src)) return;
 
     if (policy === "block-all") {
       img.removeAttribute("src");
@@ -179,11 +183,23 @@ export function processHtmlImages(
       .forEach((el) => {
         for (const attrName of ["background", "poster", "src"]) {
           const value = el.getAttribute(attrName);
-          if (!value || isInlineImageUrl(value)) continue;
+          if (!value || isAllowedNonRemoteResourceUrl(value)) continue;
           el.removeAttribute(attrName);
           blocked++;
         }
       });
+
+    const svgResourceElements = new Set(["feimage", "image", "use"]);
+    root.querySelectorAll<Element>("*").forEach((el) => {
+      if (!svgResourceElements.has(el.localName.toLowerCase())) return;
+
+      for (const attrName of ["href", "xlink:href"]) {
+        const value = el.getAttribute(attrName);
+        if (!value || isAllowedNonRemoteResourceUrl(value)) continue;
+        el.removeAttribute(attrName);
+        blocked++;
+      }
+    });
   }
 
   return [template.innerHTML, blocked];

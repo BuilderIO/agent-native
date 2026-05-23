@@ -42,6 +42,24 @@ describe("processHtmlImages", () => {
     expect(html).toContain("data:image/png;base64,abcd");
   });
 
+  it("preserves same-document CSS fragment URLs while blocking remote URLs", () => {
+    const input = [
+      "<style>.icon{clip-path:url(#clipPath)}",
+      '.mask{mask:url("#mask")}',
+      ".hero{background-image:url(https://cdn.example.com/hero.png)}</style>",
+      '<div style="filter:url(#shadow); background:url(https://cdn.example.com/card.png)">Hello</div>',
+    ].join("");
+
+    const [html, blockedCount] = processHtmlImages(input, "block-all");
+
+    expect(blockedCount).toBe(2);
+    expect(html).toContain("url(#clipPath)");
+    expect(html).toContain('url("#mask")');
+    expect(html).toContain("url(#shadow)");
+    expect(html).not.toContain("https://cdn.example.com/hero.png");
+    expect(html).not.toContain("https://cdn.example.com/card.png");
+  });
+
   it("removes link elements with remote hrefs", () => {
     const input =
       '<link href="https://cdn.example.com/email.css"><link href="https://cdn.example.com/font.woff2"><p>Hello</p>';
@@ -63,5 +81,26 @@ describe("processHtmlImages", () => {
     expect(blockedCount).toBe(2);
     expect(html).not.toContain("https://cdn.example.com/bg.png");
     expect(html).not.toContain("https://cdn.example.com/poster.png");
+  });
+
+  it("removes remote SVG fetch attributes while preserving local references", () => {
+    const input = [
+      "<svg>",
+      '<image href="https://cdn.example.com/pixel.png" xlink:href="cid:logo"></image>',
+      '<feImage href="#filterSource" xlink:href="https://cdn.example.com/filter.png"></feImage>',
+      '<use href="#symbol"></use>',
+      '<use xlink:href="https://cdn.example.com/sprite.svg#icon"></use>',
+      "</svg>",
+    ].join("");
+
+    const [html, blockedCount] = processHtmlImages(input, "block-all");
+
+    expect(blockedCount).toBe(3);
+    expect(html).not.toContain("https://cdn.example.com/pixel.png");
+    expect(html).not.toContain("https://cdn.example.com/filter.png");
+    expect(html).not.toContain("https://cdn.example.com/sprite.svg#icon");
+    expect(html).toContain("cid:logo");
+    expect(html).toContain("#filterSource");
+    expect(html).toContain("#symbol");
   });
 });
