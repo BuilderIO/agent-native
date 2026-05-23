@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.22.36
+
+### Patch Changes
+
+- 1c0b51e: Add ShareButton options for template-specific access labels and top-positioned share links.
+- 1c0b51e: Fix MCP app host context clearing, compact catalog compatibility, and embed-only open-link metadata.
+- 1c0b51e: Keep general chat threads visible when navigating into scoped resources.
+- 1c0b51e: Keep MCP App host catalogs compact by default, hide one-time embed tickets from model-visible output, and keep host follow-up prompts separate from hidden context.
+- 1c0b51e: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+- 1c0b51e: Improve ShareButton member autocomplete with server-side org-member search, pagination, and keyboard selection.
+
 ## 0.22.35
 
 ### Patch Changes
