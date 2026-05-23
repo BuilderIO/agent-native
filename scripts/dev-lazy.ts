@@ -61,17 +61,20 @@ Usage:
   node scripts/dev-lazy.ts [options]
 
 Options:
-  --apps <names>       Comma-separated templates to expose (default: core)
-  --apps=<names>       Same as --apps <names>
-  --all                Expose every template in packages/shared-app-config
-  --desktop            Also start the clips-desktop tray (Tauri)
-  --electron           Also start the Electron desktop shell and frame
-  --eager              Start every exposed template immediately
-  --open               Open the gateway URL in the browser on ready
-  --no-open            (legacy / no-op — auto-open is off by default)
-  --no-kill            Do not kill stale processes on gateway/template ports
-  --dry-run            Print ports and commands without spawning
-  -h, --help           Show this help message
+  --apps <names>            Comma-separated templates to expose (default: core)
+  --apps=<names>            Same as --apps <names>
+  --all                     Expose every template in packages/shared-app-config
+  --desktop                 Also start the clips-desktop tray (Tauri)
+  --electron                Also start the Electron desktop shell and frame
+  --eager                   Start every exposed template immediately
+  --no-prewarm              Skip background prewarm of non-default templates
+                            (defaults to on in lazy mode)
+  --prewarm-concurrency=N   Max parallel Vite spawns during prewarm (default 2)
+  --open                    Open the gateway URL in the browser on ready
+  --no-open                 (legacy / no-op — auto-open is off by default)
+  --no-kill                 Do not kill stale processes on gateway/template ports
+  --dry-run                 Print ports and commands without spawning
+  -h, --help                Show this help message
 
 Examples:
   pnpm dev:lazy
@@ -152,6 +155,30 @@ const includeDesktop = hasFlag("--desktop");
 const includeElectron = hasFlag("--electron");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
+const prewarmEnabled = (() => {
+  if (eager) return false;
+  if (hasFlag("--no-prewarm")) return false;
+  const env = process.env.WORKSPACE_NO_PREWARM;
+  if (env === "1" || env === "true") return false;
+  return true;
+})();
+const prewarmConcurrency = (() => {
+  const raw =
+    flagValue("--prewarm-concurrency") ??
+    process.env.WORKSPACE_PREWARM_CONCURRENCY ??
+    null;
+  if (!raw) return 2;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return 2;
+  return Math.floor(parsed);
+})();
+const prewarmDelayMs = (() => {
+  const raw = process.env.WORKSPACE_PREWARM_DELAY_MS;
+  if (raw === undefined) return 1_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 1_000;
+  return Math.floor(parsed);
+})();
 const isHeadlessEnv =
   process.env.CI === "1" ||
   process.env.CI === "true" ||
@@ -528,6 +555,49 @@ function ensureReadinessProbe(app: TemplateApp): void {
     .finally(() => {
       app.readinessProbe = undefined;
     });
+}
+
+/**
+ * Background-spawn templates other than the default so the first navigation
+ * into each one doesn't pay the cold Vite + esbuild prebundle cost. The lazy
+ * proxy still handles correctness; this just makes second/third/Nth visits
+ * feel instant. Concurrency-limited to keep CPU pressure sane on laptops.
+ */
+async function prewarmRemainingApps(): Promise<void> {
+  const queue = apps
+    .filter((app) => app.id !== defaultApp)
+    .filter((app) => !(app.process && !app.process.killed))
+    .map((app) => app.id);
+
+  if (queue.length === 0) return;
+
+  console.log(
+    `[dev-lazy] Prewarming ${queue.length} template(s) in the background ` +
+      `(concurrency ${prewarmConcurrency}; pass --no-prewarm to disable)`,
+  );
+
+  if (prewarmDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, prewarmDelayMs));
+  }
+  if (shuttingDown) return;
+
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (!shuttingDown && next < queue.length) {
+      const id = queue[next++];
+      const app = selectedById.get(id);
+      if (!app) continue;
+      if (app.process && !app.process.killed) continue;
+      startApp(app);
+      ensureReadinessProbe(app);
+      await waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).catch(
+        () => false,
+      );
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(prewarmConcurrency, queue.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 
 function forwardedProto(req: http.IncomingMessage): string {
@@ -955,7 +1025,11 @@ function shutdown(code = 0): void {
 
 if (dryRun) {
   console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
-  console.log(`[dev-lazy] Mode: ${eager ? "eager" : "lazy"}`);
+  console.log(
+    `[dev-lazy] Mode: ${
+      eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
+    }`,
+  );
   if (usePollingFileWatcher) {
     console.log(
       `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
@@ -1024,7 +1098,11 @@ function listen(port: number, attempts = 20): void {
     gatewayUrl = `http://${gatewayHost}:${actualPort}`;
     console.log(`[dev-lazy] Default: ${gatewayUrl}/${defaultApp}`);
     console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
-    console.log(`[dev-lazy] Mode: ${eager ? "eager" : "lazy"}`);
+    console.log(
+      `[dev-lazy] Mode: ${
+        eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
+      }`,
+    );
     for (const app of apps) {
       console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }
@@ -1034,6 +1112,15 @@ function listen(port: number, attempts = 20): void {
     } else if (!includeElectron) {
       const app = selectedById.get(defaultApp);
       if (app) startApp(app);
+      if (prewarmEnabled) {
+        void prewarmRemainingApps().catch((err) => {
+          console.error(
+            `[dev-lazy] Prewarm error: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+      }
     }
 
     if (includeDesktop) {

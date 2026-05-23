@@ -113,6 +113,66 @@ export function shouldEagerStartWorkspaceApps(
   );
 }
 
+/**
+ * Whether the gateway should spawn the rest of the apps in the background
+ * after the default app boots. Lazy spawn already covers correctness — this
+ * is purely a UX optimization so the second/third/Nth app the user clicks
+ * into is already warm instead of paying the Vite + esbuild prebundle cost
+ * on demand.
+ *
+ * Defaults to ON in lazy mode. Off when the user passed --no-prewarm /
+ * WORKSPACE_NO_PREWARM=1, or when eager mode is already starting every app
+ * up front (in which case prewarm would be redundant).
+ */
+export function shouldPrewarmWorkspaceApps(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (args.includes("--no-prewarm")) return false;
+  if (env.WORKSPACE_NO_PREWARM === "1" || env.WORKSPACE_NO_PREWARM === "true") {
+    return false;
+  }
+  // Eager mode starts every app immediately; prewarm has nothing to do.
+  if (shouldEagerStartWorkspaceApps(args, env)) return false;
+  return true;
+}
+
+/**
+ * How many apps to prewarm in parallel. Each Vite spawn briefly maxes out a
+ * CPU core during esbuild prebundling, so booting all 9 templates at once on
+ * a 4-core laptop just produces a thundering herd. Default 2 — gentle on
+ * laptops, fast enough that all apps finish within a few cold-spawn windows.
+ * Override via --prewarm-concurrency=N or WORKSPACE_PREWARM_CONCURRENCY=N.
+ */
+export function workspacePrewarmConcurrency(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const flag = args.find((arg) => arg.startsWith("--prewarm-concurrency="));
+  const raw = flag
+    ? flag.slice("--prewarm-concurrency=".length)
+    : env.WORKSPACE_PREWARM_CONCURRENCY;
+  if (!raw) return 2;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return 2;
+  return Math.floor(parsed);
+}
+
+/**
+ * How long the prewarm queue waits after the gateway is ready before kicking
+ * off background spawns. Lets the default app's prebundle get first dibs on
+ * CPU. Override via WORKSPACE_PREWARM_DELAY_MS (mostly for tests).
+ */
+export function workspacePrewarmDelayMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.WORKSPACE_PREWARM_DELAY_MS;
+  if (raw === undefined) return 1_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 1_000;
+  return Math.floor(parsed);
+}
+
 function readBooleanEnv(value: string | undefined): boolean | undefined {
   if (value === undefined) return undefined;
   const normalized = value.trim().toLowerCase();
@@ -1041,6 +1101,62 @@ export async function runWorkspaceDev(
     }, 2_000).unref();
   }
 
+  /**
+   * Background-spawn every app that wasn't started by `startWorkspaceProcesses`.
+   * The lazy proxy still handles correctness (an on-demand request always
+   * starts its target app); this is purely so the first navigation into a
+   * non-default app doesn't pay the cold Vite + esbuild prebundle cost.
+   *
+   * Fires after a short delay so the default app's prebundle gets first dibs
+   * on CPU. Concurrency-limited to avoid hammering a small dev machine —
+   * each Vite spawn briefly maxes out a core during prebundling.
+   */
+  async function prewarmRemainingApps(): Promise<void> {
+    const concurrency = workspacePrewarmConcurrency(args, env);
+    const delayMs = workspacePrewarmDelayMs(env);
+
+    const queue = apps
+      .filter((app) => app.id !== defaultApp)
+      .filter((app) => !(app.process && !app.process.killed))
+      .map((app) => app.id);
+
+    if (queue.length === 0) return;
+
+    stdout.write(
+      `[workspace] Prewarming ${queue.length} app(s) in the background ` +
+        `(concurrency ${concurrency}; pass --no-prewarm to disable)\n`,
+    );
+
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    if (shuttingDown) return;
+
+    let next = 0;
+    async function worker(): Promise<void> {
+      while (!shuttingDown && next < queue.length) {
+        const id = queue[next++];
+        const app = appById.get(id);
+        if (!app) continue;
+        // Another path (a real request, a restart, etc.) may have started
+        // this app already — skip without consuming a worker slot needlessly.
+        if (app.process && !app.process.killed) continue;
+        startApp(app);
+        ensureReadinessProbe(app);
+        // Wait for the upstream to accept connections before pulling the next
+        // app off the queue. This is what actually limits *concurrent
+        // prebundling* (not just concurrent spawning) and keeps CPU pressure
+        // sane. proxyReadyTimeoutMs caps any single stuck app.
+        await waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).catch(
+          () => false,
+        );
+      }
+    }
+
+    const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  }
+
   function openBrowser(url: string): void {
     if (options.openBrowser === false || env.WORKSPACE_NO_OPEN === "1") return;
     const command =
@@ -1146,13 +1262,27 @@ export async function runWorkspaceDev(
         `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
       );
       stdout.write(`[workspace] Gateway: ${gatewayUrl}\n`);
-      stdout.write(`[workspace] Mode: ${eager ? "eager" : "lazy"}\n`);
+      const prewarming = shouldPrewarmWorkspaceApps(args, env);
+      stdout.write(
+        `[workspace] Mode: ${
+          eager ? "eager" : prewarming ? "lazy+prewarm" : "lazy"
+        }\n`,
+      );
       for (const app of apps) {
         stdout.write(
           `[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}\n`,
         );
       }
       startWorkspaceProcesses();
+      if (prewarming) {
+        void prewarmRemainingApps().catch((err) => {
+          stderr.write(
+            `[workspace] Prewarm error: ${
+              err instanceof Error ? err.message : String(err)
+            }\n`,
+          );
+        });
+      }
       openBrowser(
         redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl,
       );
