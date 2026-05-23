@@ -15,6 +15,13 @@ export {
 } from "./EmbeddedExtension.js";
 export { ExtensionSlot, type ExtensionSlotProps } from "./ExtensionSlot.js";
 export {
+  deleteOrHideExtension,
+  hideExtensionForCurrentUser,
+  invalidateExtensionRemoval,
+  type ExtensionDeleteResult,
+  type ExtensionDeleteTarget,
+} from "./delete-extension.js";
+export {
   EXTENSION_SLUG_MAX_LENGTH,
   extensionIdFromPathname,
   extensionNameToSlug,

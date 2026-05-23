@@ -310,6 +310,18 @@ export const TEMPLATES: TemplateMeta[] = [
     hidden: true,
   },
   {
+    name: "workbench",
+    label: "Workbench",
+    hint: "Visual command center for AI-assisted work — review PRs, monitor agent runs, build mini-tools",
+    icon: "LayoutDashboard",
+    color: "#475569",
+    colorRgb: "71 85 105",
+    devPort: 8104,
+    prodUrl: "https://workbench.agent-native.com",
+    defaultMode: "prod",
+    hidden: true,
+  },
+  {
     name: "macros",
     label: "Macros",
     hint: "Internal template — not shown in pickers",
