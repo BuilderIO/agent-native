@@ -1841,7 +1841,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open mail",
       view: "/inbox",
       webUrl: "https://mail.agent-native.com/inbox",
-      desktopUrl: "https://mail.agent-native.com/inbox",
+      desktopUrl:
+        "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2008,7 +2009,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       label: "Open dispatch",
       view: "/",
       webUrl: "https://mail.agent-native.com/",
-      desktopUrl: "https://mail.agent-native.com/",
+      desktopUrl:
+        "agentnative://open?app=dispatch&view=&to=%2F&agentSidebar=closed",
     });
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
@@ -2125,14 +2127,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const embedConfig = {
       ...config,
       actions: {
-        "create_embed_session": {
+        create_embed_session: {
           tool: {
             description: "Create an embed session",
             _meta: { ui: { visibility: ["app"] } },
           },
           run: async () => ({
-            startUrl:
-              "/_agent-native/embed/start?ticket=embed-session-ticket",
+            startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
             targetPath: "/inbox",
             expiresAt: 1735689600,
           }),
@@ -2158,17 +2159,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // `parseToolResult` (in `embed-app.ts`) returns `startUrl` and the
     // iframe can actually mount the embedded app.
     expect(out.result.structuredContent).toMatchObject({
-      startUrl:
-        "/_agent-native/embed/start?ticket=embed-session-ticket",
+      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
     // Text content is still purged of the embed-start URL so non-compliant
     // hosts that ignore the `visibility: ["app"]` hint don't leak the
     // ticket via the chat transcript or text fallback.
-    expect(out.result.content[0].text).not.toContain(
-      "embed-session-ticket",
-    );
+    expect(out.result.content[0].text).not.toContain("embed-session-ticket");
   });
 
   it("does NOT surface raw result via structuredContent for model-visible (non-app-only) tools", async () => {
@@ -2185,8 +2183,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             // No `visibility` hint = model + app visible.
           },
           run: async () => ({
-            startUrl:
-              "/_agent-native/embed/start?ticket=should-be-hidden",
+            startUrl: "/_agent-native/embed/start?ticket=should-be-hidden",
             payload: "ok",
           }),
         },
@@ -2352,6 +2349,89 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "https://mail.agent-native.com/deck",
     );
+  });
+
+  it("preserves route query params in embed desktop open links", async () => {
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-thread-route": {
+          tool: { description: "Open a thread route inline" },
+          run: async () => ({
+            app: "mail",
+            view: "inbox",
+            url: "/inbox?threadId=abc123&filter=unread",
+            embed: true,
+            embedStartUrl:
+              "/_agent-native/embed/start?ticket=thread-route-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open thread",
+              description: "Open the thread inline.",
+              html: "<!doctype html><html><body>Thread</body></html>",
+            },
+          },
+        },
+        "open-route-with-params": {
+          tool: { description: "Open a route with side params" },
+          run: async () => ({
+            app: "calendar",
+            path: "/agenda",
+            url: "/agenda",
+            params: { eventId: "evt-1", date: "2026-05-23" },
+            embed: true,
+            embedStartUrl: "/_agent-native/embed/start?ticket=agenda-ticket",
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open agenda",
+              description: "Open the agenda inline.",
+              html: "<!doctype html><html><body>Agenda</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const routeOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 50,
+        method: "tools/call",
+        params: { name: "open-thread-route", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+    expect(routeOut.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl:
+        "https://mail.agent-native.com/inbox?threadId=abc123&filter=unread",
+      desktopUrl:
+        "agentnative://open?app=mail&view=inbox&to=%2Finbox%3FthreadId%3Dabc123%26filter%3Dunread&agentSidebar=closed",
+    });
+
+    const paramsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 51,
+        method: "tools/call",
+        params: { name: "open-route-with-params", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+    expect(paramsOut.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: "https://mail.agent-native.com/agenda",
+      desktopUrl:
+        "agentnative://open?app=calendar&view=&to=%2Fagenda&eventId=evt-1&date=2026-05-23&agentSidebar=closed",
+    });
   });
 
   it("rejects unauthenticated calls with 401 when auth IS configured (no 501)", async () => {
