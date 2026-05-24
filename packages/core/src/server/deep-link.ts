@@ -35,8 +35,6 @@ export interface DeepLinkInput {
   /** Explicit client-side path override (must be a same-origin, leading-slash
    *  relative path — enforced by the open route). */
   to?: string;
-  /** Base64url-encoded JSON compose draft (mail's `compose-{id}` contract). */
-  compose?: string;
 }
 
 function buildQuery(input: DeepLinkInput): string {
@@ -44,7 +42,6 @@ function buildQuery(input: DeepLinkInput): string {
   if (input.app) sp.set("app", input.app);
   sp.set("view", input.view);
   if (input.to) sp.set("to", input.to);
-  if (input.compose) sp.set("compose", input.compose);
   for (const [k, v] of Object.entries(input.params ?? {})) {
     if (v === undefined || v === null || v === "") continue;
     sp.set(k, String(v));

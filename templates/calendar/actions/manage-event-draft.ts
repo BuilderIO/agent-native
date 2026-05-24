@@ -22,7 +22,6 @@ import {
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
 
-const MAX_DRAFT_PAYLOAD_BYTES = 1536;
 const DRAFT_PREFIX = "calendar-draft-";
 
 const attendeesInput = z
@@ -64,23 +63,18 @@ function normalizeAttendees(
     }));
 }
 
-function encodeDraft(draft: CalendarEventDraft): string {
-  return Buffer.from(JSON.stringify(draft)).toString("base64url");
-}
-
-function encodeDraftPayload(draft: CalendarEventDraft): string {
-  const full = encodeDraft(draft);
-  if (Buffer.byteLength(full, "utf8") <= MAX_DRAFT_PAYLOAD_BYTES) {
-    return full;
-  }
-  return encodeDraft({
-    id: draft.id,
-    title: draft.title,
-    start: draft.start,
-    end: draft.end,
-  });
-}
-
+/**
+ * Deep link that reopens an unsent calendar event draft.
+ *
+ * The link is an opaque pointer (draft id + date only). The full draft —
+ * title, attendees, description, location — lives in the
+ * `calendar-draft-{id}` app-state row written by this action, so the
+ * calendar reads it from there on render. We deliberately do NOT inline the
+ * draft contents into the URL: external MCP hosts (ChatGPT / Claude)
+ * surface this link in their UI, the host LLM can see and remember query
+ * strings, and shared / exported chat transcripts would otherwise leak
+ * private meeting content.
+ */
 function eventDraftDeepLink(draft: CalendarEventDraft): string {
   return buildDeepLink({
     app: "calendar",
@@ -88,7 +82,6 @@ function eventDraftDeepLink(draft: CalendarEventDraft): string {
     to: "/",
     params: {
       eventDraftId: draft.id,
-      calendarDraft: encodeDraftPayload(draft),
       date: draft.start?.slice(0, 10),
     },
   });
@@ -181,6 +174,7 @@ export default defineAction({
       .describe("Account email to create the event on"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Review calendar invite",
       description:

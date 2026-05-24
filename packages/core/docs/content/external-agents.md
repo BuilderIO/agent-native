@@ -52,7 +52,10 @@ OAuth grants are per host and per user. The host stores the tokens and
 mediates tool/resource calls, so inline MCP App previews never receive raw
 OAuth tokens. ChatGPT can keep a reviewed or published connector's tool
 snapshot until you refresh/review it again, so rescan the connector after MCP
-tool or MCP App metadata changes. The scopes are:
+tool or MCP App metadata changes. If you still have old per-app connectors
+enabled alongside Dispatch, refresh or reconnect each stale connector; updating
+Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
+snapshots. The scopes are:
 
 | Scope       | What it enables                                      |
 | ----------- | ---------------------------------------------------- |
@@ -237,11 +240,13 @@ embedded routes so a reload with the same signed URL reconstructs the same
 view.
 
 For same-app `open_app({ embed: true })`, the framework mints the embed-start
-ticket during the original tool call and returns `embedStartUrl` in the hidden
-structured payload. Custom actions can do the same. When no `embedStartUrl` is
+ticket during the original tool call and stores the signed start URL in hidden
+tool metadata. Custom actions can return `embedStartUrl` for the same fast
+path; the MCP layer strips that ticket-bearing URL from model-visible
+`structuredContent` and normal open-link metadata. When no embed start URL is
 present, the resource falls back to the app-only `create_embed_session` helper.
 This keeps production hosts that restrict iframe-initiated tool calls on the
-direct route.
+direct route without leaking one-time app session URLs into the transcript.
 
 ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
 document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,
@@ -438,7 +443,9 @@ loads third-party assets.
 Inside those `embedApp()` routes, `sendToAgentChat()` is embed-aware.
 Auto-submitted prompts relay to the MCP host as `ui/update-model-context` plus
 `ui/message`, so a button in the embedded app can intentionally continue the
-Claude/ChatGPT conversation from the selected app state. `submit: false`
+Claude/ChatGPT conversation from the selected app state. Hidden context is sent
+as model context; the visible user turn stays just the app's prompt, which
+avoids scary host consent around internal app-state file paths. `submit: false`
 remains local prefill/review behavior.
 
 ### The `link` contract {#link-contract}
@@ -587,6 +594,10 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - When validating ChatGPT or Claude web, trigger a fresh tool call after shell
   changes and measure the visible iframe. Previously rendered frames in the
   same conversation may still show cached height or launch behavior.
+- Keep ChatGPT/Claude app-host catalogs compact. Use Dispatch and
+  `open_app({ embed: true })` for full-app previews; only mark a specific
+  action `mcpApp.compactCatalog: true` when it must appear directly in the
+  compact host discovery surface.
 
 **Don't**
 

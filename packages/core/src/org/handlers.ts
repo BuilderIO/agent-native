@@ -187,20 +187,71 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { members: [] };
+  if (!ctx.orgId) return { members: [], hasMore: false, nextOffset: null };
+
+  const url = getRequestURL(event);
+  const search = (
+    url.searchParams.get("search") ??
+    url.searchParams.get("q") ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  const hasLimit = url.searchParams.has("limit");
+  const hasOffset = url.searchParams.has("offset");
+  const shouldPaginate = hasLimit || hasOffset || search.length > 0;
+  const limit = shouldPaginate
+    ? clampInteger(url.searchParams.get("limit"), 25, 1, 100)
+    : null;
+  const offset = shouldPaginate
+    ? clampInteger(url.searchParams.get("offset"), 0, 0, 100_000)
+    : 0;
 
   const e = await exec();
+  const args: unknown[] = [ctx.orgId];
+  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
+  if (search) {
+    sql += ` AND LOWER(email) LIKE ? ESCAPE '\\'`;
+    args.push(`%${escapeLike(search)}%`);
+  }
+  sql += ` ORDER BY LOWER(email) ASC`;
+  if (limit !== null) {
+    sql += ` LIMIT ? OFFSET ?`;
+    args.push(limit + 1, offset);
+  }
+
   const { rows } = await e.execute({
-    sql: `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`,
-    args: [ctx.orgId],
+    sql,
+    args,
   });
-  const members = rows.map((r: any) => ({
+  const pageRows = limit !== null ? rows.slice(0, limit) : rows;
+  const hasMore = limit !== null && rows.length > limit;
+  const members = pageRows.map((r: any) => ({
     email: String(r.email),
     role: String(r.role) as OrgRole,
     joinedAt: Number(r.joinedAt ?? r.joined_at),
   }));
-  return { members };
+  return {
+    members,
+    hasMore,
+    nextOffset: hasMore ? offset + members.length : null,
+  };
 });
+
+function clampInteger(
+  input: string | null,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const value = input === null ? fallback : Number.parseInt(input, 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
 
 function normalizeInviteRole(input: unknown): "member" | "admin" {
   return input === "admin" ? "admin" : "member";

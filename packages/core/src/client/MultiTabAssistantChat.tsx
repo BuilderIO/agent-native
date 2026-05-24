@@ -715,11 +715,10 @@ export type MultiTabAssistantChatProps = Omit<
   browserTabId?: string;
   /**
    * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
-   * the tab bar, history popover, and active-thread persistence all
-   * partition by `{type, id}` — switching resources lands the user on the
-   * thread they last had open for that resource, not whichever chat was
-   * globally active. New chats automatically inherit this scope; the user
-   * can detach a chat via the scope chip above the composer.
+   * new chats automatically inherit this scope and scoped chats tuck away when
+   * the user leaves the resource. General chats remain visible across resource
+   * navigation, and the user can detach a scoped chat via the scope chip above
+   * the composer.
    */
   scope?: ChatThreadScope | null;
 };

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createServer } from "node:net";
 import { verifyAuth } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import type { MCPConfig } from "./build-server.js";
@@ -122,6 +123,23 @@ function baseConfig(over: Partial<MCPConfig> = {}): MCPConfig {
     actions: {},
     ...over,
   };
+}
+
+async function reserveUnusedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  const port =
+    address && typeof address === "object" && typeof address.port === "number"
+      ? address.port
+      : 0;
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  return port;
 }
 
 describe("open_app — same-app / standalone keeps a relative deep link", () => {
@@ -280,10 +298,21 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     expect(result.embed).toBe(true);
   });
 
-  it("rejects open_app calls without a view or path", async () => {
+  it("defaults to the app's home page when neither view nor path is given", async () => {
+    // Bare `open_app({app:"mail"})` should land on `/`, not throw — otherwise
+    // hosts (ChatGPT/Claude) waste a turn on the model's first-attempt retry
+    // when it omits view/path on initial call. See PR #884 chrome agent
+    // findings: "first open_app({app:'dispatch'}) returns parameter error".
     const tools = getBuiltinCrossAppTools(baseConfig());
-    await expect(tools.open_app.run({ app: "mail" })).rejects.toThrow(
-      /either 'view' or 'path'/,
+    const result: any = await tools.open_app.run({ app: "mail" });
+    expect(result.url).toMatch(/^\/$/);
+    expect(result.app).toBe("mail");
+  });
+
+  it("still rejects open_app calls without an app id", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(tools.open_app.run({} as any)).rejects.toThrow(
+      /requires 'app'/,
     );
   });
 });
@@ -324,6 +353,7 @@ describe("list_apps — reports the live request origin for the current app", ()
   });
 
   it("falls back to probed values when no request origin is known (stdio standalone)", async () => {
+    process.env.PORT = String(await reserveUnusedPort());
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }));
     const result: any = await tools.list_apps.run({});
     expect(result.apps).toHaveLength(1);

@@ -1,10 +1,15 @@
 import {
-  forwardRef,
+  useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type ReactNode,
+} from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  UIEvent as ReactUIEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,11 +20,14 @@ import {
   IconCheck,
   IconChevronDown,
   IconCopy,
+  IconLoader2,
+  IconSearch,
   IconSearchOff,
 } from "@tabler/icons-react";
 import * as Select from "@radix-ui/react-select";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
@@ -46,6 +54,9 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
+  /** Where to render share links in the popover. Defaults to the bottom,
+   *  matching the historical Google-Docs-style share dialog. */
+  shareUrlPlacement?: "top" | "bottom";
   /** Optional placeholder shown in the share-URL slot when `shareUrl` is
    *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
    *  this form to get a public response link") instead of leaving the slot
@@ -70,6 +81,10 @@ export interface ShareButtonProps {
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
   >;
+  /** Optional label for the explicit per-person access list. */
+  peopleAccessLabel?: ReactNode;
+  /** Optional label for the coarse visibility control. */
+  generalAccessLabel?: ReactNode;
   /** Optional note rendered between general access and the copyable link. */
   accessNote?: ReactNode;
   /** Optional Notion-style organization access control. When present, the
@@ -128,6 +143,8 @@ const BUTTON_GHOST_ICON = cn(
 );
 const SHARE_POPOVER_SURFACE =
   "border-[hsl(var(--sidebar-border,var(--border)))] bg-[hsl(var(--sidebar-background,var(--popover)))]";
+const MEMBER_SUGGESTION_LIMIT = 25;
+const MEMBER_SEARCH_DEBOUNCE_MS = 140;
 
 const VIS_META: Record<
   Visibility,
@@ -318,32 +335,163 @@ export function ShareButton(props: ShareButtonProps) {
 interface OrgMember {
   email: string;
   name?: string | null;
+  role?: string | null;
+  joinedAt?: number | null;
 }
 
-function useOrgMembers(): OrgMember[] {
+interface OrgMembersResponse {
+  members: OrgMember[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
+}
+
+interface OrgMemberSearch {
+  members: OrgMember[];
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  error: boolean;
+  loadMore: () => void;
+}
+
+function useOrgMemberSearch(query: string, enabled: boolean): OrgMemberSearch {
+  const search = query.trim();
   const [members, setMembers] = useState<OrgMember[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(agentNativePath("/_agent-native/org/members"))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        const list = Array.isArray(data?.members) ? data.members : [];
-        setMembers(
-          list
-            .map((m: any) => ({
-              email: typeof m?.email === "string" ? m.email : "",
-              name: typeof m?.name === "string" ? m.name : null,
-            }))
-            .filter((m: OrgMember) => m.email),
-        );
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState(false);
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchPage = useCallback(
+    (offset: number, append: boolean) => {
+      if (!enabled) return;
+      const requestId = ++requestIdRef.current;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      if (append) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoading(true);
+        setMembers([]);
+        setNextOffset(null);
+        setHasMore(false);
+      }
+      setError(false);
+
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      params.set("limit", String(MEMBER_SUGGESTION_LIMIT));
+      params.set("offset", String(offset));
+
+      fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
+        credentials: "include",
+        signal: controller.signal,
       })
-      .catch(() => {});
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load people");
+          return response.json() as Promise<OrgMembersResponse>;
+        })
+        .then((data) => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          const nextMembers = normalizeMembers(data?.members);
+          setMembers((prev) =>
+            append ? mergeMembers(prev, nextMembers) : nextMembers,
+          );
+          setHasMore(data?.hasMore === true);
+          setNextOffset(
+            typeof data?.nextOffset === "number" ? data.nextOffset : null,
+          );
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          setError(true);
+          setHasMore(false);
+          setNextOffset(null);
+          if (!append) setMembers([]);
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[ShareButton] org member search failed", err);
+          }
+        })
+        .finally(() => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          if (append) setIsLoadingMore(false);
+          else setIsLoading(false);
+        });
+    },
+    [enabled, search],
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      abortRef.current?.abort();
+      setMembers([]);
+      setNextOffset(null);
+      setHasMore(false);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setError(false);
+      return;
+    }
+    const timeout = setTimeout(
+      () => fetchPage(0, false),
+      search ? MEMBER_SEARCH_DEBOUNCE_MS : 0,
+    );
     return () => {
-      cancelled = true;
+      clearTimeout(timeout);
+      abortRef.current?.abort();
     };
-  }, []);
-  return members;
+  }, [enabled, fetchPage, search]);
+
+  const loadMore = useCallback(() => {
+    if (!enabled || !hasMore || nextOffset === null) return;
+    if (isLoading || isLoadingMore) return;
+    fetchPage(nextOffset, true);
+  }, [enabled, fetchPage, hasMore, isLoading, isLoadingMore, nextOffset]);
+
+  return {
+    members,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    error,
+    loadMore,
+  };
+}
+
+function normalizeMembers(value: unknown): OrgMember[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((m: any) => ({
+      email: typeof m?.email === "string" ? m.email : "",
+      name: typeof m?.name === "string" ? m.name : null,
+      role: typeof m?.role === "string" ? m.role : null,
+      joinedAt:
+        typeof m?.joinedAt === "number"
+          ? m.joinedAt
+          : typeof m?.joined_at === "number"
+            ? m.joined_at
+            : null,
+    }))
+    .filter((m) => m.email);
+}
+
+function mergeMembers(existing: OrgMember[], next: OrgMember[]): OrgMember[] {
+  const seen = new Set(existing.map((m) => m.email.toLowerCase()));
+  const merged = [...existing];
+  for (const member of next) {
+    const key = member.email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(member);
+  }
+  return merged;
 }
 
 function SharePanel(
@@ -371,9 +519,8 @@ function SharePanel(
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const hasInviteEmail = email.trim().length > 0;
-  const orgMembers = useOrgMembers();
-  const datalistId = `share-autocomplete-${resourceType}-${resourceId}`;
 
   // Optimistic overlays so clicks feel instant.
   const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
@@ -409,6 +556,41 @@ function SharePanel(
     visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = visibilityMeta(visibility, props.visibilityCopy);
+  const peopleAccessLabel = props.peopleAccessLabel ?? "People with access";
+  const generalAccessLabel = props.generalAccessLabel ?? "General access";
+  const shareLinks = (
+    <>
+      {props.shareUrl ? (
+        <CopyLinkField
+          value={props.shareUrl}
+          label={props.shareUrlLabel}
+          description={props.shareUrlDescription}
+        />
+      ) : props.shareUrlPlaceholder ? (
+        <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+          {props.shareUrlLabel ? (
+            <div className="mb-0.5 font-medium text-foreground">
+              {props.shareUrlLabel}
+            </div>
+          ) : null}
+          {props.shareUrlPlaceholder}
+        </div>
+      ) : null}
+
+      {props.secondaryShareUrl ? (
+        <CopyLinkField
+          value={props.secondaryShareUrl}
+          label={props.secondaryShareUrlLabel}
+          description={props.secondaryShareUrlDescription}
+        />
+      ) : null}
+    </>
+  );
+  const showShareLinks =
+    Boolean(props.shareUrl) ||
+    Boolean(props.shareUrlPlaceholder) ||
+    Boolean(props.secondaryShareUrl);
+  const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
 
   const serverShares = data?.shares ?? [];
   const shares: Share[] = [
@@ -417,6 +599,18 @@ function SharePanel(
       .map((s) => ({ ...s, role: roleOverrides[keyOf(s)] ?? s.role })),
     ...pendingAdds,
   ];
+  const memberSearch = useOrgMemberSearch(email, canManage && suggestionsOpen);
+  const excludedMemberEmails = new Set<string>();
+  if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
+  for (const s of shares) {
+    if (s.principalType === "user") {
+      excludedMemberEmails.add(s.principalId.toLowerCase());
+    }
+  }
+  const memberSuggestions = memberSearch.members.filter(
+    (m) => !excludedMemberEmails.has(m.email.toLowerCase()),
+  );
+  const knownMembers = memberSearch.members;
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
@@ -456,6 +650,7 @@ function SharePanel(
     setShareError(null);
     setPendingAdds((p) => [...p, optimistic]);
     setEmail("");
+    setSuggestionsOpen(false);
     addInFlight(k);
     share.mutate(
       {
@@ -583,9 +778,9 @@ function SharePanel(
           {titleText}
         </div>
         <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">People with access</div>
+        <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
         <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-        <div className="mb-2 text-sm font-semibold">General access</div>
+        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
         <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
         <div className="mt-2 flex justify-end">
           <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
@@ -602,49 +797,33 @@ function SharePanel(
         {titleText}
       </div>
 
+      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+
       {canManage ? (
         <div className="mb-4 space-y-2">
           <div className="flex items-stretch gap-2">
-            <input
-              type="email"
+            <MemberAutocomplete
+              value={email}
+              open={suggestionsOpen}
+              onOpenChange={setSuggestionsOpen}
+              onValueChange={(next) => {
+                setEmail(next);
+                if (shareError) setShareError(null);
+              }}
+              onSelectMember={(member) => {
+                setEmail(member.email);
+                setSuggestionsOpen(false);
+                if (shareError) setShareError(null);
+              }}
+              onSubmit={handleAdd}
               placeholder={
                 policy.requireOrgMemberForUserShares
                   ? "Add people from your organization"
                   : "Add people by email"
               }
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (shareError) setShareError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAdd();
-              }}
-              list={orgMembers.length > 0 ? datalistId : undefined}
-              autoComplete="off"
-              className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+              suggestions={memberSuggestions}
+              search={memberSearch}
             />
-            {orgMembers.length > 0 ? (
-              <datalist id={datalistId}>
-                {orgMembers
-                  .filter(
-                    (m) =>
-                      m.email !== sharesQuery.data?.ownerEmail &&
-                      !(sharesQuery.data?.shares ?? []).some(
-                        (s) =>
-                          s.principalType === "user" &&
-                          s.principalId === m.email,
-                      ),
-                  )
-                  .map((m) => (
-                    <option
-                      key={m.email}
-                      value={m.email}
-                      label={m.name ?? undefined}
-                    />
-                  ))}
-              </datalist>
-            ) : null}
             <RoleSelect value={role} onChange={setRole} />
           </div>
           {shareError ? (
@@ -669,13 +848,13 @@ function SharePanel(
         </div>
       ) : null}
 
-      <div className="mb-2 text-sm font-semibold">People with access</div>
+      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
       <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
         {data?.ownerEmail ? (
           <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={displayName(data.ownerEmail, orgMembers)} />
+            <Avatar label={displayName(data.ownerEmail, knownMembers)} />
             <span className="flex-1 min-w-0 truncate">
-              {displayName(data.ownerEmail, orgMembers)}
+              {displayName(data.ownerEmail, knownMembers)}
             </span>
             <span className="text-xs text-muted-foreground">Owner</span>
           </li>
@@ -692,14 +871,14 @@ function SharePanel(
               label={
                 s.principalType === "org"
                   ? s.principalId
-                  : displayName(s.principalId, orgMembers)
+                  : displayName(s.principalId, knownMembers)
               }
               org={s.principalType === "org"}
             />
             <span className="flex-1 min-w-0 truncate">
               {s.principalType === "org"
                 ? s.principalId
-                : displayName(s.principalId, orgMembers)}
+                : displayName(s.principalId, knownMembers)}
             </span>
             {canManage ? (
               <RoleSelect
@@ -733,7 +912,7 @@ function SharePanel(
         ) : null}
       </ul>
 
-      <div className="mb-2 text-sm font-semibold">General access</div>
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 flex items-center gap-3">
         <span
           aria-hidden
@@ -802,30 +981,7 @@ function SharePanel(
         </div>
       ) : null}
 
-      {props.shareUrl ? (
-        <CopyLinkField
-          value={props.shareUrl}
-          label={props.shareUrlLabel}
-          description={props.shareUrlDescription}
-        />
-      ) : props.shareUrlPlaceholder ? (
-        <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
-          {props.shareUrlLabel ? (
-            <div className="mb-0.5 font-medium text-foreground">
-              {props.shareUrlLabel}
-            </div>
-          ) : null}
-          {props.shareUrlPlaceholder}
-        </div>
-      ) : null}
-
-      {props.secondaryShareUrl ? (
-        <CopyLinkField
-          value={props.secondaryShareUrl}
-          label={props.secondaryShareUrlLabel}
-          description={props.secondaryShareUrlDescription}
-        />
-      ) : null}
+      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
 
       <div className="mt-2 flex justify-end">
         <button
@@ -838,6 +994,259 @@ function SharePanel(
       </div>
     </div>
   );
+}
+
+interface MemberAutocompleteProps {
+  value: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onValueChange: (value: string) => void;
+  onSelectMember: (member: OrgMember) => void;
+  onSubmit: () => void;
+  placeholder: string;
+  suggestions: OrgMember[];
+  search: OrgMemberSearch;
+}
+
+function MemberAutocomplete({
+  value,
+  open,
+  onOpenChange,
+  onValueChange,
+  onSelectMember,
+  onSubmit,
+  placeholder,
+  suggestions,
+  search,
+}: MemberAutocompleteProps) {
+  const rawListboxId = useId();
+  const listboxId = rawListboxId.replace(/:/g, "");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const activeMember =
+    activeIndex >= 0 && activeIndex < suggestions.length
+      ? suggestions[activeIndex]
+      : null;
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [value]);
+
+  useEffect(() => {
+    if (activeIndex >= suggestions.length) {
+      setActiveIndex(suggestions.length > 0 ? suggestions.length - 1 : -1);
+    }
+  }, [activeIndex, suggestions.length]);
+
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    document
+      .getElementById(optionId(listboxId, activeIndex))
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, listboxId]);
+
+  const chooseMember = (member: OrgMember) => {
+    onSelectMember(member);
+    onOpenChange(false);
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onOpenChange(true);
+      if (suggestions.length === 0) return;
+      setActiveIndex((prev) => {
+        if (prev >= suggestions.length - 1) {
+          if (search.hasMore && !search.isLoadingMore) search.loadMore();
+          return suggestions.length - 1;
+        }
+        return prev + 1;
+      });
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onOpenChange(true);
+      if (suggestions.length === 0) return;
+      setActiveIndex((prev) => (prev <= 0 ? suggestions.length - 1 : prev - 1));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (open && activeMember) {
+        event.preventDefault();
+        chooseMember(activeMember);
+        return;
+      }
+      if (value.trim()) {
+        event.preventDefault();
+        onSubmit();
+      }
+      return;
+    }
+
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpenChange(false);
+      setActiveIndex(-1);
+    }
+  };
+
+  const handleScroll = (event: ReactUIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (
+      search.hasMore &&
+      !search.isLoadingMore &&
+      target.scrollTop + target.clientHeight >= target.scrollHeight - 24
+    ) {
+      search.loadMore();
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverAnchor asChild>
+        <div className="relative flex-1 min-w-0">
+          <IconSearch
+            aria-hidden
+            size={15}
+            strokeWidth={1.8}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            ref={inputRef}
+            type="email"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={open}
+            aria-controls={open ? listboxId : undefined}
+            aria-activedescendant={
+              activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
+            }
+            placeholder={placeholder}
+            value={value}
+            onChange={(event) => {
+              onValueChange(event.target.value);
+              onOpenChange(true);
+            }}
+            onFocus={() => onOpenChange(true)}
+            onBlur={() => {
+              setTimeout(() => {
+                if (document.activeElement !== inputRef.current) {
+                  onOpenChange(false);
+                }
+              }, 0);
+            }}
+            onKeyDown={handleKeyDown}
+            autoComplete="off"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-background pl-8 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+          />
+          {search.isLoading ? (
+            <IconLoader2
+              aria-hidden
+              size={15}
+              strokeWidth={1.8}
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          ) : null}
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn(
+          "z-[2200] w-[var(--radix-popper-anchor-width)] min-w-[18rem] rounded-md p-1 shadow-lg",
+          SHARE_POPOVER_SURFACE,
+        )}
+      >
+        <div
+          id={listboxId}
+          role="listbox"
+          className="max-h-56 overflow-y-auto overflow-x-hidden"
+          onScroll={handleScroll}
+        >
+          {suggestions.map((member, index) => {
+            const active = index === activeIndex;
+            return (
+              <div
+                key={member.email}
+                id={optionId(listboxId, index)}
+                role="option"
+                aria-selected={active}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => chooseMember(member)}
+                className={cn(
+                  "flex cursor-pointer select-none flex-col rounded-sm px-3 py-2 text-sm outline-none",
+                  active
+                    ? "bg-accent text-accent-foreground"
+                    : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <span className="truncate font-medium">
+                  {member.name?.trim() || member.email}
+                </span>
+                {member.name?.trim() ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {member.email}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {search.isLoading && suggestions.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              Searching...
+            </div>
+          ) : null}
+
+          {search.error ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              Could not load people.
+            </div>
+          ) : null}
+
+          {!search.isLoading && !search.error && suggestions.length === 0 ? (
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {value.trim() ? "No matches." : "No people found."}
+            </div>
+          ) : null}
+
+          {search.isLoadingMore ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+              <IconLoader2
+                aria-hidden
+                size={14}
+                strokeWidth={1.8}
+                className="animate-spin"
+              />
+              Loading...
+            </div>
+          ) : null}
+
+          {search.hasMore && !search.isLoadingMore ? (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={search.loadMore}
+              className="mt-1 flex w-full items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              Load more
+            </button>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function optionId(baseId: string, index: number): string {
+  return `${baseId}-option-${index}`;
 }
 
 function CopyLinkField({

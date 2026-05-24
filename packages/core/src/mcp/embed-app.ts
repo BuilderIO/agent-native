@@ -238,10 +238,17 @@ export function embedApp(
     }
 
     function embedStartUrlFrom(params, data) {
+      const embedStart =
+        params && params._meta && params._meta["agent-native/embedStart"];
+      const embedStartRecord =
+        embedStart && typeof embedStart === "object" && !Array.isArray(embedStart)
+          ? embedStart
+          : {};
       const openLink = params && params._meta && params._meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       return firstEmbedStartUrl([
+        embedStartRecord.startUrl,
         record.embedStartUrl,
         record.startUrl,
         record.url,
@@ -649,22 +656,25 @@ export function embedApp(
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       appFrame = null;
+      const fallbackCopy = openUrl
+        ? "This chat host did not allow the embedded app frame to load inline. You can still open the same app route through the host or use the URL below."
+        : "This chat host did not allow the embedded app frame to load inline.";
       stage.innerHTML =
         '<div class="fallback">' +
           '<div class="fallback-title">Open this app in its own tab</div>' +
-          '<div class="fallback-copy">This chat host did not allow the embedded app frame to load inline. You can still open the same app route through the host or use the URL below.</div>' +
+          '<div class="fallback-copy">' + esc(fallbackCopy) + '</div>' +
           '<div class="fallback-actions">' +
             '<button type="button" data-fallback-open>Open app</button>' +
             '<button type="button" data-fallback-retry>Try inline again</button>' +
           '</div>' +
-          (openUrl || openStartUrl ? '<a class="fallback-url" href="' + esc(openUrl || openStartUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl || openStartUrl) + '</a>' : '') +
+          (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
         '</div>';
       const fallbackOpen = stage.querySelector("[data-fallback-open]");
       const fallbackRetry = stage.querySelector("[data-fallback-retry]");
       if (fallbackOpen) {
-        fallbackOpen.disabled = !(openUrl || openStartUrl);
+        fallbackOpen.disabled = !openUrl;
         fallbackOpen.onclick = () => {
-          if (openUrl || openStartUrl) void openFallbackExternal();
+          if (openUrl) void openFallbackExternal();
         };
       }
       if (fallbackRetry) {
@@ -676,6 +686,7 @@ export function embedApp(
     }
 
     async function openFallbackExternal() {
+      if (!openUrl) return;
       let url = withChatBridgeParam(openUrl);
       try {
         if (url) {
@@ -688,7 +699,6 @@ export function embedApp(
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
       }
-      if (!url) url = withChatBridgeParam(openStartUrl);
       await openHostLink({ url });
     }
 
@@ -865,27 +875,25 @@ export function embedApp(
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
       if (!message.trim()) return;
-      const context = typeof chat.context === "string" ? chat.context : "";
-      if (context.trim()) {
-        try {
-          if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-            openAiBridge.setWidgetState({
-              ...objectValue(openAiBridge.widgetState),
-              agentNativeChatContext: context
-            });
-          } else if (app && typeof app.updateModelContext === "function") {
-            await app.updateModelContext({
-              content: [{ type: "text", text: context }]
-            });
-          }
-        } catch (err) {
-          console.warn("[agent-native] MCP host rejected model context update", err);
+      const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      try {
+        if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+          openAiBridge.setWidgetState({
+            ...objectValue(openAiBridge.widgetState),
+            agentNativeChatContext: context || null
+          });
+        } else if (app && typeof app.updateModelContext === "function") {
+          await app.updateModelContext({
+            content: context ? [{ type: "text", text: context }] : []
+          });
         }
+      } catch (err) {
+        console.warn("[agent-native] MCP host rejected model context update", err);
       }
       try {
         if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
           await openAiBridge.sendFollowUpMessage({
-            prompt: context.trim() ? context.trim() + "\\n\\n" + message : message,
+            prompt: message,
             scrollToBottom: true
           });
           return;
@@ -1027,7 +1035,7 @@ export function embedApp(
     }
 
     function updateOpenButton() {
-      const buttonUrl = openUrl || openStartUrl;
+      const buttonUrl = openUrl;
       openButton.disabled = !buttonUrl;
       openButton.onclick = () => {
         if (buttonUrl) void openHostLink({ url: buttonUrl });

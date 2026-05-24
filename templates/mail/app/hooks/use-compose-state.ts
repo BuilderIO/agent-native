@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
@@ -6,6 +6,8 @@ import type { ComposeState, UserSettings } from "@shared/types";
 import { appendSignatureToBody } from "@shared/signature";
 import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
+
+export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(
@@ -68,6 +70,7 @@ export function useComposeState() {
   const gmailSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
   );
+  const knownDraftIdsRef = useRef<Set<string> | null>(null);
 
   // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
@@ -104,6 +107,27 @@ export function useComposeState() {
   });
 
   const drafts = query.data ?? [];
+
+  useEffect(() => {
+    const handleFocusDraft = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: unknown }>).detail?.id;
+      if (typeof id === "string" && id.trim()) setActiveId(id);
+    };
+    window.addEventListener(FOCUS_COMPOSE_DRAFT_EVENT, handleFocusDraft);
+    return () =>
+      window.removeEventListener(FOCUS_COMPOSE_DRAFT_EVENT, handleFocusDraft);
+  }, []);
+
+  useEffect(() => {
+    if (!query.isSuccess) return;
+    const previousIds = knownDraftIdsRef.current;
+    const currentIds = new Set(drafts.map((draft) => draft.id));
+    knownDraftIdsRef.current = currentIds;
+    if (!previousIds) return;
+
+    const newActiveId = newestUnseenPopoutDraftId(previousIds, drafts);
+    if (newActiveId) setActiveId(newActiveId);
+  }, [drafts, query.isSuccess]);
 
   // Resolve activeId: use current if valid, else last draft, else null
   const resolvedActiveId =
@@ -368,4 +392,15 @@ export function useComposeState() {
     setActiveId,
     flush,
   };
+}
+
+export function newestUnseenPopoutDraftId(
+  previousIds: ReadonlySet<string>,
+  drafts: ComposeState[],
+) {
+  for (let i = drafts.length - 1; i >= 0; i -= 1) {
+    const draft = drafts[i];
+    if (!draft.inline && !previousIds.has(draft.id)) return draft.id;
+  }
+  return null;
 }

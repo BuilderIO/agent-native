@@ -200,6 +200,12 @@ describe("requestMatchesEmbedTarget", () => {
   it("allows known dashboard alias redirects used by app embeds", () => {
     expect(
       requestMatchesEmbedTarget(
+        fakeEvent("/overview?embedded=1&__an_embed_token=tok"),
+        "/",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
         fakeEvent(
           "/adhoc/agent-native-templates-first-party?embedded=1&__an_embed_token=tok",
         ),

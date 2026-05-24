@@ -35,6 +35,9 @@ vi.mock("../components/ui/popover.js", () => ({
   PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   PopoverContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -185,5 +188,139 @@ describe("ShareButton", () => {
     );
     expect(editorInput).toBeTruthy();
     expect(presentationInput).toBeTruthy();
+  });
+
+  it("can customize access labels and move the share URL to the top", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="form"
+            resourceId="form-1"
+            shareUrl="https://forms.agent-native.com/f/form-1"
+            shareUrlLabel="Public response link"
+            shareUrlPlacement="top"
+            peopleAccessLabel="People with editing access"
+            generalAccessLabel="General editing access"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("People with editing access");
+    expect(text).toContain("General editing access");
+    expect(text.indexOf("Public response link")).toBeLessThan(
+      text.indexOf("People with editing access"),
+    );
+  });
+
+  it("searches org members on the server and selects a suggestion with the keyboard", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/_agent-native/org/members")) {
+        return Response.json({
+          members: [{ email: "akash@builder.io", role: "member" }],
+          hasMore: false,
+          nextOffset: null,
+        });
+      }
+      return Response.json({ members: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="form"
+            resourceId="form-1"
+            resourceTitle="Hackathon"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "aka");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    });
+
+    const memberSearchCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/_agent-native/org/members"),
+    );
+    expect(String(memberSearchCall?.[0])).toContain("search=aka");
+    expect(String(memberSearchCall?.[0])).toContain("limit=25");
+    expect(container.textContent).toContain("akash@builder.io");
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(input.value).toBe("akash@builder.io");
+  });
+
+  it("requests the next org-member page from the share autocomplete", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          members: [{ email: "first@builder.io", role: "member" }],
+          hasMore: true,
+          nextOffset: 25,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          members: [{ email: "second@builder.io", role: "member" }],
+          hasMore: false,
+          nextOffset: null,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="form" resourceId="form-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "first");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    });
+
+    const loadMore = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Load more",
+    );
+    if (!loadMore) throw new Error("Load more button not found");
+
+    act(() => {
+      loadMore.click();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
+    expect(container.textContent).toContain("second@builder.io");
   });
 });

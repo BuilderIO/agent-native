@@ -121,6 +121,15 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
+function dispatchAgentChatRunning(isRunning: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agentNative.chatRunning", {
+      detail: { isRunning },
+    }),
+  );
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  */
@@ -150,7 +159,16 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       message: opts.message,
       context: opts.context,
     });
-    if (directHostMessage) return tabId;
+    if (directHostMessage) {
+      void Promise.resolve(directHostMessage)
+        .then((ok) => {
+          if (!ok) window.parent.postMessage(payload, getFrameOrigin() || "*");
+        })
+        .finally(() => {
+          dispatchAgentChatRunning(false);
+        });
+      return tabId;
+    }
     window.parent.postMessage(payload, getFrameOrigin() || "*");
     return tabId;
   }

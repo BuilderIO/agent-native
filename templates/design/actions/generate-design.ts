@@ -99,6 +99,7 @@ export default defineAction({
       ),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Design preview",
       description: "Open the generated design in the real Design editor.",

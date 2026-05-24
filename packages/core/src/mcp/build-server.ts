@@ -29,7 +29,11 @@ import {
 } from "../action.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { toAbsoluteOpenUrl, toDesktopOpenUrl } from "../server/deep-link.js";
+import {
+  buildDeepLink,
+  toAbsoluteOpenUrl,
+  toDesktopOpenUrl,
+} from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -118,6 +122,8 @@ export interface MCPRequestMeta {
    * explicitly identify themselves to keep the full action surface.
    */
   clientName?: string;
+  /** Explicit framework client hint from `x-agent-native-mcp-client`. */
+  clientHint?: string;
   /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
   fullCatalog?: boolean;
   /**
@@ -151,9 +157,9 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
-  config: MCPConfig,
   name: string,
   entry: ActionEntry,
+  config: MCPConfig,
 ): boolean {
   if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
   if (
@@ -162,23 +168,19 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   ) {
     return true;
   }
-  // If an app deliberately disables the generic open_app builtin, fall back to
-  // its action-specific MCP App tools so it still has a UI surface. The normal
-  // default is the opposite: keep chat-host catalogs tiny and route UI via
-  // open_app instead of listing every app action/template.
-  if (config.builtinCrossAppTools === false) {
-    return Boolean(entry.mcpApp?.resource);
+  if (config.builtinCrossAppTools === false && entry.mcpApp?.resource) {
+    return true;
   }
   return false;
 }
 
 const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
 const NON_APP_OAUTH_CLIENT_RE =
-  /\b(code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
+  /\b(code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 const MCP_APP_OAUTH_REDIRECT_HOST_RE =
   /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
 const FULL_CATALOG_CLIENT_RE =
-  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|desktop|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
+  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
 
 async function isKnownMcpAppOAuthClient(
   identity: MCPCallerIdentity | undefined,
@@ -239,6 +241,9 @@ function explicitlyRequestsFullMcpCatalog(
 ): boolean {
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
   if (requestMeta?.fullCatalog === true) return true;
+  if (requestMeta?.clientHint) {
+    return FULL_CATALOG_CLIENT_RE.test(requestMeta.clientHint);
+  }
   return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
 }
 
@@ -319,6 +324,69 @@ function withMcpChatBridgeParam(urlOrPath: string): string {
   }
 }
 
+function isEmbedStartUrl(value: string): boolean {
+  try {
+    const base = "http://agent-native.invalid";
+    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
+    return url.pathname.includes("/_agent-native/embed/start");
+  } catch {
+    return value.includes("/_agent-native/embed/start");
+  }
+}
+
+function routePathFromOpenUrl(value: string): string | null {
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+    const url = hasScheme
+      ? new URL(value)
+      : new URL(value, "http://agent-native.invalid");
+    const route = `${url.pathname}${url.search}${url.hash}`;
+    if (!route.startsWith("/") || route.startsWith("//")) return null;
+    if (route.startsWith("/\\")) return null;
+    if (/^\/[a-z][a-z0-9+.-]*:/i.test(route)) return null;
+    return route;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recursively redact embed-ticket-bearing URLs from any value before it gets
+ * serialized into a model-visible text payload. Embed start URLs carry a
+ * single-use ticket that grants iframe access to the user's session — they
+ * MUST stay in `_meta` (where the embed runtime can consume them) and never
+ * appear in `content[].text` for the LLM. This is the generic safety net for
+ * actions that return `{ embedStartUrl, ... }` without declaring
+ * `mcpApp.resource` (the resource path already strips them via
+ * `mcpAppStructuredContent`).
+ *
+ * Depth-capped to avoid pathological / circular structures. Strings that
+ * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
+ * the URL) are replaced with `[hidden embed URL]`.
+ */
+function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
+  if (depth > 5) return value;
+  if (typeof value === "string") {
+    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof val === "string" && isEmbedStartUrl(val)) {
+        // Drop the key entirely for object-typed inputs so a tool result like
+        // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
+        continue;
+      }
+      out[key] = purgeEmbedStartUrls(val, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
@@ -352,16 +420,80 @@ function mcpAppEmbedOpenLinkMeta(
       : typeof out.path === "string" && out.path.trim()
         ? out.path.trim()
         : undefined;
+  // Only fabricate an open URL when there is a real path-like value: an
+  // explicit deepLinkUrl, or a non-embed `out.url`, or a leading-slash
+  // `view`/`path` that's already a route. Bare view-name strings like
+  // "inbox" or "deck" must NOT be turned into `${origin}/inbox` — apps
+  // route views at app-specific paths (e.g. slides routes `view: "deck"`
+  // at `/deck/:id`), so a synthesized origin-relative URL is just a 404.
+  // In that case omit `openLink` entirely; the embedStart meta carries
+  // the actual launch reference.
+  const pathFromRouteLike =
+    view && view.startsWith("/")
+      ? view
+      : typeof out.path === "string" && out.path.trim().startsWith("/")
+        ? out.path.trim()
+        : undefined;
+  const explicitOpenUrl = deepLinkUrl
+    ? deepLinkUrl
+    : typeof out.url === "string" && !isEmbedStartUrl(out.url)
+      ? out.url
+      : pathFromRouteLike;
+  const safeOpenUrl = explicitOpenUrl
+    ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
+    : null;
+  // Embed open links expose the safe browser target in `webUrl`, but the
+  // desktop URL must enter the app through the registered scheme so Electron
+  // can focus the right webview. Preserve the full route/query in the `to`
+  // param; focus ids are often only present on `url`, not `out.params`.
+  const desktopDeepLinkUrl = (() => {
+    if (!safeOpenUrl) return null;
+    const app =
+      typeof out.app === "string" && out.app.trim()
+        ? out.app.trim()
+        : undefined;
+    if (!app) return safeOpenUrl;
+    if (isAgentNativeOpenDeepLink(safeOpenUrl)) {
+      return toDesktopOpenUrl(safeOpenUrl);
+    }
+    const targetRoute = routePathFromOpenUrl(safeOpenUrl);
+    if (!targetRoute) return safeOpenUrl;
+    const viewParam =
+      typeof out.view === "string" && out.view.trim() ? out.view.trim() : "";
+    const params =
+      out.params && typeof out.params === "object" && !Array.isArray(out.params)
+        ? (out.params as Record<
+            string,
+            string | number | boolean | null | undefined
+          >)
+        : undefined;
+    return toDesktopOpenUrl(
+      buildDeepLink({
+        app,
+        view: viewParam,
+        to: targetRoute,
+        ...(params ? { params } : {}),
+      }),
+    );
+  })();
 
   return {
-    "agent-native/openLink": {
-      label,
-      ...(view ? { view } : {}),
-      webUrl,
-      desktopUrl: deepLinkUrl
-        ? toAbsoluteOpenUrl(deepLinkUrl, meta?.origin)
-        : webUrl,
+    "agent-native/embedStart": {
+      startUrl: webUrl,
+      ...(typeof out.embedExpiresAt === "number"
+        ? { expiresAt: out.embedExpiresAt }
+        : {}),
     },
+    ...(safeOpenUrl
+      ? {
+          "agent-native/openLink": {
+            label,
+            ...(view ? { view } : {}),
+            webUrl: safeOpenUrl,
+            desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
+          },
+        }
+      : {}),
   };
 }
 
@@ -743,10 +875,36 @@ function mcpAppStructuredContent(
       : primitiveValue(result)
         ? { result }
         : {};
+  for (const key of ["embedStartUrl", "startUrl"]) {
+    const value = out[key];
+    if (typeof value === "string" && isEmbedStartUrl(value)) delete out[key];
+  }
+  if (typeof out.url === "string" && isEmbedStartUrl(out.url)) {
+    delete out.url;
+  }
+  // Internal embed-routing fields belong in `_meta["agent-native/embedStart"]`
+  // (consumed by the embed runtime), not in `structuredContent` (read by the
+  // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
+  // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
+  // fields are single-use credentials. Drop all of them unconditionally.
+  for (const key of [
+    "embedTargetPath",
+    "embedExpiresAt",
+    "ticket",
+    "embedTicket",
+  ]) {
+    delete out[key];
+  }
+  for (const key of Object.keys(out)) {
+    if (/Ticket$/.test(key)) delete out[key];
+  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
-    out.openLink = openLink;
     const webUrl = (openLink as Record<string, unknown>).webUrl;
+    if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
+      return Object.keys(out).length > 0 ? out : { status: "ok" };
+    }
+    out.openLink = openLink;
     if (typeof webUrl === "string" && !out.url) out.url = webUrl;
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
@@ -838,20 +996,21 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const compactMcpAppCatalog =
-    (Array.isArray(effectiveIdentity?.oauthScopes) &&
-      hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-    (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
-    shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
+  const compactMcpAppCatalog = explicitlyRequestsFullMcpCatalog(requestMeta)
+    ? false
+    : (Array.isArray(effectiveIdentity?.oauthScopes) &&
+        hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
+      (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
+      shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
   const advertisedActions = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
-          isActionAdvertisedInCompactMcpAppCatalog(config, name, entry),
+          isActionAdvertisedInCompactMcpAppCatalog(name, entry, config),
         ),
       )
     : visibleActions;
   const supportsMcpApps =
-    compactMcpAppCatalog &&
+    compactMcpAppCatalog ||
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );
@@ -1079,14 +1238,25 @@ export async function createMCPServerForRequest(
             : {}),
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
+        const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
+        const toolVisibility = toolUiMeta.visibility;
+        const isAppOnlyVisibility =
+          Array.isArray(toolVisibility) &&
+          toolVisibility.length > 0 &&
+          toolVisibility.every((v) => v === "app");
         const structuredContent = mcpAppResource
           ? mcpAppStructuredContent(rawResult, responseMeta)
-          : undefined;
+          : isAppOnlyVisibility &&
+              rawResult &&
+              typeof rawResult === "object" &&
+              !Array.isArray(rawResult)
+            ? (rawResult as Record<string, unknown>)
+            : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
           : typeof resultForClient === "string"
-            ? resultForClient
-            : JSON.stringify(resultForClient);
+            ? (purgeEmbedStartUrls(resultForClient) as string)
+            : JSON.stringify(purgeEmbedStartUrls(resultForClient));
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {

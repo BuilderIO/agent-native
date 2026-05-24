@@ -36,6 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 
 function safeExternalHref(value?: string | null): string | null {
   if (!value) return null;
@@ -716,19 +717,26 @@ function ApolloSection({ email }: { email: string }) {
   const location = [person.city, person.state, person.country]
     .filter(Boolean)
     .join(", ");
+  const isEmbedded = isMcpEmbedSurface();
+  const shouldLoadRemotePhoto = person.photo_url && !isEmbedded;
+  const shouldLoadRemoteLogo = person.organization?.logo_url && !isEmbedded;
 
   return (
     <>
       {/* Name & title */}
       <div className="px-4 pt-4 pb-3 flex items-start gap-3">
-        {person.photo_url && (
+        {shouldLoadRemotePhoto ? (
           <img
             src={person.photo_url}
             alt=""
             className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5"
             referrerPolicy="no-referrer"
           />
-        )}
+        ) : person.photo_url ? (
+          <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0 mt-0.5">
+            {name[0]?.toUpperCase()}
+          </div>
+        ) : null}
         <div className="min-w-0">
           <h3 className="text-[14px] font-semibold text-foreground truncate">
             {name}
@@ -756,7 +764,7 @@ function ApolloSection({ email }: { email: string }) {
           <div className="h-px bg-border/30 mx-4" />
           <div className="px-4 py-3">
             <div className="flex items-center gap-2 mb-1.5">
-              {person.organization.logo_url ? (
+              {shouldLoadRemoteLogo ? (
                 <img
                   src={person.organization.logo_url}
                   alt=""

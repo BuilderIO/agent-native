@@ -78,6 +78,7 @@ export default defineAction({
       .describe("Optional design system ID to link to the deck"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Deck preview",
       description: "Open the generated deck in the real Slides editor.",

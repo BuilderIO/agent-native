@@ -73,7 +73,8 @@ export interface CallPlayerCall {
   defaultSpeed?: number;
   enableComments?: boolean;
   createdAt?: string;
-  password?: string | null;
+  /** Server never sends the plaintext password — only this flag. */
+  hasPassword?: boolean;
   expiresAt?: string | null;
   shareIncludesSummary?: boolean;
   shareIncludesTranscript?: boolean;
@@ -346,7 +347,7 @@ export function CallPlayer({
             title={call.title}
             open={shareOpen}
             onOpenChange={setShareOpen}
-            password={call.password}
+            hasPassword={call.hasPassword}
             expiresAt={call.expiresAt}
             shareIncludesSummary={call.shareIncludesSummary}
             shareIncludesTranscript={call.shareIncludesTranscript}

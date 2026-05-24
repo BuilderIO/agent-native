@@ -18,7 +18,7 @@
  */
 
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -46,6 +46,7 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Clip player",
       description: "Open this recording in the real Clips player.",
@@ -148,10 +149,19 @@ export default defineAction({
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
     //      rows keep playing after the route move.
-    //   2. Non-owner viewers hitting a password-protected recording get the
-    //      password appended so `<video>` can fetch through the blob route's
-    //      password gate. Owners skip — the blob route bypasses the gate
-    //      for them. Real provider URLs (R2/S3/Builder) are left untouched.
+    //   2. For password-protected recordings, mint a short-lived HMAC token
+    //      bound to this recording id and pass it via `?t=<token>` instead of
+    //      the plaintext password. Sticking the password in the URL leaks it
+    //      into browser history, CDN logs, the Referer header on outbound
+    //      requests, and — most importantly here — into MCP-host tool results
+    //      (any MCP client receiving this action's structured output would
+    //      otherwise see the plaintext password). The downstream
+    //      `/api/video/:id` route accepts either `?t=<token>` (preferred) or
+    //      `?password=<pw>` (legacy fallback) so old share pages keep
+    //      working during rollout. (audit 11 F-07)
+    //      Owners are skipped — the blob route bypasses the password gate
+    //      for them, so they don't need the token. Real provider URLs
+    //      (R2/S3/Builder) are left untouched; those are already signed.
     let resolvedVideoUrl = rec.videoUrl ?? null;
     if (resolvedVideoUrl) {
       const legacyMatch = resolvedVideoUrl.match(
@@ -165,12 +175,9 @@ export default defineAction({
         access.role !== "owner" &&
         resolvedVideoUrl.startsWith("/api/video/")
       ) {
+        const token = signShortLivedToken({ resourceId: args.recordingId });
         const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-        resolvedVideoUrl =
-          resolvedVideoUrl +
-          sep +
-          "password=" +
-          encodeURIComponent(rec.password);
+        resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
       }
     }
 
@@ -194,7 +201,12 @@ export default defineAction({
         status: rec.status,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
-        password: rec.password,
+        // Don't leak the password to clients (especially to MCP hosts that
+        // surface action results to third-party agents); just indicate
+        // whether one was set. The videoUrl above already carries a
+        // short-lived `?t=<token>` for non-owner viewers, so the player
+        // can stream without ever seeing the plaintext password.
+        hasPassword: !!rec.password,
         expiresAt: rec.expiresAt,
         enableComments: Boolean(rec.enableComments),
         enableReactions: Boolean(rec.enableReactions),

@@ -44,19 +44,15 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
+import {
+  getCurrentDraftBodyFromEditor,
+  splitQuotedContent,
+} from "./compose-draft-context";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
-
-function splitQuotedContent(body: string): [string, string] {
-  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return [body, ""];
-  return [body.slice(0, match.index), body.slice(match.index)];
-}
 
 export interface InlineReplyHandle {
   focusEditor: () => void;
@@ -283,22 +279,31 @@ export const InlineReplyComposer = forwardRef<
       return;
     }
     await onFlush(draft.id);
+    const promptDraft = {
+      ...draft,
+      body: getCurrentDraftBodyFromEditor({
+        draft,
+        editor: editorRef.current?.getEditor(),
+        signature: settings?.signature,
+      }),
+    };
     const context = [
-      draft.to && `To: ${draft.to}`,
-      draft.cc && `Cc: ${draft.cc}`,
-      draft.subject && `Subject: ${draft.subject}`,
+      promptDraft.to && `To: ${promptDraft.to}`,
+      promptDraft.cc && `Cc: ${promptDraft.cc}`,
+      promptDraft.subject && `Subject: ${promptDraft.subject}`,
       settings?.writingStyle?.trim() &&
         `User writing style:\n${settings.writingStyle.trim()}`,
       settings?.signature?.trim()
         ? `Configured signature:\n${settings.signature.trim()}`
         : "Configured signature: (none)",
-      draft.body && `Current draft:\n${draft.body}`,
+      promptDraft.body && `Current draft:\n${promptDraft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
+    const draftContext = context || "(empty draft)";
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email reply. The current draft is saved in application-state/compose-${draft.id}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${draft.id}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email reply in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing reply draft by calling manage-draft with action "update", id "${draft.id}", and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
       submit: true,
     });
     setGeneratePrompt("");
@@ -448,6 +453,14 @@ export const InlineReplyComposer = forwardRef<
           onClose={() => onClose(draft.id)}
           onFlush={() => onFlush(draft.id)}
           isGenerating={isGenerating}
+          draftId={draft.id}
+          getCurrentDraftBody={(editor) =>
+            getCurrentDraftBodyFromEditor({
+              draft,
+              editor,
+              signature: settings?.signature,
+            })
+          }
           sendToAgent={sendToAgent}
         />
         {hasQuote && (

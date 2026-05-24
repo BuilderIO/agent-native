@@ -47,20 +47,47 @@ function scopeKeySegment(scope?: ChatThreadScope | null): string {
   return `:scope:${scope.type}:${scope.id}`;
 }
 
+function activeThreadStorageKey(
+  storageKey?: string,
+  scope?: ChatThreadScope | null,
+): string {
+  const scopePart = scopeKeySegment(scope);
+  return storageKey
+    ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}`
+    : `${ACTIVE_THREAD_KEY}${scopePart}`;
+}
+
+function activeThreadSeenStorageKey(activeThreadKey: string): string {
+  return `${activeThreadKey}:seen`;
+}
+
+function scopesMatch(
+  a?: ChatThreadScope | null,
+  b?: ChatThreadScope | null,
+): boolean {
+  if (!a || !b) return false;
+  return a.type === b.type && a.id === b.id;
+}
+
+function threadCanStayVisibleInScope(
+  threadScope: ChatThreadScope | null,
+  currentScope?: ChatThreadScope | null,
+): boolean {
+  if (!threadScope) return true;
+  return scopesMatch(threadScope, currentScope);
+}
+
 export function useChatThreads(
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey?: string,
   scope?: ChatThreadScope | null,
 ) {
-  // Each (storageKey, scope) pair gets its own active-thread localStorage
-  // key, so navigating between decks/designs/dashboards lands on whatever
-  // thread the user had open last *for that resource* — not whichever
-  // thread was active globally.
+  // Each (storageKey, scope) pair gets its own active-thread localStorage key
+  // for chats that belong to a resource. General chats keep using the unscoped
+  // key even while the user is looking at a resource, so clicking into a deck,
+  // design, form, etc. doesn't make a global conversation vanish.
   const activeThreadKey = useMemo(() => {
-    const scopePart = scopeKeySegment(scope);
-    return storageKey
-      ? `${ACTIVE_THREAD_KEY}:${storageKey}${scopePart}`
-      : `${ACTIVE_THREAD_KEY}${scopePart}`;
+    return activeThreadStorageKey(storageKey, scope);
   }, [storageKey, scope?.type, scope?.id]);
   // Companion key recording when the saved active thread was last live in
   // this client. A revived orphan tab (id in localStorage but not on the
@@ -69,16 +96,40 @@ export function useChatThreads(
   // on every mount (the old behaviour) reset the clock forever, so
   // abandoned empty tabs never got pruned.
   const activeThreadSeenKey = useMemo(
-    () => `${activeThreadKey}:seen`,
+    () => activeThreadSeenStorageKey(activeThreadKey),
     [activeThreadKey],
   );
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
+  const threadsRef = useRef<ChatThreadSummary[]>(threads);
+  threadsRef.current = threads;
 
   // IDs we generated client-side this session — consumers use this to know
   // whether to skip the per-thread restore skeleton, and we use it to
   // protect the optimistic-only thread from being yanked out of local
   // state when the server's threads list (which never sees it) loads.
   const newlyCreatedRef = useRef<Set<string>>(new Set());
+  const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
+    new Map(),
+  );
+
+  // Latest scope as a ref so `createThread` (a useCallback that we don't
+  // want to depend on scope identity) reads the current value at call
+  // time. The scope a new chat inherits is the one in effect when the +
+  // button is clicked, not when the hook first mounted.
+  const scopeRef = useRef<ChatThreadScope | null | undefined>(scope);
+  scopeRef.current = scope;
+
+  const readKnownThreadScope = useCallback(
+    (id: string): ChatThreadScope | null | undefined => {
+      const thread = threadsRef.current.find((t) => t.id === id);
+      if (thread) return thread.scope ?? null;
+      if (optimisticThreadScopesRef.current.has(id)) {
+        return optimisticThreadScopesRef.current.get(id) ?? null;
+      }
+      return undefined;
+    },
+    [],
+  );
 
   // Restore the saved active thread synchronously on mount so the chat shell
   // can paint immediately. We do NOT synthesize a fresh UUID here when no
@@ -101,15 +152,31 @@ export function useChatThreads(
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
 
-  // Persist active thread ID — and rehydrate on scope flips. When the
-  // user navigates from deck A to deck B, `activeThreadKey` changes; we
-  // need to re-read whatever thread was last active for B *before*
-  // persisting back, otherwise we'd write A's id under B's key on the
-  // very next render. The ref-and-branch pattern below keeps the two
-  // concerns in one effect without racing them.
+  // Persist active thread ID — and rehydrate on scope flips. When the user
+  // navigates from deck A to deck B, `activeThreadKey` changes; we re-read B's
+  // scoped thread only if the currently visible chat is itself scoped to a
+  // different resource. Unscoped chats are global and stay visible.
   const persistedKeyRef = useRef(activeThreadKey);
   useEffect(() => {
     if (persistedKeyRef.current !== activeThreadKey) {
+      const currentId = activeThreadIdRef.current;
+      if (currentId) {
+        const currentThreadScope = readKnownThreadScope(currentId);
+        // Thread metadata not yet loaded from the server — we can't tell
+        // whether the visible chat is general (stays) or scoped-elsewhere
+        // (swaps). Defer until `threads` resolves and this effect re-runs;
+        // we intentionally do NOT update `persistedKeyRef` so the next
+        // render gets another shot. Without this guard, navigating into a
+        // resource before `GET /threads` resolves silently dropped the
+        // active general chat the user was just in.
+        if (currentThreadScope === undefined) {
+          return;
+        }
+        if (threadCanStayVisibleInScope(currentThreadScope, scopeRef.current)) {
+          persistedKeyRef.current = activeThreadKey;
+          return;
+        }
+      }
       persistedKeyRef.current = activeThreadKey;
       try {
         setActiveThreadId(localStorage.getItem(activeThreadKey));
@@ -120,14 +187,27 @@ export function useChatThreads(
     }
     try {
       if (activeThreadId) {
-        localStorage.setItem(activeThreadKey, activeThreadId);
-        localStorage.setItem(activeThreadSeenKey, String(Date.now()));
+        const threadScope = readKnownThreadScope(activeThreadId);
+        if (threadScope === undefined) return;
+        const targetKey = activeThreadStorageKey(storageKey, threadScope);
+        localStorage.setItem(targetKey, activeThreadId);
+        localStorage.setItem(
+          activeThreadSeenStorageKey(targetKey),
+          String(Date.now()),
+        );
       } else {
         localStorage.removeItem(activeThreadKey);
         localStorage.removeItem(activeThreadSeenKey);
       }
     } catch {}
-  }, [activeThreadId, activeThreadKey, activeThreadSeenKey]);
+  }, [
+    activeThreadId,
+    activeThreadKey,
+    activeThreadSeenKey,
+    readKnownThreadScope,
+    storageKey,
+    threads,
+  ]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -180,13 +260,6 @@ export function useChatThreads(
     }
   }, [apiUrl]);
 
-  // Latest scope as a ref so `createThread` (a useCallback that we don't
-  // want to depend on scope identity) reads the current value at call
-  // time. The scope a new chat inherits is the one in effect when the +
-  // button is clicked, not when the hook first mounted.
-  const scopeRef = useRef<ChatThreadScope | null | undefined>(scope);
-  scopeRef.current = scope;
-
   // Add a client-generated thread to the local list optimistically.
   //
   // Critically, this does NOT `POST /threads` to the server — that path was
@@ -218,6 +291,7 @@ export function useChatThreads(
         updatedAt: stamp,
         scope: threadScope,
       };
+      optimisticThreadScopesRef.current.set(id, threadScope);
       setThreads((prev) =>
         prev.some((t) => t.id === id) ? prev : [optimistic, ...prev],
       );
@@ -326,6 +400,7 @@ export function useChatThreads(
         setThreads((prev) =>
           prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
         );
+        optimisticThreadScopesRef.current.set(threadId, null);
       } catch {}
     },
     [apiUrl],
@@ -347,6 +422,7 @@ export function useChatThreads(
           method: "DELETE",
         });
       } catch {}
+      optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (id === activeThreadId) {
@@ -370,9 +446,6 @@ export function useChatThreads(
   // detachThread / fetchThreads — saveThreadData just mirrors it on
   // every save so the server eventually catches up after
   // persistSubmittedUserMessage creates the row sans scope.
-  const threadsRef = useRef<ChatThreadSummary[]>(threads);
-  threadsRef.current = threads;
-
   const saveThreadData = useCallback(
     async (
       id: string,

@@ -16,6 +16,7 @@ import {
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
+  shouldSeedCollaborativeContent,
 } from "./VisualEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
@@ -420,6 +421,30 @@ describe("VisualEditor markdown round-tripping", () => {
       awareness.destroy();
       ydoc.destroy();
     }
+  });
+
+  it("seeds saved SQL content over a semantically empty collab fragment", () => {
+    expect(
+      shouldSeedCollaborativeContent({
+        content: "Saved body",
+        currentMarkdown: "<empty-block/>",
+        fragmentLength: 1,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSeedCollaborativeContent({
+        content: "Saved body",
+        currentMarkdown: "Live body",
+        fragmentLength: 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSeedCollaborativeContent({
+        content: "",
+        currentMarkdown: "",
+        fragmentLength: 1,
+      }),
+    ).toBe(false);
   });
 
   it("labels empty quote blocks with the quote placeholder", () => {

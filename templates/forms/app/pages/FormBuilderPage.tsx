@@ -532,7 +532,10 @@ export function FormBuilderPage() {
                   shareUrl={publishedFormUrl}
                   shareUrlLabel="Public response link"
                   shareUrlDescription="Respondents use this link to submit the published form."
+                  shareUrlPlacement="top"
                   shareUrlPlaceholder="Publish this form to get a public response link."
+                  peopleAccessLabel="People with editing access"
+                  generalAccessLabel="General editing access"
                   visibilityCopy={{
                     private: {
                       description:
@@ -548,20 +551,6 @@ export function FormBuilderPage() {
                         "Anyone with the builder link can view this form's setup",
                     },
                   }}
-                  accessNote={
-                    <div className="flex gap-2">
-                      <IconGlobe className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <div className="space-y-1">
-                        <div className="font-medium text-foreground">
-                          Publishing and sharing are separate.
-                        </div>
-                        <div>
-                          Publish controls the respondent page. Share controls
-                          who can view or edit this form in the builder.
-                        </div>
-                      </div>
-                    </div>
-                  }
                 />
               </span>
             </TooltipTrigger>

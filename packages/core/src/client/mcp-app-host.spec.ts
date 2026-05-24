@@ -352,6 +352,111 @@ describe("MCP app host client helpers", () => {
     await expect(result).resolves.toBe(true);
   });
 
+  it("clears direct MCP Apps hidden context when a chat turn has none", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const result = sendMcpAppHostMessage({
+      message: "Continue without selection",
+    });
+    await flushMicrotasks();
+
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: { content: [] },
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: contextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    const messageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: messageCall.id,
+      result: {},
+    });
+
+    await expect(result).resolves.toBe(true);
+  });
+
+  it("does not concatenate hidden context into ChatGPT follow-up prompts", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    const setWidgetState = vi.fn();
+    vi.stubGlobal("openai", {
+      widgetState: { existing: true },
+      setWidgetState,
+      sendFollowUpMessage,
+    });
+
+    const result = sendMcpAppHostMessage({
+      context:
+        "Hidden draft context. Do not ask to read application-state/compose.json.",
+      message: "Rewrite the selected sentence",
+    });
+
+    await expect(result).resolves.toBe(true);
+    expect(setWidgetState).toHaveBeenCalledWith({
+      existing: true,
+      agentNativeChatContext:
+        "Hidden draft context. Do not ask to read application-state/compose.json.",
+    });
+    expect(sendFollowUpMessage).toHaveBeenCalledWith({
+      prompt: "Rewrite the selected sentence",
+      scrollToBottom: true,
+    });
+    expect(JSON.stringify(sendFollowUpMessage.mock.calls)).not.toContain(
+      "application-state/compose.json",
+    );
+  });
+
+  it("clears ChatGPT hidden context when a follow-up has no context", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    const setWidgetState = vi.fn();
+    vi.stubGlobal("openai", {
+      widgetState: {
+        existing: true,
+        agentNativeChatContext: "Previous draft context",
+      },
+      setWidgetState,
+      sendFollowUpMessage,
+    });
+
+    const result = sendMcpAppHostMessage({
+      message: "Send a context-free follow-up",
+    });
+
+    await expect(result).resolves.toBe(true);
+    expect(setWidgetState).toHaveBeenCalledWith({
+      existing: true,
+      agentNativeChatContext: null,
+    });
+    expect(sendFollowUpMessage).toHaveBeenCalledWith({
+      prompt: "Send a context-free follow-up",
+      scrollToBottom: true,
+    });
+  });
+
   it("keeps direct MCP host helpers enabled after the URL token is stripped", async () => {
     const parent = parentWindow();
     setDirectParent(parent);
@@ -379,5 +484,108 @@ describe("MCP app host client helpers", () => {
     )!;
     dispatchHostMessage({ jsonrpc: "2.0", id: linkCall.id, result: {} });
     await expect(result).resolves.toBe(true);
+  });
+
+  it("clears direct MCP Apps hidden context between turns in the same session", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+
+    const firstResult = sendMcpAppHostMessage({
+      context:
+        "Hidden draft context. Do not ask to read application-state/compose.json.",
+      message: "Rewrite the selected sentence",
+    });
+    await flushMicrotasks();
+
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const firstContextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(firstContextCall).toMatchObject({
+      params: {
+        content: [
+          {
+            type: "text",
+            text: "Hidden draft context. Do not ask to read application-state/compose.json.",
+          },
+        ],
+      },
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstContextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const firstMessageCall = calls.find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(firstMessageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: { type: "text", text: "Rewrite the selected sentence" },
+      },
+    });
+    expect(JSON.stringify(firstMessageCall)).not.toContain(
+      "application-state/compose.json",
+    );
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: firstMessageCall.id,
+      result: {},
+    });
+    await expect(firstResult).resolves.toBe(true);
+
+    vi.mocked(parent.postMessage).mockClear();
+
+    const secondResult = sendMcpAppHostMessage({
+      message: "Continue without selection",
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const secondContextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(secondContextCall).toMatchObject({
+      params: { content: [] },
+    });
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondContextCall.id,
+      result: {},
+    });
+    await flushMicrotasks();
+
+    const secondMessageCall = getJsonRpcCalls(parent).find(
+      (call) => call.method === "ui/message",
+    )!;
+    expect(secondMessageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: { type: "text", text: "Continue without selection" },
+      },
+    });
+    expect(JSON.stringify(secondMessageCall)).not.toContain(
+      "application-state/compose.json",
+    );
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: secondMessageCall.id,
+      result: {},
+    });
+
+    await expect(secondResult).resolves.toBe(true);
   });
 });

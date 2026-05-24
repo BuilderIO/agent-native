@@ -1,5 +1,61 @@
 # @agent-native/core
 
+## 0.22.43
+
+### Patch Changes
+
+- bcf54ce: Fix race condition in `useChatThreads` that dropped the active general chat when the user navigated into a scoped resource before `GET /threads` resolved. The scope-flip rehydration effect now defers the decision when thread metadata is unknown (instead of falling through and swapping to the scoped storage key), so the visible conversation is preserved until threads load and a real decision can be made.
+
+## 0.22.42
+
+### Patch Changes
+
+- 5f82202: `open_app({app: "<id>"})` now defaults to the app's home page (`/`) when neither `view` nor `path` is given, instead of throwing `requires 'app' and either 'view' or 'path'`. Hosts (ChatGPT / Claude) previously wasted a turn on the model's first-attempt retry whenever it omitted view/path; this lands the embed on `/` first try.
+- 5f82202: Re-export `deleteOrHideExtension` and `hideExtensionForCurrentUser` from `@agent-native/core/client/extensions` so templates that wrap the extensions system (e.g. Workbench Custom Tools) don't have to deep-import internals. Also add CLI templates-meta entry for the new hidden `workbench` template.
+
+## 0.22.41
+
+### Patch Changes
+
+- c790686: Fix MCP App embed regression: `create_embed_session` (and any tool with `_meta.ui.visibility: ["app"]`) now surfaces its raw result via `structuredContent` so the embed iframe can read the mint `startUrl`.
+
+  Without this, PR #875's text-side embed-URL purge stripped the embed start URL from the only fallback the iframe had, breaking the "open inline" flow with "This app can be opened, but not embedded from this MCP server." Compliant hosts already honor the `visibility: ["app"]` hint and keep the tool result out of the LLM transcript; the structuredContent path is safe for these tools.
+
+## 0.22.40
+
+### Patch Changes
+
+- 4a8e279: Route MCP App embed open links through the desktop deep-link handler.
+
+## 0.22.39
+
+### Patch Changes
+
+- 1ed3ef8: Clear MCP app host generate loading state after direct host sends and fall back to the wrapper relay when direct sends fail.
+
+## 0.22.38
+
+### Patch Changes
+
+- 9e22f33: Harden MCP host integration against ticket and content leaks. Strip embed-ticket URLs from any tool result text even when the action does not declare `mcpApp.resource`. Filter `embedTargetPath`, `embedExpiresAt`, and `ticket`-like fields from MCP structured content (their legitimate carrier is `_meta["agent-native/embedStart"]`). Stop fabricating an `_meta["agent-native/openLink"]` `webUrl` from a bare view name like `"deck"` when the action returns only an embed-start URL. Remove the now-unused `compose` field from `buildDeepLink` so deep-link URLs cannot inline draft contents. Make `isEmbedMcpChatBridgeActive` keep the in-memory bridge flag once enrolled so sandboxed iframes that deny sessionStorage no longer silently drop chat-bridge mode mid-session.
+
+## 0.22.37
+
+### Patch Changes
+
+- 12d3c0f: Fix MCP app host catalog and embed metadata edge cases.
+
+## 0.22.36
+
+### Patch Changes
+
+- 1c0b51e: Add ShareButton options for template-specific access labels and top-positioned share links.
+- 1c0b51e: Fix MCP app host context clearing, compact catalog compatibility, and embed-only open-link metadata.
+- 1c0b51e: Keep general chat threads visible when navigating into scoped resources.
+- 1c0b51e: Keep MCP App host catalogs compact by default, hide one-time embed tickets from model-visible output, and keep host follow-up prompts separate from hidden context.
+- 1c0b51e: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+- 1c0b51e: Improve ShareButton member autocomplete with server-side org-member search, pagination, and keyboard selection.
+
 ## 0.22.35
 
 ### Patch Changes

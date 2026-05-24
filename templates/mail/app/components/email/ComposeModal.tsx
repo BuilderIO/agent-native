@@ -50,29 +50,16 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
+import {
+  getCurrentDraftBodyFromEditor,
+  splitQuotedContent,
+} from "./compose-draft-context";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFiles } from "@/lib/upload";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { AttachmentStrip } from "./AttachmentStrip";
-
-/**
- * Split a compose body into the editable portion and the quoted history.
- * Returns [editable, quoted] — quoted is empty string when there's no quote.
- */
-function splitQuotedContent(body: string): [string, string] {
-  // Match "— On ..., ... wrote:" (reply) or "— Forwarded message —" (forward)
-  const replyMatch = body.match(/\n*— On .+? wrote:\n/);
-  const fwdMatch = body.match(/\n*— Forwarded message —\n/);
-
-  const match = replyMatch || fwdMatch;
-  if (!match || match.index === undefined) return [body, ""];
-
-  const editable = body.slice(0, match.index);
-  const quoted = body.slice(match.index);
-  return [editable, quoted];
-}
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
@@ -404,26 +391,34 @@ export function ComposeModal({
       return;
     }
 
-    // Flush current state to file so agent can read it
     await onFlush(activeId);
+    const promptDraft = {
+      ...activeDraft,
+      body: getCurrentDraftBodyFromEditor({
+        draft: activeDraft,
+        editor: editorRef.current?.getEditor(),
+        signature: settings?.signature,
+      }),
+    };
 
     const context = [
-      activeDraft.to && `To: ${activeDraft.to}`,
-      activeDraft.cc && `Cc: ${activeDraft.cc}`,
-      activeDraft.subject && `Subject: ${activeDraft.subject}`,
+      promptDraft.to && `To: ${promptDraft.to}`,
+      promptDraft.cc && `Cc: ${promptDraft.cc}`,
+      promptDraft.subject && `Subject: ${promptDraft.subject}`,
       settings?.writingStyle?.trim() &&
         `User writing style:\n${settings.writingStyle.trim()}`,
       settings?.signature?.trim()
         ? `Configured signature:\n${settings.signature.trim()}`
         : "Configured signature: (none)",
-      activeDraft.body && `Current draft:\n${activeDraft.body}`,
+      promptDraft.body && `Current draft:\n${promptDraft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
 
+    const draftContext = context || "(empty draft)";
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing draft by calling manage-draft with action "update", id "${activeId}", and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
       submit: true,
     });
 
@@ -969,6 +964,14 @@ function ComposeBody({
         onClose={() => onClose(activeId)}
         onFlush={() => onFlush(activeId)}
         isGenerating={isGenerating}
+        draftId={activeId}
+        getCurrentDraftBody={(editor) =>
+          getCurrentDraftBodyFromEditor({
+            draft: activeDraft,
+            editor,
+            signature,
+          })
+        }
         sendToAgent={sendToAgent}
       />
       {hasQuote && (

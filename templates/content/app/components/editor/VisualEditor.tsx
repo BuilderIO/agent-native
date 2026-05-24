@@ -565,6 +565,23 @@ interface VisualEditorProps {
   onJoinTitle?: (text: string) => void;
 }
 
+export function shouldSeedCollaborativeContent({
+  content,
+  currentMarkdown,
+  fragmentLength,
+}: {
+  content: string;
+  currentMarkdown: string;
+  fragmentLength: number;
+}): boolean {
+  const semanticMarkdown = currentMarkdown
+    .split(/\r?\n/)
+    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+    .join("\n")
+    .trim();
+  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+}
+
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -715,6 +732,16 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "blockquote")
   ) {
     return hasAnchor ? "Empty quote" : "";
+  }
+
+  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // awkwardly in narrow columns and the cell itself is already an affordance.
+  if (
+    node.type.name === "paragraph" &&
+    (hasAncestorType(editor, pos, "tableCell") ||
+      hasAncestorType(editor, pos, "tableHeader"))
+  ) {
+    return "";
   }
 
   return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
@@ -1172,7 +1199,16 @@ export function VisualEditor({
     // Skip if already seeded for this document
     if (seededDocRef.current === documentId) return;
     const fragment = ydoc.getXmlFragment("default");
-    if (fragment.length === 0) {
+    const currentMd = serializeEditorToNfm(
+      (editor.storage as any).markdown.getMarkdown(),
+    );
+    if (
+      shouldSeedCollaborativeContent({
+        content,
+        currentMarkdown: currentMd,
+        fragmentLength: fragment.length,
+      })
+    ) {
       isSettingContent.current = true;
       editor.commands.setContent(parseNfmForEditor(content));
       isSettingContent.current = false;

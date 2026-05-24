@@ -16,11 +16,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { createPortal } from "react-dom";
+import { getSelectedMarkdown } from "./compose-draft-context";
 
 interface ComposeBubbleToolbarProps {
   editor: Editor;
   onFlush: () => Promise<unknown> | undefined;
   isGenerating: boolean;
+  draftId: string;
+  getCurrentDraftBody: (editor: Editor) => string;
   sendToAgent: (opts: {
     message: string;
     context?: string;
@@ -44,6 +47,8 @@ export function ComposeBubbleToolbar({
   editor,
   onFlush,
   isGenerating,
+  draftId,
+  getCurrentDraftBody,
   sendToAgent,
 }: ComposeBubbleToolbarProps) {
   const [visible, setVisible] = useState(false);
@@ -219,12 +224,14 @@ export function ComposeBubbleToolbar({
 
     const { from, to } = editor.state.selection;
     const selectedText = editor.state.doc.textBetween(from, to, " ");
+    const selectedMarkdown = getSelectedMarkdown(editor, from, to);
 
     await onFlush();
+    const currentDraftBody = getCurrentDraftBody(editor);
 
     sendToAgent({
       message: aiPrompt.trim(),
-      context: `The user has selected specific text in their email draft and wants you to edit ONLY that selected portion. You MUST:\n1. Read the full draft from application-state/compose.json\n2. Find and replace ONLY the selected text (shown below) with your edited version based on the user's instruction\n3. Preserve ALL other content exactly as-is — subject, recipients, and every other part of the body that was not selected\n4. Write the updated draft back to application-state/compose.json\n\nSelected text to edit:\n"${selectedText}"`,
+      context: `The user selected specific text in their email draft and wants you to edit only that selected portion. Update the existing draft by calling manage-draft with action "update", id "${draftId}", and body set to the full revised Markdown draft body. Preserve every unselected part of the body exactly, including quoted history. Do not only reply with replacement text.\n\nCurrent Markdown draft body:\n${currentDraftBody || "(empty draft)"}\n\nSelected Markdown slice to edit:\n${selectedMarkdown?.trim() || "(selection could not be serialized; use the plain selected text below)"}\n\nPlain selected text:\n"${selectedText}"\n\nSelection range in the editor document: ${from}-${to}.`,
       submit: true,
     });
 

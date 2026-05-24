@@ -5,7 +5,10 @@ import { cn } from "@/lib/utils";
 import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { EmailThread } from "@/components/email/EmailThread";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  FOCUS_COMPOSE_DRAFT_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import {
   useNavigationState,
   type NavigationState,
@@ -437,8 +440,14 @@ export function InboxPage() {
     if (navCommand.composeDraftId && !targetThread) {
       // A deep link reopened a compose draft. The open route already wrote the
       // matching compose-<id> app-state entry, which the compose panel
-      // auto-opens via polling — we just need to land on the inbox so the
-      // panel is visible.
+      // auto-opens via polling. Select the requested draft immediately so
+      // existing compose tabs do not keep focus when the draft arrives.
+      compose.setActiveId(navCommand.composeDraftId);
+      window.dispatchEvent(
+        new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
+          detail: { id: navCommand.composeDraftId },
+        }),
+      );
       if (view !== "inbox") navigate("/inbox");
     } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId

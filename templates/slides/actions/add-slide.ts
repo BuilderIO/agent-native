@@ -82,6 +82,7 @@ export default defineAction({
       ),
   }),
   mcpApp: {
+    compactCatalog: true,
     resource: embedApp({
       title: "Deck editor",
       description: "Open the updated deck in the real Slides editor.",
