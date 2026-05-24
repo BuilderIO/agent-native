@@ -74,7 +74,9 @@ const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 type CreateMenuView =
   | "menu"
   | "file"
+  | "skill-menu"
   | "skill"
+  | "skill-upload"
   | "job"
   | "agent-mode"
   | "agent-prompt"
@@ -166,7 +168,10 @@ function CreateMenu({
   } | null>(null);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
-  const uploadResource = useUploadResource();
+  const skillHoverTimerRef = useRef<number | null>(null);
+  const [skillUploadSlug, setSkillUploadSlug] = useState("");
+  const [skillUploadContent, setSkillUploadContent] = useState("");
+  const [skillUploadFileName, setSkillUploadFileName] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -186,6 +191,9 @@ function CreateMenu({
       setMcpError(null);
       setMcpTestResult(null);
       setMcpBusy(false);
+      setSkillUploadSlug("");
+      setSkillUploadContent("");
+      setSkillUploadFileName("");
     }
   }, [open, defaultMcpScope]);
 
@@ -289,20 +297,23 @@ Keep the skill concise (under 500 lines) and actionable.`,
     onCreated?.();
   };
 
-  const handleUploadSkillFiles = (files: FileList | null) => {
+  const handleUploadSkillFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const baseName = file.name.replace(/\.[^./]+$/, "");
-      const slug = slugifyName(
-        baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-      );
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("path", `skills/${slug}/SKILL.md`);
-      formData.append("shared", scope === "shared" ? "true" : "false");
-      uploadResource.mutate(formData);
-    }
+    const file = files[0];
+    const text = await file.text();
+    const baseName = file.name.replace(/\.[^./]+$/, "");
+    const slug = slugifyName(
+      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
+    );
+    setSkillUploadSlug(slug);
+    setSkillUploadContent(text);
+    setSkillUploadFileName(file.name);
+    setView("skill-upload");
+  };
+
+  const saveUploadedSkill = () => {
+    const path = `skills/${slugifyName(skillUploadSlug || "uploaded-skill")}/SKILL.md`;
+    onCreateResource(path, skillUploadContent, "text/markdown");
     setOpen(false);
     onCreated?.();
   };
@@ -485,6 +496,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
     label: string;
     desc: string;
     action: () => void;
+    hoverAction?: () => void;
   }[] = [
     {
       icon: <IconPlus className="h-3.5 w-3.5" />,
@@ -496,13 +508,8 @@ The result should be a reusable agent profile, not a one-off task response.`,
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: () => setView("skill"),
-    },
-    {
-      icon: <IconUpload className="h-3.5 w-3.5" />,
-      label: "Upload Skill",
-      desc: "Import an existing SKILL.md file",
-      action: () => skillFileInputRef.current?.click(),
+      action: () => setView("skill-menu"),
+      hoverAction: () => setView("skill-menu"),
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
@@ -580,7 +587,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         collisionPadding={8}
         className={cn(
           "z-[260] p-0 text-[13px] leading-normal",
-          view === "menu" || view === "file"
+          view === "menu" || view === "file" || view === "skill-menu"
             ? "w-[260px]"
             : "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto",
         )}
@@ -591,6 +598,20 @@ The result should be a reusable agent profile, not a one-off task response.`,
               <button
                 key={item.label}
                 onClick={item.action}
+                onMouseEnter={() => {
+                  if (!item.hoverAction) return;
+                  if (skillHoverTimerRef.current)
+                    window.clearTimeout(skillHoverTimerRef.current);
+                  skillHoverTimerRef.current = window.setTimeout(() => {
+                    item.hoverAction?.();
+                  }, 180);
+                }}
+                onMouseLeave={() => {
+                  if (skillHoverTimerRef.current) {
+                    window.clearTimeout(skillHoverTimerRef.current);
+                    skillHoverTimerRef.current = null;
+                  }
+                }}
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
               >
                 <span className="text-muted-foreground">{item.icon}</span>
@@ -638,6 +659,43 @@ The result should be a reusable agent profile, not a one-off task response.`,
           </div>
         )}
 
+        {view === "skill-menu" && (
+          <div className="py-1">
+            <button
+              onClick={() => setView("skill")}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+            >
+              <span className="text-muted-foreground">
+                <IconBulb className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[12px] font-medium text-foreground">
+                  Create new skill
+                </div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                  Describe a skill and let the agent draft it
+                </div>
+              </div>
+            </button>
+            <button
+              onClick={() => skillFileInputRef.current?.click()}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+            >
+              <span className="text-muted-foreground">
+                <IconUpload className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[12px] font-medium text-foreground">
+                  Upload skill file
+                </div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                  Import an existing SKILL.md file
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
         {view === "skill" && (
           <div className="p-3">
             <label className="mb-1 block text-[11px] font-semibold text-foreground">
@@ -652,6 +710,61 @@ The result should be a reusable agent profile, not a one-off task response.`,
               draftScope="resources:create-skill"
               onSubmit={(text) => submitSkill(text)}
             />
+          </div>
+        )}
+
+        {view === "skill-upload" && (
+          <div className="p-3">
+            <label className="mb-1 block text-[11px] font-semibold text-foreground">
+              Upload skill file
+            </label>
+            <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+              Review the content from{" "}
+              <span className="font-mono">
+                {skillUploadFileName || "the selected file"}
+              </span>{" "}
+              before saving.
+            </p>
+            <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+              Skill name
+            </label>
+            <input
+              value={skillUploadSlug}
+              onChange={(e) => setSkillUploadSlug(e.target.value)}
+              className="mb-2 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+              placeholder="my-skill"
+            />
+            <p className="mb-2 text-[10px] text-muted-foreground/60">
+              Will be saved at{" "}
+              <span className="font-mono">
+                skills/{slugifyName(skillUploadSlug || "uploaded-skill")}
+                /SKILL.md
+              </span>
+            </p>
+            <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+              Content
+            </label>
+            <textarea
+              value={skillUploadContent}
+              onChange={(e) => setSkillUploadContent(e.target.value)}
+              rows={14}
+              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-foreground outline-none focus:ring-1 focus:ring-accent"
+            />
+            <div className="mt-2.5 flex justify-end gap-2">
+              <button
+                onClick={() => setView("skill-menu")}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-accent/40"
+              >
+                Back
+              </button>
+              <button
+                onClick={saveUploadedSkill}
+                disabled={!skillUploadContent.trim() || !skillUploadSlug.trim()}
+                className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Save
+              </button>
+            </div>
           </div>
         )}
 
