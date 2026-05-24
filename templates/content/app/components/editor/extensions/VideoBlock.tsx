@@ -54,7 +54,15 @@ interface VideoResizeState {
 }
 
 const MIN_VIDEO_WIDTH = 200;
-const VIDEO_TRANSCRIPT_PLACEHOLDER = "Transcribing video...";
+const VIDEO_TRANSCRIPT_PLACEHOLDER_LABEL = "Transcribing video...";
+
+function createTranscriptPlaceholder(label: string): string {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${label} ${id}`;
+}
 
 function normalizedVideoWidth(value: unknown): number | null {
   const width =
@@ -204,23 +212,26 @@ export function VideoBlock({
   }
 
   function insertTranscriptPlaceholder() {
-    if (!editor.schema.nodes.notionToggle) return VIDEO_TRANSCRIPT_PLACEHOLDER;
+    if (!editor.schema.nodes.notionToggle) return null;
     const position = typeof getPos === "function" ? getPos() : null;
-    if (typeof position !== "number") return VIDEO_TRANSCRIPT_PLACEHOLDER;
+    if (typeof position !== "number") return null;
     const insertAt = position + node.nodeSize;
+    const placeholderText = createTranscriptPlaceholder(
+      VIDEO_TRANSCRIPT_PLACEHOLDER_LABEL,
+    );
 
-    editor
+    const inserted = editor
       .chain()
       .focus()
       .insertContentAt(
         insertAt,
-        `<details open><summary>Transcript</summary><p>${VIDEO_TRANSCRIPT_PLACEHOLDER}</p></details>`,
+        `<details open><summary>Transcript</summary><p>${placeholderText}</p></details>`,
       )
       .setNodeSelection(insertAt)
       .scrollIntoView()
       .run();
 
-    return VIDEO_TRANSCRIPT_PLACEHOLDER;
+    return inserted ? placeholderText : null;
   }
 
   function handleTranscribe() {
@@ -231,6 +242,10 @@ export function VideoBlock({
     }
 
     const placeholderText = insertTranscriptPlaceholder();
+    if (!placeholderText) {
+      toast.error("Could not add a transcript block.");
+      return;
+    }
     setMoreMenuOpen(false);
     sendToAgentChat({
       message: "Transcribe this video and add the transcript below it.",

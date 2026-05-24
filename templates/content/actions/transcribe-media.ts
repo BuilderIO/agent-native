@@ -16,6 +16,8 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { eq } from "drizzle-orm";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import updateDocument from "./update-document.js";
@@ -36,6 +38,7 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Transcribe only words spoken in the audio. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
+const BLOCKED_HOSTNAMES = new Set(["localhost", "localhost.localdomain"]);
 
 function mediaFallbackMimeType(mediaType: MediaType): string {
   return mediaType === "audio" ? "audio/webm" : "video/mp4";
@@ -60,6 +63,92 @@ function resolveMediaUrl(mediaUrl: string): string {
   return `${origin}${mediaUrl}`;
 }
 
+function isRelativeMediaUrl(mediaUrl: string): boolean {
+  return mediaUrl.startsWith("/") && !mediaUrl.startsWith("//");
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    BLOCKED_HOSTNAMES.has(normalized) ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".internal")
+  );
+}
+
+function isPrivateIpv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
+    return true;
+  }
+  const [a, b] = parts;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function isPrivateIpv6(address: string): boolean {
+  const normalized = address.toLowerCase();
+  if (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("::ffff:")
+  ) {
+    const mappedIpv4 = normalized.replace("::ffff:", "");
+    return mappedIpv4.includes(".") ? isPrivateIpv4(mappedIpv4) : true;
+  }
+
+  const firstHextet = Number.parseInt(normalized.split(":")[0] || "0", 16);
+  if (!Number.isFinite(firstHextet)) return true;
+  return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
+}
+
+function isPrivateAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) return isPrivateIpv4(address);
+  if (family === 6) return isPrivateIpv6(address);
+  return true;
+}
+
+async function assertSafeRemoteMediaUrl(mediaUrl: string) {
+  if (isRelativeMediaUrl(mediaUrl)) return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(mediaUrl);
+  } catch {
+    throw new Error("Media URL must be a valid URL or app-relative path.");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Media URL must use http or https.");
+  }
+
+  if (isBlockedHostname(parsed.hostname)) {
+    throw new Error("Media URL cannot target a private or local host.");
+  }
+
+  const directIpFamily = isIP(parsed.hostname);
+  const addresses = directIpFamily
+    ? [parsed.hostname]
+    : (await lookup(parsed.hostname, { all: true })).map(
+        (entry) => entry.address,
+      );
+
+  if (!addresses.length || addresses.some(isPrivateAddress)) {
+    throw new Error("Media URL cannot resolve to a private or local address.");
+  }
+}
+
 async function loadMediaBlob({
   mediaUrl,
   mediaType,
@@ -67,6 +156,7 @@ async function loadMediaBlob({
   mediaUrl: string;
   mediaType: MediaType;
 }): Promise<{ blob: Blob; sourceMimeType: string }> {
+  await assertSafeRemoteMediaUrl(mediaUrl);
   const resolvedUrl = resolveMediaUrl(mediaUrl);
   const response = await fetch(resolvedUrl);
   if (!response.ok) {
@@ -145,6 +235,19 @@ function findMediaBlock(
     }
   }
   return null;
+}
+
+function assertMediaUrlInDocument({
+  content,
+  mediaUrl,
+  mediaType,
+}: {
+  content: string;
+  mediaUrl: string;
+  mediaType: MediaType;
+}) {
+  if (findMediaBlock(content, mediaUrl, mediaType)) return;
+  throw new Error("Could not find that media URL in the document content.");
 }
 
 function insertTranscriptAfterMedia({
@@ -392,7 +495,12 @@ export default defineAction({
       ),
   }),
   run: async ({ documentId, mediaUrl, mediaType, placeholderText }) => {
-    await assertAccess("document", documentId, "editor");
+    const access = await assertAccess("document", documentId, "editor");
+    assertMediaUrlInDocument({
+      content: (access.resource.content as string | null) ?? "",
+      mediaUrl,
+      mediaType,
+    });
 
     const mediaBlob = await loadMediaBlob({ mediaUrl, mediaType });
     const audioMedia = await prepareAudioOnlyTranscriptionMedia({

@@ -24,7 +24,20 @@ function countWords(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
-function updateImageAltInContent({
+interface ImageAltCandidate {
+  index: number;
+  text: string;
+  replacement: string;
+}
+
+function replaceHtmlAltAttribute(tag: string, altText: string): string {
+  const escapedAlt = escapeHtmlAttribute(altText);
+  return /\balt=["'][^"']*["']/.test(tag)
+    ? tag.replace(/\balt=["'][^"']*["']/, `alt="${escapedAlt}"`)
+    : tag.replace(/\s*\/?>$/, ` alt="${escapedAlt}" />`);
+}
+
+function imageAltCandidates({
   content,
   imageUrl,
   altText,
@@ -32,33 +45,56 @@ function updateImageAltInContent({
   content: string;
   imageUrl: string;
   altText: string;
-}): string | null {
+}): ImageAltCandidate[] {
   const escapedUrl = escapeRegExp(imageUrl);
   const escapedHtmlUrl = escapeRegExp(escapeHtmlAttribute(imageUrl));
+  const candidates: ImageAltCandidate[] = [];
 
   const markdownImagePattern = new RegExp(
     `!\\[[^\\]]*\\]\\((${escapedUrl})(\\s+\"[^\"]*\")?\\)`,
+    "g",
   );
-  if (markdownImagePattern.test(content)) {
-    return content.replace(
-      markdownImagePattern,
-      `![${escapeMarkdownAlt(altText)}]($1$2)`,
-    );
+  for (const match of content.matchAll(markdownImagePattern)) {
+    if (match.index === undefined) continue;
+    candidates.push({
+      index: match.index,
+      text: match[0],
+      replacement: `![${escapeMarkdownAlt(altText)}](${match[1]}${match[2] ?? ""})`,
+    });
   }
 
   const htmlImagePattern = new RegExp(
-    `<img\\b([^>]*\\bsrc=["'](?:${escapedUrl}|${escapedHtmlUrl})["'][^>]*)>`,
+    `<img\\b[^>]*\\bsrc=["'](?:${escapedUrl}|${escapedHtmlUrl})["'][^>]*\\/?>`,
+    "g",
   );
-  const htmlMatch = content.match(htmlImagePattern);
-  if (!htmlMatch) return null;
+  for (const match of content.matchAll(htmlImagePattern)) {
+    if (match.index === undefined) continue;
+    candidates.push({
+      index: match.index,
+      text: match[0],
+      replacement: replaceHtmlAltAttribute(match[0], altText),
+    });
+  }
 
-  const fullTag = htmlMatch[0];
-  const escapedAlt = escapeHtmlAttribute(altText);
-  const nextTag = /\balt=["'][^"']*["']/.test(fullTag)
-    ? fullTag.replace(/\balt=["'][^"']*["']/, `alt="${escapedAlt}"`)
-    : fullTag.replace(/\s*\/?>$/, ` alt="${escapedAlt}" />`);
+  return candidates.sort((a, b) => a.index - b.index);
+}
 
-  return content.replace(fullTag, nextTag);
+function updateImageAltInContent({
+  content,
+  imageUrl,
+  altText,
+  imageOccurrence = 0,
+}: {
+  content: string;
+  imageUrl: string;
+  altText: string;
+  imageOccurrence?: number;
+}): string | null {
+  const candidates = imageAltCandidates({ content, imageUrl, altText });
+  const target = candidates[imageOccurrence];
+  if (!target) return null;
+
+  return `${content.slice(0, target.index)}${target.replacement}${content.slice(target.index + target.text.length)}`;
 }
 
 export default defineAction({
@@ -70,8 +106,16 @@ export default defineAction({
     altText: z
       .string()
       .describe("Concise alt text describing the image for accessibility"),
+    imageOccurrence: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "Zero-based occurrence of this image URL in document order. Use this when the same image URL appears more than once.",
+      ),
   }),
-  run: async ({ documentId, imageUrl, altText }) => {
+  run: async ({ documentId, imageUrl, altText, imageOccurrence }) => {
     const trimmedAlt = altText.trim();
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
@@ -81,6 +125,7 @@ export default defineAction({
       content: existingContent,
       imageUrl,
       altText: trimmedAlt,
+      imageOccurrence,
     });
 
     if (!nextContent) {
@@ -92,6 +137,7 @@ export default defineAction({
     return {
       documentId,
       imageUrl,
+      imageOccurrence: imageOccurrence ?? 0,
       altTextUpdated: true,
       altTextLength: trimmedAlt.length,
       altTextWordCount: countWords(trimmedAlt),
