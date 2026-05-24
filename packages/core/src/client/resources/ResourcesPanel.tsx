@@ -74,7 +74,6 @@ const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 type CreateMenuView =
   | "menu"
   | "file"
-  | "skill-menu"
   | "skill"
   | "skill-upload"
   | "job"
@@ -183,6 +182,22 @@ function CreateMenu({
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const skillHoverTimerRef = useRef<number | null>(null);
+  const [skillFlyoutOpen, setSkillFlyoutOpen] = useState(false);
+  const skillFlyoutCloseTimerRef = useRef<number | null>(null);
+  const openSkillFlyout = () => {
+    if (skillFlyoutCloseTimerRef.current) {
+      window.clearTimeout(skillFlyoutCloseTimerRef.current);
+      skillFlyoutCloseTimerRef.current = null;
+    }
+    setSkillFlyoutOpen(true);
+  };
+  const scheduleSkillFlyoutClose = () => {
+    if (skillFlyoutCloseTimerRef.current)
+      window.clearTimeout(skillFlyoutCloseTimerRef.current);
+    skillFlyoutCloseTimerRef.current = window.setTimeout(() => {
+      setSkillFlyoutOpen(false);
+    }, 160);
+  };
   const [skillUploadSlug, setSkillUploadSlug] = useState("");
   const [skillUploadContent, setSkillUploadContent] = useState("");
   const [skillUploadFileName, setSkillUploadFileName] = useState("");
@@ -208,6 +223,7 @@ function CreateMenu({
       setSkillUploadSlug("");
       setSkillUploadContent("");
       setSkillUploadFileName("");
+      setSkillFlyoutOpen(false);
     }
   }, [open, defaultMcpScope]);
 
@@ -537,8 +553,8 @@ The result should be a reusable agent profile, not a one-off task response.`,
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: () => setView("skill-menu"),
-      hoverAction: () => setView("skill-menu"),
+      action: openSkillFlyout,
+      hoverAction: openSkillFlyout,
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
@@ -616,44 +632,117 @@ The result should be a reusable agent profile, not a one-off task response.`,
         collisionPadding={8}
         className={cn(
           "z-[260] p-0 text-[13px] leading-normal",
-          view === "menu" || view === "file" || view === "skill-menu"
+          view === "menu" || view === "file"
             ? "w-[260px]"
             : "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto",
         )}
       >
         {view === "menu" && (
           <div className="py-1">
-            {menuItems.map((item) => (
-              <button
-                key={item.label}
-                onClick={item.action}
-                onMouseEnter={() => {
-                  if (!item.hoverAction) return;
-                  if (skillHoverTimerRef.current)
-                    window.clearTimeout(skillHoverTimerRef.current);
-                  skillHoverTimerRef.current = window.setTimeout(() => {
-                    item.hoverAction?.();
-                  }, 180);
-                }}
-                onMouseLeave={() => {
-                  if (skillHoverTimerRef.current) {
-                    window.clearTimeout(skillHoverTimerRef.current);
-                    skillHoverTimerRef.current = null;
-                  }
-                }}
-                className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
-              >
-                <span className="text-muted-foreground">{item.icon}</span>
-                <div className="min-w-0">
-                  <div className="text-[12px] font-medium text-foreground">
-                    {item.label}
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                    {item.desc}
-                  </div>
+            {menuItems.map((item) => {
+              const isSkill = item.label === "Create Skill";
+              return (
+                <div
+                  key={item.label}
+                  className="relative"
+                  onMouseEnter={() => {
+                    if (isSkill) {
+                      openSkillFlyout();
+                      return;
+                    }
+                    if (!item.hoverAction) return;
+                    if (skillHoverTimerRef.current)
+                      window.clearTimeout(skillHoverTimerRef.current);
+                    skillHoverTimerRef.current = window.setTimeout(() => {
+                      item.hoverAction?.();
+                    }, 180);
+                  }}
+                  onMouseLeave={() => {
+                    if (isSkill) {
+                      scheduleSkillFlyoutClose();
+                      return;
+                    }
+                    if (skillHoverTimerRef.current) {
+                      window.clearTimeout(skillHoverTimerRef.current);
+                      skillHoverTimerRef.current = null;
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={item.action}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50",
+                      isSkill && skillFlyoutOpen && "bg-accent/50",
+                    )}
+                  >
+                    <span className="text-muted-foreground">{item.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-foreground">
+                        {item.label}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                        {item.desc}
+                      </div>
+                    </div>
+                    {isSkill && (
+                      <span className="ml-auto text-muted-foreground/60">
+                        ›
+                      </span>
+                    )}
+                  </button>
+                  {isSkill && skillFlyoutOpen && (
+                    <div
+                      role="menu"
+                      onMouseEnter={openSkillFlyout}
+                      onMouseLeave={scheduleSkillFlyoutClose}
+                      className="absolute left-full top-0 z-20 ml-1 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSkillFlyoutOpen(false);
+                          setView("skill");
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                      >
+                        <span className="text-muted-foreground">
+                          <IconBulb className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-medium text-foreground">
+                            Create new skill
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                            Describe a skill and let the agent draft it
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSkillFlyoutOpen(false);
+                          skillFileInputRef.current?.click();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                      >
+                        <span className="text-muted-foreground">
+                          <IconUpload className="h-3.5 w-3.5" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-medium text-foreground">
+                            Upload skill file
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                            Import an existing SKILL.md file
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -685,43 +774,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 Create
               </button>
             </div>
-          </div>
-        )}
-
-        {view === "skill-menu" && (
-          <div className="py-1">
-            <button
-              onClick={() => setView("skill")}
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
-            >
-              <span className="text-muted-foreground">
-                <IconBulb className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-0">
-                <div className="text-[12px] font-medium text-foreground">
-                  Create new skill
-                </div>
-                <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                  Describe a skill and let the agent draft it
-                </div>
-              </div>
-            </button>
-            <button
-              onClick={() => skillFileInputRef.current?.click()}
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
-            >
-              <span className="text-muted-foreground">
-                <IconUpload className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-0">
-                <div className="text-[12px] font-medium text-foreground">
-                  Upload skill file
-                </div>
-                <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                  Import an existing SKILL.md file
-                </div>
-              </div>
-            </button>
           </div>
         )}
 
@@ -781,7 +833,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
             />
             <div className="mt-2.5 flex justify-end gap-2">
               <button
-                onClick={() => setView("skill-menu")}
+                onClick={() => setView("menu")}
                 className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-accent/40"
               >
                 Back
