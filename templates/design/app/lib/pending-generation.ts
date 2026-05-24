@@ -14,6 +14,7 @@ export interface PendingGeneration {
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
   autoGenerate?: boolean;
+  attempt?: number;
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;

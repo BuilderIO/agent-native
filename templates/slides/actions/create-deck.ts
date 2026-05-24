@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
@@ -14,7 +14,6 @@ import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { slidesDeckMcpAppHtml, slidesMcpAppResourceMeta } from "./_mcp-apps.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -51,9 +50,9 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Create an empty deck, or atomically replace all slides in an existing deck. " +
-    "For AI-generated decks, create the deck with slides: [] and then use add-slide so progress appears live. " +
-    "Use non-empty slides here only for imports or intentional bulk replacement. " +
+    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
+    "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
     "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, and slide count.",
   schema: z.object({
@@ -79,12 +78,14 @@ export default defineAction({
       .describe("Optional design system ID to link to the deck"),
   }),
   mcpApp: {
-    resource: {
+    compactCatalog: true,
+    resource: embedApp({
       title: "Deck preview",
-      description: "Preview a generated slide deck inline.",
-      html: slidesDeckMcpAppHtml,
-      ...slidesMcpAppResourceMeta,
-    },
+      description: "Open the generated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      height: 680,
+    }),
   },
   http: false,
   run: async ({

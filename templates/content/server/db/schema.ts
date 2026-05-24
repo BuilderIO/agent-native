@@ -15,6 +15,7 @@ export const documents = table("documents", {
   icon: text("icon"),
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
+  hideFromSearch: integer("hide_from_search").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -446,13 +447,17 @@ export const AttendeeAutocomplete = forwardRef<
                   addPerson(person);
                 }}
               >
-                {person.photoUrl ? (
+                {person.photoUrl && !isMcpEmbedSurface() ? (
                   <img
                     src={person.photoUrl}
                     alt=""
                     className="h-8 w-8 shrink-0 rounded-full object-cover"
                   />
                 ) : (
+                  // MCP host iframes (ChatGPT / Claude) block cross-origin
+                  // googleusercontent.com contact avatars at the COEP layer
+                  // and produce console errors. Fall back to initials when
+                  // rendered in an embedded surface.
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
                     {initialsFor(person) || (
                       <IconUserCircle className="h-4 w-4" />

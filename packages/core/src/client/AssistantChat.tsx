@@ -32,7 +32,10 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+} from "./agent-chat-adapter.js";
 import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
@@ -51,6 +54,7 @@ import {
 } from "./sse-event-processor.js";
 import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -267,6 +271,39 @@ async function getImageFileDataURL(file: File): Promise<string> {
 
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
+
+function imageContentTypeFromDataUrl(dataUrl: string): string {
+  const match = /^data:([^;,]+)/.exec(dataUrl);
+  return match?.[1] || "image/jpeg";
+}
+
+function imageExtensionFromContentType(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/gif") return "gif";
+  return "jpg";
+}
+
+function createAgentImageAttachments(
+  images?: readonly string[],
+): QueuedAttachment[] | undefined {
+  const validImages = (images ?? []).filter((image) => image.trim().length > 0);
+  if (validImages.length === 0) return undefined;
+
+  return validImages.map((image, index) => {
+    const contentType = imageContentTypeFromDataUrl(image);
+    const extension = imageExtensionFromContentType(contentType);
+    const name = `image-${index + 1}.${extension}`;
+    return {
+      id: `agent-chat-image-${index + 1}`,
+      type: "image",
+      name,
+      contentType,
+      status: { type: "complete" },
+      content: [{ type: "image", image }],
+    };
+  });
+}
 
 function createUserMessageRunConfig(
   references?: Reference[],
@@ -536,6 +573,18 @@ function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
   }
 
   return true;
+}
+
+function cloneContentParts(content: ContentPart[]): ContentPart[] {
+  return content.map((part) =>
+    part.type === "text"
+      ? { ...part }
+      : {
+          ...part,
+          args: { ...part.args },
+          ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+        },
+  );
 }
 
 function clearPendingSelection() {
@@ -1301,10 +1350,11 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
 
   const copyValue = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(payload.copyText);
-      setCopied(true);
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      if (await writeClipboardText(payload.copyText)) {
+        setCopied(true);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      }
     } catch {
       // Clipboard failures should not interrupt chat rendering.
     }
@@ -2105,12 +2155,14 @@ function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    navigator.clipboard.writeText(text);
-    setCopied("message");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied("message");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
@@ -2132,12 +2184,14 @@ function MessageActionsMenu({
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
-    navigator.clipboard.writeText(runId);
-    setCopied("id");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(runId).then((ok) => {
+      if (!ok) return;
+      setCopied("id");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleForkChat = useCallback(() => {
@@ -2740,9 +2794,11 @@ function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -3154,9 +3210,9 @@ function PlanModeCallout({
 
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
-  sendMessage(text: string): void;
+  sendMessage(text: string, images?: string[]): void;
   /** Queue a message to send after the current run finishes */
-  queueMessage(text: string): void;
+  queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
   /** Focus the composer input */
@@ -3175,6 +3231,7 @@ export interface AssistantChatAdapterContext {
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
+  surface: AgentChatSurfaceKind;
 }
 
 export interface AssistantChatProps {
@@ -3188,6 +3245,11 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /**
+   * Identifies which surface hosts this chat. Defaults to "app", which keeps
+   * dev filesystem/bash code-editing tools out of in-product sidebars.
+   */
+  agentChatSurface?: AgentChatSurfaceKind;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3433,6 +3495,11 @@ const AssistantChatInner = forwardRef<
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
     if (dropDepthRef.current === 0) setDropActive(false);
+  }, []);
+  const handleChatDropCapture = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = 0;
+    setDropActive(false);
   }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
@@ -4340,19 +4407,16 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           await waitForThreadRunToClear(apiUrl, threadId);
-          const content: Array<
-            { type: "text"; text: string } | { type: "image"; image: string }
-          > = [{ type: "text", text: next.text }];
-          if (next.images) {
-            for (const img of next.images) {
-              content.push({ type: "image", image: img });
-            }
-          }
+          const imageAttachments = createAgentImageAttachments(next.images);
+          const messageAttachments =
+            next.attachments && next.attachments.length > 0
+              ? next.attachments
+              : (imageAttachments ?? []);
           threadRuntime.append({
             role: "user",
-            content,
-            ...(next.attachments && next.attachments.length > 0
-              ? { attachments: next.attachments }
+            content: [{ type: "text", text: next.text }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
               : {}),
             ...createUserMessageRunConfig(next.references, next.requestMode),
           } as Parameters<typeof threadRuntime.append>[0]);
@@ -4393,6 +4457,68 @@ const AssistantChatInner = forwardRef<
     }
   }, [isReconnecting, forceStopped]);
 
+  const materializeFrozenReconnectContent = useCallback(() => {
+    if (!reconnectFrozen || reconnectContent.length === 0) return;
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const messages = getRepoMessages(repo);
+      const lastEntry = messages[messages.length - 1];
+      const lastMessage = getRepoMessage(lastEntry);
+      const parentId =
+        typeof repo.headId === "string"
+          ? repo.headId
+          : typeof lastMessage?.id === "string"
+            ? lastMessage.id
+            : null;
+      const runId = runErrorInfo?.runId ?? reconnectRunIdRef.current;
+      const id = `reconnect-${runId ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      repo.messages = [
+        ...messages,
+        {
+          parentId,
+          message: {
+            id,
+            role: "assistant",
+            createdAt: new Date(),
+            content: cloneContentParts(reconnectContent),
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              custom: {
+                reconnectFrozen: true,
+                ...(runId ? { runId } : {}),
+              },
+            },
+          },
+        },
+      ];
+      repo.headId = id;
+
+      threadRuntime.import(ensureMessageMetadata(repo));
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "materialize-reconnect-content",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+          reconnectParts: reconnectContent.length,
+        },
+      });
+    }
+  }, [
+    reconnectFrozen,
+    reconnectContent,
+    runErrorInfo?.runId,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4402,6 +4528,7 @@ const AssistantChatInner = forwardRef<
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
     ) => {
+      materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
@@ -4419,6 +4546,11 @@ const AssistantChatInner = forwardRef<
       // direct sends.
       markNearBottom();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      const imageAttachments = createAgentImageAttachments(images);
+      const messageAttachments = [
+        ...(queuedAttachments ?? []),
+        ...(imageAttachments ?? []),
+      ];
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -4440,42 +4572,35 @@ const AssistantChatInner = forwardRef<
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             text,
             images,
-            attachments: queuedAttachments,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
             references,
             requestMode: effectiveRequestMode,
           },
         ]);
       } else {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text }];
-        if (images) {
-          for (const img of images) {
-            content.push({ type: "image", image: img });
-          }
-        }
         threadRuntime.append({
           role: "user",
-          content,
-          ...(queuedAttachments && queuedAttachments.length > 0
-            ? { attachments: queuedAttachments }
+          content: [{ type: "text", text }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
             : {}),
           ...createUserMessageRunConfig(references, effectiveRequestMode),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [execMode, isRunning, threadRuntime],
+    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
   );
 
   // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
-      sendMessage(text: string) {
-        addToQueue(text);
+      sendMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
-      queueMessage(text: string) {
-        addToQueue(text);
+      queueMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
       isRunning() {
         return thread.isRunning;
@@ -4626,6 +4751,7 @@ const AssistantChatInner = forwardRef<
             onDragEnter={handleChatDragEnter}
             onDragOver={handleChatDragOver}
             onDragLeave={handleChatDragLeave}
+            onDropCapture={handleChatDropCapture}
             onDrop={handleChatDrop}
           >
             {dropActive && (
@@ -5083,6 +5209,7 @@ export const AssistantChat = forwardRef<
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
   scopeRef.current = contextScope;
+  const surface = props.agentChatSurface ?? "app";
   const createAdapterRef = useRef(props.createAdapter);
   createAdapterRef.current = props.createAdapter;
 
@@ -5098,6 +5225,7 @@ export const AssistantChat = forwardRef<
         execModeRef,
         browserTabId,
         scopeRef,
+        surface,
       };
       const createAdapter = createAdapterRef.current;
       return createAdapter
@@ -5107,7 +5235,7 @@ export const AssistantChat = forwardRef<
     // Adapter factories must be memoized and use refs for changing values.
     // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
     // transport identity can change without changing tab/thread ids.
-    [apiUrl, tabId, threadId, browserTabId, props.adapterReloadKey],
+    [apiUrl, tabId, threadId, browserTabId, surface, props.adapterReloadKey],
   );
   const attachmentAdapter = useMemo(
     () =>

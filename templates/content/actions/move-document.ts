@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseDocumentFavorite } from "../server/lib/documents.js";
+import {
+  parseDocumentFavorite,
+  parseDocumentHideFromSearch,
+} from "../server/lib/documents.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -151,6 +154,7 @@ export default defineAction({
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),
+      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,

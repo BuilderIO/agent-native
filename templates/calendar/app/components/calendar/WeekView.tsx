@@ -17,6 +17,7 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import { EventStatusIcon } from "@/lib/rsvp-status";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -30,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
   events: CalendarEvent[];
@@ -610,6 +612,7 @@ export function WeekView({
                           className="shrink-0 text-current opacity-70"
                         />
                       )}
+                      <EventStatusIcon event={event} className="shrink-0" />
                       <span className="truncate">{event.title}</span>
                     </button>
                   </EventDetailPopover>
@@ -772,6 +775,9 @@ export function WeekView({
                     const segDayEnd = addDays(dayBase, 1);
                     const isStart = isSameDay(start, day);
                     const isEnd = end <= segDayEnd;
+                    const isDragPreviewSegment =
+                      isBeingDragged && overrides?.dayIndex === dayIndex;
+                    const segmentStartsHere = isStart || isDragPreviewSegment;
 
                     // Hide from original column if dragged to a different day
                     if (
@@ -783,7 +789,15 @@ export function WeekView({
                       return null;
                     }
                     // Hide continuation segments during active drag to avoid ghost overlap
-                    if (isBeingDragged && isDragging && !isStart) {
+                    if (
+                      !shouldRenderWeekDragSegment({
+                        isBeingDragged,
+                        isDragging,
+                        isStart,
+                        overrideDayIndex: overrides?.dayIndex,
+                        dayIndex,
+                      })
+                    ) {
                       return null;
                     }
 
@@ -839,7 +853,7 @@ export function WeekView({
                         }}
                         className={cn(
                           "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
-                          isStart ? "rounded-t-md" : "rounded-t-none",
+                          segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
                           isEnd ? "rounded-b-md" : "rounded-b-none",
                           durationMin <= 30
                             ? "justify-center"
@@ -849,7 +863,7 @@ export function WeekView({
                           isBeingDragged &&
                             isDragging &&
                             "ring-2 ring-primary/40",
-                          canDrag && isStart && "cursor-grab",
+                          canDrag && segmentStartsHere && "cursor-grab",
                           isBeingDragged && isDragging && "cursor-grabbing",
                         )}
                         style={{
@@ -870,7 +884,7 @@ export function WeekView({
                               ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
                               : (color ?? "hsl(var(--primary))")
                           }`,
-                          borderTop: !isStart
+                          borderTop: !segmentStartsHere
                             ? `2px dashed ${
                                 isPast || isDeclined
                                   ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
@@ -889,6 +903,10 @@ export function WeekView({
                                 className="shrink-0 text-current opacity-70 relative top-[1px]"
                               />
                             )}
+                            <EventStatusIcon
+                              event={event}
+                              className="relative top-[1px] shrink-0"
+                            />
                             <span
                               className={cn(
                                 "truncate leading-tight",
@@ -901,23 +919,6 @@ export function WeekView({
                             >
                               {event.title}
                             </span>
-                            {isStart && (
-                              <span
-                                className={cn(
-                                  "shrink-0 text-[10px] leading-tight",
-                                  isPast || isDeclined
-                                    ? "text-muted-foreground/50"
-                                    : "text-foreground/60",
-                                )}
-                              >
-                                {format(
-                                  displayStart,
-                                  displayStart.getMinutes() === 0
-                                    ? "h a"
-                                    : "h:mm a",
-                                )}
-                              </span>
-                            )}
                           </div>
                         ) : (
                           <>
@@ -937,9 +938,13 @@ export function WeekView({
                                   className="shrink-0 text-current opacity-70"
                                 />
                               )}
+                              <EventStatusIcon
+                                event={event}
+                                className="shrink-0"
+                              />
                               <span className="truncate">{event.title}</span>
                             </div>
-                            {isStart && (
+                            {segmentStartsHere && (
                               <div
                                 className={cn(
                                   "mt-0.5 truncate text-[9px] leading-tight",

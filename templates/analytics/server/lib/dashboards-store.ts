@@ -16,7 +16,9 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   accessFilter,
   assertAccess,
+  roleSatisfies,
   resolveAccess,
+  type ShareRole,
 } from "@agent-native/core/sharing";
 import { recordChange } from "@agent-native/core/server";
 import {
@@ -29,6 +31,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 
 export type DashboardKind = "explorer" | "sql";
+export type AccessRole = "owner" | ShareRole;
 
 export interface DashboardRecord {
   id: string;
@@ -42,6 +45,10 @@ export interface DashboardRecord {
   updatedAt: string;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
+  /** Effective role for the caller when loaded by id. List rows omit this. */
+  role?: AccessRole;
+  canEdit?: boolean;
+  canManage?: boolean;
 }
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
@@ -61,6 +68,10 @@ export interface AnalysisRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
+  /** Effective role for the caller when loaded by id. List rows omit this. */
+  role?: AccessRole;
+  canEdit?: boolean;
+  canManage?: boolean;
 }
 
 interface AccessCtx {
@@ -113,7 +124,20 @@ function recordScopedChange(
 // Dashboards
 // ---------------------------------------------------------------------------
 
-function rowToDashboard(row: any): DashboardRecord {
+function accessFields(role?: AccessRole): {
+  role?: AccessRole;
+  canEdit?: boolean;
+  canManage?: boolean;
+} {
+  if (!role) return {};
+  return {
+    role,
+    canEdit: roleSatisfies(role, "editor"),
+    canManage: roleSatisfies(role, "admin"),
+  };
+}
+
+function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
   return {
     id: row.id,
     kind: row.kind,
@@ -126,6 +150,7 @@ function rowToDashboard(row: any): DashboardRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt ?? null,
+    ...accessFields(role),
   };
 }
 
@@ -149,6 +174,7 @@ async function migrateDashboardFromSettings(
   ownerEmail: string,
   orgId: string | null,
   visibility: DashboardRecord["visibility"],
+  role?: AccessRole,
 ): Promise<DashboardRecord> {
   const { title, config } = configFromSettings(settingsValue);
   const db = getDb() as any;
@@ -182,7 +208,7 @@ async function migrateDashboardFromSettings(
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
   recordScopedChange("dashboards", "change", id, ownerEmail, orgId, visibility);
-  return rowToDashboard(row);
+  return rowToDashboard(row, role);
 }
 
 async function findLegacyDashboard(
@@ -245,7 +271,7 @@ export async function getDashboard(
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  if (access) return rowToDashboard(access.resource);
+  if (access) return rowToDashboard(access.resource, access.role);
   // 2) Legacy fallback.
   const legacy = await findLegacyDashboard(id, ctx);
   if (!legacy) return null;
@@ -256,6 +282,7 @@ export async function getDashboard(
     legacy.ownerEmail,
     legacy.orgId,
     legacy.visibility,
+    "owner",
   );
 }
 
@@ -507,7 +534,7 @@ export async function removeDashboard(
 // Analyses
 // ---------------------------------------------------------------------------
 
-function rowToAnalysis(row: any): AnalysisRecord {
+function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
   return {
     id: row.id,
     name: row.name,
@@ -523,6 +550,7 @@ function rowToAnalysis(row: any): AnalysisRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...accessFields(role),
   };
 }
 
@@ -574,6 +602,7 @@ async function migrateAnalysisFromSettings(
   ownerEmail: string,
   orgId: string | null,
   visibility: AnalysisRecord["visibility"],
+  role?: AccessRole,
 ): Promise<AnalysisRecord> {
   const db = getDb() as any;
   const createdAt =
@@ -603,7 +632,7 @@ async function migrateAnalysisFromSettings(
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
-  const analysis = rowToAnalysis(row);
+  const analysis = rowToAnalysis(row, role);
   recordScopedChange(
     "analyses",
     "change",
@@ -623,7 +652,7 @@ export async function getAnalysis(
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  if (access) return rowToAnalysis(access.resource);
+  if (access) return rowToAnalysis(access.resource, access.role);
   const legacy = await findLegacyAnalysis(id, ctx);
   if (!legacy) return null;
   return migrateAnalysisFromSettings(
@@ -632,6 +661,7 @@ export async function getAnalysis(
     legacy.ownerEmail,
     legacy.orgId,
     legacy.visibility,
+    "owner",
   );
 }
 

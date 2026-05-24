@@ -1,6 +1,7 @@
 import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getAppBasePath } from "@agent-native/core/server";
+import { DEFAULT_SSR_CACHE_CONTROL } from "@agent-native/core/server/ssr-handler";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
 
@@ -244,8 +245,7 @@ export async function renderPublicForm(event: H3Event) {
     "Content-Security-Policy": "frame-ancestors *",
   };
   if (status === 200) {
-    headers["Cache-Control"] =
-      "public, s-maxage=60, stale-while-revalidate=300";
+    headers["Cache-Control"] = DEFAULT_SSR_CACHE_CONTROL;
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,

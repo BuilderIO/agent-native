@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // field we set on the fake event. Mirrors poll-handler.spec's h3 stub.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) =>
+    event.headers?.get?.(name) ??
+    event.headers?.[name] ??
+    event.headers?.[name.toLowerCase()] ??
+    event.node?.req?.headers?.[name] ??
+    event.node?.req?.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
 }));
 
@@ -23,7 +29,18 @@ vi.mock("../application-state/store.js", () => ({
   appStateGet: (...a: any[]) => appStateGet(...a),
 }));
 
+const requestHasEmbedAuthMarker = vi.hoisted(() => vi.fn());
+
+vi.mock("./embed-session.js", () => ({
+  requestHasEmbedAuthMarker: (...a: any[]) => requestHasEmbedAuthMarker(...a),
+}));
+
 import { createOpenRouteHandler } from "./open-route.js";
+import {
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 
 /** Build a fake H3 event the open route understands. */
 function fakeEvent(url: string, method = "GET") {
@@ -32,15 +49,21 @@ function fakeEvent(url: string, method = "GET") {
 
 describe("createOpenRouteHandler", () => {
   beforeEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     getSession.mockReset();
     getConfiguredLoginHtml.mockReset();
     appStatePut.mockReset();
     appStatePut.mockResolvedValue(undefined);
     appStateGet.mockReset();
     appStateGet.mockResolvedValue(null);
+    requestHasEmbedAuthMarker.mockReset();
+    requestHasEmbedAuthMarker.mockReturnValue(false);
   });
 
   afterEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     vi.restoreAllMocks();
   });
 
@@ -160,6 +183,106 @@ describe("createOpenRouteHandler", () => {
       f_range: "30d",
       f_team: "growth",
     });
+  });
+
+  it("preserves embed launch params through the redirect but not navigate payload", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        `/_agent-native/open?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    const loc = res.headers.get("Location")!;
+    const sp = new URL(loc, "http://x.invalid").searchParams;
+    expect(sp.get(EMBED_MODE_QUERY_PARAM)).toBe("1");
+    expect(sp.get(EMBED_TOKEN_QUERY_PARAM)).toBe("tok_123");
+    expect(sp.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)).toBe("1");
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("adds MCP embed CORS headers to embed-auth open redirects", async () => {
+    requestHasEmbedAuthMarker.mockReturnValue(true);
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler({
+      ...fakeEvent(
+        `/_agent-native/open?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123`,
+      ),
+      headers: new Headers({
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      }),
+    } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/inbox?");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(res.headers.get("Access-Control-Expose-Headers")).toBe("Location");
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
+  it("parses the original browser URL when mounted under the framework route", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler({
+      method: "GET",
+      path: "/",
+      node: { req: { url: "/" } },
+      context: { _mountedPathname: "/_agent-native/open" },
+      url: {
+        search: `?view=inbox&threadId=t1&${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+      },
+    } as any);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      `/inbox?${EMBED_MODE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=tok_123&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&agentSidebar=closed`,
+    );
+
+    const [, , payload] = appStatePut.mock.calls[0];
+    expect(payload).toEqual({ threadId: "t1", view: "inbox" });
+  });
+
+  it("preserves APP_BASE_PATH when redirecting mounted app routes", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/mail/_agent-native/open?view=inbox&threadId=t1"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/mail/inbox?agentSidebar=closed");
+  });
+
+  it("does not duplicate APP_BASE_PATH when a safe to param is already mounted", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/mail/_agent-native/open?view=inbox&to=%2Fmail%2Finbox%2Fabc123",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/mail/inbox/abc123?agentSidebar=closed",
+    );
   });
 
   it("honors a safe same-origin relative `to` override", async () => {

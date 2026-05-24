@@ -22,13 +22,24 @@
  * no privileged state.
  */
 import type { H3Event } from "h3";
-import { defineEventHandler, getMethod } from "h3";
+import { defineEventHandler, getHeader, getMethod } from "h3";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
 import { appStatePut, appStateGet } from "../application-state/store.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+} from "../shared/mcp-embed-headers.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -36,6 +47,9 @@ const RESERVED = new Set([
   "view",
   "to",
   "compose",
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
 ]);
 
@@ -61,6 +75,10 @@ export interface OpenRouteOptions {
 }
 
 function getRequestUrl(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  if (typeof mountedPathname === "string" && mountedPathname) {
+    return `${mountedPathname}${(event as any).url?.search ?? ""}`;
+  }
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
 }
 
@@ -83,10 +101,32 @@ function safeRelativePath(raw: string | undefined | null): string | null {
   return raw;
 }
 
-function redirect(location: string): Response {
+function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
+  headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+  headers.set("Referrer-Policy", "no-referrer");
+  const origin = getHeader(event, "origin");
+  if (isMcpEmbedCorsOrigin(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+    headers.set("Access-Control-Allow-Headers", MCP_EMBED_CORS_ALLOW_HEADERS);
+    headers.set("Access-Control-Expose-Headers", "Location");
+  }
+  return headers;
+}
+
+function redirect(
+  event: H3Event,
+  location: string,
+  embedRedirect: boolean,
+): Response {
   // Native web Response (not h3 v2's reworked sendRedirect) — matches the
   // redirect pattern used elsewhere in auth.ts.
-  return new Response("", { status: 302, headers: { Location: location } });
+  const headers = new Headers({ Location: location });
+  if (embedRedirect) addMcpEmbedHeaders(event, headers);
+  return new Response("", { status: 302, headers });
 }
 
 function appendSearchParams(target: string, params: URLSearchParams): string {
@@ -94,6 +134,21 @@ function appendSearchParams(target: string, params: URLSearchParams): string {
   try {
     const url = new URL(target, "http://an.invalid");
     for (const [k, v] of params.entries()) url.searchParams.set(k, v);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return target;
+  }
+}
+
+function withConfiguredRedirectBasePath(target: string): string {
+  const base = getConfiguredAppBasePath();
+  if (!base) return target;
+  try {
+    const url = new URL(target, "http://an.invalid");
+    if (url.pathname === base || url.pathname.startsWith(`${base}/`)) {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    url.pathname = url.pathname === "/" ? base : `${base}${url.pathname}`;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return target;
@@ -217,8 +272,19 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       if (k.startsWith("f_")) filters.set(k, v);
     }
     target = appendSearchParams(target, filters);
+    const embedParams = new URLSearchParams();
+    for (const key of [
+      EMBED_MODE_QUERY_PARAM,
+      EMBED_TOKEN_QUERY_PARAM,
+      MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+    ]) {
+      const value = search.get(key);
+      if (value) embedParams.set(key, value);
+    }
+    target = appendSearchParams(target, embedParams);
     target = withCollapsedAgentSidebarParam(target);
+    target = withConfiguredRedirectBasePath(target);
 
-    return redirect(target);
+    return redirect(event, target, requestHasEmbedAuthMarker(event));
   });
 }

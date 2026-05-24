@@ -22,6 +22,7 @@ const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
+const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 
 interface PluginReadyEntry {
@@ -154,8 +155,12 @@ export function getH3App(nitroApp: any): H3AppShim {
       // Fall through — the actual route handler runs next.
       return undefined;
     }) as EventHandler;
-    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate);
-    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate);
+    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate, {
+      prepend: true,
+    });
+    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
+      prepend: true,
+    });
   }
 
   return shim;
@@ -213,6 +218,10 @@ export function trackPluginInit(
   options: { paths?: string[] } = {},
 ): void {
   if (!nitroApp) return;
+  // Ensure the readiness gate exists even when the tracked plugin is the first
+  // framework code to run in a serverless isolate. Otherwise an immediate
+  // first request can fall through before the plugin registers its routes.
+  getH3App(nitroApp);
   // Attach a no-op catch so the promise doesn't surface as an unhandled
   // rejection when Nitro v3 drops the async return value. The actual error
   // is still observable when awaitPluginsReady() re-awaits the promise.
@@ -231,6 +240,40 @@ export function trackPluginInit(
     existing.push(entry);
   } else {
     nitroApp[PLUGIN_READY_KEY] = [entry];
+  }
+  installPluginReadyPlaceholders(nitroApp, entry.paths);
+}
+
+function installPluginReadyPlaceholders(
+  nitroApp: any,
+  paths: string[] | undefined,
+): void {
+  if (!paths?.length) return;
+  const existing = nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] as
+    | Set<string>
+    | undefined;
+  const installed = existing ?? new Set<string>();
+  nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] = installed;
+
+  const app = getH3App(nitroApp);
+  for (const path of paths) {
+    if (!path || installed.has(path)) continue;
+    installed.add(path);
+    registerMiddleware(
+      nitroApp,
+      path,
+      (async (event: H3Event) => {
+        const eventAny = event as any;
+        await awaitFrameworkRoutesReadyForRequest(
+          nitroApp,
+          eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
+        );
+        return undefined;
+      }) as EventHandler,
+      {
+        prepend: true,
+      },
+    );
   }
 }
 
@@ -280,6 +323,7 @@ function registerMiddleware(
   nitroApp: any,
   path: string,
   handler: EventHandler,
+  options: { prepend?: boolean } = {},
 ) {
   const h3 = nitroApp.h3;
   if (!h3 || !Array.isArray(h3["~middleware"])) {
@@ -428,7 +472,11 @@ function registerMiddleware(
     }
   };
 
-  h3["~middleware"].push(middleware);
+  if (options.prepend) {
+    h3["~middleware"].unshift(middleware);
+  } else {
+    h3["~middleware"].push(middleware);
+  }
 }
 
 /**

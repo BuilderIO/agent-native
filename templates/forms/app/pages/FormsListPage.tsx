@@ -108,8 +108,12 @@ export function FormsListPage() {
 
   const headerActions = useMemo(
     () => (
-      <Button onClick={handleCreate} className="gap-2 shrink-0 cursor-pointer">
-        <IconPlus className="h-4 w-4" />
+      <Button
+        onClick={handleCreate}
+        size="sm"
+        className="shrink-0 cursor-pointer"
+      >
+        <IconPlus className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">New Form</span>
         <span className="sm:hidden">New</span>
       </Button>

@@ -90,7 +90,7 @@ export default defineAction({
         description: snippet.description,
         startMs: snippet.startMs,
         endMs: snippet.endMs,
-        password: snippet.password,
+        hasPassword: Boolean(snippet.password),
         expiresAt: snippet.expiresAt,
         visibility: snippet.visibility,
         ownerEmail: snippet.ownerEmail,

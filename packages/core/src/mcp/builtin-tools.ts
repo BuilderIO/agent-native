@@ -13,6 +13,7 @@
  * | --------------------- | ------------ | ---------------------------------------- |
  * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
  * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
+ * | `create_embed_session`| ticket mint  | `{ startUrl }` for MCP App iframes       |
  * | `ask_app`             | agent loop   | `{ app, routedVia, response }`           |
  * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
  *
@@ -31,8 +32,11 @@
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDeepLink } from "../server/deep-link.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import type { MCPConfig } from "./build-server.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
+import { embedApp } from "./embed-app.js";
 
 import type { ActionTool } from "../agent/types.js";
 
@@ -71,6 +75,52 @@ function tool(
  */
 function currentAppId(config: MCPConfig): string {
   return (config.appId || config.name || "app").toLowerCase();
+}
+
+const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+
+function safeAppPath(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const value = raw.trim();
+  if (CONTROL_CHARS.test(value)) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//") || value.startsWith("/\\")) return null;
+  if (/^\/[a-z][a-z0-9+.-]*:/i.test(value)) return null;
+  return value;
+}
+
+function appendParamsToPath(
+  path: string,
+  params: Record<string, string | number | boolean> | undefined,
+): string {
+  if (!params || Object.keys(params).length === 0) return path;
+  const url = new URL(path, "http://agent-native.invalid");
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function viewToAppPath(view: string): string | null {
+  const value = view.trim();
+  if (!value) return null;
+  return safeAppPath(value.startsWith("/") ? value : `/${value}`);
+}
+
+function withConfiguredBasePath(path: string): string {
+  const base = getConfiguredAppBasePath();
+  if (!base || path === base || path.startsWith(`${base}/`)) return path;
+  return `${base}${path}`;
+}
+
+function withMcpChatBridgeParam(path: string): string {
+  try {
+    const url = new URL(path, "http://agent-native.invalid");
+    url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -209,33 +259,62 @@ function listAppsTool(
 // open_app
 // ---------------------------------------------------------------------------
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function openAppTool(
+  config: MCPConfig,
+  requestMeta?: { origin?: string },
+): ActionEntry {
   return {
     tool: tool(
-      "Build a deep link that opens an app at a specific view/record. No side " +
+      "Build a deep link that opens an app at a specific view/record or " +
+        "focused route/component. No side " +
         "effects — returns a URL the user can click to land in the running UI. " +
-        'After calling, surface the returned "Open in … →" link to the user.',
+        "Set embed:true when a UI-capable MCP host should render the live app " +
+        "or focused route/component inline. Omit view and path to land on the " +
+        "app's home page.",
       {
         app: { type: "string", description: "App id, e.g. 'mail'" },
         view: {
           type: "string",
-          description: "Target view, e.g. 'inbox' (maps to navigate command)",
+          description:
+            "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
+        },
+        path: {
+          type: "string",
+          description:
+            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
         },
         params: {
           type: "object",
           description:
             "Optional record-focus / filter params, e.g. { threadId: 'abc' }",
         },
+        embed: {
+          type: "boolean",
+          description:
+            "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
+        },
+        chrome: {
+          type: "string",
+          enum: ["full", "minimal"],
+          description:
+            "Embed chrome preference for compatible app routes. Defaults to full.",
+        },
       },
-      ["app", "view"],
+      ["app"],
     ),
     readOnly: true,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
       const app = String(args.app ?? "").trim();
       const view = String(args.view ?? "").trim();
-      if (!app || !view) {
-        throw new Error("open_app requires both 'app' and 'view'.");
+      // `safeAppPath` rejects anything that isn't a leading-slash same-origin
+      // path. When the caller passes nothing, fall back to the app's root so a
+      // bare `open_app({app:"dispatch"})` lands on the home page instead of
+      // throwing. The model self-corrects on the retry today, but the extra
+      // round-trip wastes a turn and looks broken to the user.
+      const path = safeAppPath(args.path) || (view ? null : "/");
+      if (!app) {
+        throw new Error("open_app requires 'app'.");
       }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
@@ -248,7 +327,48 @@ function openAppTool(config: MCPConfig): ActionEntry {
           params = undefined;
         }
       }
-      const relUrl = buildDeepLink({ app, view, params });
+      const embeddedParam = params?.embed;
+      const chromeParam = params?.chrome;
+      let embed = args.embed === true || args.embed === "true";
+      if (
+        args.embed == null &&
+        (embeddedParam === true || embeddedParam === "true")
+      ) {
+        embed = true;
+      } else if (
+        args.embed == null &&
+        (embeddedParam === false || embeddedParam === "false")
+      ) {
+        embed = false;
+      }
+      if (
+        embeddedParam === true ||
+        embeddedParam === false ||
+        embeddedParam === "true" ||
+        embeddedParam === "false"
+      ) {
+        delete params?.embed;
+      }
+
+      const chrome =
+        typeof args.chrome === "string"
+          ? args.chrome
+          : chromeParam === "full" || chromeParam === "minimal"
+            ? chromeParam
+            : undefined;
+      if (chromeParam === "full" || chromeParam === "minimal") {
+        delete params?.chrome;
+      }
+      if (params && Object.keys(params).length === 0) params = undefined;
+
+      const directViewPath = embed && view ? viewToAppPath(view) : null;
+      const relUrl = path
+        ? appendParamsToPath(path, params)
+        : directViewPath
+          ? appendParamsToPath(directViewPath, params)
+          : buildDeepLink({ app, view, params });
+      const sameAppUrl =
+        path || directViewPath ? withConfiguredBasePath(relUrl) : relUrl;
 
       // Cross-app target in a workspace: resolve the TARGET app's origin and
       // return an absolute URL. Otherwise the MCP layer would prefix the
@@ -256,20 +376,161 @@ function openAppTool(config: MCPConfig): ActionEntry {
       // the wrong app (e.g. open_app({app:"calendar"}) served from Mail).
       // Same-app / standalone keeps the relative path (current behavior).
       const targetApp = await resolveTargetAppOrigin(config, app);
-      const url = targetApp
+      const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
-        : relUrl;
+        : sameAppUrl;
+      const url = appUrl;
+      let embedStartUrl: string | undefined;
+      let embedTargetPath: string | undefined;
+      let embedExpiresAt: number | undefined;
 
-      return { app, view, url };
+      if (embed && !targetApp) {
+        const { getRequestContext } =
+          await import("../server/request-context.js");
+        const ctx = getRequestContext();
+        const ownerEmail = ctx?.userEmail?.trim();
+        if (ownerEmail) {
+          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+            await import("../server/embed-session.js");
+          const { buildEmbedStartPath } =
+            await import("../server/embed-route.js");
+          const targetPath = normalizeEmbedTargetPath(
+            withMcpChatBridgeParam(url),
+            requestMeta?.origin,
+          );
+          if (targetPath) {
+            const ticket = await createEmbedSessionTicket({
+              ownerEmail,
+              orgId: ctx?.orgId,
+              targetPath,
+              scope: chrome ?? null,
+            });
+            const startPath = buildEmbedStartPath(ticket.ticket);
+            embedStartUrl = requestMeta?.origin
+              ? new URL(startPath, requestMeta.origin).toString()
+              : startPath;
+            embedTargetPath = targetPath;
+            embedExpiresAt = ticket.expiresAt;
+          }
+        }
+      }
+
+      return {
+        app,
+        ...(view ? { view } : {}),
+        ...(path ? { path } : {}),
+        url,
+        ...(embedStartUrl ? { embedStartUrl } : {}),
+        ...(embedTargetPath ? { embedTargetPath } : {}),
+        ...(embedExpiresAt ? { embedExpiresAt } : {}),
+        embed,
+      };
     },
     link: ({ result }) => {
       if (!result || typeof result !== "object") return null;
-      const r = result as { url?: string; app?: string; view?: string };
+      const r = result as {
+        url?: string;
+        app?: string;
+        view?: string;
+        embed?: boolean;
+      };
+      if (r.embed) return null;
       if (!r.url) return null;
       return {
         url: r.url,
         label: `Open ${r.app ?? "app"}`,
         view: r.view,
+      };
+    },
+    mcpApp: {
+      resource: embedApp({
+        title: "Open app",
+        description: "Render the requested app route inline.",
+        iframeTitle: "Agent Native app",
+        openLabel: "Open app",
+      }),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// create_embed_session
+// ---------------------------------------------------------------------------
+
+function createEmbedSessionTool(requestMeta?: {
+  origin?: string;
+}): ActionEntry {
+  return {
+    tool: {
+      ...tool(
+        "MCP Apps helper: create a one-time browser embed session for a same-origin app URL. Usually called by an MCP App iframe, not directly by the model.",
+        {
+          url: {
+            type: "string",
+            description:
+              "Same-origin absolute URL or app-relative path to embed.",
+          },
+          path: {
+            type: "string",
+            description: "Same-origin app-relative path to embed.",
+          },
+          chrome: {
+            type: "string",
+            enum: ["full", "minimal"],
+            description: "Embed chrome preference. Defaults to full.",
+          },
+        },
+      ),
+      _meta: { ui: { visibility: ["app"] } },
+    } as ActionTool,
+    // App-only bootstrap helper: the ticket becomes a normal browser session,
+    // so keep it write-scoped until embed sessions can enforce MCP scopes.
+    readOnly: false,
+    parallelSafe: true,
+    run: async (args: Record<string, any>) => {
+      const { getRequestContext } =
+        await import("../server/request-context.js");
+      const ctx = getRequestContext();
+      const ownerEmail = ctx?.userEmail?.trim();
+      if (!ownerEmail) {
+        throw new Error(
+          "create_embed_session requires an authenticated MCP caller.",
+        );
+      }
+
+      const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+        await import("../server/embed-session.js");
+      const { buildEmbedStartPath } = await import("../server/embed-route.js");
+      const rawTarget =
+        typeof args.url === "string" && args.url.trim()
+          ? args.url
+          : typeof args.path === "string"
+            ? args.path
+            : "";
+      const targetPath = normalizeEmbedTargetPath(
+        rawTarget,
+        requestMeta?.origin,
+      );
+      if (!targetPath) {
+        throw new Error(
+          "create_embed_session can only embed same-origin app-relative URLs.",
+        );
+      }
+
+      const ticket = await createEmbedSessionTicket({
+        ownerEmail,
+        orgId: ctx?.orgId,
+        targetPath,
+        scope: typeof args.chrome === "string" ? args.chrome : null,
+      });
+      const startPath = buildEmbedStartPath(ticket.ticket);
+      const startUrl = requestMeta?.origin
+        ? new URL(startPath, requestMeta.origin).toString()
+        : startPath;
+      return {
+        startUrl,
+        targetPath,
+        expiresAt: ticket.expiresAt,
       };
     },
   };
@@ -444,8 +705,7 @@ function createWorkspaceAppTool(): ActionEntry {
     tool: tool(
       "Scaffold a new app into the current workspace from an allow-listed " +
         "template, then return a deep link to open it. Idempotent: if an app " +
-        "with that name already exists it is reused. After calling, surface " +
-        'the returned "Open … →" link to the user.',
+        "with that name already exists it is reused.",
       {
         name: {
           type: "string",
@@ -572,7 +832,8 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta),
+    create_embed_session: createEmbedSessionTool(requestMeta),
     ask_app: askAppTool(config),
     create_workspace_app: createWorkspaceAppTool(),
     list_templates: listTemplatesTool(),

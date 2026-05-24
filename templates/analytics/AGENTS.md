@@ -117,6 +117,8 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
 
+Dashboard and analysis detail responses include the caller's effective `role`, `canEdit`, and `canManage`. Shared viewers should keep the normal Analytics shell and read-only result/filter affordances, but hide mutating controls such as re-run, edit, archive, delete, drag/reorder, and saved-view management unless the flags allow them.
+
 | State Key        | Purpose                      | Direction                                    |
 | ---------------- | ---------------------------- | -------------------------------------------- |
 | `navigation`     | Current view, dashboard ID   | UI -> Agent (read-only)                      |
@@ -428,6 +430,7 @@ A `<data-dictionary>` block is injected into your system prompt with trust-tiere
 | `bigquery`                     | `--sql`                                 | Ad-hoc BigQuery/warehouse queries across configured datasets and tables. Do not use as a substitute for named provider actions like Jira or Pylon.                                                                                                                    |
 | `search-bigquery-schema`       | `[--dataset] [--table] [--search]`      | List BigQuery datasets/tables or describe exact table columns before writing SQL                                                                                                                                                                                      |
 | `query-agent-native-analytics` | `--sql`                                 | Query first-party `analytics_events` recorded via `/track`, including traffic, product events, and app/template usage collected by this analytics app                                                                                                                 |
+| `open-traffic-dashboard`       |                                         | Open the real first-party traffic dashboard inline for MCP Apps hosts. Use this directly for "show me my traffic dashboard" instead of `view-screen`, `ask_app`, or broad resource discovery.                                                                         |
 | `create-analytics-public-key`  | `[--name <label>]`                      | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                                                                                                                                      |
 | `list-analytics-public-keys`   |                                         | List active/revoked first-party analytics write keys                                                                                                                                                                                                                  |
 | `revoke-analytics-public-key`  | `--id <keyId>`                          | Revoke a first-party analytics write key                                                                                                                                                                                                                              |
@@ -510,6 +513,13 @@ The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/
 Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 
 Use base64url (replace `+` → `-`, `/` → `_`, strip `=` padding) so the payload is URL-safe.
+
+For MCP Apps, the same rule applies: this is a focused app-route embed, not a
+plain HTML one-off. Use `open_app` with `app: "analytics"`,
+`path: "/chart?panel=<base64url-panel>"`, and `embed: true` (or an action
+`link` that targets that path plus `mcpApp: { resource: embedApp(...) }`) when
+the host should show just the live chart instead of a whole dashboard or saved
+analysis route.
 
 ### Static image via `generate-chart` (save-analysis only)
 

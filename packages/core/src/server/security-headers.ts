@@ -35,9 +35,14 @@
  *     override this on their own routes.
  *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
  *     a popup-window opener reference can't read or modify our document.
+ *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
+ *     validated MCP embed-session page loads. COEP hosts such as Claude's MCP
+ *     Apps proxy require framed cross-origin documents to opt in explicitly.
  *   - `Cross-Origin-Resource-Policy: same-site` — prevents other origins from
  *     embedding our endpoints as `<img>` / `<script>` / `<audio>`, blocking
- *     the simplest data-leak chain when combined with auth cookies.
+ *     the simplest data-leak chain when combined with auth cookies. Validated
+ *     MCP embed-session page loads use `cross-origin` so COEP hosts such as
+ *     Claude's MCP Apps proxy can frame the short-lived app document.
  *
  * NOTE: We don't set `Cross-Origin-Embedder-Policy` because it requires every
  * embedded subresource to opt in via CORP/CORS, which would break Builder's
@@ -45,7 +50,12 @@
  * us most of the protection.
  */
 
-import { defineEventHandler, setResponseHeader } from "h3";
+import { defineEventHandler, getHeader, setResponseHeader } from "h3";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+} from "../shared/mcp-embed-headers.js";
 
 const HSTS = "max-age=31536000; includeSubDomains; preload";
 const PERMISSIONS_POLICY =
@@ -82,18 +92,41 @@ function isHttpsRequest(event: any): boolean {
 export function createSecurityHeadersMiddleware() {
   const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
+    const embedFrameRequest = requestHasEmbedAuthMarker(event);
+    const requestOrigin = getHeader(event, "origin");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    if (isProduction) {
+    if (isProduction && !embedFrameRequest) {
       setResponseHeader(event, "X-Frame-Options", "DENY");
     }
     setResponseHeader(
       event,
       "Referrer-Policy",
-      "strict-origin-when-cross-origin",
+      embedFrameRequest ? "no-referrer" : "strict-origin-when-cross-origin",
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
-    setResponseHeader(event, "Cross-Origin-Resource-Policy", "same-site");
+    if (embedFrameRequest) {
+      setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
+    }
+    setResponseHeader(
+      event,
+      "Cross-Origin-Resource-Policy",
+      embedFrameRequest ? "cross-origin" : "same-site",
+    );
+    if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
+      setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);
+      setResponseHeader(event, "Vary", "Origin");
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Methods",
+        "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+      );
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Headers",
+        MCP_EMBED_CORS_ALLOW_HEADERS,
+      );
+    }
     if (isHttpsRequest(event)) {
       setResponseHeader(event, "Strict-Transport-Security", HSTS);
     }

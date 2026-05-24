@@ -10,9 +10,10 @@ import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js"
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), and any active URL filter params. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), and any active URL filter params. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({}),
   http: false,
+  readOnly: true,
   run: async () => {
     const navigation = await readAppState("navigation");
     const url = (await readAppState("__url__")) as {
@@ -49,7 +50,14 @@ export default defineAction({
             email,
             orgId,
           });
-          if (dashboard) screen.dashboard = dashboard.config;
+          if (dashboard) {
+            screen.dashboard = dashboard.config;
+            screen.dashboardAccess = {
+              role: dashboard.role,
+              canEdit: dashboard.canEdit,
+              canManage: dashboard.canManage,
+            };
+          }
         }
       } catch {
         // Dashboard config not found
@@ -79,6 +87,9 @@ export default defineAction({
                 author: analysis.author,
                 updatedAt: analysis.updatedAt,
                 visibility: analysis.visibility,
+                role: analysis.role,
+                canEdit: analysis.canEdit,
+                canManage: analysis.canManage,
               };
             }
           }

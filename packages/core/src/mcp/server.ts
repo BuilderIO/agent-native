@@ -77,7 +77,40 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     targetHeader === "browser"
       ? (targetHeader as MCPRequestMeta["target"])
       : undefined;
-  return { origin, target };
+  const clientName = getRequestHeader(event, "user-agent")?.trim() || undefined;
+  const clientHint =
+    getRequestHeader(event, "x-agent-native-mcp-client")?.trim() || undefined;
+  const fullCatalogHeader = getRequestHeader(
+    event,
+    "x-agent-native-mcp-full-catalog",
+  )?.toLowerCase();
+  const fullCatalog =
+    fullCatalogHeader === "1" ||
+    fullCatalogHeader === "true" ||
+    fullCatalogHeader === "yes";
+  return {
+    origin,
+    target,
+    clientName,
+    clientHint,
+    ...(fullCatalog ? { fullCatalog } : {}),
+  };
+}
+
+function isLoopbackOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -198,7 +231,8 @@ export async function handleMcpRequest(
   // `fullSurface` would otherwise escalate to the full mutating surface.
   const requestMeta = deriveRequestMeta(event);
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    allowDevOpen: isLoopbackRequest(event),
+    allowDevOpen:
+      isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
     resourceUrl: getMcpOAuthResource(event),
   });
   if (!authResult.authed) {

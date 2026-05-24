@@ -2,7 +2,14 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateWorkerEntry, getNodeBuiltinNames } from "./build.js";
+import {
+  generateWorkerEntry,
+  getNodeBuiltinNames,
+  runNitroBuildPipeline,
+} from "./build.js";
+
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 const tempDirs: string[] = [];
 
@@ -151,6 +158,9 @@ export default (event) =>
     expect(html).toContain('href="/docs/next"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('url("/docs/hero.png")');
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
 
     const redirect = await worker.fetch(
       new Request("https://app.test/docs/redirect", { method: "GET" }),
@@ -159,6 +169,40 @@ export default (event) =>
     );
     expect(redirect.status).toBe(302);
     expect(redirect.headers.get("location")).toBe("/docs/login");
+  });
+
+  it("uses public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox", {
+        method: "GET",
+        headers: { cookie: "an_session=1" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox", {
+        method: "GET",
+        headers: { cookie: "sidebar:state=collapsed" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {
@@ -253,5 +297,125 @@ export default {
 describe("Cloudflare deploy builtins", () => {
   it("externalizes node:sqlite references from optional runtime probes", () => {
     expect(getNodeBuiltinNames()).toContain("sqlite");
+  });
+});
+
+describe("runNitroBuildPipeline", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupFixture() {
+    const cwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-nitro-pipeline-"),
+    );
+    dirs.push(cwd);
+
+    // Simulate a React Router client build with a hashed asset chunk.
+    const clientDir = path.join(cwd, "build", "client");
+    fs.mkdirSync(path.join(clientDir, "assets"), { recursive: true });
+    fs.writeFileSync(
+      path.join(clientDir, "assets", "entry.client-abc.js"),
+      "console.log('rr-client')",
+    );
+
+    // Simulate the cleared publicDir Nitro would set up in `prepare`.
+    const publicOutputDir = path.join(cwd, ".output", "public");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    return { cwd, clientDir, publicOutputDir };
+  }
+
+  it("copies the React Router client build into publicDir before nitroBuild scans it", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+
+    const calls: string[] = [];
+    let publicDirContentsAtNitroBuild: string[] = [];
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {
+          calls.push("prepare");
+        },
+        copyPublicAssets: async () => {
+          calls.push("copyPublicAssets");
+        },
+        nitroBuild: async () => {
+          calls.push("nitroBuild");
+          // This is where Nitro globs publicDir to bake the static manifest
+          // into the server bundle. Record what's visible at this point.
+          publicDirContentsAtNitroBuild = fs.readdirSync(
+            path.join(publicOutputDir, "assets"),
+          );
+        },
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "",
+      cwd,
+    });
+
+    expect(calls).toEqual(["prepare", "copyPublicAssets", "nitroBuild"]);
+    // The regression we're guarding against: if the client build is copied
+    // *after* nitroBuild, the manifest is empty here and /assets/* 404s at
+    // runtime even though the files exist on disk.
+    expect(publicDirContentsAtNitroBuild).toContain("entry.client-abc.js");
+  });
+
+  it("mirrors client assets under the app base path when configured", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "docs", "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+  });
+
+  it("skips the client copy when the React Router build is absent", async () => {
+    const cwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-nitro-pipeline-"),
+    );
+    dirs.push(cwd);
+    const publicOutputDir = path.join(cwd, ".output", "public");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    await expect(
+      runNitroBuildPipeline({
+        nitro: { options: { output: { publicDir: publicOutputDir } } },
+        hooks: {
+          prepare: async () => {},
+          copyPublicAssets: async () => {},
+          nitroBuild: async () => {},
+        },
+        clientDir: path.join(cwd, "build", "client"),
+        publicOutputDir,
+        appBasePath: "",
+        cwd,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

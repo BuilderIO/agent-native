@@ -33,10 +33,16 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Changes when the same URL should be opened again. */
+  urlOpenNonce?: number;
+  /** Safe app-relative path to load inside this app's origin. */
+  urlPath?: string;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
+  /** Emits the guest page's document title so the shell tab can stay current. */
+  onTitleChange?: (title: string) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -136,14 +142,40 @@ function withUrlParams(
   }
 }
 
+function withUrlPath(rawUrl: string, path?: string): string {
+  if (!path) return rawUrl;
+  try {
+    if (
+      !path.startsWith("/") ||
+      path.startsWith("//") ||
+      path.startsWith("/\\")
+    ) {
+      return rawUrl;
+    }
+    if (/[\u0000-\u001f\u007f]/.test(path)) return rawUrl;
+    if (/^\/[a-z][a-z0-9+.-]*:/i.test(path)) return rawUrl;
+    const base = new URL(rawUrl);
+    const target = new URL(path, "http://agent-native.invalid");
+    base.pathname = target.pathname;
+    base.search = target.search;
+    base.hash = target.hash;
+    return base.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
       app,
       appConfig,
       isActive,
+      urlOpenNonce,
+      urlPath,
       urlParams,
       refreshKey = 0,
+      onTitleChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -153,10 +185,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const url = withUrlParams(resolveUrl(app, appConfig), urlParams);
+    const url = withUrlParams(
+      withUrlPath(resolveUrl(app, appConfig), urlPath),
+      urlParams,
+    );
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
+    const prevUrlOpenNonceRef = useRef(urlOpenNonce);
+    const onTitleChangeRef = useRef(onTitleChange);
+
+    useEffect(() => {
+      onTitleChangeRef.current = onTitleChange;
+    }, [onTitleChange]);
 
     useImperativeHandle(
       ref,
@@ -234,6 +275,31 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
         }, 120);
       };
+      const titleTimers = new Set<ReturnType<typeof setTimeout>>();
+      let disposed = false;
+      const emitTitle = (candidate?: unknown) => {
+        const title = String(candidate ?? "").trim();
+        if (title) onTitleChangeRef.current?.(title);
+      };
+      const emitCurrentTitle = (candidate?: string) => {
+        if (disposed) return;
+        emitTitle(candidate);
+        emitTitle(wv.getTitle());
+        void wv
+          .executeJavaScript("document.title", false)
+          .then((title) => {
+            if (!disposed) emitTitle(title);
+          })
+          .catch(() => {});
+      };
+      const emitCurrentTitleSoon = (candidate?: string) => {
+        emitCurrentTitle(candidate);
+        const timer = setTimeout(() => {
+          titleTimers.delete(timer);
+          emitCurrentTitle();
+        }, 200);
+        titleTimers.add(timer);
+      };
 
       const onReady = () => {
         setError(false);
@@ -241,7 +307,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setSlowLoad(false);
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
+        emitCurrentTitleSoon();
       };
+      const onTitleUpdated = (e: Event) => {
+        const title = String((e as { title?: string }).title ?? "").trim();
+        emitCurrentTitle(title);
+      };
+      const onNavigation = () => emitCurrentTitleSoon();
       const onFailed = (e: Event) => {
         const details = e as any;
         const errorCode = details.errorCode;
@@ -271,13 +343,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const onLeaveFullscreen = () => setIsFullscreen(false);
 
       wv.addEventListener("dom-ready", onReady);
+      wv.addEventListener("page-title-updated", onTitleUpdated);
+      wv.addEventListener("did-navigate", onNavigation);
+      wv.addEventListener("did-navigate-in-page", onNavigation);
+      wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
       wv.addEventListener("leave-html-full-screen", onLeaveFullscreen);
 
       return () => {
+        disposed = true;
+        for (const timer of titleTimers) clearTimeout(timer);
         wv.removeEventListener("dom-ready", onReady);
+        wv.removeEventListener("page-title-updated", onTitleUpdated);
+        wv.removeEventListener("did-navigate", onNavigation);
+        wv.removeEventListener("did-navigate-in-page", onNavigation);
+        wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
@@ -305,14 +387,22 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // Keep mode toggles, edited prod URLs, and custom dev URLs in sync.
     useEffect(() => {
       const wv = webviewRef.current;
-      if (!wv || app.placeholder || prevUrlRef.current === url) return;
+      if (
+        !wv ||
+        app.placeholder ||
+        (prevUrlRef.current === url &&
+          prevUrlOpenNonceRef.current === urlOpenNonce)
+      ) {
+        return;
+      }
       prevUrlRef.current = url;
+      prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
       setError(false);
       setIsLoading(true);
       setSlowLoad(false);
       wv.setAttribute("src", url);
-    }, [url, app.placeholder]);
+    }, [url, urlOpenNonce, app.placeholder]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,

@@ -13,12 +13,11 @@ import {
   indentMarkdown,
   serializeTagAttributes,
 } from "@shared/notion-markdown";
+import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 const BLOCK_ATOM_TAGS = [
   "page",
   "database",
-  "audio",
-  "video",
   "file",
   "pdf",
   "bookmark",
@@ -107,11 +106,157 @@ function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
+export const TOGGLE_SUMMARY_PLACEHOLDER = "Toggle";
+export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
+  "Empty toggle. Click or drop blocks inside.";
+
+export function focusMostRecentEmptyToggleSummary(editor: {
+  view: { dom: HTMLElement };
+}) {
+  const schedule =
+    typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback: FrameRequestCallback) => setTimeout(callback, 0);
+
+  schedule(() => {
+    let editorDom: HTMLElement;
+    try {
+      editorDom = editor.view.dom;
+    } catch {
+      return;
+    }
+
+    const inputs = Array.from(
+      editorDom.querySelectorAll<HTMLInputElement>(".notion-toggle__summary"),
+    );
+    const target =
+      [...inputs].reverse().find((input) => input.value === "") ??
+      inputs[inputs.length - 1];
+
+    target?.focus();
+    target?.select();
+  });
+}
+
 function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const open = !!node.attrs.open;
   const setOpen = (value: boolean) => updateAttributes({ open: value });
   const summary = (node.attrs.summary || "") as string;
   const isEditable = editor.isEditable;
+  const firstChild = node.firstChild;
+  const bodyHasNoBlocks = node.childCount === 0;
+  const bodyIsEmpty =
+    bodyHasNoBlocks ||
+    (node.childCount === 1 &&
+      firstChild?.type.name === "paragraph" &&
+      firstChild.content.size === 0 &&
+      !firstChild.textContent.trim());
+
+  const focusEmptyBody = (event: React.MouseEvent<HTMLElement>) => {
+    if (!isEditable) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pos = getPos();
+    if (typeof pos !== "number") return;
+
+    if (!open) setOpen(true);
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(pos + 1, { type: "paragraph" })
+      .focus(pos + 2)
+      .run();
+  };
+
+  const getEmptyBodyInsertPos = () => {
+    if (!isEditable) return;
+
+    const pos = getPos();
+    if (typeof pos !== "number") return;
+
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (
+      !currentNode ||
+      currentNode.type.name !== "notionToggle" ||
+      currentNode.childCount > 0
+    ) {
+      return;
+    }
+
+    return pos + 1;
+  };
+
+  const allowEmptyBodyDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!getEmptyBodyInsertPos()) return;
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+  };
+
+  const handleEmptyBodyDrop = (event: React.DragEvent<HTMLElement>) => {
+    const insertPos = getEmptyBodyInsertPos();
+    if (!insertPos) return;
+
+    const dragging = (
+      editor.view as typeof editor.view & {
+        dragging?: { slice?: { content: Fragment }; move?: boolean } | null;
+      }
+    ).dragging;
+    const text = event.dataTransfer?.getData("text/plain").trim();
+    let contentToInsert: Fragment | ProseMirrorNode | null = null;
+
+    if (dragging?.slice?.content?.size) {
+      contentToInsert = dragging.slice.content;
+    } else if (text) {
+      const textNode = editor.state.schema.text(text);
+      contentToInsert =
+        editor.state.schema.nodes.paragraph?.create(null, textNode) ?? null;
+    }
+
+    if (!contentToInsert) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { selection } = editor.state;
+    let targetPos = insertPos;
+    let tr = editor.state.tr;
+
+    if (
+      dragging?.move &&
+      !selection.empty &&
+      selection.from <= targetPos &&
+      selection.to >= targetPos
+    ) {
+      return;
+    }
+
+    if (dragging?.move && !selection.empty && selection.from < targetPos) {
+      tr = tr.delete(selection.from, selection.to);
+      targetPos -= selection.to - selection.from;
+    }
+
+    tr = tr.insert(targetPos, contentToInsert);
+
+    if (dragging?.move && !selection.empty && selection.from > insertPos) {
+      tr = tr.delete(
+        tr.mapping.map(selection.from, 1),
+        tr.mapping.map(selection.to, -1),
+      );
+    }
+
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.view.focus();
+    (
+      editor.view as typeof editor.view & {
+        dragging?: unknown;
+      }
+    ).dragging = null;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isEditable) return;
@@ -127,7 +272,7 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
         .focus()
         .insertContentAt(endPos, {
           type: "notionToggle",
-          attrs: { summary: "" },
+          attrs: { summary: "", open: true },
           content: [{ type: "paragraph" }],
         })
         .run();
@@ -160,7 +305,9 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      className={`notion-toggle ${open ? "notion-toggle--open" : ""}`}
+      className={`notion-toggle ${open ? "notion-toggle--open" : ""} ${
+        bodyIsEmpty ? "notion-toggle--body-empty" : ""
+      }`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
       draggable="true"
@@ -185,18 +332,30 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
             }
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
-            placeholder="Toggle"
+            placeholder={TOGGLE_SUMMARY_PLACEHOLDER}
             className="notion-toggle__summary"
           />
         ) : (
           <span className="notion-toggle__summary" contentEditable={false}>
-            {summary || "Toggle"}
+            {summary || TOGGLE_SUMMARY_PLACEHOLDER}
           </span>
         )}
       </div>
       <div
         className={`notion-toggle__body ${open ? "" : "notion-toggle__body--collapsed"}`}
       >
+        {isEditable && open && bodyHasNoBlocks ? (
+          <div
+            className="notion-toggle__body-placeholder notion-toggle__body-placeholder--empty-node"
+            contentEditable={false}
+            onDragEnter={allowEmptyBodyDrop}
+            onDragOver={allowEmptyBodyDrop}
+            onDrop={handleEmptyBodyDrop}
+            onMouseDown={focusEmptyBody}
+          >
+            {EMPTY_TOGGLE_BODY_PLACEHOLDER}
+          </div>
+        ) : null}
         <NodeViewContent className="notion-toggle__content" />
       </div>
     </NodeViewWrapper>
@@ -413,7 +572,7 @@ export const NotionToggle = Node.create({
           _state.write(openTag);
           _state.ensureNewLine();
           _state.write(
-            `<summary>${escapeHtml(node.attrs.summary || "Toggle")}</summary>`,
+            `<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
           );
           if (inner.trim()) {
             _state.ensureNewLine();

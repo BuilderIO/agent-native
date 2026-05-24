@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client";
+import { isMcpChatBridgeActive } from "./mcp-chat-bridge";
 
 async function readStatus(path: string): Promise<any | null> {
   return fetch(agentNativePath(path))
@@ -7,6 +8,8 @@ async function readStatus(path: string): Promise<any | null> {
 }
 
 export async function canUseAgentGenerate(): Promise<boolean> {
+  if (isMcpChatBridgeActive()) return true;
+
   const [builderStatus, engineStatus] = await Promise.all([
     readStatus("/_agent-native/builder/status"),
     readStatus("/_agent-native/agent-engine/status"),

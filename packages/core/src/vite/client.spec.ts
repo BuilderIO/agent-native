@@ -90,6 +90,143 @@ describe("Vite optimized dependency recovery", () => {
   });
 });
 
+describe("Vite MCP embed headers", () => {
+  it("adds COEP-compatible headers to embed-token page loads in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+    expect(middleware).toBeTypeOf("function");
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/inbox?embedded=1&__an_embed_token=tok", headers: {} },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith("Referrer-Policy", "no-referrer");
+  });
+
+  it("adds the same headers when an embed session cookie is present", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/inbox", headers: { cookie: "an_embed_session=tok" } },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Embedder-Policy",
+      "require-corp",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Opener-Policy",
+      "same-origin",
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("adds CORS/CORP headers to null-origin sandbox subresources in dev", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const setHeader = vi.fn();
+    middleware!(
+      { url: "/app/entry.client.tsx", headers: { origin: "null" } },
+      { setHeader },
+      vi.fn(),
+    );
+
+    expect(setHeader).toHaveBeenCalledWith(
+      "Access-Control-Allow-Origin",
+      "null",
+    );
+    expect(setHeader).toHaveBeenCalledWith("Vary", "Origin");
+    expect(setHeader).toHaveBeenCalledWith(
+      "Access-Control-Allow-Headers",
+      expect.stringContaining("X-Agent-Native-Embed-Target"),
+    );
+    expect(setHeader).toHaveBeenCalledWith(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+  });
+
+  it("answers null-origin sandbox preflights before Nitro dev middleware", () => {
+    const plugin = findPlugin("agent-native-embed-dev-frame-headers");
+    let middleware: Function | null = null;
+    const server = {
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    const res = { setHeader: vi.fn(), end: vi.fn(), statusCode: 200 };
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "OPTIONS",
+        url: "/_agent-native/poll",
+        headers: { origin: "null" },
+      },
+      res,
+      next,
+    );
+
+    expect(res.statusCode).toBe(204);
+    expect(res.end).toHaveBeenCalledOnce();
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
 describe("Vite connection reset noise", () => {
   it("suppresses benign reset errors before they reach the browser overlay", () => {
     const plugin = findPlugin("agent-native-silence-connection-resets");

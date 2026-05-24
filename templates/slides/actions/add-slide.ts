@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -81,6 +81,16 @@ export default defineAction({
         "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
       ),
   }),
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Deck editor",
+      description: "Open the updated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      height: 680,
+    }),
+  },
   http: false,
   run: async ({ deckId, content, slideId, layout, notes, position }) =>
     withDeckLock(deckId, async () => {

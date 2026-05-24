@@ -82,7 +82,7 @@ import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { trackEvent } from "./analytics.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import { getFrameOrigin, isInFrame, isTrustedFrameMessage } from "./frame.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
@@ -104,11 +104,6 @@ const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
   return getFrameOrigin() ?? window.location.origin;
-}
-
-function isAgentNativeDesktop() {
-  if (typeof navigator === "undefined") return false;
-  return /AgentNativeDesktop/i.test(navigator.userAgent);
 }
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
@@ -374,10 +369,11 @@ export interface AgentPanelProps extends Omit<
   storageKey?: string;
   /**
    * Bind the chat to a specific resource (deck, design, dashboard, ...).
-   * When set, chats started inside the panel inherit this scope, the tab
-   * bar partitions per (storageKey, scope), and the user gets a "Working
-   * on {label}" badge with a Detach escape hatch. Templates compute this
-   * from the current route — see the `Layout` files for each template.
+   * When set, chats started inside the panel inherit this scope and tuck
+   * away when the user leaves that resource. General chats stay visible
+   * across resource navigation. Scoped chats get a context badge with a
+   * Detach escape hatch. Templates compute this from the current route —
+   * see the `Layout` files for each template.
    */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -680,8 +676,9 @@ function AgentPanelInner({
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
-  const inferredCodeAccessEnabled =
-    !isDevMode || isAgentNativeDesktop() || isInFrame();
+  const isDevFrameChatSurface =
+    assistantChatProps.agentChatSurface === "dev-frame";
+  const inferredCodeAccessEnabled = !isDevMode || isDevFrameChatSurface;
   const codeAccessEnabled = codeAccess?.enabled ?? inferredCodeAccessEnabled;
   const codeUnavailableTitle =
     codeAccess?.unavailableTitle ?? "Open Desktop to edit code";
@@ -696,11 +693,13 @@ function AgentPanelInner({
     codeAccess?.unavailableSecondaryCtaLabel ?? "Use Builder";
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
-  const canUseCodeTools = isDevMode && codeAccessEnabled;
+  const canUseCodeTools =
+    isDevMode && codeAccessEnabled && isDevFrameChatSurface;
   // Hide the CLI tab when embedded in the Builder.io frame — code editing
   // there happens via Builder, and the CLI panel only offers a Download
   // Desktop CTA, which adds clutter without value.
-  const showCliMode = (isDevMode || !codeAccessEnabled) && !isInFrame();
+  const showCliMode =
+    (isDevMode || !codeAccessEnabled) && isDevFrameChatSurface;
   useEffect(() => {
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
@@ -733,7 +732,7 @@ function AgentPanelInner({
     (window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1" ||
       window.location.hostname === "::1");
-  const showDevToggle = canToggle && isLocalhost;
+  const showDevToggle = canToggle && isLocalhost && isDevFrameChatSurface;
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
@@ -828,14 +827,20 @@ function AgentPanelInner({
   );
 
   const renderHeaderActions = useCallback(
-    () => (
+    (activeChatSessionId?: string) => (
       <div className="flex shrink-0 items-center gap-1.5">
         {SHOW_ONBOARDING && canUseCodeTools && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
         )}
-        <FeedbackButton variant="icon" side="bottom" align="end" />
+        <FeedbackButton
+          variant="icon"
+          side="bottom"
+          align="end"
+          chatSessionId={activeChatSessionId}
+          chatStorageKey={storageKey}
+        />
         {onToggleFullscreen && (
           <IconTooltip
             content={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -912,7 +917,7 @@ function AgentPanelInner({
             {renderModeButtons(mode)}
           </div>
           <div className="flex items-center gap-0.5">
-            {renderHeaderActions()}
+            {renderHeaderActions(activeTabId)}
           </div>
         </div>
         {mode === "chat" && chatNotice ? (

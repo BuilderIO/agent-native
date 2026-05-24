@@ -1,14 +1,10 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  designMcpAppResourceMeta,
-  designPreviewMcpAppHtml,
-} from "./_mcp-apps.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -34,12 +30,14 @@ export default defineAction({
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
-    resource: {
+    compactCatalog: true,
+    resource: embedApp({
       title: "Design snapshot",
-      description: "Preview the current Design snapshot inline.",
-      html: designPreviewMcpAppHtml,
-      ...designMcpAppResourceMeta,
-    },
+      description: "Open the current design in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      height: 680,
+    }),
   },
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);

@@ -1,5 +1,83 @@
 # @agent-native/dispatch
 
+## 0.8.17
+
+### Patch Changes
+
+- 1c0b51e: Keep MCP App host catalogs compact by default, hide one-time embed tickets from model-visible output, and keep host follow-up prompts separate from hidden context.
+
+## 0.8.16
+
+### Patch Changes
+
+- 11362a2: Keep MCP App resource listing resilient to CSP metadata failures and invalid Dispatch app URLs.
+
+## 0.8.15
+
+### Patch Changes
+
+- 3b1a0e5: Accept nested `params.embed` and `params.chrome` values in MCP `open_app` calls.
+
+## 0.8.14
+
+### Patch Changes
+
+- 4a5dc8d: Retry transient agent-chat route-missing startup responses and harden Dispatch MCP embed fallback behavior.
+
+## 0.8.13
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
+## 0.8.12
+
+### Patch Changes
+
+- 5bf1ce0: Retry transient target MCP handshakes when Dispatch pre-mints cross-app embeds.
+
+## 0.8.11
+
+### Patch Changes
+
+- 236f106: Pre-mint Dispatch MCP app embed sessions from open_app results so hosts can render inline apps without a follow-up helper call.
+
+## 0.8.10
+
+### Patch Changes
+
+- 75223dd: Fix Dispatch-routed MCP App embed sessions and surface embed helper errors in the wrapper.
+- 75223dd: Expose current extension ids to agents and wait for tracked async framework plugins before dispatching first serverless requests.
+
+## 0.8.9
+
+### Patch Changes
+
+- 5173662: Lower default full-app MCP App embeds to a 720px app viewport.
+
+## 0.8.8
+
+### Patch Changes
+
+- 0ba051e: Prevent Dispatch workspace app card text from collapsing at intermediate grid widths.
+
+## 0.8.7
+
+### Patch Changes
+
+- bbaa675: Make Dispatch visible as an MCP app target and route Dispatch extension embeds through the local app session helper.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Scope pending Builder app placeholders to the creating branch context, hide stale entries, and let workspace users edit app display metadata.
+
+## 0.8.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Tighten the Dispatch apps grid layout and progressively disclose template and hidden-app sections.
+
 ## 0.8.5
 
 ### Patch Changes

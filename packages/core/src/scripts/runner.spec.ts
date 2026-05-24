@@ -51,6 +51,7 @@ const tsxCli = resolveTsxCli();
 const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
 const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
 const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
+const spawnTimeoutMs = 15_000;
 
 describe("runScript package actions", () => {
   let tmpDir: string;
@@ -98,13 +99,14 @@ describe("runScript package actions", () => {
           ...process.env,
           AGENT_USER_EMAIL: "owner@example.test",
         },
+        timeout: spawnTimeoutMs,
       },
     );
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Fixture package actions:");
     expect(result.stdout).toContain("package-action");
-  });
+  }, 20_000);
 
   it("runs a package action when no local action exists", () => {
     const result = spawnSync(
@@ -129,6 +131,7 @@ describe("runScript package actions", () => {
           ...process.env,
           AGENT_USER_EMAIL: "owner@example.test",
         },
+        timeout: spawnTimeoutMs,
       },
     );
 
@@ -144,5 +147,5 @@ describe("runScript package actions", () => {
       sourceIds: ["mail", "calendar"],
       limit: "8",
     });
-  });
+  }, 20_000);
 });

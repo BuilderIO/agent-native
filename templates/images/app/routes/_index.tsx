@@ -7,7 +7,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
-import { IconArrowUpRight, IconPhotoPlus } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArrowUpRight,
+  IconPhotoPlus,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,6 +56,20 @@ const HOME_CHAT_SUGGESTIONS = [
 ];
 
 const CUSTOM_RATIOS_KEY = "images.customAspectRatios";
+const MAX_TEXT_CONTEXT_FILE_CHARS = 12_000;
+const MAX_TEXT_CONTEXT_TOTAL_CHARS = 24_000;
+const MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR = 4;
+
+type ImageGenerationConfig = {
+  builderEnabled?: boolean;
+  builderConnected?: boolean;
+  geminiConfigured?: boolean;
+  configured?: boolean;
+  lastIssue?: {
+    message?: unknown;
+    at?: unknown;
+  } | null;
+};
 
 export default function CreatePage() {
   const navigate = useNavigate();
@@ -82,6 +100,41 @@ export default function CreatePage() {
   );
 }
 
+function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
+  const issueMessage =
+    typeof config.lastIssue?.message === "string"
+      ? config.lastIssue.message
+      : null;
+  const needsSetup = config.configured === false;
+  if (!needsSetup && !issueMessage) return null;
+
+  const title = issueMessage
+    ? "Image generation needs attention"
+    : "Set up image generation";
+  const body = issueMessage
+    ? issueMessage
+    : config.builderEnabled === false
+      ? "Builder-managed generation is disabled for this deployment. Add a Gemini API key in Settings to generate images."
+      : "Connect Builder.io or add a Gemini API key in Settings before generating images.";
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left">
+      <div className="flex min-w-0 gap-3">
+        <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">{title}</div>
+          <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+            {body}
+          </p>
+        </div>
+      </div>
+      <Button asChild variant="outline" size="sm" className="shrink-0">
+        <Link to="/settings">Settings</Link>
+      </Button>
+    </div>
+  );
+}
+
 function loadCustomRatios(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -106,6 +159,47 @@ function saveCustomRatios(ratios: string[]) {
   }
 }
 
+function isImageReferenceFile(file: File): boolean {
+  return (
+    file.type.startsWith("image/") ||
+    /\.(png|jpe?g|webp|avif|gif)$/i.test(file.name)
+  );
+}
+
+function isInlineTextContextFile(file: File): boolean {
+  if (file.type.startsWith("text/")) return true;
+  if (file.type === "application/json") return true;
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+    file.name,
+  );
+}
+
+async function readInlineTextContextFiles(files: File[]) {
+  const snippets: string[] = [];
+  let remaining = MAX_TEXT_CONTEXT_TOTAL_CHARS;
+  for (const file of files) {
+    if (remaining <= 0) break;
+    const maxForFile = Math.min(MAX_TEXT_CONTEXT_FILE_CHARS, remaining);
+    const maxReadBytes = Math.min(
+      file.size,
+      maxForFile * MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR,
+    );
+    const raw = await file.slice(0, maxReadBytes).text();
+    const text = raw.slice(0, maxForFile);
+    const truncated = raw.length > text.length || file.size > maxReadBytes;
+    remaining -= text.length;
+    snippets.push(
+      [
+        `### ${file.name}`,
+        truncated
+          ? `${text}\n\n[Truncated after ${text.length} characters]`
+          : text,
+      ].join("\n"),
+    );
+  }
+  return snippets;
+}
+
 function HomeGeneratePanel({
   libraries,
   onRequestNewLibrary,
@@ -114,6 +208,10 @@ function HomeGeneratePanel({
   onRequestNewLibrary: () => void;
 }) {
   const navigate = useNavigate();
+  const { data: generationConfig } = useActionQuery(
+    "get-image-generation-config",
+    {},
+  ) as { data?: ImageGenerationConfig };
   const sortedLibraries = useMemo(
     () => sortLibrariesForCreate(libraries),
     [libraries],
@@ -198,21 +296,40 @@ function HomeGeneratePanel({
     const trimmed = prompt.trim();
     if (!trimmed && files.length === 0) return;
 
-    if (files.length > 0 && !selectedLibrary) {
+    if (generationConfig?.configured === false) {
+      toast.error("Set up image generation before starting a new run.");
+      navigate("/settings");
+      return;
+    }
+
+    const imageFiles = files.filter(isImageReferenceFile);
+    const textFiles = files.filter(isInlineTextContextFile);
+    const unsupportedFiles = files.filter(
+      (file) => !isImageReferenceFile(file) && !isInlineTextContextFile(file),
+    );
+
+    if (unsupportedFiles.length > 0) {
+      toast.error(
+        "Attach image files as references, or text files as prompt context.",
+      );
+      return;
+    }
+
+    if (imageFiles.length > 0 && !selectedLibrary) {
       toast.error("Pick a library to attach reference images.");
       return;
     }
 
     let uploadedAssets: { id: string; title: string }[] = [];
-    if (files.length > 0 && selectedLibrary) {
+    if (imageFiles.length > 0 && selectedLibrary) {
       const uploadingToast = toast.loading(
-        `Uploading ${files.length} reference${files.length === 1 ? "" : "s"}...`,
+        `Uploading ${imageFiles.length} reference${imageFiles.length === 1 ? "" : "s"}...`,
       );
       try {
         const form = new FormData();
         form.append("libraryId", selectedLibrary.id);
         form.append("category", "style-only");
-        for (const file of files) form.append("files", file);
+        for (const file of imageFiles) form.append("files", file);
         const res = await fetch(`${appBasePath()}/api/assets/upload`, {
           method: "POST",
           body: form,
@@ -236,6 +353,16 @@ function HomeGeneratePanel({
         toast.error(err?.message || "Couldn't upload references.", {
           id: uploadingToast,
         });
+        return;
+      }
+    }
+
+    let textContextSnippets: string[] = [];
+    if (textFiles.length > 0) {
+      try {
+        textContextSnippets = await readInlineTextContextFiles(textFiles);
+      } catch {
+        toast.error("Couldn't read one of the attached text files.");
         return;
       }
     }
@@ -283,6 +410,18 @@ function HomeGeneratePanel({
         "These were just added to the library. Treat them as the highest-weight style references for this generation.",
       );
     }
+    if (textContextSnippets.length > 0) {
+      contextLines.push(
+        "",
+        "## Attached text context (this turn)",
+        ...textContextSnippets,
+      );
+      messageLines.push(
+        `Use ${textContextSnippets.length} attached text context file${
+          textContextSnippets.length === 1 ? "" : "s"
+        } from the request context.`,
+      );
+    }
     contextLines.push(
       "",
       "Use the Images actions. Generate candidates, show inline previews, ask for feedback, and refine by assetId until the user is happy.",
@@ -312,10 +451,14 @@ function HomeGeneratePanel({
           </div>
 
           <div className="space-y-4">
+            {generationConfig ? (
+              <GenerationSetupNotice config={generationConfig} />
+            ) : null}
+
             <PromptComposer
               placeholder={
                 selectedLibrary
-                  ? "Describe the image - attach reference images with +"
+                  ? "Describe the image - attach references or text context with +"
                   : "Describe the image you want to generate"
               }
               onSubmit={(text, files) => send(text, files as File[])}

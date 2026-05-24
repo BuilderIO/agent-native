@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   writeAppState,
   readAppState,
+  deleteAppState,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -18,6 +19,7 @@ import {
   compilePrompt,
   DEFAULT_GENERATION_REFERENCE_LIMIT,
   generateWithManagedImageProvider,
+  isImageGenerationSetupError,
   selectReferences,
 } from "../server/lib/generation.js";
 import { getObject } from "../server/lib/storage.js";
@@ -183,6 +185,7 @@ export default defineAction({
         source: args.source,
         callerAppId: args.callerAppId,
       });
+      await deleteAppState("image-generation-setup").catch(() => {});
       let image = generated.image;
       let mimeType = generated.mimeType;
       if (args.includeLogo && library.canonicalLogoAssetId) {
@@ -198,6 +201,31 @@ export default defineAction({
           });
           mimeType = "image/png";
         }
+      }
+      if (await wasSlotDismissed(args.libraryId, slotId)) {
+        await db
+          .update(schema.imageGenerationRuns)
+          .set({
+            status: "completed",
+            completedAt: nowIso(),
+            metadata: stringifyJson({
+              ...baseMetadata,
+              dismissed: true,
+              slotId,
+              referenceSelection,
+              settingsUsed,
+              provider: generated.provider,
+              providerGenerationId: generated.providerGenerationId,
+              creditsCharged: generated.creditsCharged,
+            }),
+          })
+          .where(eq(schema.imageGenerationRuns.id, runId));
+        return {
+          runId,
+          dismissed: true,
+          artifactType: "image",
+          Artifacts: [],
+        };
       }
       const asset = await createAssetFromBuffer({
         libraryId: args.libraryId,
@@ -268,10 +296,18 @@ export default defineAction({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Image generation failed.";
+      if (isImageGenerationSetupError(err)) {
+        await writeAppState("image-generation-setup", {
+          status: "needs-setup",
+          message,
+          at: nowIso(),
+        }).catch(() => {});
+      }
       await db
         .update(schema.imageGenerationRuns)
         .set({ status: "failed", error: message, completedAt: nowIso() })
         .where(eq(schema.imageGenerationRuns.id, runId));
+      if (await wasSlotDismissed(args.libraryId, slotId)) throw err;
       await upsertVariantSlot({
         runId,
         libraryId: args.libraryId,
@@ -285,6 +321,17 @@ export default defineAction({
     }
   },
 });
+
+async function wasSlotDismissed(
+  libraryId: string,
+  slotId: string,
+): Promise<boolean> {
+  const raw = (await readAppState("image-variants")) as unknown | null;
+  const state = (raw ?? null) as ImageVariantState | null;
+  if (!state) return true;
+  if (state.libraryId !== libraryId) return false;
+  return !state.slots.some((s) => s.slotId === slotId);
+}
 
 async function upsertVariantSlot(input: {
   runId: string;

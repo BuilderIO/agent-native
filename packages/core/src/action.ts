@@ -90,6 +90,12 @@ export interface ActionMcpAppCsp {
   baseUriDomains?: string[];
 }
 
+export type ActionMcpAppCspBuilder = (ctx: {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
+
 export interface ActionMcpAppPermissions {
   camera?: Record<string, never>;
   microphone?: Record<string, never>;
@@ -98,8 +104,13 @@ export interface ActionMcpAppPermissions {
 }
 
 export interface ActionMcpAppResourceMeta {
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
@@ -126,8 +137,13 @@ export interface ActionMcpAppResourceConfig {
   mimeType?: typeof MCP_APP_MIME_TYPE;
   /** Extra resource/content metadata. `ui` is merged with the fields below. */
   _meta?: Record<string, unknown>;
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
@@ -139,6 +155,13 @@ export interface ActionMcpAppConfig {
    * action and the app iframe can call it back through the host bridge.
    */
   visibility?: Array<"model" | "app">;
+  /**
+   * Rare escape hatch for MCP Apps chat hosts. By default OAuth callers with
+   * `mcp:apps` see the generic app tools (`open_app`, `list_apps`, etc.) so
+   * hosts do not ingest every action-specific UI resource. Set this only when
+   * this specific action must stay visible in that compact catalog.
+   */
+  compactCatalog?: boolean;
 }
 
 /** Schema definition for a single action parameter (legacy JSON schema style). */

@@ -148,6 +148,40 @@ function shouldTraceCredentialResolve(): boolean {
 // ---------------------------------------------------------------------------
 
 type BuilderCredentialSource = "user" | "org" | "workspace" | "env";
+interface BuilderResolvedCredentials {
+  privateKey: string | null;
+  publicKey: string | null;
+  userId: string | null;
+  orgName: string | null;
+  orgKind: string | null;
+  source: Exclude<BuilderCredentialSource, "env">;
+}
+
+function isCompleteBuilderConnection(creds: BuilderResolvedCredentials) {
+  return Boolean(creds.privateKey && creds.publicKey);
+}
+
+async function readBuilderCredentialScope(
+  readAppSecret: typeof import("../secrets/storage.js").readAppSecret,
+  scope: "user" | "org" | "workspace",
+  scopeId: string,
+): Promise<BuilderResolvedCredentials> {
+  const values = await Promise.all(
+    BUILDER_CREDENTIAL_KEYS.map(async (key) => {
+      const secret = await readAppSecret({ key, scope, scopeId });
+      return [key, secret?.value ?? null] as const;
+    }),
+  );
+  const map = new Map<string, string | null>(values);
+  return {
+    privateKey: map.get("BUILDER_PRIVATE_KEY") ?? null,
+    publicKey: map.get("BUILDER_PUBLIC_KEY") ?? null,
+    userId: map.get("BUILDER_USER_ID") ?? null,
+    orgName: map.get("BUILDER_ORG_NAME") ?? null,
+    orgKind: map.get("BUILDER_ORG_KIND") ?? null,
+    source: scope === "workspace" ? "workspace" : scope,
+  };
+}
 
 async function resolveScopedBuilderCredential(
   key: string,
@@ -254,6 +288,69 @@ async function resolveScopedBuilderCredential(
   return null;
 }
 
+async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredentials | null> {
+  const email = getRequestUserEmail();
+  if (!email) return null;
+
+  const traceLookup = shouldTraceCredentialResolve();
+  let scopeAttempted = "user";
+  try {
+    const { readAppSecret } = await import("../secrets/storage.js");
+    const traceScope = (creds: BuilderResolvedCredentials, scopeId: string) => {
+      if (!traceLookup) return;
+      console.log(
+        `[builder-credential] scope=${creds.source} scopeId=${scopeId} email=${email} complete=${isCompleteBuilderConnection(creds)} private=${Boolean(creds.privateKey)} public=${Boolean(creds.publicKey)}`,
+      );
+    };
+
+    const userCreds = await readBuilderCredentialScope(
+      readAppSecret,
+      "user",
+      email,
+    );
+    traceScope(userCreds, email);
+    if (isCompleteBuilderConnection(userCreds)) return userCreds;
+
+    const orgId = getRequestOrgId();
+    if (orgId) {
+      scopeAttempted = "org";
+      const orgCreds = await readBuilderCredentialScope(
+        readAppSecret,
+        "org",
+        orgId,
+      );
+      traceScope(orgCreds, orgId);
+      if (isCompleteBuilderConnection(orgCreds)) return orgCreds;
+
+      scopeAttempted = "workspace";
+      const workspaceCreds = await readBuilderCredentialScope(
+        readAppSecret,
+        "workspace",
+        orgId,
+      );
+      traceScope(workspaceCreds, orgId);
+      if (isCompleteBuilderConnection(workspaceCreds)) return workspaceCreds;
+    } else {
+      scopeAttempted = "workspace-solo";
+      const scopeId = `solo:${email}`;
+      const workspaceCreds = await readBuilderCredentialScope(
+        readAppSecret,
+        "workspace",
+        scopeId,
+      );
+      traceScope(workspaceCreds, scopeId);
+      if (isCompleteBuilderConnection(workspaceCreds)) return workspaceCreds;
+    }
+  } catch (err) {
+    if (traceLookup) {
+      console.log(
+        `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
+      );
+    }
+  }
+  return null;
+}
+
 /**
  * Resolve a Builder credential for the current request. User/org credentials
  * win; deployment env is only a fallback. This lets local/root .env keys keep
@@ -303,11 +400,12 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 }
 
 /**
- * Resolve where the effective Builder private key came from. Used by status
- * UIs so they can distinguish a deploy fallback from a user/org connection.
+ * Resolve where the effective Builder assistant connection came from. This
+ * intentionally requires a complete private+public key pair from one scope so
+ * status UIs don't report a mixed user/org credential set as connected.
  */
 export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
-  const scoped = await resolveScopedBuilderCredential("BUILDER_PRIVATE_KEY");
+  const scoped = await resolveScopedBuilderCredentials();
   if (scoped) return scoped.source;
   return canUseBuilderDeployCredentialFallbackForRequest() &&
     process.env.BUILDER_PRIVATE_KEY
@@ -316,8 +414,9 @@ export async function resolveBuilderCredentialSource(): Promise<BuilderCredentia
 }
 
 /**
- * Resolve all per-user Builder credentials. Used by the status endpoint
- * and agent-chat-plugin to get orgName, userId, etc.
+ * Resolve the Builder assistant credential bundle from one complete scope.
+ * A partial user row is treated as a miss so the org-shared connection can
+ * still power the assistant for teammates.
  */
 export async function resolveBuilderCredentials(): Promise<{
   privateKey: string | null;
@@ -326,13 +425,26 @@ export async function resolveBuilderCredentials(): Promise<{
   orgName: string | null;
   orgKind: string | null;
 }> {
-  const [privateKey, publicKey, userId, orgName, orgKind] = await Promise.all([
-    resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
-    resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
-    resolveBuilderCredential("BUILDER_USER_ID"),
-    resolveBuilderCredential("BUILDER_ORG_NAME"),
-    resolveBuilderCredential("BUILDER_ORG_KIND"),
-  ]);
+  const scoped = await resolveScopedBuilderCredentials();
+  if (scoped) {
+    const { privateKey, publicKey, userId, orgName, orgKind } = scoped;
+    return { privateKey, publicKey, userId, orgName, orgKind };
+  }
+  const privateKey = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_PRIVATE_KEY") ?? null)
+    : null;
+  const publicKey = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_PUBLIC_KEY") ?? null)
+    : null;
+  const userId = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_USER_ID") ?? null)
+    : null;
+  const orgName = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_ORG_NAME") ?? null)
+    : null;
+  const orgKind = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_ORG_KIND") ?? null)
+    : null;
   return { privateKey, publicKey, userId, orgName, orgKind };
 }
 

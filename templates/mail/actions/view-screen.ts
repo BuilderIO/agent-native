@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   isConnected,
   getClients,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
@@ -94,6 +95,10 @@ async function fetchEmailList(
           mode: "threads",
           threadFormat: "metadata",
           threadCandidateLimit: search ? 500 : undefined,
+          threadRecentMessageCandidateLimit:
+            !search && (view === "inbox" || view === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
         },
       );
 
@@ -219,7 +224,7 @@ async function fetchThreadMessages(threadId: string): Promise<any | null> {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({
     full: z.coerce
       .boolean()
@@ -229,6 +234,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  readOnly: true,
   run: async () => {
     const navigation = await readAppState("navigation");
 

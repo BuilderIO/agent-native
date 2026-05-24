@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useChatThreads,
+  type ChatThreadScope,
   type ChatThreadSnapshot,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
@@ -34,6 +35,219 @@ describe("useChatThreads", () => {
     });
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("starts fresh when no active thread is saved, even if server history exists", async () => {
+    const oldThread: ChatThreadSummary = {
+      id: "old-project-thread",
+      title: "Animated charting tool",
+      preview: "make the chart more playful",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "analytics-project");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "forked-thread",
+      "old-project-thread",
+    ]);
+  });
+
+  it("keeps a saved active thread when it still exists on the server", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:analytics-project",
+      "old-project-thread",
+    );
+    const oldThread: ChatThreadSummary = {
+      id: "old-project-thread",
+      title: "Analytics for Academy",
+      preview: "show weekly signups",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "analytics-project");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("old-project-thread");
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "old-project-thread",
+    ]);
+  });
+
+  it("keeps the active general chat visible when entering a scoped surface", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms-app",
+      "general-thread",
+    );
+    const generalThread: ChatThreadSummary = {
+      id: "general-thread",
+      title: "Create a form",
+      preview: "make me a form",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const formThread: ChatThreadSummary = {
+      id: "form-thread",
+      title: "Form edits",
+      preview: "add another question",
+      messageCount: 2,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: { type: "form", id: "form-1", label: "Hackathon" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [generalThread, formThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ scope }: { scope?: ChatThreadScope | null }) {
+      hook = useChatThreads("/chat", "forms-app", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness scope={null} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("general-thread");
+
+    await act(async () => {
+      root.render(
+        <Harness scope={{ type: "form", id: "form-1", label: "Hackathon" }} />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("general-thread");
+    expect(
+      window.localStorage.getItem(
+        "agent-chat-active-thread:forms-app:scope:form:form-1",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:forms-app"),
+    ).toBe("general-thread");
+  });
+
+  it("switches back to the general chat when leaving a scoped thread", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms-app",
+      "general-thread",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms-app:scope:form:form-1",
+      "form-thread",
+    );
+    const generalThread: ChatThreadSummary = {
+      id: "general-thread",
+      title: "Create a form",
+      preview: "make me a form",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const formThread: ChatThreadSummary = {
+      id: "form-thread",
+      title: "Form edits",
+      preview: "add another question",
+      messageCount: 2,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: { type: "form", id: "form-1", label: "Hackathon" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [formThread, generalThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ scope }: { scope?: ChatThreadScope | null }) {
+      hook = useChatThreads("/chat", "forms-app", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <Harness scope={{ type: "form", id: "form-1", label: "Hackathon" }} />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("form-thread");
+
+    await act(async () => {
+      root.render(<Harness scope={null} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("general-thread");
   });
 
   it("sends the current client snapshot when forking a thread", async () => {

@@ -487,6 +487,11 @@ function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
   win.webContents.send(IPC.DEEP_LINK_OPEN, request);
 }
 
+function buildAppOpenRoutePath(parsed: URL): string {
+  const query = parsed.searchParams.toString();
+  return query ? `/_agent-native/open?${query}` : "/_agent-native/open";
+}
+
 function inferCodeAgentGoalIdFromRunId(
   runId: string | undefined,
 ): string | undefined {
@@ -562,6 +567,11 @@ async function handleDeepLink(url: string) {
               : (targetApp ?? targetGoal.appId),
           goalId: targetGoal.id,
           runId,
+        });
+      } else if (targetApp && getInjectionTargetForAppId(targetApp)) {
+        sendOpenRequestToRenderer({
+          app: targetApp,
+          path: buildAppOpenRoutePath(parsed),
         });
       } else {
         focusMainWindow();
@@ -688,6 +698,12 @@ app.on("open-url", (event, url) => {
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_DESKTOP_UPDATE_FEED_URL =
+  "https://agent-native.com/api/desktop-updates";
+const DESKTOP_UPDATE_FEED_URL = (
+  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
+  DEFAULT_DESKTOP_UPDATE_FEED_URL
+).replace(/\/+$/, "");
 
 let currentUpdateStatus: UpdateStatus = IS_DEV
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -755,6 +771,13 @@ function showUpdateReadyNotification(version: string) {
 }
 
 if (!IS_DEV) {
+  // The GitHub provider reads the repository-wide latest release feed, which
+  // also contains npm package releases and Clips desktop releases. Use the
+  // Agent Native feed that filters the shared repo down to desktop assets.
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: DESKTOP_UPDATE_FEED_URL,
+  });
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -5186,17 +5209,19 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
-// system browser. App-webview Builder connect stays in an Electron popup so the
-// callback shares the app session; the desktop Code provider has its own
-// loopback browser flow. Each provider specifies:
+// system browser. Signed Builder app-webview connects can use the system
+// browser because the callback carries email-bound state; older unsigned
+// connect URLs still use the Electron popup so the callback shares the app
+// session. The desktop Code provider has its own loopback browser flow. Each
+// provider specifies:
 //   - a `matches` predicate on the initial URL (from window.open)
 //   - a `callbackPathFragment` used to detect when the OAuth callback has
 //     been reached so we can auto-close the popup
 //
 // Builder is matched on two URL shapes: (1) the localhost 302 starter at
 // `/_agent-native/builder/connect`, which is what the in-app button opens,
-// and (2) the resolved `builder.io/cli-auth` URL, so both shapes route
-// through the same popup. Private keys delivered by the callback are
+// and (2) the resolved `builder.io/cli-auth` URL, so both shapes can be
+// routed out of the app webview. Private keys delivered by the callback are
 // written server-side (template `.env` + SQL `persisted-env-vars`) — they
 // never touch the webview/renderer. See credential-provider.ts.
 interface OAuthProvider {
@@ -5532,9 +5557,35 @@ function builderOAuthUsesDesktopProvider(url: URL): boolean {
   }
 }
 
+function builderOAuthUsesSignedBrowserProvider(url: URL): boolean {
+  if (!url.pathname.startsWith("/cli-auth")) return false;
+  const redirectUrl = url.searchParams.get("redirect_url");
+  if (!redirectUrl) return false;
+  try {
+    const callbackUrl = new URL(redirectUrl);
+    return (
+      callbackUrl.pathname.endsWith("/_agent-native/builder/callback") &&
+      callbackUrl.searchParams.has("_an_state")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function builderConnectUsesSignedBrowserProvider(url: URL): boolean {
+  return (
+    url.pathname.endsWith("/_agent-native/builder/connect") &&
+    url.searchParams.has("_an_connect")
+  );
+}
+
 function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
   if (provider.name === "builder") {
-    return builderOAuthUsesDesktopProvider(url);
+    return (
+      builderOAuthUsesDesktopProvider(url) ||
+      builderOAuthUsesSignedBrowserProvider(url) ||
+      builderConnectUsesSignedBrowserProvider(url)
+    );
   }
   // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
   // a flow id poll /desktop-exchange, so the system browser can complete the

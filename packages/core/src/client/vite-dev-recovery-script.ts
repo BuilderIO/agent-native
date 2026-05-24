@@ -1,3 +1,8 @@
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+
 /**
  * Synchronous dev-only browser recovery for Vite optimized-dependency races.
  *
@@ -6,8 +11,17 @@
  * `head-prepend` for HTML that does pass through transformIndexHtml.
  */
 export function getViteDevRecoveryScript(): string {
+  const embedModeParam = JSON.stringify(EMBED_MODE_QUERY_PARAM);
+  const embedTokenParam = JSON.stringify(EMBED_TOKEN_QUERY_PARAM);
+
   return `
 (function() {
+  try {
+    var params = new URLSearchParams(window.location.search || "");
+    var embedded = params.get(${embedModeParam});
+    if (params.has(${embedTokenParam}) || embedded === "1" || embedded === "true") return;
+  } catch (e) {}
+
   var RELOAD_KEY = "__an_optimize_reload";
   var MAX_RELOADS = 3;
   var RESET_AFTER_MS = 8000;

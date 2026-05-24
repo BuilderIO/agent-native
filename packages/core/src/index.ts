@@ -29,11 +29,24 @@ export {
   MCP_APP_RESOURCE_URI_META_KEY,
   type ActionMcpAppConfig,
   type ActionMcpAppCsp,
+  type ActionMcpAppCspBuilder,
   type ActionMcpAppHtmlBuilder,
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export {
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type EmbedAppOptions,
+} from "./mcp/embed-app.js";
+export {
+  embedRoute,
+  type EmbedRouteContext,
+  type EmbedRouteOptions,
+  type EmbedRoutePathBuilder,
+  type EmbedRouteResult,
+} from "./mcp/embed-route.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
@@ -62,9 +75,16 @@ export {
 // Client
 export {
   sendToAgentChat,
+  isEmbedMcpChatBridgeActive,
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,
+  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
   CodeRequiredDialog,
   useAgentNativeEmbeddedBrowserSession,
   useDbSync,
@@ -76,6 +96,13 @@ export {
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatMessage,
+  type AgentNativeMcpAppHostMessageType,
+  type McpAppDisplayMode,
+  type McpAppHostCapabilities,
+  type McpAppHostContext,
+  type McpAppHostContextSnapshot,
+  type McpAppModelContextContentPart,
+  type McpAppModelContextUpdate,
   type AgentNativeEmbeddedProps,
   type UseAgentNativeEmbeddedBrowserSessionOptions,
   type CodeRequiredDialogProps,
@@ -92,6 +119,12 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";
+export {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_COOKIE,
+  EMBED_START_PATH,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "./shared/embed-auth.js";
 
 // Agent Web surfaces
 export {

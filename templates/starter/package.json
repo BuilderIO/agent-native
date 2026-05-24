@@ -1,6 +1,7 @@
 {
   "name": "starter",
-  "displayName": "Agent-Native Starter",
+  "displayName": "Blank app",
+  "description": "Blank agent-native app scaffold.",
   "private": true,
   "type": "module",
   "scripts": {

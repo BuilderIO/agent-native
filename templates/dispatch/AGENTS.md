@@ -10,6 +10,28 @@ Dispatch is the workspace control plane. It is the central entrypoint for secret
 - Save durable behavior in resources and jobs, not just in chat replies.
 - When an external sender is linked, use that person’s personal resources and permissions. Otherwise fall back to the shared dispatch owner.
 
+## External MCP Apps Setup
+
+When a user wants Claude, ChatGPT, Codex, Cursor, or another MCP host to reach
+the workspace, keep the answer short: add one remote MCP connector,
+`https://dispatch.agent-native.com/_agent-native/mcp`, then use Dispatch's
+Agents page to expose all apps or only selected app IDs. Recommend a direct
+single-app URL such as `https://mail.agent-native.com/_agent-native/mcp` only
+when the user intentionally wants that app isolated from the workspace gateway.
+
+Claude and ChatGPT both use the same standard OAuth path: paste the MCP URL as
+a custom connector/app, choose OAuth or Authenticate, sign in with
+Agent-Native, and approve the MCP scopes. The host stores tokens and mediates
+tool/resource calls; inline previews never receive raw OAuth tokens.
+
+For external hosts, `open_app({ embed: true })` should produce an inline
+preview when the host supports MCP Apps, and a deep link remains the fallback.
+Embedded app routes should be responsive inside a bounded inline height and
+scroll internally. If an embedded route needs to continue the host
+conversation, use `sendToAgentChat({ submit: true })`; it is relayed as
+`agentNative.submitChat` to the MCP host rather than inventing a second chat
+bridge.
+
 ## Integration Webhooks (Slack, Telegram, WhatsApp, Email)
 
 Inbound platform webhooks follow a cross-platform queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare, etc.) without relying on platform-specific background-execution APIs:
@@ -103,9 +125,12 @@ manual mode, create grants before syncing.
 
 - `list-workspace-apps`: list apps installed in the workspace and their mounted paths; each row includes `audience` (`internal` or `public`) plus `publicPaths`/`protectedPaths` page-route overrides. Pass `audience: "public"` or `"internal"` to filter. When `url` is present, use it for links in Slack/email replies instead of returning only the relative path. When the user asks whether workspace apps have agent cards or A2A endpoints, call this with `includeAgentCards: true`; without that probe, missing `agentCard*`/`a2aEndpointUrl` fields mean "not checked", not "none".
 - `get-workspace-info`: read the workspace's identity (name, displayName, app count) from the workspace root package.json. Use when a user asks "what workspace am I in" or you need to refer to the workspace by name in a reply.
+- `list-mcp-app-access`: list the apps exposed through Dispatch's unified MCP gateway, including the single `/_agent-native/mcp` URL policy state, selected app IDs, and granted app summaries.
+- `set-mcp-app-access`: set whether Dispatch MCP exposes all apps or only selected app IDs. Use this when the user asks to change which apps an external MCP client can reach through Dispatch.
+- `list_apps`, `ask_app`, and `open_app`: underscore-named MCP compatibility actions that override the generic built-ins on Dispatch. They route through Dispatch's MCP app access policy, so external agents connected to the single Dispatch MCP URL only see and call granted apps.
 - `get-app-creation-settings`: see whether production app creation can use a Builder project
 - `set-app-creation-settings`: set the default Builder project ID in Dispatch settings without writing env vars or files
-- `start-workspace-app-creation`: start a request that truly needs a new workspace app; in local dev, use the returned prompt with the local code agent, and in production it posts the request to Builder branch creation when a Builder project is configured. The branch must create a separate workspace app under `apps/<app-id>`, not add a route or file to `apps/starter`.
+- `start-workspace-app-creation`: start a request that truly needs a new workspace app; include a concise generated `description` by default. In local dev, use the returned prompt with the local code agent, and in production it posts the request to Builder branch creation when a Builder project is configured. The branch must create a separate workspace app under `apps/<app-id>`, not add a route or file to `apps/starter`.
 - `get-vault-access-settings`: read whether vault access is `all-apps` or `manual`
 - `set-vault-access-settings`: switch between default all-apps vault access and manual per-app grants
 - `list-vault-secrets`: list all secrets in the vault (values are masked)
@@ -254,12 +279,12 @@ serialization, so apps do not need to duplicate app-grant logic.
 - Before revoking an app grant, disabling a connection, or deleting a workspace connection, call `preview-workspace-connection-impact` and include its affected-app summary in the confirmation so the user understands what may stop working.
 - In default all-apps vault mode, do not create per-app grants for new apps; sync the target app when credentials need to be pushed. In manual vault mode, after granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
 - When a user asks to create, build, make, scaffold, or generate an "agent" from Dispatch chat or by tagging `@agent-native` in Slack/email/Telegram, first classify the ask. If it is a simple Dispatch-native behavior like a reminder, digest, monitor, routing rule, saved instruction, or recurring workflow, create or update the recurring job/resource/destination in Dispatch. If it is a robust unique product or teammate that needs its own UI, data model, actions, integrations, or domain workflow, treat it as a new workspace app and use `start-workspace-app-creation`.
-- When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`.
+- When a user explicitly asks for a new app or workspace app from Slack, email, Telegram, or chat, use `start-workspace-app-creation` and pass a concise generated description from the user's prompt.
 - New-app requests from Dispatch create a **new workspace app** that appears in the workspace apps list. Do not satisfy them by adding a route, page, component, or file inside `apps/starter` or any other existing app unless the user explicitly asks to modify that existing app.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at `https://mail.agent-native.com`, `https://calendar.agent-native.com`, `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
 - If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party data/agents, build only the genuinely new workflow and delegate/link to those existing apps. Do not create wrapper apps, child apps, nested template copies, or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to provide access.
 - Only create a first-party app copy when the user explicitly asks for a customized fork/copy of that app. Otherwise prefer the hosted/shared app so base template improvements continue to flow automatically.
-- If `start-workspace-app-creation` returns `mode: "builder"`, send the Builder branch URL back to the user; Builder is responsible for creating the separate workspace app under `apps/<app-id>` and mounting it at `/<app-id>`. If it returns `mode: "local-agent"`, continue by using the returned prompt to create the app locally under `apps/<app-id>`, mounted at `/<app-id>`, using the workspace shared database. If it returns `mode: "coming-soon"` or `mode: "builder-unavailable"`, ask them to connect/configure Builder or set a Builder project for app creation.
+- If `start-workspace-app-creation` returns `mode: "builder"`, send the Builder branch URL back to the user; Builder is responsible for creating the separate workspace app under `apps/<app-id>`, mounting it at `/<app-id>`, and saving `apps/<app-id>/package.json` with `name`, `displayName`, and a human-readable `description`. If the starter template is used, the finished app must use the requested app's real name, home screen, navigation, package metadata, manifest, and domain workflow; do not leave visible `Starter`, `Blank app`, `Start building`, or `New app` UI behind. If it returns `mode: "local-agent"`, continue by using the returned prompt to create the app locally under `apps/<app-id>`, mounted at `/<app-id>`, using the workspace shared database. If it returns `mode: "coming-soon"` or `mode: "builder-unavailable"`, ask them to connect/configure Builder or set a Builder project for app creation.
 - Local new app scaffolding should use the CLI from the workspace root: `pnpm exec agent-native create <app-id> --template=<template>`. The workspace dev gateway auto-detects new `apps/<app-id>` directories and starts their dev servers without a restart.
 - When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
 - Use All apps scope for global skills, guardrails, brand guidelines, core personas, positioning, messaging, and company facts that every template should inherit. Use selected-app grants only for app-specific resources.

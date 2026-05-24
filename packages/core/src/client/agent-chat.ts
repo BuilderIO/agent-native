@@ -10,6 +10,13 @@
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
+  markEmbedMcpChatBridgeActive,
+  readEmbedMcpChatBridgeFlagFromUrl,
+} from "./embed-auth.js";
+import { sendMcpAppHostMessage } from "./mcp-app-host.js";
+import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
   sendToBuilderChat,
@@ -30,6 +37,8 @@ export interface AgentChatMessage {
   referenceImagePaths?: string[];
   /** Optional uploaded reference images */
   uploadedReferenceImages?: string[];
+  /** Optional image data URLs to include in the submitted chat message */
+  images?: string[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   /**
@@ -100,6 +109,27 @@ export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function isMcpAppChatBridgeEnabled(): boolean {
+  if (typeof window === "undefined" || window.parent === window) return false;
+  if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
+  return isEmbedMcpChatBridgeActive() && isEmbedAuthActive();
+}
+
+function isDirectMcpAppEmbedSession(): boolean {
+  if (typeof window === "undefined" || window.parent === window) return false;
+  if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
+  return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
+}
+
+function dispatchAgentChatRunning(isRunning: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agentNative.chatRunning", {
+      detail: { isRunning },
+    }),
+  );
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  */
@@ -123,9 +153,30 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: { ...opts, tabId },
   };
+
+  if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+    const directHostMessage = sendMcpAppHostMessage({
+      message: opts.message,
+      context: opts.context,
+    });
+    if (directHostMessage) {
+      void Promise.resolve(directHostMessage)
+        .then((ok) => {
+          if (!ok) window.parent.postMessage(payload, getFrameOrigin() || "*");
+        })
+        .finally(() => {
+          dispatchAgentChatRunning(false);
+        });
+      return tabId;
+    }
+    window.parent.postMessage(payload, getFrameOrigin() || "*");
+    return tabId;
+  }
+
   const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
-  const targetSelf = !isCodeRequest && isInBuilderFrame();
+  const targetSelf =
+    !isCodeRequest && (isInBuilderFrame() || isDirectMcpAppEmbedSession());
   const target = targetSelf
     ? window
     : window.parent !== window

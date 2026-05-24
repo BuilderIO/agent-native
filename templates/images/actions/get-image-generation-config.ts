@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { readAppState } from "@agent-native/core/application-state";
+import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { z } from "zod";
-import { isBuilderImageGenerationEnabled } from "../server/lib/generation.js";
+import {
+  isBuilderImageGenerationEnabled,
+  isGeminiImageGenerationConfigured,
+} from "../server/lib/generation.js";
 
 /**
  * Surface the server-side `BUILDER_IMAGE_GENERATION_ENABLED` env flag so
@@ -14,11 +19,26 @@ import { isBuilderImageGenerationEnabled } from "../server/lib/generation.js";
  */
 export default defineAction({
   description:
-    "Returns the deployment's image-generation config: whether Builder-managed image generation is enabled by `BUILDER_IMAGE_GENERATION_ENABLED`.",
+    "Returns the deployment's image-generation config and any recent setup issue.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
   run: async () => {
-    return { builderEnabled: isBuilderImageGenerationEnabled() };
+    const builderEnabled = isBuilderImageGenerationEnabled();
+    const [builderConnected, geminiConfigured, lastIssue] = await Promise.all([
+      resolveHasBuilderPrivateKey().catch(() => false),
+      isGeminiImageGenerationConfigured().catch(() => false),
+      readAppState("image-generation-setup").catch(() => null),
+    ]);
+
+    const configured = (builderEnabled && builderConnected) || geminiConfigured;
+
+    return {
+      builderEnabled,
+      builderConnected,
+      geminiConfigured,
+      configured,
+      lastIssue: configured ? null : lastIssue,
+    };
   },
 });

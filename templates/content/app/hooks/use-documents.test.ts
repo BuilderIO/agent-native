@@ -11,6 +11,7 @@ function doc(id: string, parentId: string | null, position = 0): Document {
     content: "",
     icon: null,
     isFavorite: false,
+    hideFromSearch: false,
     visibility: "private",
     createdAt: "2026-05-12T00:00:00.000Z",
     updatedAt: "2026-05-12T00:00:00.000Z",

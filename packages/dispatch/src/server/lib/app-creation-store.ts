@@ -34,6 +34,7 @@ const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 1_000;
 const MAX_PENDING_APPS = 50;
+const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
@@ -111,9 +112,12 @@ interface PendingWorkspaceApp {
   builderUrl: string | null;
   branchName: string | null;
   projectId: string | null;
+  contextId: string | null;
+  contextLabel: string | null;
   audience?: WorkspaceAppAudience;
   createdAt: string;
   updatedAt: string;
+  expiresAt: string | null;
 }
 
 interface WorkspaceAppMetadataOverride {
@@ -207,6 +211,48 @@ function workspaceAppMetadataSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
   return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function cleanOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeContextPart(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function pendingWorkspaceAppContext(): { id: string; label: string } | null {
+  const branch =
+    cleanOptionalString(process.env.BRANCH) ??
+    cleanOptionalString(process.env.HEAD) ??
+    cleanOptionalString(process.env.VERCEL_GIT_COMMIT_REF) ??
+    cleanOptionalString(process.env.CF_PAGES_BRANCH) ??
+    cleanOptionalString(process.env.RENDER_GIT_BRANCH) ??
+    cleanOptionalString(process.env.FLY_BRANCH);
+  if (branch) {
+    const normalized = normalizeContextPart(branch);
+    return { id: `branch:${normalized}`, label: `Branch: ${normalized}` };
+  }
+
+  const origin =
+    cleanOptionalString(process.env.DEPLOY_PRIME_URL) ??
+    cleanOptionalString(process.env.DEPLOY_URL) ??
+    cleanOptionalString(process.env.URL) ??
+    cleanOptionalString(process.env.APP_URL) ??
+    cleanOptionalString(process.env.BETTER_AUTH_URL) ??
+    cleanOptionalString(process.env.WORKSPACE_GATEWAY_URL);
+  if (!origin) return null;
+
+  try {
+    const parsed = new URL(origin);
+    return {
+      id: `origin:${parsed.origin}`,
+      label: parsed.hostname,
+    };
+  } catch {
+    const normalized = normalizeContextPart(origin);
+    return { id: `origin:${normalized}`, label: normalized };
+  }
 }
 
 async function readSettingsRecord(): Promise<Record<string, any>> {
@@ -476,6 +522,61 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
   return apps.length ? apps : null;
 }
 
+function parseDateMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function pendingWorkspaceAppExpiresAt(createdAt: string): string {
+  const createdMs = parseDateMs(createdAt) ?? Date.now();
+  return new Date(createdMs + PENDING_WORKSPACE_APP_TTL_MS).toISOString();
+}
+
+function isPendingWorkspaceAppExpired(
+  app: Pick<PendingWorkspaceApp, "createdAt" | "expiresAt">,
+): boolean {
+  const expiresMs =
+    parseDateMs(app.expiresAt) ??
+    (parseDateMs(app.createdAt) ?? Date.now()) + PENDING_WORKSPACE_APP_TTL_MS;
+  return expiresMs <= Date.now();
+}
+
+function pendingWorkspaceAppMatchesCurrentContext(
+  app: Pick<PendingWorkspaceApp, "contextId" | "createdAt" | "expiresAt">,
+): boolean {
+  if (isPendingWorkspaceAppExpired(app)) return false;
+  const currentContext = pendingWorkspaceAppContext();
+  if (!app.contextId) return true;
+  return app.contextId === currentContext?.id;
+}
+
+function pendingWorkspaceAppContextRank(
+  app: Pick<PendingWorkspaceApp, "contextId">,
+): number {
+  const currentContext = pendingWorkspaceAppContext();
+  if (app.contextId && app.contextId === currentContext?.id) return 2;
+  if (!app.contextId) return 1;
+  return 0;
+}
+
+function dedupePendingWorkspaceAppsForCurrentContext(
+  apps: PendingWorkspaceApp[],
+): PendingWorkspaceApp[] {
+  const byId = new Map<string, PendingWorkspaceApp>();
+  for (const app of apps) {
+    const existing = byId.get(app.id);
+    if (
+      !existing ||
+      pendingWorkspaceAppContextRank(app) >
+        pendingWorkspaceAppContextRank(existing)
+    ) {
+      byId.set(app.id, app);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 function sortWorkspaceApps(a: WorkspaceAppSummary, b: WorkspaceAppSummary) {
   if (a.id === "dispatch") return -1;
   if (b.id === "dispatch") return 1;
@@ -495,6 +596,7 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
         typeof record.path === "string" ? record.path.trim() : "";
       if (!id || !pathValue.startsWith("/")) return null;
       const now = new Date().toISOString();
+      const createdAt = cleanOptionalString(record.createdAt) ?? now;
       return {
         id,
         name:
@@ -518,17 +620,19 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.projectId === "string" && record.projectId.trim()
             ? record.projectId.trim()
             : null,
+        contextId: cleanOptionalString(record.contextId),
+        contextLabel: cleanOptionalString(record.contextLabel),
         ...(record.audience === undefined
           ? {}
           : { audience: normalizeWorkspaceAppAudience(record.audience) }),
-        createdAt:
-          typeof record.createdAt === "string" && record.createdAt.trim()
-            ? record.createdAt.trim()
-            : now,
+        createdAt,
         updatedAt:
           typeof record.updatedAt === "string" && record.updatedAt.trim()
             ? record.updatedAt.trim()
             : now,
+        expiresAt:
+          cleanOptionalString(record.expiresAt) ??
+          pendingWorkspaceAppExpiresAt(createdAt),
       } satisfies PendingWorkspaceApp;
     })
     .filter((app): app is PendingWorkspaceApp => !!app)
@@ -597,7 +701,9 @@ export async function removePendingWorkspaceApp(input: {
   if (!appId) throw new Error("appId is required");
   const raw = await readSettingsRecord();
   const pending = parsePendingWorkspaceApps(raw.pendingApps);
-  const next = pending.filter((app) => app.id !== appId);
+  const next = pending.filter(
+    (app) => app.id !== appId || !pendingWorkspaceAppMatchesCurrentContext(app),
+  );
   const removed = next.length !== pending.length;
   if (!removed) return { removed: false };
   await putSetting(scopedSettingsKey(), { ...raw, pendingApps: next });
@@ -622,7 +728,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     publicPaths: [],
     protectedPaths: [],
     status: "pending",
-    statusLabel: "Building in Builder",
+    statusLabel: "Pending Builder branch",
     builderUrl: app.builderUrl,
     branchName: app.branchName,
     createdAt: app.createdAt,
@@ -633,9 +739,11 @@ async function appendPendingWorkspaceApps(
   apps: WorkspaceAppSummary[],
 ): Promise<WorkspaceAppSummary[]> {
   const readyIds = new Set(apps.map((app) => app.id));
-  const pendingApps = (await listPendingWorkspaceApps())
-    .filter((app) => !readyIds.has(app.id))
-    .map(pendingAppToSummary);
+  const pendingApps = dedupePendingWorkspaceAppsForCurrentContext(
+    (await listPendingWorkspaceApps())
+      .filter(pendingWorkspaceAppMatchesCurrentContext)
+      .filter((app) => !readyIds.has(app.id)),
+  ).map(pendingAppToSummary);
   return [...apps, ...pendingApps].sort(sortWorkspaceApps);
 }
 
@@ -765,9 +873,16 @@ async function recordPendingWorkspaceApp(input: {
   builderUrl?: string | null;
 }) {
   const now = new Date().toISOString();
+  const context = pendingWorkspaceAppContext();
   const raw = await readSettingsRecord();
   const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
-  const existing = pendingApps.find((app) => app.id === input.appId);
+  const contextId = context?.id ?? null;
+  const samePendingEntry = (app: PendingWorkspaceApp) =>
+    app.id === input.appId &&
+    (app.contextId === contextId || (!!contextId && !app.contextId));
+  const existing = pendingApps
+    .filter((app) => !isPendingWorkspaceAppExpired(app))
+    .find(samePendingEntry);
   const next: PendingWorkspaceApp = {
     id: input.appId,
     name: titleCase(input.appId),
@@ -778,15 +893,18 @@ async function recordPendingWorkspaceApp(input: {
     builderUrl: input.builderUrl?.trim() || null,
     branchName: input.branchName?.trim() || null,
     projectId: input.projectId,
+    contextId: context?.id ?? null,
+    contextLabel: context?.label ?? null,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
+    expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
   };
 
   await putSetting(scopedSettingsKey(), {
     ...raw,
     pendingApps: [
       next,
-      ...pendingApps.filter((app) => app.id !== input.appId),
+      ...pendingApps.filter((app) => !samePendingEntry(app)),
     ].slice(0, MAX_PENDING_APPS),
   });
 
@@ -807,6 +925,7 @@ async function recordPendingWorkspaceApp(input: {
       builderBranchUrlConfigured: !!next.builderUrl,
       branchName: next.branchName,
       projectIdConfigured: !!next.projectId,
+      contextLabel: next.contextLabel,
     },
   });
 }

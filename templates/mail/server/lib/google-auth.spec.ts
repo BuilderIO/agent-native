@@ -112,6 +112,63 @@ describe("listGmailMessages", () => {
     expect(result.resultSizeEstimate).toBe(12);
   });
 
+  it("uses recent message candidates so old inbox threads with fresh replies can lead normal pages", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [{ id: "thread-old" }, { id: "thread-other" }],
+      nextPageToken: "next-thread-page",
+    } as any);
+    vi.mocked(gmailListMessagesApi).mockResolvedValue({
+      messages: [
+        { id: "recent-message", threadId: "thread-recent" },
+        { id: "old-message", threadId: "thread-old" },
+      ],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-recent",
+        data: {
+          messages: [{ id: "recent-full", threadId: "thread-recent" }],
+        },
+      },
+      {
+        id: "thread-old",
+        data: {
+          messages: [{ id: "old-full", threadId: "thread-old" }],
+        },
+      },
+    ] as any);
+
+    const result = await listGmailMessages(
+      "in:inbox -in:sent",
+      2,
+      "recent-owner@example.com",
+      undefined,
+      { mode: "threads", threadRecentMessageCandidateLimit: 5 },
+    );
+
+    expect(gmailListThreads).toHaveBeenCalledWith("access-token", {
+      q: "in:inbox -in:sent",
+      maxResults: 2,
+      pageToken: undefined,
+    });
+    expect(gmailListMessagesApi).toHaveBeenCalledWith("access-token", {
+      q: "in:inbox -in:sent",
+      maxResults: 5,
+    });
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "access-token",
+      ["thread-recent", "thread-old"],
+      "full",
+    );
+    expect(result.messages.map((m) => m.id)).toEqual([
+      "recent-full",
+      "old-full",
+    ]);
+    expect(result.nextPageTokens?.["connected@example.com"]).toMatch(
+      /^__an_thread_candidates__:/,
+    );
+  });
+
   it("hydrates recently modified matching threads even when Gmail lists them deep in the search page", async () => {
     const threads = Array.from({ length: 60 }, (_, index) => ({
       id: `thread-${index + 1}`,

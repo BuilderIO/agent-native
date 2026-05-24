@@ -46,3 +46,26 @@ export function appendSignatureToBody(
   if (!quoted) return editableWithSignature;
   return `${editableWithSignature}\n\n${quoted.trimStart()}`;
 }
+
+export function splitAppendedSignature(
+  editableContent: string,
+  signature?: string | null,
+): [string, string] {
+  const normalizedSignature = normalizeSignature(signature);
+  if (!normalizedSignature) return [editableContent, ""];
+
+  const trimmedEditable = editableContent.trimEnd();
+  if (trimmedEditable === normalizedSignature) {
+    return ["", normalizedSignature];
+  }
+
+  const signatureSuffix = `\n\n${normalizedSignature}`;
+  if (trimmedEditable.endsWith(signatureSuffix)) {
+    return [
+      trimmedEditable.slice(0, -signatureSuffix.length),
+      normalizedSignature,
+    ];
+  }
+
+  return [editableContent, ""];
+}

@@ -42,6 +42,7 @@ import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -188,6 +189,7 @@ export default function RecordingPage() {
     : "Untitled Clip";
 
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const canDelete = role === "owner";
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -647,6 +649,13 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
+          {canDelete ? (
+            <DeleteRecordingMenu
+              recordingId={recording.id}
+              onDeleted={() => navigate("/library", { replace: true })}
+            />
+          ) : null}
+
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
@@ -739,6 +748,14 @@ export default function RecordingPage() {
                     disabled={!recording.enableReactions}
                     onReact={(emoji) => {
                       tracking.reportReaction(emoji);
+                      const liveCt = playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -749,7 +766,7 @@ export default function RecordingPage() {
                           body: JSON.stringify({
                             recordingId: recording.id,
                             emoji,
-                            videoTimestampMs: currentMs,
+                            videoTimestampMs: liveMs,
                           }),
                         },
                       )

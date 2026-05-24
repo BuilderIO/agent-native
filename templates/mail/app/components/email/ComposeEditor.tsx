@@ -45,6 +45,8 @@ interface ComposeEditorProps {
   onClose: () => void;
   onFlush: () => Promise<unknown> | undefined;
   isGenerating: boolean;
+  draftId: string;
+  getCurrentDraftBody: (editor: Editor) => string;
   sendToAgent: (opts: {
     message: string;
     context?: string;
@@ -64,6 +66,8 @@ export const ComposeEditor = forwardRef<
     onClose,
     onFlush,
     isGenerating,
+    draftId,
+    getCurrentDraftBody,
     sendToAgent,
   },
   ref,
@@ -138,7 +142,7 @@ export const ComposeEditor = forwardRef<
     },
   });
 
-  // Sync content from outside (when agent updates compose.json)
+  // Sync content from outside (when the agent updates compose-{id} app-state)
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const currentMd = (editor.storage as any).markdown.getMarkdown();
@@ -195,6 +199,8 @@ export const ComposeEditor = forwardRef<
         editor={editor}
         onFlush={onFlush}
         isGenerating={isGenerating}
+        draftId={draftId}
+        getCurrentDraftBody={getCurrentDraftBody}
         sendToAgent={sendToAgent}
       />
       <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />

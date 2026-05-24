@@ -575,5 +575,6 @@ export interface CodeAgentHostMetadata {
 export interface DesktopOpenRequest {
   app?: string;
   goalId?: string;
+  path?: string;
   runId?: string;
 }

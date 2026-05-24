@@ -56,7 +56,10 @@ function log(msg: string): void {
  * `sub`, so we only add an `X-Agent-Native-Owner-Email` hint header.
  */
 function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    "X-Agent-Native-MCP-Client": "agent-native-mcp-proxy",
+    "X-Agent-Native-MCP-Full-Catalog": "1",
+  };
   const token = env.ACCESS_TOKEN || env.AGENT_NATIVE_MCP_TOKEN;
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const owner = env.AGENT_NATIVE_OWNER_EMAIL;
@@ -257,7 +260,11 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
     // No verified identity in standalone (no inbound auth header). Runs with
     // platform-default scope, same as a tokenless local HTTP mount.
     undefined,
-    { origin },
+    {
+      origin,
+      clientName: "agent-native-mcp-standalone",
+      fullCatalog: true,
+    },
   );
 
   const transport = new StdioServerTransport();

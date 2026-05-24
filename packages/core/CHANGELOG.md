@@ -1,5 +1,296 @@
 # @agent-native/core
 
+## 0.22.44
+
+### Patch Changes
+
+- 7ca6c99: Allow UI-submitted agent chat messages to include image data.
+
+## 0.22.43
+
+### Patch Changes
+
+- bcf54ce: Fix race condition in `useChatThreads` that dropped the active general chat when the user navigated into a scoped resource before `GET /threads` resolved. The scope-flip rehydration effect now defers the decision when thread metadata is unknown (instead of falling through and swapping to the scoped storage key), so the visible conversation is preserved until threads load and a real decision can be made.
+
+## 0.22.42
+
+### Patch Changes
+
+- 5f82202: `open_app({app: "<id>"})` now defaults to the app's home page (`/`) when neither `view` nor `path` is given, instead of throwing `requires 'app' and either 'view' or 'path'`. Hosts (ChatGPT / Claude) previously wasted a turn on the model's first-attempt retry whenever it omitted view/path; this lands the embed on `/` first try.
+- 5f82202: Re-export `deleteOrHideExtension` and `hideExtensionForCurrentUser` from `@agent-native/core/client/extensions` so templates that wrap the extensions system (e.g. Workbench Custom Tools) don't have to deep-import internals. Also add CLI templates-meta entry for the new hidden `workbench` template.
+
+## 0.22.41
+
+### Patch Changes
+
+- c790686: Fix MCP App embed regression: `create_embed_session` (and any tool with `_meta.ui.visibility: ["app"]`) now surfaces its raw result via `structuredContent` so the embed iframe can read the mint `startUrl`.
+
+  Without this, PR #875's text-side embed-URL purge stripped the embed start URL from the only fallback the iframe had, breaking the "open inline" flow with "This app can be opened, but not embedded from this MCP server." Compliant hosts already honor the `visibility: ["app"]` hint and keep the tool result out of the LLM transcript; the structuredContent path is safe for these tools.
+
+## 0.22.40
+
+### Patch Changes
+
+- 4a8e279: Route MCP App embed open links through the desktop deep-link handler.
+
+## 0.22.39
+
+### Patch Changes
+
+- 1ed3ef8: Clear MCP app host generate loading state after direct host sends and fall back to the wrapper relay when direct sends fail.
+
+## 0.22.38
+
+### Patch Changes
+
+- 9e22f33: Harden MCP host integration against ticket and content leaks. Strip embed-ticket URLs from any tool result text even when the action does not declare `mcpApp.resource`. Filter `embedTargetPath`, `embedExpiresAt`, and `ticket`-like fields from MCP structured content (their legitimate carrier is `_meta["agent-native/embedStart"]`). Stop fabricating an `_meta["agent-native/openLink"]` `webUrl` from a bare view name like `"deck"` when the action returns only an embed-start URL. Remove the now-unused `compose` field from `buildDeepLink` so deep-link URLs cannot inline draft contents. Make `isEmbedMcpChatBridgeActive` keep the in-memory bridge flag once enrolled so sandboxed iframes that deny sessionStorage no longer silently drop chat-bridge mode mid-session.
+
+## 0.22.37
+
+### Patch Changes
+
+- 12d3c0f: Fix MCP app host catalog and embed metadata edge cases.
+
+## 0.22.36
+
+### Patch Changes
+
+- 1c0b51e: Add ShareButton options for template-specific access labels and top-positioned share links.
+- 1c0b51e: Fix MCP app host context clearing, compact catalog compatibility, and embed-only open-link metadata.
+- 1c0b51e: Keep general chat threads visible when navigating into scoped resources.
+- 1c0b51e: Keep MCP App host catalogs compact by default, hide one-time embed tickets from model-visible output, and keep host follow-up prompts separate from hidden context.
+- 1c0b51e: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+- 1c0b51e: Improve ShareButton member autocomplete with server-side org-member search, pagination, and keyboard selection.
+
+## 0.22.35
+
+### Patch Changes
+
+- 6f76cbe: Bust cached MCP App shells so hosts load the refreshed embed wrapper.
+
+## 0.22.34
+
+### Patch Changes
+
+- bc9c866: Recover built-in auth marketing copy from hosted app request context.
+- bc9c866: Use branded first-party auth pages when the default auth guard serves before a template plugin.
+- bc9c866: Fix MCP Apps metadata and extension-page embeds for Claude and ChatGPT hosts.
+- bc9c866: Keep default SSR HTML cache headers public even when requests include auth cookies.
+
+## 0.22.33
+
+### Patch Changes
+
+- d0a107e: Default MCP Apps hosts to the compact generic app catalog instead of listing every action-specific UI resource.
+- d0a107e: Refuse to auto-bind CLI actions when multiple dev session owners exist.
+
+## 0.22.32
+
+### Patch Changes
+
+- 5c6b741: Emit MCP App widget domain metadata so ChatGPT can render submitted app templates.
+
+## 0.22.31
+
+### Patch Changes
+
+- 11362a2: Keep MCP App resource listing resilient to CSP metadata failures and invalid Dispatch app URLs.
+
+## 0.22.30
+
+### Patch Changes
+
+- 3b1a0e5: Accept nested `params.embed` and `params.chrome` values in MCP `open_app` calls.
+
+## 0.22.29
+
+### Patch Changes
+
+- a899300: Allow MCP App embed fetches to follow Agent-Native open redirects in Claude.
+
+## 0.22.28
+
+### Patch Changes
+
+- 4a5dc8d: Retry transient agent-chat route-missing startup responses and harden Dispatch MCP embed fallback behavior.
+
+## 0.22.27
+
+### Patch Changes
+
+- 5986cd0: Keep MCP Apps resource CSP and permissions on UI resources instead of tool descriptors.
+- 5986cd0: Add a reusable interactive starfield background with subtle cursor attraction.
+
+## 0.22.26
+
+### Patch Changes
+
+- 0efeaec: Allow Dispatch-routed MCP app embeds to authenticate target apps with synced org A2A secrets.
+
+## 0.22.25
+
+### Patch Changes
+
+- b76bf4f: Bust MCP App shell resource caches so host CSP metadata refreshes after embed changes.
+
+## 0.22.24
+
+### Patch Changes
+
+- b275383: Allow MCP app embed wrappers to connect to configured frame domains so Claude can transplant cross-app embeds.
+
+## 0.22.23
+
+### Patch Changes
+
+- 75223dd: Fix Dispatch-routed MCP App embed sessions and surface embed helper errors in the wrapper.
+- 75223dd: Expose current extension ids to agents and wait for tracked async framework plugins before dispatching first serverless requests.
+
+## 0.22.22
+
+### Patch Changes
+
+- 1a9d1c0: Mint same-app MCP embed sessions during app launches so Claude can render embedded apps without iframe-originated tool calls.
+
+## 0.22.21
+
+### Patch Changes
+
+- 56e5abc: Use Claude single-frame transplant rendering and ChatGPT controlled route frames for MCP App embeds.
+
+## 0.22.20
+
+### Patch Changes
+
+- 7918065: Default Agent-Native SSR page responses to public cache headers with short max-age, week-long stale-while-revalidate, and hour-long stale-if-error, without creating sessions for anonymous page hits.
+- 7918065: Improve MCP App route embeds by using signed real app routes across hosts, preserving host chat bridge state, controlling ChatGPT route height, and mounting the real signed app document inside Claude's proxied MCP content frame.
+- 7918065: Make MCP app embeds default to 560px, shrink toward the host-visible height, and cap dynamic resize reports at the configured embed height.
+
+## 0.22.19
+
+### Patch Changes
+
+- 1750384: Make MCP App embeds navigate the host frame into the real app route, keep the MCP chat bridge alive after embed-token redirects, and cache-bust the shared MCP App shell resource.
+
+## 0.22.18
+
+### Patch Changes
+
+- bf1cb24: Expose MCP App CSP metadata, compact unknown OAuth app hosts, support ChatGPT's window.openai bridge, and show a Claude-safe fallback when nested app frames are blocked.
+
+## 0.22.17
+
+### Patch Changes
+
+- 5173662: Add COEP-compatible dev headers for MCP embed page loads.
+- 5173662: Emit Cross-Origin-Embedder-Policy for validated MCP embed-session page loads.
+- 5173662: Relax Cross-Origin-Resource-Policy for validated MCP embed-session page loads.
+- 5173662: Allow MCP app runtime requests to resolve validated embed-session cookies.
+- 5173662: Allow MCP App full-app embeds to load in hosted chat clients with stricter iframe and resource policies.
+- 5173662: Lower default full-app MCP App embeds to a 720px app viewport.
+- 5173662: Allow MCP app embeds to load resources from the request origin.
+- 5173662: Prevent same-origin 401/403 responses from causing client retry storms.
+
+## 0.22.16
+
+### Patch Changes
+
+- 6de0eaf: Fix `/assets/*` 404s in production builds. The React Router client build is now
+  copied into Nitro's `publicDir` before `nitroBuild` runs, so the static-asset
+  manifest baked into the server bundle includes hashed JS/CSS chunks. Previously
+  the copy happened after `nitroBuild`, leaving the files on disk but invisible to
+  Nitro's runtime `serveStatic` handler — every `/assets/*` request fell through
+  to the SSR catch-all, which 404s any path with a file extension.
+
+## 0.22.15
+
+### Patch Changes
+
+- 0ba051e: Relay `sendToAgentChat()` submissions from MCP App embeds to compatible chat hosts.
+- 0ba051e: Prevent HEAD probes from consuming one-time MCP app embed tickets before iframe navigation.
+- 0ba051e: Add client helpers for MCP App host integration.
+- 0ba051e: Add an embedRoute helper that pairs action deep links with MCP App resources.
+- 0ba051e: Add a ShareButton hook for hiding organization-link resources from discovery.
+
+## 0.22.14
+
+### Patch Changes
+
+- b09db79: Prevent unavailable optional agent engines from being selected by chat model pickers or explicit runtime overrides.
+
+## 0.22.13
+
+### Patch Changes
+
+- 0b4ade2: Use the official Gemini 3.5 Flash model ID for the Google provider.
+- 9482ec9: Harden serverless database pool cleanup and chat thread conflict retries.
+- 54f295b: Make MCP App embeds launch real app routes reliably and keep web-host discovery compact.
+
+## 0.22.12
+
+### Patch Changes
+
+- c43d534: Fix MCP App full-app embed launching through open routes and keep app-host discovery compact.
+
+## 0.22.11
+
+### Patch Changes
+
+- e3b219b: Emit compact MCP Apps tool catalogs for OAuth app hosts and include ChatGPT-compatible widget metadata for real app embeds.
+
+## 0.22.10
+
+### Patch Changes
+
+- ce325de: Include chat session context in feedback submissions and harden chat debug clipboard actions.
+
+## 0.22.9
+
+### Patch Changes
+
+- e834a27: Improve MCP App embed startup reliability.
+
+## 0.22.8
+
+### Patch Changes
+
+- bbaa675: Allow MCP App frame CSP sources emitted by the built-in app embed helper so local and HTTPS app frames render correctly, and expose the helper through the browser-safe core entry used by template actions.
+- bbaa675: Clarify MCP app embeds can target focused app routes as well as full app surfaces.
+- bbaa675: Request taller full-app MCP App embeds.
+- bbaa675: Prevent replayed chat history with interrupted tool calls from sending malformed tool-use messages to model gateways.
+
+## 0.22.7
+
+### Patch Changes
+
+- 2fcecb9: Fix `backfillEngineMessagesToolResults` so a `tool-result` is only paired with `tool-call`s from assistant messages that appeared earlier in the conversation. The previous global lookup overwrote earlier entries when ids collided (e.g. reused `continuation_tc_*` ids after adapter recreation), causing older history to be backfilled with the wrong `tool_name` / `tool_input` and sent that way to the Builder LLM gateway.
+- 2fcecb9: Include `tool_name` and `tool_input` on every `tool_result` sent to the Builder LLM gateway (Gemini compatibility), backfill from prior `tool_use` when replaying history, add gateway client identification headers, and require `toolName`/`toolInput` on engine tool-result parts. Preserve unmatched structured-history tool results as text (then run `backfillEngineMessagesToolResults`) so replay never drops that payload before backfill runs. `backfillEngineMessagesToolResults` now turns orphan engine `tool-result` parts into the same replay text (instead of silently dropping them), and structured history coerces legacy non-string `toolCallId` / `content` shapes from stored JSON.
+
+## 0.22.6
+
+### Patch Changes
+
+- 789ba7d: Clarify starter app creation guidance, seed app descriptions, and remove starter/new-app leftovers from starter-derived apps.
+- 789ba7d: Add Dispatch unified MCP gateway guidance and app-grant controls.
+- 789ba7d: Add MCP App full-app embedding with short-lived browser sessions.
+- 789ba7d: Ignore test files when discovering and generating runtime action registries.
+- 789ba7d: Skip stored AI SDK agent engines when their optional runtime packages are not installed.
+
+## 0.22.5
+
+### Patch Changes
+
+- 7873242: Clear the chat attachment drop overlay when editor-level drops consume the drop event.
+- 7873242: Resolve Builder assistant credentials from a single complete user/org/workspace scope so partial personal rows do not hide org-shared connections.
+- 7873242: Start fresh chats on new browser/project surfaces instead of auto-opening the latest server thread.
+- 7873242: Sanitize resent email verification callback URLs before forwarding to Better Auth.
+
+## 0.22.4
+
+### Patch Changes
+
+- b5fc3b7: `/_agent-native/mcp/connect` now leads with the no-CLI path: the remote MCP URL is shown with a copy button, and a Claude/ChatGPT/Cursor/Claude Code/Codex/Other tab strip walks users through each host (paste-the-URL for OAuth hosts, one-line `claude mcp add` / `npx @agent-native/core connect` snippets for CLI hosts) so non-developers can connect a chat host without ever opening a terminal. The static-token mint flow and connections list keep their existing endpoints; tests cover the new sections.
+
 ## 0.22.3
 
 ### Patch Changes

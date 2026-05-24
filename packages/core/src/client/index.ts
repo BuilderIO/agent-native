@@ -16,6 +16,12 @@ export {
   appPath,
 } from "./api-path.js";
 export {
+  ensureEmbedAuthFetchInterceptor,
+  getEmbedAuthToken,
+  isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
+} from "./embed-auth.js";
+export {
   codeAgentTranscriptEventsToContent,
   createCodeAgentChatAdapter,
   type CodeAgentChatController,
@@ -66,6 +72,23 @@ export {
   type AgentConversationToolState,
 } from "./conversation/index.js";
 export { McpAppRenderer } from "./mcp-apps/McpAppRenderer.js";
+export {
+  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  sendMcpAppHostMessage,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+  type AgentNativeMcpAppHostMessageType,
+  type McpAppDisplayMode,
+  type McpAppHostChatMessage,
+  type McpAppHostCapabilities,
+  type McpAppHostContext,
+  type McpAppHostContextSnapshot,
+  type McpAppModelContextContentPart,
+  type McpAppModelContextUpdate,
+} from "./mcp-app-host.js";
 export {
   CodeAgentIndicator,
   type CodeAgentIndicatorProps,
@@ -347,6 +370,10 @@ export {
   type OpenSourceBadgeProps,
   type PoweredByBadgeProps,
 } from "./PoweredByBadge.js";
+export {
+  StarfieldBackground,
+  type StarfieldBackgroundProps,
+} from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { installRouteChunkRecovery } from "./route-chunk-recovery.js";

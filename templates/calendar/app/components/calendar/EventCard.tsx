@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { EventStatusIcon } from "@/lib/rsvp-status";
 import {
   getEventDisplayColor,
   allOtherDeclined,
@@ -65,6 +66,7 @@ export function EventCard({
             style={{ backgroundColor: accentColor }}
           />
         )}
+        <EventStatusIcon event={event} />
         <span className="truncate font-medium">{event.title}</span>
       </button>
     );
@@ -93,6 +95,7 @@ export function EventCard({
             className="shrink-0 text-current opacity-70"
           />
         )}
+        <EventStatusIcon event={event} />
         <span className="truncate font-medium">{event.title}</span>
       </div>
       {!event.allDay && (
