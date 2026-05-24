@@ -104,7 +104,7 @@ cd templates/content && pnpm action <name> [args]
 | `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                 | Hide/show an org-accessible document in Organization/search while keeping link access |
 | `move-document`                | `--id <id> [--parentId] [--position]`                                                    | Move or reorder a document in the page tree                                           |
 | `delete-document`              | `--id <id>`                                                                              | Delete with recursive children                                                        |
-| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text>`                                    | Set generated or edited alt text for a specific image                                 |
+| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text> [--imageOccurrence <n>]`            | Set generated or edited alt text for a specific image                                 |
 | `transcribe-media`             | `--documentId <id> --mediaUrl <url> --mediaType audio\|video [--placeholderText <text>]` | Transcribe audio/video media into the Transcript toggle beneath the block             |
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
@@ -161,9 +161,10 @@ lightbox preview with 100%/150% zoom controls, and removing it. The alt text
 generator delegates to the agent chat; generate concise, factual accessibility
 copy from the attached image, use the supplied markdown article excerpt around
 the image only for context, then call `set-image-alt-text` with the document id,
-image URL, and final alt text so the document is updated through the action
-surface. After the action succeeds, confirm briefly without repeating the alt
-text unless the user explicitly asks to see it. Resized images
+image URL, final alt text, and `imageOccurrence` when supplied so the document
+is updated through the action surface even when the same URL appears more than
+once. After the action succeeds, confirm briefly without repeating the alt text
+unless the user explicitly asks to see it. Resized images
 serialize as HTML `<img>` tags with a `width` attribute so the size persists in
 markdown. The slash-command Image block may be empty (`![]()`) until the user
 chooses Upload or Link. Do not embed base64 image data in document content.

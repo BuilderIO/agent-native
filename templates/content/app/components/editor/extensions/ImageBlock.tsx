@@ -487,6 +487,7 @@ export function ImageBlock({
 
     try {
       const imageDataUrl = await imageDataUrlForAgent(src);
+      const imageOccurrence = imageOccurrenceIndex({ editor, getPos, src });
       const articleContext = buildAltTextArticleContext({
         editor,
         getPos,
@@ -498,6 +499,7 @@ export function ImageBlock({
           "The user clicked the alt text generator for an image block in Content.",
           `Document ID: ${documentId}`,
           `Image URL: ${src}`,
+          `Image occurrence for this URL: ${imageOccurrence}`,
           `Current alt text: ${alt.trim() || "(empty)"}`,
           articleContext
             ? `Article context around this image, in markdown. The target image is marked with IMAGE TO DESCRIBE comments. Use up to this context to understand the image's purpose in the article, but do not invent details that are not visible in the image:\n\n${articleContext}`
@@ -505,7 +507,7 @@ export function ImageBlock({
           imageDataUrl
             ? "The image contents are attached to this message."
             : "The browser could not attach the image contents, so use the image URL and surrounding document context.",
-          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, and altText so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
+          "Generate concise, useful alt text for accessibility. Use the attached image as the source of truth and the article context only for disambiguation. Then call set-image-alt-text with documentId, imageUrl, altText, and imageOccurrence so the generated text is applied to this exact image. Keep the alt text factual and avoid phrases like 'image of' unless needed for clarity.",
           "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
         ].join("\n"),
         images: imageDataUrl ? [imageDataUrl] : undefined,

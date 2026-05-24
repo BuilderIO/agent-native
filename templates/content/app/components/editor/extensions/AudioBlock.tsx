@@ -54,7 +54,15 @@ interface AudioResizeState {
 }
 
 const MIN_AUDIO_WIDTH = 260;
-const AUDIO_TRANSCRIPT_PLACEHOLDER = "Transcribing audio...";
+const AUDIO_TRANSCRIPT_PLACEHOLDER_LABEL = "Transcribing audio...";
+
+function createTranscriptPlaceholder(label: string): string {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${label} ${id}`;
+}
 
 function normalizedAudioWidth(value: unknown): number | null {
   const width =
@@ -228,23 +236,26 @@ export function AudioBlock({
   }
 
   function insertTranscriptPlaceholder() {
-    if (!editor.schema.nodes.notionToggle) return AUDIO_TRANSCRIPT_PLACEHOLDER;
+    if (!editor.schema.nodes.notionToggle) return null;
     const position = typeof getPos === "function" ? getPos() : null;
-    if (typeof position !== "number") return AUDIO_TRANSCRIPT_PLACEHOLDER;
+    if (typeof position !== "number") return null;
     const insertAt = position + node.nodeSize;
+    const placeholderText = createTranscriptPlaceholder(
+      AUDIO_TRANSCRIPT_PLACEHOLDER_LABEL,
+    );
 
-    editor
+    const inserted = editor
       .chain()
       .focus()
       .insertContentAt(
         insertAt,
-        `<details open><summary>Transcript</summary><p>${AUDIO_TRANSCRIPT_PLACEHOLDER}</p></details>`,
+        `<details open><summary>Transcript</summary><p>${placeholderText}</p></details>`,
       )
       .setNodeSelection(insertAt)
       .scrollIntoView()
       .run();
 
-    return AUDIO_TRANSCRIPT_PLACEHOLDER;
+    return inserted ? placeholderText : null;
   }
 
   function handleTranscribe() {
@@ -255,6 +266,10 @@ export function AudioBlock({
     }
 
     const placeholderText = insertTranscriptPlaceholder();
+    if (!placeholderText) {
+      toast.error("Could not add a transcript block.");
+      return;
+    }
     setMoreMenuOpen(false);
     sendToAgentChat({
       message: "Transcribe this audio and add the transcript below it.",
