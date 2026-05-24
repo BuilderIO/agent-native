@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.44
+
+### Patch Changes
+
+- 7ca6c99: Allow UI-submitted agent chat messages to include image data.
+
 ## 0.22.43
 
 ### Patch Changes
