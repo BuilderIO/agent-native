@@ -183,11 +183,21 @@ function CreateMenu({
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const skillHoverTimerRef = useRef<number | null>(null);
   const [skillFlyoutOpen, setSkillFlyoutOpen] = useState(false);
+  const [skillFlyoutSide, setSkillFlyoutSide] = useState<"right" | "left">(
+    "right",
+  );
   const skillFlyoutCloseTimerRef = useRef<number | null>(null);
-  const openSkillFlyout = () => {
+  const openSkillFlyout = (rowEl?: HTMLElement | null) => {
     if (skillFlyoutCloseTimerRef.current) {
       window.clearTimeout(skillFlyoutCloseTimerRef.current);
       skillFlyoutCloseTimerRef.current = null;
+    }
+    if (rowEl && typeof window !== "undefined") {
+      const rect = rowEl.getBoundingClientRect();
+      const FLYOUT_WIDTH = 248;
+      setSkillFlyoutSide(
+        window.innerWidth - rect.right < FLYOUT_WIDTH ? "left" : "right",
+      );
     }
     setSkillFlyoutOpen(true);
   };
@@ -645,9 +655,9 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 <div
                   key={item.label}
                   className="relative"
-                  onMouseEnter={() => {
+                  onMouseEnter={(e) => {
                     if (isSkill) {
-                      openSkillFlyout();
+                      openSkillFlyout(e.currentTarget);
                       return;
                     }
                     if (!item.hoverAction) return;
@@ -694,9 +704,14 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   {isSkill && skillFlyoutOpen && (
                     <div
                       role="menu"
-                      onMouseEnter={openSkillFlyout}
+                      onMouseEnter={() => openSkillFlyout()}
                       onMouseLeave={scheduleSkillFlyoutClose}
-                      className="absolute left-full top-0 z-20 ml-1 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md"
+                      className={cn(
+                        "absolute top-0 z-20 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md",
+                        skillFlyoutSide === "right"
+                          ? "left-full ml-1"
+                          : "right-full mr-1",
+                      )}
                     >
                       <button
                         type="button"
