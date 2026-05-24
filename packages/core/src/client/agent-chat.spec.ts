@@ -73,6 +73,18 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("hello");
   });
 
+  it("includes submitted image data in the postMessage payload", () => {
+    sendToAgentChat({
+      message: "describe this image",
+      images: ["data:image/png;base64,abc"],
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
+  });
+
   it("opens the local sidebar before posting to a top-level chat listener", () => {
     vi.useFakeTimers();
     (window as unknown as { parent: unknown }).parent = window;

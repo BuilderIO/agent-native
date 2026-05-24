@@ -37,6 +37,8 @@ export interface AgentChatMessage {
   referenceImagePaths?: string[];
   /** Optional uploaded reference images */
   uploadedReferenceImages?: string[];
+  /** Optional image data URLs to include in the submitted chat message */
+  images?: string[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   /**

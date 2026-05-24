@@ -209,6 +209,7 @@ function decodeTextDataUrl(dataUrl: string): string | null {
 }
 
 function extractAttachmentsFromMessage(message: {
+  content?: readonly { type: string; image?: string }[];
   attachments?: readonly AssistantUiAttachment[];
 }): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
@@ -246,6 +247,16 @@ function extractAttachmentsFromMessage(message: {
           text: truncateOutboundAttachment(unwrapAttachmentEnvelope(part.text)),
         });
       }
+    }
+  }
+  for (const part of message.content ?? []) {
+    if (part.type === "image" && typeof part.image === "string") {
+      attachments.push({
+        type: "image",
+        name: "image",
+        contentType: /^data:([^;,]+)/.exec(part.image)?.[1],
+        data: part.image,
+      });
     }
   }
   return attachments;

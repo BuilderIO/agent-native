@@ -91,19 +91,21 @@ cd templates/content && pnpm action <name> [args]
 
 ### Document Operations
 
-| Action                         | Args                                                                     | Purpose                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `list-documents`               | `[--format json]`                                                        | List document metadata/tree; no full bodies                                           |
-| `search-documents`             | `--query <text> [--format json]`                                         | Search by title/content and return snippets                                           |
-| `get-document`                 | `--id <id> [--format json]`                                              | Get a single document with content                                                    |
-| `pull-document`                | `--id <id> [--format markdown\|text]`                                    | Collab-aware "ingest the final" read                                                  |
-| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                       | Create a new document                                                                 |
-| `edit-document`                | `--id <id> --find <text> --replace <text>`                               | Surgical text edit (preferred for modifications)                                      |
-| `edit-document`                | `--id <id> --edits <json>`                                               | Batch surgical text edits                                                             |
-| `update-document`              | `--id <id> [--title] [--content] [--icon]`                               | Full rewrite of document fields                                                       |
-| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]` | Hide/show an org-accessible document in Organization/search while keeping link access |
-| `move-document`                | `--id <id> [--parentId] [--position]`                                    | Move or reorder a document in the page tree                                           |
-| `delete-document`              | `--id <id>`                                                              | Delete with recursive children                                                        |
+| Action                         | Args                                                                                     | Purpose                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list-documents`               | `[--format json]`                                                                        | List document metadata/tree; no full bodies                                           |
+| `search-documents`             | `--query <text> [--format json]`                                                         | Search by title/content and return snippets                                           |
+| `get-document`                 | `--id <id> [--format json]`                                                              | Get a single document with content                                                    |
+| `pull-document`                | `--id <id> [--format markdown\|text]`                                                    | Collab-aware "ingest the final" read                                                  |
+| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                       | Create a new document                                                                 |
+| `edit-document`                | `--id <id> --find <text> --replace <text>`                                               | Surgical text edit (preferred for modifications)                                      |
+| `edit-document`                | `--id <id> --edits <json>`                                                               | Batch surgical text edits                                                             |
+| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                               | Full rewrite of document fields                                                       |
+| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                 | Hide/show an org-accessible document in Organization/search while keeping link access |
+| `move-document`                | `--id <id> [--parentId] [--position]`                                                    | Move or reorder a document in the page tree                                           |
+| `delete-document`              | `--id <id>`                                                                              | Delete with recursive children                                                        |
+| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text> [--imageOccurrence <n>]`            | Set generated or edited alt text for a specific image                                 |
+| `transcribe-media`             | `--documentId <id> --mediaUrl <url> --mediaType audio\|video [--placeholderText <text>]` | Transcribe audio/video media into the Transcript toggle beneath the block             |
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
@@ -140,7 +142,7 @@ plain-text strip of the markdown.
 | `list-comments` | `--documentId <id>`                                            | List all comment threads |
 | `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
-### Image Blocks
+### Media Blocks
 
 Documents support image blocks as markdown images: `![alt text](https://...)`.
 The UI uploads local image files through the framework
@@ -148,8 +150,61 @@ The UI uploads local image files through the framework
 storage path. If image upload fails because storage is not configured, tell the
 user to connect Builder.io in Settings -> File uploads. Agents can add images
 that already have a hosted URL by using `edit-document` or `update-document` to
-insert markdown image syntax. Do not embed base64 image data in document
-content.
+insert markdown image syntax. Agents can update image alt text by editing the
+text inside the markdown brackets. Uploaded or dropped images should not infer
+alt text from the file name; leave alt text empty until the user writes it. The
+UI exposes hover controls for commenting on an image, editing alt text in place
+from the image's bottom-right ALT badge, generating alt text through the
+in-place sparkle button, copying or downloading the image, replacing it through
+the Upload/Link picker, resizing it with side handles, expanding it into a
+lightbox preview with 100%/150% zoom controls, and removing it. The alt text
+generator delegates to the agent chat; generate concise, factual accessibility
+copy from the attached image, use the supplied markdown article excerpt around
+the image only for context, then call `set-image-alt-text` with the document id,
+image URL, final alt text, and `imageOccurrence` when supplied so the document
+is updated through the action surface even when the same URL appears more than
+once. After the action succeeds, confirm briefly without repeating the alt text
+unless the user explicitly asks to see it. Resized images
+serialize as HTML `<img>` tags with a `width` attribute so the size persists in
+markdown. The slash-command Image block may be empty (`![]()`) until the user
+chooses Upload or Link. Do not embed base64 image data in document content.
+
+Documents also support video blocks as HTML video tags:
+`<video src="https://..." controls></video>`. The UI uploads local video files
+through the same file-upload endpoint and slash-command Video blocks may be
+empty until the user chooses Upload or Link. Agents can add videos with hosted
+URLs by inserting HTML video syntax; do not embed base64 video data in document
+content. Video blocks expose the same core hover controls as images: comment,
+expand into a lightbox player, download, replace through the Upload/Link picker,
+copy the video URL, transcribe into a Transcript toggle beneath the block,
+resize with side handles, and delete. Resized videos serialize with a `width`
+attribute so the size persists in markdown. Videos do not use image alt text;
+add descriptive surrounding copy, captions, or transcript content when
+accessibility context is needed.
+
+Documents also support audio blocks as HTML audio tags:
+`<audio src="https://..." controls></audio>`. The UI uploads local audio files
+through the same file-upload endpoint and slash-command Audio blocks may be
+empty until the user chooses Upload or Link. Agents can add hosted audio by
+inserting HTML audio syntax; do not embed base64 audio data in document content.
+Audio blocks expose hover controls for comment, expand into a player, download,
+replace through the Upload/Link picker, copy the audio URL, transcribe into a
+Transcript toggle beneath the block, resize with side handles, and delete.
+Resized audio serializes with a `width` attribute so the size persists in
+markdown. Audio does not use image alt text; add descriptive surrounding copy,
+captions, or transcript content when accessibility context is needed.
+
+`transcribe-media` is the Content-local media transcription action. The UI's
+Transcribe menu item optimistically inserts an open Transcript toggle directly
+beneath the audio/video block, then delegates to the agent chat. The agent
+should call `transcribe-media` with the document id, media URL, media type, and
+the provided placeholder text so the action can replace only that placeholder.
+The action performs the narrow speech-to-text media pipeline (Builder.io
+transcription first, Groq fallback when configured) and extracts audio from
+video server-side with ffmpeg. Do not paste transcripts manually when this
+action can do the update, do not quote the transcript back into chat after the
+action succeeds, and do not skip it just because another transcript toggle
+already exists elsewhere in the document.
 
 ### Sharing
 
