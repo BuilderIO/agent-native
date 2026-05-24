@@ -129,10 +129,19 @@ function CreateMenu({
   canCreateOrgMcp,
   hasOrg,
   onCreated,
+  showToast,
 }: {
   scope: ResourceScope;
   onCreateFile: (name: string) => void;
-  onCreateResource: (path: string, content: string, mimeType?: string) => void;
+  onCreateResource: (
+    path: string,
+    content: string,
+    mimeType?: string,
+    opts?: {
+      onSuccess?: (resource: ResourceMeta) => void;
+      onError?: (err: unknown) => void;
+    },
+  ) => void;
   onCreateMcpServer: (args: {
     scope: McpServerScope;
     name: string;
@@ -143,6 +152,11 @@ function CreateMenu({
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreated?: () => void;
+  showToast?: (
+    kind: "ok" | "err",
+    message: string,
+    opts?: { resourceId?: string; durationMs?: number },
+  ) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
@@ -312,8 +326,23 @@ Keep the skill concise (under 500 lines) and actionable.`,
   };
 
   const saveUploadedSkill = () => {
-    const path = `skills/${slugifyName(skillUploadSlug || "uploaded-skill")}/SKILL.md`;
-    onCreateResource(path, skillUploadContent, "text/markdown");
+    const slug = slugifyName(skillUploadSlug || "uploaded-skill");
+    const path = `skills/${slug}/SKILL.md`;
+    const fileLabel = skillUploadFileName || `${slug}/SKILL.md`;
+    onCreateResource(path, skillUploadContent, "text/markdown", {
+      onSuccess: (resource) => {
+        showToast?.("ok", `Skill "${fileLabel}" added`, {
+          resourceId: resource.id,
+        });
+      },
+      onError: (err) => {
+        const msg =
+          err instanceof Error && err.message
+            ? err.message
+            : "Failed to save skill file";
+        showToast?.("err", msg);
+      },
+    });
     setOpen(false);
     onCreated?.();
   };
@@ -1143,6 +1172,27 @@ export function ResourcesPanel() {
     string | null
   >(null);
   const [dragOver, setDragOver] = useState(false);
+  const [toast, setToast] = useState<{
+    kind: "ok" | "err";
+    message: string;
+    resourceId?: string;
+  } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const showToast = useCallback(
+    (
+      kind: "ok" | "err",
+      message: string,
+      opts?: { resourceId?: string; durationMs?: number },
+    ) => {
+      setToast({ kind, message, resourceId: opts?.resourceId });
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = window.setTimeout(
+        () => setToast(null),
+        opts?.durationMs ?? 5000,
+      );
+    },
+    [],
+  );
   const [editorView, setEditorView] = useState<"visual" | "code">(() => {
     try {
       const v = localStorage.getItem("resource-editor-view");
@@ -1327,12 +1377,24 @@ export function ResourcesPanel() {
   );
 
   const handleCreateResourceFromToolbar = useCallback(
-    (path: string, content: string, mimeType?: string) => {
+    (
+      path: string,
+      content: string,
+      mimeType?: string,
+      opts?: {
+        onSuccess?: (resource: ResourceMeta) => void;
+        onError?: (err: unknown) => void;
+      },
+    ) => {
       createResource.mutate(
         { path, content, mimeType, shared: activeScope === "shared" },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
+            opts?.onSuccess?.(data);
+          },
+          onError: (err) => {
+            opts?.onError?.(err);
           },
         },
       );
@@ -1577,6 +1639,7 @@ export function ResourcesPanel() {
             onCreateMcpServer={handleCreateMcpServer}
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrgForMcp}
+            showToast={showToast}
           />
           <TooltipProvider delayDuration={200}>
             <Tooltip>
@@ -1806,6 +1869,41 @@ export function ResourcesPanel() {
           </div>
         )}
       </div>
+      {toast && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 z-[300] -translate-x-1/2">
+          <div
+            role="status"
+            className={cn(
+              "pointer-events-auto flex max-w-[320px] items-center gap-3 rounded-md border px-3 py-2 text-[12px] shadow-md",
+              toast.kind === "ok"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300",
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{toast.message}</span>
+            {toast.kind === "ok" && toast.resourceId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedResourceId(toast.resourceId!);
+                  setToast(null);
+                }}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium underline-offset-2 hover:underline"
+              >
+                View
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setToast(null)}
+              className="shrink-0 text-current/60 hover:text-current"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
