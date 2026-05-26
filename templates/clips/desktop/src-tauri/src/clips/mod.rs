@@ -1454,7 +1454,7 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
         // Find the monitor that actually contains the tray icon. The popover
         // is parked at (2,2) on the primary display, so current_monitor()
         // always resolves to the primary monitor — wrong when the user clicked
-        // the icon on a secondary display.
+        // the icon on a secondary display
         let icon_cx = icon_x + icon_w / 2;
         let icon_cy = icon_y + icon_h / 2;
         let tray_monitor = window.available_monitors().ok().and_then(|monitors| {
