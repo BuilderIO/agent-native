@@ -133,3 +133,7 @@ skill visibility metadata.
   the host complete auth. Do not store shared secrets in skill files.
 - Local launch is explicit for customization, offline work, or privacy-sensitive
   workflows: `agent-native app-skill launch --local --into <path>`.
+- Marketplace packages include a Vercel Labs `skills` adapter:
+  `npx skills add ./dist/assets-skill/adapters/vercel-skills --skill assets`.
+  Install the skill instructions first, then run `agent-native app-skill ensure`
+  to register the Assets MCP connector.

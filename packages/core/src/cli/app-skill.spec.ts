@@ -98,6 +98,7 @@ function writeFixture(root: string): string {
         ],
         hostAdapters: [
           "codex-plugin",
+          "vercel-skills",
           "plain-skill",
           "claude-skill",
           "chatgpt-mcp",
@@ -179,6 +180,14 @@ describe("app skill packaging", () => {
     expect(
       fs.existsSync(path.join(outDir, "skills", "assets", "SKILL.md")),
     ).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(outDir, "skills", "assets", "SKILL.md"),
+          "utf-8",
+        )
+        .startsWith("---\nname: assets\n"),
+    ).toBe(true);
     expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
     expect(
       JSON.parse(
@@ -192,6 +201,32 @@ describe("app skill packaging", () => {
       fs.existsSync(path.join(outDir, ".codex-plugin", "plugin.json")),
     ).toBe(true);
     expect(fs.existsSync(path.join(outDir, ".mcp.json"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(outDir, "adapters", "vercel-skills", "skills", "assets"),
+      ),
+    ).toBe(true);
+    expect(
+      fs
+        .readFileSync(
+          path.join(outDir, "adapters", "vercel-skills", "README.md"),
+          "utf-8",
+        )
+        .includes("npx skills add . --skill assets -a codex"),
+    ).toBe(true);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            outDir,
+            "adapters",
+            "vercel-skills",
+            "agent-native.app-skill.json",
+          ),
+          "utf-8",
+        ),
+      ).id,
+    ).toBe("assets");
     expect(
       fs.existsSync(
         path.join(outDir, "adapters", "plain-skill", "skills", "assets"),

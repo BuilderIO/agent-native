@@ -18,6 +18,7 @@ import { resolveClients, writeConfigs } from "./connect.js";
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
   | "codex-plugin"
+  | "vercel-skills"
   | "plain-skill"
   | "claude-skill"
   | "chatgpt-mcp"
@@ -150,7 +151,7 @@ Usage:
 Commands:
   ensure   Register the app skill MCP connector for your local agent clients.
   launch   Open the hosted app, or materialize and start a local editable app.
-  pack     Create marketplace-ready skill, MCP, and Codex plugin adapters.
+  pack     Create marketplace-ready skill, MCP, Codex plugin, and Vercel skills adapters.
 
 Hosted is the default. Use --local when you want editable source, offline work,
 or a privacy-sensitive local app instance.`;
@@ -214,6 +215,7 @@ function normalizeSkillVisibility(value: unknown): SkillVisibility {
 function normalizeHostAdapter(value: unknown): AppSkillHostAdapter | null {
   if (
     value === "codex-plugin" ||
+    value === "vercel-skills" ||
     value === "plain-skill" ||
     value === "claude-skill" ||
     value === "chatgpt-mcp" ||
@@ -227,6 +229,7 @@ function normalizeHostAdapter(value: unknown): AppSkillHostAdapter | null {
 function defaultHostAdapters(): AppSkillHostAdapter[] {
   return [
     "codex-plugin",
+    "vercel-skills",
     "plain-skill",
     "claude-skill",
     "chatgpt-mcp",
@@ -578,7 +581,28 @@ function copySkill(
     fs.mkdirSync(dest, { recursive: true });
     fs.copyFileSync(source, path.join(dest, "SKILL.md"));
   }
+  rewriteSkillFrontmatterName(path.join(dest, "SKILL.md"), exportName);
   return dest;
+}
+
+function rewriteSkillFrontmatterName(file: string, name: string): void {
+  if (!fs.existsSync(file)) return;
+  const source = fs.readFileSync(file, "utf-8");
+  const lines = source.split("\n");
+  if (lines[0]?.trim() !== "---") return;
+  const end = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "---",
+  );
+  if (end <= 0) return;
+  const nameIndex = lines.findIndex(
+    (line, index) => index > 0 && index < end && /^name\s*:/.test(line),
+  );
+  if (nameIndex === -1) {
+    lines.splice(1, 0, `name: ${name}`);
+  } else {
+    lines[nameIndex] = `name: ${name}`;
+  }
+  fs.writeFileSync(file, lines.join("\n"), "utf-8");
 }
 
 function writeJson(file: string, value: unknown): void {
@@ -668,10 +692,43 @@ function copySkillAdapter(
   manifestDir: string,
   skills: AppSkillManifestSkill[],
   outDir: string,
-  adapter: "plain-skill" | "claude-skill",
+  adapter: "plain-skill" | "claude-skill" | "vercel-skills",
 ): void {
   const skillRoot = path.join(outDir, "adapters", adapter, "skills");
   for (const skill of skills) copySkill(manifestDir, skill, skillRoot);
+}
+
+function writeVercelSkillsAdapter(
+  manifest: AppSkillManifest,
+  manifestDir: string,
+  skills: AppSkillManifestSkill[],
+  outDir: string,
+): void {
+  const adapterDir = path.join(outDir, "adapters", "vercel-skills");
+  copySkillAdapter(manifestDir, skills, outDir, "vercel-skills");
+  fs.writeFileSync(
+    path.join(adapterDir, "README.md"),
+    [
+      `# ${manifest.displayName} Skills`,
+      "",
+      "Install with the open skills CLI:",
+      "",
+      "```bash",
+      `npx skills add . --skill ${skills.map(skillExportName).join(" --skill ")} -a codex`,
+      "```",
+      "",
+      "Then register the app-backed MCP connector:",
+      "",
+      "```bash",
+      `npx @agent-native/core@latest app-skill ensure --manifest agent-native.app-skill.json --yes`,
+      "```",
+      "",
+      "The skill files contain instructions only. OAuth or device setup happens in the MCP host; secrets are not stored in skills.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  writeJson(path.join(adapterDir, "agent-native.app-skill.json"), manifest);
 }
 
 export interface AppSkillPackResult {
@@ -728,6 +785,19 @@ export function buildAppSkillPack(
     files.push(
       path.join(target, ".codex-plugin", "plugin.json"),
       path.join(target, ".mcp.json"),
+    );
+  }
+  if (manifest.hostAdapters.includes("vercel-skills")) {
+    writeVercelSkillsAdapter(manifest, loaded.dir, skills, target);
+    files.push(
+      path.join(target, "adapters", "vercel-skills", "skills"),
+      path.join(target, "adapters", "vercel-skills", "README.md"),
+      path.join(
+        target,
+        "adapters",
+        "vercel-skills",
+        "agent-native.app-skill.json",
+      ),
     );
   }
   if (manifest.hostAdapters.includes("plain-skill")) {

@@ -50,6 +50,7 @@
   ],
   "hostAdapters": [
     "codex-plugin",
+    "vercel-skills",
     "plain-skill",
     "claude-skill",
     "chatgpt-mcp",

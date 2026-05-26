@@ -89,13 +89,23 @@ agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill
 # Local editable launch.
 agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Marketplace package.
+# Marketplace package, including a Vercel Labs skills adapter.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Install the exported Assets skill with the open skills CLI.
+npx skills add ./dist/assets-skill/adapters/vercel-skills --skill assets -a codex -y
 ```
 
 The exported skill teaches agents to use the picker for human-in-the-loop
 selection, direct actions for unattended image/video generation, and browser
 links when inline MCP Apps are unavailable.
+
+After installing the skill, register the hosted MCP connector so those
+instructions can call the live Assets app:
+
+```bash
+npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes
+```
 
 ## What's Next
 

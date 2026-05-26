@@ -87,13 +87,20 @@ agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill
 # Materialize and run editable local source.
 agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Build marketplace adapters: Codex plugin, plain/Claude skills, and MCP configs.
+# Build marketplace adapters: Codex plugin, Vercel skills, plain/Claude skills, and MCP configs.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Install the exported skill with the open skills CLI.
+npx skills add ./dist/assets-skill/adapters/vercel-skills --skill assets -a codex -y
 ```
 
 Keep secrets out of skill files. The manifest should contain URL-only connector
 metadata; OAuth/device setup happens in the MCP host or through the app's normal
 settings flow.
+
+The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
+for `npx skills add ...`. Install the skill first, then run `app-skill ensure`
+to register the MCP connector that gives the skill live Assets actions and UI.
 
 ## Creating custom skills {#creating-skills}
 
