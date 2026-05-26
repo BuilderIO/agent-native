@@ -8,53 +8,55 @@ The user asked a question in the Knowledge Assistant. The app has already:
 2. Run a GitHub code search and stored initial sources
 3. Called `sendToAgentChat` with the question + context JSON
 
+## Speed Requirement
+
+**Answer in under 30 seconds.** The user is watching a loading skeleton. Make ONE tool call max (dbt or Sigma), synthesize the answer immediately, then call `store-answer`. Do not chain lookups or browse multiple sources.
+
 ## Context Format
 
 ```json
 {
   "sessionId": "<uuid>",
-  "sources": [
-    {
-      "type": "github",
-      "title": "path/to/file.sql",
-      "repo": "org/repo",
-      "url": "...",
-      "excerpt": "..."
-    }
-  ],
+  "sources": [...],
+  "question": "...",
   "instruction": "..."
 }
 ```
 
-## Your Steps
+## Decision Tree
 
-1. **Parse the context** — extract `sessionId` and `sources`
-2. **Run ONE focused dbt MCP lookup** for the model/metric in the question
-3. **Synthesize a markdown answer** with `[1][2]` citations referencing the sources list
-4. **Call `store-answer`** with the answer and any `additionalSources` from dbt
+**Does the question mention "dashboard", "workbook", "chart", "visualization", or "Sigma"?**
 
-## dbt MCP — One Targeted Call
+→ **YES** — use Sigma MCP:
+  1. `mcp__sigma__begin_session` (required first)
+  2. `mcp__sigma__search` with the key term from the question
+  3. Call `store-answer` with what you found
 
-| Question type              | dbt MCP call                                    |
-| -------------------------- | ----------------------------------------------- |
-| "What is X?" / definition  | Get model X description and columns             |
-| "How is X tracked?"        | Find the model/metric capturing X               |
-| "How fresh is X?"          | Get model X freshness/last run info             |
-| "Where is X used?"         | Get downstream dependencies of model X          |
+→ **NO** — use dbt MCP (ONE call only):
+
+| Question type             | dbt MCP call                              |
+| ------------------------- | ----------------------------------------- |
+| "What is X?" / definition | Get model X description and columns       |
+| "How is X tracked?"       | Find the model/metric capturing X         |
+| "How fresh is X?"         | Get model X freshness/last run info       |
+| "Where is X used?"        | Get downstream dependencies of model X    |
 
 ## store-answer Example
 
 ```
 store-answer({
   sessionId: "abc-123",
-  answer: "The `dim_contracts` model [1] has a `contract_type` field...",
+  answer: "The `dim_contracts` model [1] has the following fields:\n- `contract_id`...",
   additionalSources: [{ type: "dbt", title: "dim_contracts", excerpt: "..." }]
 })
 ```
 
-## Important
+For Sigma sources use `type: "other"` and set `title` to the workbook/dataset name.
+
+## Rules
 
 - **Always call `store-answer`** — the UI shows a skeleton until you do
-- If you encounter an error, still call `store-answer` with `status: "error"` and explain what happened in the answer field
-- Keep the answer focused and factual — cite GitHub sources as `[1]`, `[2]` etc. (1-indexed from the sources array), and dbt sources as additional numbered entries
-- One dbt MCP call only — don't over-query
+- **One external tool call only** — dbt OR Sigma, not both
+- **Call `store-answer` even on error** — use `status: "error"` and explain what failed in the `answer` field
+- Cite GitHub sources as `[1]`, `[2]` (1-indexed from the `sources` array in context); dbt/Sigma sources get the next numbers
+- Keep answers focused: 2–4 paragraphs max

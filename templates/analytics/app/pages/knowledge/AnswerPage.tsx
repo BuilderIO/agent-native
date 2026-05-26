@@ -96,7 +96,7 @@ interface Props {
   id: string;
 }
 
-const AGENT_TIMEOUT_MS = 90_000;
+const AGENT_TIMEOUT_MS = 45_000;
 
 export default function AnswerPage({ id }: Props) {
   const queryClient = useQueryClient();
@@ -150,9 +150,15 @@ export default function AnswerPage({ id }: Props) {
       message: s.question,
       context: JSON.stringify({
         sessionId: s.id,
+        question: s.question,
         sources: s.sources,
-        instruction:
-          "Use dbt MCP as your PRIMARY source. Run ONE targeted lookup for the model/metric in the question. Then call store-answer with a factual markdown answer. Cite sources as [1][2].",
+        instruction: [
+          "Answer the knowledge question above. Make ONE tool call then immediately call store-answer.",
+          /dashboard|workbook|chart|visualization|sigma/i.test(s.question)
+            ? "The question mentions dashboards/Sigma — use Sigma MCP: begin_session first, then search."
+            : "Use dbt MCP: ONE targeted lookup for the model/metric, then store-answer.",
+          "store-answer must be called within 25 seconds. Do not chain multiple lookups.",
+        ].join(" "),
       }),
       submit: true,
       background: true,
