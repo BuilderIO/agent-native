@@ -50,6 +50,7 @@
   ],
   "hostAdapters": [
     "codex-plugin",
+    "claude-marketplace",
     "vercel-skills",
     "plain-skill",
     "claude-skill",

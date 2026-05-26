@@ -136,7 +136,12 @@ skill visibility metadata.
 - The preferred hosted install path is now one command:
   `npx @agent-native/core@latest skills add assets`. It installs the exported
   skill instructions and registers the hosted Assets MCP connector together.
-- Marketplace packages include a Vercel Labs `skills` adapter:
+- Marketplace packages include a Claude Code marketplace adapter at
+  `adapters/claude-marketplace`. Install it with
+  `claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace`
+  and `claude plugin install agent-native-assets@agent-native-apps`, then use
+  `/mcp` to authenticate the URL-only Assets MCP connector.
+- Marketplace packages also include a Vercel Labs `skills` adapter:
   `npx skills add ./dist/assets-skill --skill assets`.
   Install the skill instructions first, then run `agent-native app-skill ensure`
   to register the Assets MCP connector.

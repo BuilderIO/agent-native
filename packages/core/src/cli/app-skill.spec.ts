@@ -98,6 +98,7 @@ function writeFixture(root: string): string {
         ],
         hostAdapters: [
           "codex-plugin",
+          "claude-marketplace",
           "vercel-skills",
           "plain-skill",
           "claude-skill",
@@ -129,6 +130,7 @@ describe("app skill manifests", () => {
       "https://assets.agent-native.com/_agent-native/mcp",
     );
     expect(manifest.mcp.serverName).toBe("agent-native-assets");
+    expect(manifest.hostAdapters).toContain("claude-marketplace");
     expect(exportedSkills(manifest).map((skill) => skill.path)).toEqual([
       "b",
       "c",
@@ -201,6 +203,75 @@ describe("app skill packaging", () => {
       fs.existsSync(path.join(outDir, ".codex-plugin", "plugin.json")),
     ).toBe(true);
     expect(fs.existsSync(path.join(outDir, ".mcp.json"))).toBe(true);
+    const claudeMarketplaceRoot = path.join(
+      outDir,
+      "adapters",
+      "claude-marketplace",
+    );
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            claudeMarketplaceRoot,
+            ".claude-plugin",
+            "marketplace.json",
+          ),
+          "utf-8",
+        ),
+      ),
+    ).toMatchObject({
+      name: "agent-native-apps",
+      plugins: [
+        {
+          name: "agent-native-assets",
+          source: "./plugins/agent-native-assets",
+        },
+      ],
+    });
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            claudeMarketplaceRoot,
+            "plugins",
+            "agent-native-assets",
+            ".claude-plugin",
+            "plugin.json",
+          ),
+          "utf-8",
+        ),
+      ),
+    ).toMatchObject({
+      name: "agent-native-assets",
+      skills: "./skills/",
+      mcpServers: "./.mcp.json",
+    });
+    const claudeMcpConfig = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          claudeMarketplaceRoot,
+          "plugins",
+          "agent-native-assets",
+          ".mcp.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(claudeMcpConfig.mcpServers["agent-native-assets"].url).toBe(
+      "https://assets.agent-native.com/_agent-native/mcp",
+    );
+    expect(
+      fs.existsSync(
+        path.join(
+          claudeMarketplaceRoot,
+          "plugins",
+          "agent-native-assets",
+          "skills",
+          "assets",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
     expect(
       fs.existsSync(
         path.join(outDir, "adapters", "vercel-skills", "skills", "assets"),

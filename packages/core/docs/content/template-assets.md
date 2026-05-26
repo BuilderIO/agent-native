@@ -92,16 +92,27 @@ agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill
 # Local editable launch.
 agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
 
-# Marketplace package, including a Vercel Labs skills adapter.
+# Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
 # Install the exported Assets skill with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y
+
+# Install from the generated Claude Code marketplace adapter.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
 ```
 
 The exported skill teaches agents to use the picker for human-in-the-loop
 selection, direct actions for unattended image/video generation, and browser
 links when inline MCP Apps are unavailable.
+
+The Claude marketplace adapter contains a `.claude-plugin/marketplace.json`
+catalog and an `agent-native-assets` plugin with `skills/assets/SKILL.md` plus
+the hosted `.mcp.json`. In interactive Claude Code, the same flow is available
+as `/plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace`,
+`/plugin install agent-native-assets@agent-native-apps`, `/reload-plugins`, and
+`/mcp` for MCP authentication.
 
 If you install from a raw marketplace bundle with `npx skills`, register the
 hosted MCP connector so those instructions can call the live Assets app:

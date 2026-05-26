@@ -117,6 +117,7 @@ const BUILT_IN_APP_SKILLS = {
       ],
       hostAdapters: [
         "codex-plugin",
+        "claude-marketplace",
         "vercel-skills",
         "plain-skill",
         "claude-skill",

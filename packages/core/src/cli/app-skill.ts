@@ -18,6 +18,7 @@ import { resolveClients, writeConfigs } from "./connect.js";
 export type SkillVisibility = "internal" | "exported" | "both";
 export type AppSkillHostAdapter =
   | "codex-plugin"
+  | "claude-marketplace"
   | "vercel-skills"
   | "plain-skill"
   | "claude-skill"
@@ -151,7 +152,7 @@ Usage:
 Commands:
   ensure   Register the app skill MCP connector for your local agent clients.
   launch   Open the hosted app, or materialize and start a local editable app.
-  pack     Create marketplace-ready skill, MCP, Codex plugin, and Vercel skills adapters.
+  pack     Create marketplace-ready skill, MCP, Codex/Claude plugin, and Vercel skills adapters.
 
 Hosted is the default. Use --local when you want editable source, offline work,
 or a privacy-sensitive local app instance.`;
@@ -215,6 +216,7 @@ function normalizeSkillVisibility(value: unknown): SkillVisibility {
 function normalizeHostAdapter(value: unknown): AppSkillHostAdapter | null {
   if (
     value === "codex-plugin" ||
+    value === "claude-marketplace" ||
     value === "vercel-skills" ||
     value === "plain-skill" ||
     value === "claude-skill" ||
@@ -229,6 +231,7 @@ function normalizeHostAdapter(value: unknown): AppSkillHostAdapter | null {
 function defaultHostAdapters(): AppSkillHostAdapter[] {
   return [
     "codex-plugin",
+    "claude-marketplace",
     "vercel-skills",
     "plain-skill",
     "claude-skill",
@@ -624,6 +627,10 @@ function pluginName(manifest: AppSkillManifest): string {
   return `agent-native-${manifest.id}`;
 }
 
+function claudeMarketplaceName(): string {
+  return "agent-native-apps";
+}
+
 function writeCodexPluginAdapter(
   manifest: AppSkillManifest,
   outDir: string,
@@ -667,6 +674,90 @@ function writeCodexPluginAdapter(
     },
   });
   writeJson(path.join(outDir, ".mcp.json"), mcpServerConfig(manifest));
+}
+
+function writeClaudeMarketplaceAdapter(
+  manifest: AppSkillManifest,
+  manifestDir: string,
+  skills: AppSkillManifestSkill[],
+  outDir: string,
+): void {
+  const adapterDir = path.join(outDir, "adapters", "claude-marketplace");
+  const name = pluginName(manifest);
+  const marketplaceName = claudeMarketplaceName();
+  const pluginDir = path.join(adapterDir, "plugins", name);
+  const skillRoot = path.join(pluginDir, "skills");
+
+  for (const skill of skills) copySkill(manifestDir, skill, skillRoot);
+
+  writeJson(path.join(adapterDir, ".claude-plugin", "marketplace.json"), {
+    name: marketplaceName,
+    description:
+      "Agent-Native app-backed skills that bundle instructions, MCP connectors, and UI surfaces.",
+    owner: {
+      name: "Agent-Native",
+    },
+    plugins: [
+      {
+        name,
+        displayName: manifest.displayName,
+        description: manifest.description,
+        source: `./plugins/${name}`,
+        homepage: manifest.hosted.url,
+        keywords: [
+          "agent-native",
+          manifest.id,
+          "mcp",
+          "skills",
+          "app-backed-skill",
+        ],
+      },
+    ],
+  });
+
+  writeJson(path.join(pluginDir, ".claude-plugin", "plugin.json"), {
+    name,
+    displayName: manifest.displayName,
+    description: manifest.description,
+    author: {
+      name: "Agent-Native",
+      url: "https://agent-native.com",
+    },
+    homepage: manifest.hosted.url,
+    repository: "https://github.com/BuilderIO/agent-native",
+    license: "MIT",
+    keywords: [
+      "agent-native",
+      manifest.id,
+      "mcp",
+      "skills",
+      "app-backed-skill",
+    ],
+    skills: "./skills/",
+    mcpServers: "./.mcp.json",
+  });
+  writeJson(path.join(pluginDir, ".mcp.json"), mcpServerConfig(manifest));
+  fs.writeFileSync(
+    path.join(adapterDir, "README.md"),
+    [
+      `# ${manifest.displayName} Claude Code Marketplace`,
+      "",
+      "Install this local marketplace from Claude Code:",
+      "",
+      "```text",
+      `/plugin marketplace add ./dist/${manifest.id}-skill/adapters/claude-marketplace`,
+      `/plugin install ${name}@${marketplaceName}`,
+      "/reload-plugins",
+      "/mcp",
+      "```",
+      "",
+      "Authenticate the MCP connector from `/mcp` after installation. The plugin ships a URL-only MCP config, so no shared secrets are stored in the marketplace package.",
+      "",
+      "For a published marketplace repo, point `/plugin marketplace add` at the repository URL instead of the local folder.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
 }
 
 function writeMcpAdapter(
@@ -785,6 +876,44 @@ export function buildAppSkillPack(
     files.push(
       path.join(target, ".codex-plugin", "plugin.json"),
       path.join(target, ".mcp.json"),
+    );
+  }
+  if (manifest.hostAdapters.includes("claude-marketplace")) {
+    writeClaudeMarketplaceAdapter(manifest, loaded.dir, skills, target);
+    files.push(
+      path.join(
+        target,
+        "adapters",
+        "claude-marketplace",
+        ".claude-plugin",
+        "marketplace.json",
+      ),
+      path.join(
+        target,
+        "adapters",
+        "claude-marketplace",
+        "plugins",
+        pluginName(manifest),
+        ".claude-plugin",
+        "plugin.json",
+      ),
+      path.join(
+        target,
+        "adapters",
+        "claude-marketplace",
+        "plugins",
+        pluginName(manifest),
+        ".mcp.json",
+      ),
+      path.join(
+        target,
+        "adapters",
+        "claude-marketplace",
+        "plugins",
+        pluginName(manifest),
+        "skills",
+      ),
+      path.join(target, "adapters", "claude-marketplace", "README.md"),
     );
   }
   if (manifest.hostAdapters.includes("vercel-skills")) {
