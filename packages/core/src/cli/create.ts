@@ -664,7 +664,7 @@ function findLocalTemplate(name: string): string | undefined {
 
 function normalizeTemplateName(template: string): string {
   if (template === "video") return "videos";
-  if (template === "image" || template === "images" || template === "assetes") {
+  if (template === "image" || template === "images" || template === "asset") {
     return "assets";
   }
   return template;

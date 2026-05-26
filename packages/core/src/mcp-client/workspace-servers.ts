@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import { getDbExec } from "../db/client.js";
 import { readAppSecret } from "../secrets/storage.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import type { SecretScope } from "../secrets/register.js";
 import type { McpHttpServerConfig, McpServerConfig } from "./config.js";
 import {
@@ -228,10 +232,18 @@ function isMissingWorkspaceResourceTable(error: unknown): boolean {
   );
 }
 
-async function selectWorkspaceMcpResourceRows(
-  workspaceAppId?: string | null,
-): Promise<WorkspaceMcpResourceRow[]> {
-  const appId = currentWorkspaceAppId(workspaceAppId);
+async function selectWorkspaceMcpResourceRows(options?: {
+  workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
+}): Promise<WorkspaceMcpResourceRow[]> {
+  const appId = currentWorkspaceAppId(options?.workspaceAppId);
+  const userEmail =
+    options?.userEmail === undefined
+      ? (getRequestUserEmail() ?? null)
+      : options.userEmail;
+  const orgId =
+    options?.orgId === undefined ? (getRequestOrgId() ?? null) : options.orgId;
   const client = getDbExec();
   const allRows = await client.execute({
     sql: `
@@ -248,9 +260,23 @@ async function selectWorkspaceMcpResourceRows(
         NULL AS grant_id,
         NULL AS app_id
       FROM workspace_resources wr
-      WHERE wr.kind = ? AND wr.scope = ? AND wr.path LIKE ?
+      WHERE wr.kind = ?
+        AND wr.scope = ?
+        AND wr.path LIKE ?
+        AND (
+          (? IS NOT NULL AND wr.org_id = ?)
+          OR (? IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
+        )
     `,
-    args: [WORKSPACE_MCP_KIND, "all", `${WORKSPACE_MCP_PATH_PREFIX}%`],
+    args: [
+      WORKSPACE_MCP_KIND,
+      "all",
+      `${WORKSPACE_MCP_PATH_PREFIX}%`,
+      orgId,
+      orgId,
+      userEmail,
+      userEmail,
+    ],
   });
 
   if (!appId) return allRows.rows as WorkspaceMcpResourceRow[];
@@ -277,6 +303,10 @@ async function selectWorkspaceMcpResourceRows(
         AND wg.status = ?
         AND wg.app_id = ?
         AND (
+          (? IS NOT NULL AND wr.org_id = ?)
+          OR (? IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
+        )
+        AND (
           (wr.org_id IS NOT NULL AND wg.org_id = wr.org_id)
           OR (wr.org_id IS NULL AND wg.org_id IS NULL AND wg.owner_email = wr.owner_email)
         )
@@ -287,6 +317,10 @@ async function selectWorkspaceMcpResourceRows(
       `${WORKSPACE_MCP_PATH_PREFIX}%`,
       "active",
       appId,
+      orgId,
+      orgId,
+      userEmail,
+      userEmail,
     ],
   });
 
@@ -306,10 +340,12 @@ async function selectWorkspaceMcpResourceRows(
  */
 export async function loadWorkspaceMcpServers(options?: {
   workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
 }): Promise<Record<string, McpServerConfig>> {
   let rows: WorkspaceMcpResourceRow[] = [];
   try {
-    rows = await selectWorkspaceMcpResourceRows(options?.workspaceAppId);
+    rows = await selectWorkspaceMcpResourceRows(options);
   } catch (error) {
     if (!isMissingWorkspaceResourceTable(error)) {
       console.warn(

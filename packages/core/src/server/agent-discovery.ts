@@ -72,7 +72,7 @@ function normalizeAgentId(id: string): string {
   if (
     normalized === "image" ||
     normalized === "images" ||
-    normalized === "assetes"
+    normalized === "asset"
   ) {
     return "assets";
   }

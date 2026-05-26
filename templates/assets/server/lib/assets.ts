@@ -34,6 +34,7 @@ export function mediaTypeFromMime(mimeType: string): AssetMediaType {
 }
 
 export async function createAssetFromBuffer(input: {
+  id?: string;
   libraryId: string;
   collectionId?: string | null;
   folderId?: string | null;
@@ -54,8 +55,9 @@ export async function createAssetFromBuffer(input: {
   sourceUrl?: string | null;
   metadata?: Record<string, unknown>;
   category?: ImageCategory;
+  db?: Pick<ReturnType<typeof getDb>, "insert">;
 }): Promise<typeof schema.assets.$inferSelect> {
-  const id = nanoid();
+  const id = input.id ?? nanoid();
   const mediaType = input.mediaType ?? mediaTypeFromMime(input.mimeType);
   const info =
     mediaType === "image"
@@ -131,6 +133,6 @@ export async function createAssetFromBuffer(input: {
     createdAt: now,
     updatedAt: now,
   };
-  await getDb().insert(schema.assets).values(row);
+  await (input.db ?? getDb()).insert(schema.assets).values(row);
   return row;
 }

@@ -5,6 +5,35 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 
+async function assertDestinationIsNotDescendant(
+  db: ReturnType<typeof getDb>,
+  folderId: string,
+  destination: typeof schema.assetFolders.$inferSelect,
+) {
+  const seen = new Set<string>([destination.id]);
+  let cursor = destination;
+  while (cursor.parentId) {
+    if (cursor.parentId === folderId) {
+      throw new Error(
+        "A folder cannot move contents into one of its children.",
+      );
+    }
+    if (seen.has(cursor.parentId)) {
+      throw new Error("Destination folder hierarchy is already circular.");
+    }
+    seen.add(cursor.parentId);
+    const [parent] = await db
+      .select()
+      .from(schema.assetFolders)
+      .where(eq(schema.assetFolders.id, cursor.parentId))
+      .limit(1);
+    if (!parent || parent.libraryId !== destination.libraryId) {
+      throw new Error("Destination folder hierarchy is invalid.");
+    }
+    cursor = parent;
+  }
+}
+
 export default defineAction({
   description:
     "Delete a folder from an asset library. Assets and child folders are moved to the deleted folder's parent or to a provided destination folder.",
@@ -35,6 +64,7 @@ export default defineAction({
       if (!destination || destination.libraryId !== folder.libraryId) {
         throw new Error("Destination folder does not belong to this library.");
       }
+      await assertDestinationIsNotDescendant(db, id, destination);
     }
     const now = nowIso();
     await db

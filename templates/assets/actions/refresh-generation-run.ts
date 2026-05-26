@@ -24,7 +24,7 @@ export default defineAction({
     if ((run.mediaType ?? "image") !== "video") {
       return { run: serializeGenerationRun(run), assets: [] };
     }
-    if (run.status === "completed") {
+    if (run.status === "completed" || run.status === "failed") {
       const assets = await db
         .select()
         .from(schema.assets)

@@ -6,6 +6,21 @@ import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 
+async function assertAssetBelongsToLibrary(
+  assetId: string,
+  libraryId: string,
+  label: string,
+) {
+  const [asset] = await getDb()
+    .select({ id: schema.assets.id, libraryId: schema.assets.libraryId })
+    .from(schema.assets)
+    .where(eq(schema.assets.id, assetId))
+    .limit(1);
+  if (!asset || asset.libraryId !== libraryId) {
+    throw new Error(`${label} must belong to this asset library.`);
+  }
+}
+
 export default defineAction({
   description:
     "Update an asset library's title, description, custom instructions, style brief, model defaults, cover, or canonical logo.",
@@ -45,8 +60,20 @@ export default defineAction({
     if (styleBrief !== undefined)
       updates.styleBrief = stringifyJson(styleBrief);
     if (settings !== undefined) updates.settings = stringifyJson(settings);
-    if (coverAssetId !== undefined) updates.coverAssetId = coverAssetId;
+    if (coverAssetId !== undefined) {
+      if (coverAssetId) {
+        await assertAssetBelongsToLibrary(coverAssetId, id, "Cover asset");
+      }
+      updates.coverAssetId = coverAssetId;
+    }
     if (canonicalLogoAssetId !== undefined) {
+      if (canonicalLogoAssetId) {
+        await assertAssetBelongsToLibrary(
+          canonicalLogoAssetId,
+          id,
+          "Canonical logo asset",
+        );
+      }
       updates.canonicalLogoAssetId = canonicalLogoAssetId;
     }
     await getDb()

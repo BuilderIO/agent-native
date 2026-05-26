@@ -219,7 +219,7 @@ const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
   "blank-app": "starter",
   "migration-goal-surface": "migration",
-  assetes: "assets",
+  asset: "assets",
   image: "assets",
   images: "assets",
   video: "videos",

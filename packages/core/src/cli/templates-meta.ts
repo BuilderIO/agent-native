@@ -349,7 +349,7 @@ export function coreTemplates(): TemplateMeta[] {
 export function getTemplate(name: string): TemplateMeta | undefined {
   // Tolerate legacy / renamed aliases.
   if (name === "video") name = "videos";
-  if (name === "image" || name === "images" || name === "assetes") {
+  if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
   }
   return TEMPLATES.find((t) => t.name === name);

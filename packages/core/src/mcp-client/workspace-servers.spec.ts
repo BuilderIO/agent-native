@@ -87,7 +87,10 @@ describe("loadWorkspaceMcpServers", () => {
       });
 
     const { loadWorkspaceMcpServers } = await import("./workspace-servers.js");
-    const servers = await loadWorkspaceMcpServers();
+    const servers = await loadWorkspaceMcpServers({
+      userEmail: "owner@example.test",
+      orgId: "acme",
+    });
     const keys = Object.keys(servers).sort();
 
     expect(keys).toHaveLength(2);
@@ -119,5 +122,49 @@ describe("loadWorkspaceMcpServers", () => {
 
     expect(servers).toEqual({});
     expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes all-app workspace MCP resources to the current org or user", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "res_acme",
+          owner_email: "owner@example.test",
+          org_id: "acme",
+          name: "Acme",
+          description: null,
+          path: "mcp-servers/acme.json",
+          content: JSON.stringify({
+            type: "http",
+            url: "https://acme.example/mcp",
+          }),
+          scope: "all",
+          updated_at: 2,
+        },
+      ],
+    });
+    mocks.execute.mockResolvedValueOnce({ rows: [] });
+
+    const { loadWorkspaceMcpServers } = await import("./workspace-servers.js");
+    const servers = await loadWorkspaceMcpServers({
+      userEmail: "owner@example.test",
+      orgId: "acme",
+    });
+
+    expect(Object.keys(servers)).toHaveLength(1);
+    expect(mocks.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        args: [
+          "mcp-server",
+          "all",
+          "mcp-servers/%",
+          "acme",
+          "acme",
+          "owner@example.test",
+          "owner@example.test",
+        ],
+      }),
+    );
   });
 });

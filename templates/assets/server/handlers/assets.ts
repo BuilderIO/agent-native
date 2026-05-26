@@ -97,6 +97,46 @@ function hasAllowedSignature(mimeType: string, data: Uint8Array): boolean {
   return false;
 }
 
+async function assertCollectionBelongsToLibrary(
+  collectionId: string,
+  libraryId: string,
+) {
+  const [collection] = await getDb()
+    .select({
+      id: schema.assetCollections.id,
+      libraryId: schema.assetCollections.libraryId,
+    })
+    .from(schema.assetCollections)
+    .where(eq(schema.assetCollections.id, collectionId))
+    .limit(1);
+  if (!collection || collection.libraryId !== libraryId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "collectionId does not belong to this library",
+    });
+  }
+}
+
+async function assertFolderBelongsToLibrary(
+  folderId: string,
+  libraryId: string,
+) {
+  const [folder] = await getDb()
+    .select({
+      id: schema.assetFolders.id,
+      libraryId: schema.assetFolders.libraryId,
+    })
+    .from(schema.assetFolders)
+    .where(eq(schema.assetFolders.id, folderId))
+    .limit(1);
+  if (!folder || folder.libraryId !== libraryId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "folderId does not belong to this library",
+    });
+  }
+}
+
 async function withUserContext(event: any, fn: () => Promise<unknown>) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -120,6 +160,12 @@ export const uploadAssets = defineEventHandler(async (event) =>
     await assertAccess("asset-library", libraryId, "editor");
     const collectionId = readField(parts, "collectionId") || null;
     const folderId = readField(parts, "folderId") || null;
+    if (collectionId) {
+      await assertCollectionBelongsToLibrary(collectionId, libraryId);
+    }
+    if (folderId) {
+      await assertFolderBelongsToLibrary(folderId, libraryId);
+    }
     const category = categoryFromForm(readField(parts, "category"));
     const title = readField(parts, "title") || null;
     const files =
