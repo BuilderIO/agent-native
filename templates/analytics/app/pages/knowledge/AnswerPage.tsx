@@ -109,11 +109,15 @@ interface Props {
   id: string;
 }
 
-const AGENT_TIMEOUT_MS = 60_000;
+// After this long with no answer, re-trigger with sidebar open so user sees progress
+const BACKGROUND_TIMEOUT_MS = 30_000;
+// After this long total, show the retry banner
+const AGENT_TIMEOUT_MS = 90_000;
 
 export default function AnswerPage({ id }: Props) {
   const queryClient = useQueryClient();
   const agentTriggeredRef = useRef(false);
+  const sidebarTriggeredRef = useRef(false);
   const generatingStartRef = useRef<number | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const { send } = useSendToAgentChat();
@@ -134,24 +138,46 @@ export default function AnswerPage({ id }: Props) {
     if (isDone) generatingStartRef.current = null;
   }, [session?.status, isDone]);
 
-  // Poll every 3s until agent writes the answer; timeout after 90s
+  // Poll every 3s until agent writes the answer
   useEffect(() => {
     if (isDone) return;
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["action", "get-session"] });
-      if (
-        generatingStartRef.current !== null &&
-        Date.now() - generatingStartRef.current > AGENT_TIMEOUT_MS
-      ) {
+
+      const elapsed = generatingStartRef.current
+        ? Date.now() - generatingStartRef.current
+        : 0;
+
+      // After 30s with no answer, re-trigger with sidebar open so user sees progress
+      if (elapsed > BACKGROUND_TIMEOUT_MS && !sidebarTriggeredRef.current && session && !isDone) {
+        sidebarTriggeredRef.current = true;
+        send({
+          message: session.question,
+          context: JSON.stringify({
+            sessionId: session.id,
+            question: session.question,
+            sources: session.sources,
+            instruction: /dashboard|workbook|chart|visualization|sigma/i.test(session.question)
+              ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
+              : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
+          }),
+          submit: true,
+          // Open sidebar so user can see the agent working
+        });
+      }
+
+      // Show retry banner after full timeout
+      if (elapsed > AGENT_TIMEOUT_MS) {
         setTimedOut(true);
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [isDone, queryClient]);
+  }, [isDone, queryClient, session, send]);
 
   function retriggerAgent() {
     if (!session) return;
     agentTriggeredRef.current = false;
+    sidebarTriggeredRef.current = false;
     generatingStartRef.current = Date.now();
     setTimedOut(false);
     triggerAgent(session);
@@ -170,7 +196,7 @@ export default function AnswerPage({ id }: Props) {
           : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
       }),
       submit: true,
-      background: true,
+      background: true, // initial trigger is silent
     });
   }
 
@@ -259,11 +285,14 @@ export default function AnswerPage({ id }: Props) {
           {timedOut && !isDone && (
             <div className="flex items-center gap-3 text-sm text-muted-foreground rounded-lg border border-dashed p-4">
               <IconAlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-              <span>The agent is taking longer than expected.</span>
+              <span>
+                The agent is taking longer than expected. Check the chat sidebar
+                to see if it needs input, or retry.
+              </span>
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-auto h-7"
+                className="ml-auto h-7 shrink-0"
                 onClick={retriggerAgent}
               >
                 <IconRefresh className="h-3.5 w-3.5 mr-1" />
