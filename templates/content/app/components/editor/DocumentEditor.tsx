@@ -421,13 +421,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       scrollContainerRef={scrollContainerRef}
     />
   );
+  const exportTitle = isInitializedRef.current ? localTitle : document.title;
+  const exportContent = isInitializedRef.current
+    ? localContent
+    : document.content;
 
   return (
-    <div className="relative flex-1 flex min-h-0">
+    <div className="relative flex-1 flex min-h-0" data-document-print-root>
       <div className="flex-1 flex flex-col min-h-0">
         <DocumentToolbar
           documentId={documentId}
-          documentTitle={localTitle || document.title}
+          documentTitle={exportTitle}
+          documentContent={exportContent}
           activeUsers={activeUsers}
           agentPresent={agentPresent}
           agentActive={agentActive}
@@ -442,6 +447,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         <div
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
+          data-document-print-scroll
         >
           <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-8 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
@@ -501,6 +507,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               content={document.content}
               onChange={handleContentChange}
               ydoc={canEdit ? ydoc : null}
+              awareness={canEdit ? awareness : null}
               user={currentUser}
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}

@@ -78,6 +78,10 @@ export function shouldOpenGenerateOnSpace(editor: Editor) {
   return $from.parent.textContent.trim().length === 0;
 }
 
+export function parseSlashCommandQuery(textBeforeCursor: string) {
+  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+}
+
 const commands: CommandItem[] = [
   {
     title: "Text",
@@ -599,18 +603,26 @@ export function SlashCommandMenu({
     const handleTransaction = () => {
       const { state } = editor;
       const { from } = state.selection;
-      const textBefore = state.doc.textBetween(
-        Math.max(0, from - 20),
-        from,
-        "\n",
-      );
+      const { $from } = state.selection;
+      if (!$from.parent.isTextblock) {
+        if (isOpen) {
+          setIsOpen(false);
+          setIsTurnInto(false);
+          setQuery("");
+          slashPosRef.current = null;
+        }
+        return;
+      }
 
-      const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
+      const blockStart = $from.start();
+      const textBefore = state.doc.textBetween(blockStart, from, "\n");
+      const slashQuery = parseSlashCommandQuery(textBefore);
 
-      if (slashMatch) {
-        const slashStart = from - slashMatch[0].length;
+      if (slashQuery !== null) {
+        const slashIndex = textBefore.lastIndexOf("/");
+        const slashStart = blockStart + slashIndex;
         slashPosRef.current = slashStart;
-        setQuery(slashMatch[1]);
+        setQuery(slashQuery);
         setSelectedIndex(0);
 
         // Detect "turn into" mode: "/" is at start of a non-empty block
@@ -618,7 +630,7 @@ export function SlashCommandMenu({
         const parentNode = resolved.parent;
         const offsetInParent = resolved.parentOffset;
         const blockHasOtherContent =
-          parentNode.textContent.length > slashMatch[0].length;
+          parentNode.textContent.length > textBefore.length - slashIndex;
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 

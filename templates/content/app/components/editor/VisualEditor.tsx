@@ -557,8 +557,10 @@ interface VisualEditorProps {
   onChange: (markdown: string) => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
+  /** Shared awareness instance for collaborative cursors/presence. */
+  awareness?: Awareness | null;
   /** Current user info for cursor labels. */
-  user?: { name: string; color: string };
+  user?: { name: string; color: string; email?: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
@@ -582,11 +584,52 @@ export function shouldSeedCollaborativeContent({
   return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
 }
 
+export function shouldApplyExternalContentSync({
+  collaborationActive,
+  hasLiveCollaborativeEdits,
+  docChanged,
+  content,
+  lastEmittedMarkdown,
+  currentMarkdown,
+  nextMarkdown,
+  editorFocused,
+  lastTypedAt,
+  now,
+}: {
+  collaborationActive: boolean;
+  hasLiveCollaborativeEdits: boolean;
+  docChanged: boolean;
+  content: string;
+  lastEmittedMarkdown: string;
+  currentMarkdown: string;
+  nextMarkdown: string;
+  editorFocused: boolean;
+  lastTypedAt: number;
+  now: number;
+}): boolean {
+  if (currentMarkdown === nextMarkdown) return false;
+
+  // Own-save echo from SQL polling.
+  if (content === lastEmittedMarkdown) return false;
+
+  // Once Yjs has live edits, ordinary SQL refetches are only snapshots. Applying
+  // them with setContent() would turn a stale whole-document save into a Yjs
+  // replacement and can revert collaborators' newer CRDT updates.
+  if (collaborationActive && hasLiveCollaborativeEdits && !docChanged) {
+    return false;
+  }
+
+  const typedRecently = now - lastTypedAt < 2000;
+  if (editorFocused && typedRecently && !docChanged) return false;
+
+  return true;
+}
+
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
-  user?: { name: string; color: string } | null;
+  user?: { name: string; color: string; email?: string } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
 }
@@ -997,6 +1040,7 @@ export function VisualEditor({
   content,
   onChange,
   ydoc,
+  awareness,
   user,
   editable = true,
   onComment,
@@ -1015,30 +1059,34 @@ export function VisualEditor({
   // agent edit can still apply when the user is idle but happens to have
   // the editor focused — without yanking in-progress typing.
   const lastTypedAtRef = useRef<number>(0);
+  const hasLiveCollaborativeEditsRef = useRef(false);
 
-  // Create Awareness instance locally (same module as CollaborationCursor uses)
-  const localAwareness = useMemo(() => {
+  // Reuse the synced Awareness instance when provided; fall back for tests or
+  // non-template embedders that only pass a Y.Doc.
+  const fallbackAwareness = useMemo(() => {
+    if (awareness) return null;
     if (!ydoc) return null;
     const a = new Awareness(ydoc);
     if (user) {
       a.setLocalStateField("user", user);
     }
     return a;
-  }, [ydoc]);
+  }, [awareness, ydoc]);
+  const localAwareness = awareness ?? fallbackAwareness;
 
   // Update user info when it changes
   useEffect(() => {
     if (localAwareness && user) {
       localAwareness.setLocalStateField("user", user);
     }
-  }, [localAwareness, user?.name, user?.color]);
+  }, [localAwareness, user?.name, user?.email, user?.color]);
 
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      localAwareness?.destroy();
+      fallbackAwareness?.destroy();
     };
-  }, [localAwareness]);
+  }, [fallbackAwareness]);
 
   const extensions = useMemo(
     () =>
@@ -1055,6 +1103,7 @@ export function VisualEditor({
       ydoc,
       localAwareness,
       user?.name,
+      user?.email,
       user?.color,
       onComment,
       onJoinTitle,
@@ -1169,6 +1218,7 @@ export function VisualEditor({
     editable,
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
+      if (ydoc) hasLiveCollaborativeEditsRef.current = true;
       lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
@@ -1217,11 +1267,8 @@ export function VisualEditor({
   }, [editor, ydoc, content, documentId]);
 
   // Sync content from outside (e.g. Notion pull, update-document action).
-  // When ydoc is bound, applying content through the editor via setContent
-  // propagates through TipTap's Collaboration extension to Y.XmlFragment,
-  // which then flows to the server and other clients via the collab update
-  // channel. We detect echoes of our own saves via lastEmittedRef to avoid
-  // clobbering user edits in progress.
+  // In collab mode this is only safe before live Yjs edits have started:
+  // after that, SQL content is a lagging snapshot and Yjs owns the document.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
@@ -1231,19 +1278,22 @@ export function VisualEditor({
       (editor.storage as any).markdown.getMarkdown(),
     );
     const normalizedNext = serializeEditorToNfm(nextEditorContent);
-    if (currentMd === normalizedNext) return;
-
-    // If the incoming content matches what we just emitted, it's our own
-    // save echoing back via the poll — skip to avoid a needless re-render.
-    if (content === lastEmittedRef.current) return;
-
-    // Skip sync while the user is actively typing (unless the doc switched)
-    // so we don't yank their in-progress edits. We only block if the user
-    // has TYPED in the last 2s — having focus alone isn't enough, otherwise
-    // a Notion pull that happens while the user has the editor focused but
-    // idle would leave them stuck on the pre-pull content.
-    const typedRecently = Date.now() - lastTypedAtRef.current < 2000;
-    if (editor.isFocused && typedRecently && !docChanged) return;
+    if (
+      !shouldApplyExternalContentSync({
+        collaborationActive: !!ydoc,
+        hasLiveCollaborativeEdits: hasLiveCollaborativeEditsRef.current,
+        docChanged,
+        content,
+        lastEmittedMarkdown: lastEmittedRef.current,
+        currentMarkdown: currentMd,
+        nextMarkdown: normalizedNext,
+        editorFocused: editor.isFocused,
+        lastTypedAt: lastTypedAtRef.current,
+        now: Date.now(),
+      })
+    ) {
+      return;
+    }
 
     // Defer to a microtask so we don't trigger flushSync during a React
     // render — TipTap's setContent dispatches PM transactions that may
