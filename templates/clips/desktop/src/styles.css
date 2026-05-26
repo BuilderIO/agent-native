@@ -22,6 +22,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
+  --popover-shadow-gutter: 12px;
+  --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md:
@@ -75,6 +77,10 @@ body {
   overflow: visible;
 }
 
+body[data-clips-route="popover"] {
+  overflow: hidden;
+}
+
 html[data-clips-route]:not([data-clips-route="popover"]),
 body[data-clips-route]:not([data-clips-route="popover"]) {
   width: 100vw;
@@ -93,9 +99,18 @@ button {
   background: transparent;
 }
 
+body[data-clips-route="popover"] #root {
+  min-height: 100vh;
+  padding: var(--popover-shadow-gutter);
+}
+
 body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 100vh;
   overflow: hidden;
+}
+
+body[data-clips-route="recording-pill"] #root {
+  padding: var(--overlay-shadow-gutter);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -115,7 +130,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: 100vh;
+  max-height: calc(
+    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -2163,7 +2180,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .toolbar-v {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2176,6 +2193,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 4px 12px rgba(0, 0, 0, 0.34);
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
@@ -2288,7 +2308,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
  */
 .bubble-wrapper {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2311,6 +2331,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 50%;
   overflow: hidden;
   background: #000;
+  box-shadow:
+    0 22px 54px rgba(0, 0, 0, 0.28),
+    0 4px 14px rgba(0, 0, 0, 0.18);
   /* Position context for absolute children (close X, canvas). */
   position: relative;
   /* Cursor hint — the drag region is here. */
@@ -3078,7 +3101,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    the words being recognized in real time. */
 .flow-bar-root {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
