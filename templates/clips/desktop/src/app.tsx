@@ -38,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
   IconArrowLeft,
+  IconFolderOpen,
   IconPencil,
   IconInfoCircle,
   IconRefresh,
@@ -57,6 +58,7 @@ interface PendingNativeUpload {
   kind: "native";
   recordingId: string;
   serverUrl: string;
+  folderPath?: string;
   durationMs: number;
   width?: number | null;
   height?: number | null;
@@ -1812,6 +1814,20 @@ export function App() {
     }
   }
 
+  function openPendingUploadFolder(upload: PendingDesktopUpload) {
+    if (upload.kind !== "native" || !upload.folderPath) {
+      setRecError("This saved upload is stored in the browser backup cache.");
+      return;
+    }
+    invoke("open_local_recording_folder", {
+      path: upload.folderPath,
+    }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] open pending upload folder failed:", err);
+      setRecError(message);
+    });
+  }
+
   async function startRecording() {
     if (recorder) return;
     setRecError(null);
@@ -2256,6 +2272,7 @@ export function App() {
           discardingUploadId={discardingUploadId}
           onRetry={retryPendingUpload}
           onDiscard={discardPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
         />
       ) : null}
 
@@ -2602,17 +2619,20 @@ function PendingUploadBanner({
   discardingUploadId,
   onRetry,
   onDiscard,
+  onOpenFolder,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
   discardingUploadId: string | null;
   onRetry: (upload: PendingDesktopUpload) => void;
   onDiscard: (upload: PendingDesktopUpload) => void;
+  onOpenFolder: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2638,6 +2658,18 @@ function PendingUploadBanner({
         </div>
       </div>
       <div className="pending-upload-actions">
+        {canOpenFolder ? (
+          <button
+            type="button"
+            className="pending-upload-folder"
+            disabled={discardingUploadId === latest.recordingId}
+            onClick={() => onOpenFolder(latest)}
+            aria-label="Open saved local clip folder"
+            title="Open saved local clip folder"
+          >
+            <IconFolderOpen size={14} stroke={2} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="pending-upload-retry"

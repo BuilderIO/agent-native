@@ -1667,7 +1667,31 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity 120ms;
 }
 
+.pending-upload-folder {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
 .pending-upload-retry:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-folder:hover {
   background: #dbeafe;
   border-color: #93c5fd;
 }
@@ -1679,6 +1703,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pending-upload-retry:disabled,
+.pending-upload-folder:disabled,
 .pending-upload-discard:disabled {
   cursor: default;
   opacity: 0.6;
@@ -1861,7 +1886,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     color: #bfdbfe;
   }
 
+  .pending-upload-folder {
+    background: rgba(15, 23, 42, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
   .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-folder:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
   }

@@ -197,6 +197,7 @@ struct SavedNativeRecording {
 pub struct PendingNativeRecording {
     recording_id: String,
     server_url: String,
+    folder_path: String,
     duration_ms: u128,
     width: Option<u32>,
     height: Option<u32>,
@@ -253,6 +254,11 @@ impl From<&SavedNativeRecording> for PendingNativeRecording {
         Self {
             recording_id: saved.recording_id.clone(),
             server_url: saved.server_url.clone(),
+            folder_path: saved
+                .file_path
+                .parent()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default(),
             duration_ms: saved.duration_ms,
             width: saved.width,
             height: saved.height,
