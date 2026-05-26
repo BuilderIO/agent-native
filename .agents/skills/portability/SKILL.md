@@ -10,11 +10,11 @@ description: >-
 
 ## Rule
 
-**Never write code that only works on one database or one hosting platform.** Templates must run on any SQL database (SQLite, Postgres, D1, Turso, Supabase, Neon) and any Nitro deploy target (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) without code changes.
+**Never write code that only works on one database or one hosting platform.** Templates must run on portable SQL backends (SQLite, Postgres, D1, Turso/libSQL, Supabase, Neon, Builder.io-managed environments when available) and any Nitro deploy target (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) without code changes.
 
 ## Database Agnostic
 
-Use the dialect-agnostic schema helpers from `@agent-native/core/db/schema`:
+Use the dialect-agnostic schema helpers from `@agent-native/core/db/schema` for schemas and Drizzle's query builder for reads/writes:
 
 ```ts
 import {
@@ -47,6 +47,20 @@ export const meals = table("meals", {
 
 **Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly in template code.** Always use `@agent-native/core/db/schema` instead.
 
+Use Drizzle's portable query DSL for app code:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+
+const rows = await db
+  .select()
+  .from(meals)
+  .where(and(eq(meals.ownerEmail, userEmail), eq(meals.archived, false)))
+  .orderBy(desc(meals.createdAt));
+```
+
+Avoid `db.execute(...)`, `getDbExec()`, and handwritten SQL in actions, handlers, and stores when Drizzle can express the query. Raw SQL should be limited to additive migrations, health checks, carefully reviewed advanced queries, or one-off maintenance scripts. For timestamps in Drizzle schemas, use `.default(now())`; for migration SQL, use `runMigrations()` so framework-supported compatibility rewrites and dialect-gated statements stay centralized.
+
 ### Raw SQL helpers
 
 - `getDbExec()` — auto-converts `?` params to `$1` for Postgres
@@ -55,7 +69,11 @@ export const meals = table("meals", {
 
 ### Never
 
-Never write SQLite-only syntax: `INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`. When writing docs, say "SQL database" — not "SQLite".
+Never write SQLite-only syntax in product code or docs examples: `INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`. When writing docs, say "SQL database" — not "SQLite".
+
+Never write Postgres-only syntax in shared app code either: `ILIKE`, `::type` casts, `jsonb_*`, `RETURNING` assumptions, serial/identity syntax, `ON CONFLICT` upserts, or `ALTER ... TYPE` unless the code is inside a dialect-gated migration block. Prefer Drizzle APIs or framework helpers.
+
+When giving deployment guidance, be precise about durability: local SQLite is the development fallback, while production needs a persistent `DATABASE_URL`. Do not steer users to Turso as the only path; it is one option among Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
 ## Hosting Agnostic
 

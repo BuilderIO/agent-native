@@ -89,7 +89,10 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import type { Reference } from "./composer/types.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+} from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
@@ -3284,6 +3287,14 @@ export interface AssistantChatProps {
   composerSlot?: React.ReactNode;
   /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
+  /** Placeholder for the shared composer in its normal idle state. */
+  composerPlaceholder?: string;
+  /** Visual density for the shared composer shell. */
+  composerLayoutVariant?: AgentComposerLayoutVariant;
+  /** Center the composer on a fresh empty chat instead of pinning it low. */
+  centerComposerWhenEmpty?: boolean;
+  /** Hide the default empty-state icon/text/suggestions for custom start screens. */
+  emptyStateDisplay?: "default" | "hidden";
   /** Optional content rendered inside the composer toolbar after the attach button. */
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
@@ -3429,6 +3440,10 @@ const AssistantChatInner = forwardRef<
     onGenerateTitle,
     composerSlot,
     composerAreaClassName,
+    composerPlaceholder,
+    composerLayoutVariant = "default",
+    centerComposerWhenEmpty = false,
+    emptyStateDisplay = "default",
     composerToolbarSlot,
     composerExtraActionButton,
     composerDisabled = false,
@@ -3535,7 +3550,7 @@ const AssistantChatInner = forwardRef<
   // user message and the `performRoundtrip` call that tries to record the
   // assistant placeholder against that user message's id. The internal-bug
   // throw turns into an unhandled rejection that Sentry captures from the
-  // images.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
+  // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
   // it by relinking to the current head whenever the requested parent has
   // gone missing instead of throwing.
   useEffect(() => {
@@ -4738,12 +4753,20 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const isFreshEmptyChat =
+    messages.length === 0 &&
+    !isRestoring &&
+    !isReconnecting &&
+    !authError &&
+    !missingApiKey;
+  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ChatRunningContext.Provider value={isRunning}>
           <div
+            data-agent-empty-state={centeredEmptyState ? "centered" : undefined}
             className={cn(
               "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
               className,
@@ -4794,7 +4817,7 @@ const AssistantChatInner = forwardRef<
             {/* Messages area */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+              className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0"
             >
               {authError ? (
                 <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
@@ -4884,7 +4907,14 @@ const AssistantChatInner = forwardRef<
                   </div>
                 </div>
               ) : messages.length === 0 && !isReconnecting ? (
-                <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
+                <div
+                  className={cn(
+                    "agent-empty-state",
+                    emptyStateDisplay === "hidden"
+                      ? "sr-only"
+                      : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                  )}
+                >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
                     <IconMessage className="h-5 w-5 text-muted-foreground" />
                   </div>
@@ -5056,6 +5086,7 @@ const AssistantChatInner = forwardRef<
             <SelectionAttachedPill />
             {/* Input area */}
             <AgentComposerFrame
+              layoutVariant={composerLayoutVariant}
               className={cn(
                 composerAreaClassName,
                 missingApiKey && "cursor-pointer",
@@ -5081,7 +5112,7 @@ const AssistantChatInner = forwardRef<
                         ? queuedMessages.length > 0
                           ? `${queuedMessages.length} queued — send a follow-up...`
                           : "Send a follow-up..."
-                        : undefined
+                        : composerPlaceholder
                 }
                 onSubmit={
                   isRunning
@@ -5109,6 +5140,7 @@ const AssistantChatInner = forwardRef<
                 onConnectProvider={onConnectProvider}
                 toolbarSlot={composerToolbarSlot}
                 plusMenuMode={plusMenuMode}
+                layoutVariant={composerLayoutVariant}
                 providerConnectStatusEnabled={providerStatusChecksEnabled}
                 draftScope={threadId || tabId}
                 interceptBuildRequestsForBuilder

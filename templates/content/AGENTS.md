@@ -166,11 +166,14 @@ alt text from the file name; leave alt text empty until the user writes it. The
 UI exposes hover controls for commenting on an image, editing alt text in place
 from the image's bottom-right ALT badge, generating alt text through the
 in-place sparkle button, copying or downloading the image, replacing it through
-the Upload/Link picker, resizing it with side handles, expanding it into a
-lightbox preview with 100%/150% zoom controls, and removing it. The alt text
-generator delegates to the agent chat; generate concise, factual accessibility
-copy from the attached image, use the supplied markdown article excerpt around
-the image only for context, then call `set-image-alt-text` with the document id,
+the Upload/Assets/Link picker, resizing it with side handles, expanding it into
+a lightbox preview with 100%/150% zoom controls, and removing it. The Assets tab
+embeds the Assets app picker at `VITE_AGENT_NATIVE_ASSETS_PICKER_URL` when set,
+or `https://assets.agent-native.com/picker` by default, and applies the
+picker's `chooseImage` URL directly to the image block. The alt text generator
+delegates to the agent chat; generate concise, factual accessibility copy from
+the attached image, use the supplied markdown article excerpt around the image
+only for context, then call `set-image-alt-text` with the document id,
 image URL, final alt text, and `imageOccurrence` when supplied so the document
 is updated through the action surface even when the same URL appears more than
 once. After the action succeeds, confirm briefly without repeating the alt text

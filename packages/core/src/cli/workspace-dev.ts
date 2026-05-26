@@ -754,6 +754,7 @@ export async function runWorkspaceDev(
           ...env,
           APP_NAME: app.id,
           AGENT_NATIVE_WORKSPACE: "1",
+          AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
@@ -764,6 +765,7 @@ export async function runWorkspaceDev(
           ),
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
+          VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(

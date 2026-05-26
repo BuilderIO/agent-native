@@ -46,6 +46,7 @@ The **Workspace** tab in the agent sidebar is where you and the agent share pers
 | `skills/<name>/SKILL.md`    | Focused domain guidance the agent pulls in on demand (invoked with `/` slash commands).                 |
 | `agents/<name>.md`          | **Custom agents** — reusable sub-agent profiles the agent can delegate to (invoked with `@` mentions).  |
 | `remote-agents/<name>.json` | A2A manifests for connected remote agents — edited via a form, not raw JSON.                            |
+| `mcp-servers/<name>.json`   | HTTP MCP server definitions that add external tools to the agent.                                       |
 | `jobs/<name>.md`            | Scheduled tasks that run on a cron (see the recurring-jobs docs).                                       |
 | `context/<name>.md`         | Shared reference material: brand guidelines, personas, positioning, product facts, messaging, etc.      |
 | Anything else               | Notes, prompts, config, dataset snippets — any text file.                                               |
@@ -58,7 +59,7 @@ Resources have three runtime scopes:
 
 - **Personal** — scoped to a single user (their email). Good for preferences, notes, and per-user context.
 - **Shared / organization** — visible to all users in the app or organization. Good for app/team instructions, skills, and shared config.
-- **Workspace** — inherited global defaults managed from Dispatch Resources. Good for company facts, positioning, brand guidelines, global guardrails, and workspace-wide skills. Apps read these at runtime; they are not copied into each app.
+- **Workspace** — inherited global defaults managed from Dispatch Resources. Good for company facts, positioning, brand guidelines, global guardrails, workspace-wide skills, and shared MCP servers. Apps read these at runtime; they are not copied into each app.
 
 The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
@@ -270,14 +271,15 @@ The resource system also seeds a personal `LEARNINGS.md` for compatibility with 
 
 **Where it fits.**
 
-| Surface            | Scope    | Written by                | Read when                              |
-| ------------------ | -------- | ------------------------- | -------------------------------------- |
-| `AGENTS.md`        | Shared   | Humans / agent on request | Every turn                             |
-| `LEARNINGS.md`     | Shared   | Humans / agent on request | Every turn                             |
-| `memory/MEMORY.md` | Personal | Agent / humans            | Every turn                             |
-| `instructions/…`   | Shared   | Humans / agent on request | Every turn                             |
-| `skills/…`         | Shared   | Humans / agent on request | On demand (`/slash` command)           |
-| `context/…`        | Shared   | Humans / agent on request | Indexed every turn, read when relevant |
+| Surface            | Scope              | Written by                           | Read when                              |
+| ------------------ | ------------------ | ------------------------------------ | -------------------------------------- |
+| `AGENTS.md`        | Shared             | Humans / agent on request            | Every turn                             |
+| `LEARNINGS.md`     | Shared             | Humans / agent on request            | Every turn                             |
+| `memory/MEMORY.md` | Personal           | Agent / humans                       | Every turn                             |
+| `instructions/…`   | Shared             | Humans / agent on request            | Every turn                             |
+| `skills/…`         | Shared             | Humans / agent on request            | On demand (`/slash` command)           |
+| `context/…`        | Shared             | Humans / agent on request            | Indexed every turn, read when relevant |
+| `mcp-servers/…`    | Workspace / shared | Humans via Dispatch or app workspace | MCP config refresh                     |
 
 Users can edit these memory files directly in the Workspace tab — they're regular resources. Delete lines the agent got wrong, keep personal preferences in `memory/MEMORY.md`, or promote team-wide rules into `AGENTS.md`.
 

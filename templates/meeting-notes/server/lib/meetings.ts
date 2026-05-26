@@ -1,8 +1,8 @@
-import { desc } from "drizzle-orm";
-import { getDb, getDbExec } from "../db/index.js";
+import { desc, sql } from "drizzle-orm";
+import { orgMembers } from "@agent-native/core/org";
+import { getDb } from "../db/index.js";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { readAppState } from "@agent-native/core/application-state";
-import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
@@ -22,15 +22,14 @@ export function getCurrentOwnerEmail(): string {
 export async function getActiveOrganizationId(): Promise<string | null> {
   const email = getRequestUserEmail();
   if (!email) return null;
-  const exec = getDbExec();
 
   try {
-    const ph = isPostgres() ? "$1" : "?";
-    const res = await exec.execute({
-      sql: `SELECT org_id AS id FROM org_members WHERE LOWER(email) = ${ph} ORDER BY joined_at DESC LIMIT 1`,
-      args: [email.toLowerCase()],
-    });
-    const row = (res.rows as Array<{ id?: string }>)[0];
+    const [row] = await getDb()
+      .select({ id: orgMembers.orgId })
+      .from(orgMembers)
+      .where(sql`lower(${orgMembers.email}) = ${email.toLowerCase()}`)
+      .orderBy(desc(orgMembers.joinedAt))
+      .limit(1);
     if (row?.id) return row.id;
   } catch {
     // fall through -- table may not exist yet on first boot

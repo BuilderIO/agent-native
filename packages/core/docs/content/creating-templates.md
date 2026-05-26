@@ -70,7 +70,7 @@ Do not add a `data/` directory for application state. Durable app data belongs i
 
 ## Model Data In SQL {#data-models}
 
-Define domain tables with the framework Drizzle helpers so schemas stay portable across SQLite, Postgres, D1, Turso, Supabase, and Neon:
+Define domain tables with the framework Drizzle helpers so schemas stay portable across SQLite, Postgres, D1, Turso, Supabase, Neon, and other supported backends:
 
 ```ts
 // server/db/schema.ts
@@ -102,14 +102,17 @@ export const projectShares = createSharesTable("project_shares", "project");
 
 Schema changes must be additive. Add tables and columns through `runMigrations()` in `server/plugins/db.ts`; never use destructive SQL, `drizzle-kit push`, table renames, or column drops.
 
+For app reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not write product code with raw SQL when Drizzle can express the query, and do not import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in templates.
+
 ```ts
 // server/plugins/db.ts
-import { runMigrations } from "@agent-native/core/db/migrations";
+import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations([
-  {
-    id: "001_create_projects",
-    sql: `CREATE TABLE IF NOT EXISTS projects (
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'draft',
@@ -120,8 +123,10 @@ export default runMigrations([
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
-  },
-]);
+    },
+  ],
+  { table: "my_app_migrations" },
+);
 ```
 
 Use the [Database](/docs/database) and [Security](/docs/security) docs before adding schemas that hold user or org data.
@@ -273,7 +278,7 @@ Projects are the top-level resource. They contain tasks and notes.
 ## Rules
 
 - Use `view-screen` before acting on "this project" if the current screen is unclear.
-- Use actions for project changes; do not write raw SQL unless debugging.
+- Use actions for project changes; do not write raw SQL except for one-off maintenance/debugging when no action exists.
 - For shared projects, check access through framework sharing helpers.
 ```
 

@@ -1,0 +1,928 @@
+/**
+ * `agent-native app-skill` packages an agent-native app as a distributable
+ * skill bundle: instructions + MCP connector + embeddable app surfaces.
+ *
+ * The manifest intentionally contains no user secrets. Hosted installs write
+ * URL-only MCP entries; clients that need auth complete OAuth/device setup in
+ * the host. Local installs point at a developer-owned app process.
+ */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+
+import { type ClientId, buildHttpMcpEntry } from "./mcp-config-writers.js";
+import { resolveClients, writeConfigs } from "./connect.js";
+
+export type SkillVisibility = "internal" | "exported" | "both";
+export type AppSkillHostAdapter =
+  | "codex-plugin"
+  | "plain-skill"
+  | "claude-skill"
+  | "chatgpt-mcp"
+  | "generic-mcp";
+
+export interface AppSkillManifestSkill {
+  path: string;
+  visibility: SkillVisibility;
+  exportAs?: string;
+}
+
+export interface AppSkillSurface {
+  id: string;
+  action?: string;
+  path: string;
+  mediaTypes?: string[];
+  defaultMediaType?: string;
+}
+
+export interface AppSkillManifest {
+  schemaVersion: 1;
+  id: string;
+  displayName: string;
+  description: string;
+  hosted: {
+    url: string;
+    mcpUrl: string;
+  };
+  mcp: {
+    serverName: string;
+  };
+  local?: {
+    template?: string;
+    sourcePath?: string;
+    defaultUrl?: string;
+    commands?: {
+      install?: string;
+      dev?: string;
+      start?: string;
+    };
+  };
+  auth?: {
+    mode?: "oauth" | "device" | "none";
+    setup?: string;
+  };
+  surfaces: AppSkillSurface[];
+  skills: AppSkillManifestSkill[];
+  hostAdapters: AppSkillHostAdapter[];
+}
+
+export interface LoadedAppSkillManifest {
+  manifest: AppSkillManifest;
+  file: string;
+  dir: string;
+}
+
+export interface ParsedAppSkillArgs {
+  command: "ensure" | "launch" | "pack" | "help";
+  manifest?: string;
+  client: string;
+  scope: string;
+  serverName?: string;
+  out?: string;
+  into?: string;
+  mode: "hosted" | "local";
+  dryRun: boolean;
+  skipInstall: boolean;
+  noRegister: boolean;
+  printJson: boolean;
+}
+
+export interface EnsureAppSkillOptions {
+  mode?: "hosted" | "local";
+  clients?: ClientId[];
+  scope?: string;
+  serverName?: string;
+  baseDir?: string;
+  dryRun?: boolean;
+  log?: (message: string) => void;
+}
+
+export interface EnsureAppSkillResult {
+  mode: "hosted" | "local";
+  serverName: string;
+  mcpUrl: string;
+  clients: ClientId[];
+  written: { client: ClientId; file: string }[];
+}
+
+export interface LaunchAppSkillOptions {
+  mode?: "hosted" | "local";
+  into?: string;
+  dryRun?: boolean;
+  skipInstall?: boolean;
+  noRegister?: boolean;
+  clients?: ClientId[];
+  scope?: string;
+  serverName?: string;
+  baseDir?: string;
+  log?: (message: string) => void;
+}
+
+export interface AppSkillLaunchPlan {
+  mode: "hosted" | "local";
+  appId: string;
+  appDir?: string;
+  sourceDir?: string;
+  url: string;
+  mcpUrl: string;
+  serverName: string;
+  commands: {
+    install?: string;
+    dev?: string;
+    start?: string;
+  };
+}
+
+const HELP = `agent-native app-skill
+
+Usage:
+  agent-native app-skill ensure [--manifest <file>] [--client all|codex|claude-code|cowork] [--scope user|project]
+  agent-native app-skill launch [--manifest <file>] [--local] [--into <path>] [--dry-run]
+  agent-native app-skill pack   [--manifest <file>] --out <dir>
+
+Commands:
+  ensure   Register the app skill MCP connector for your local agent clients.
+  launch   Open the hosted app, or materialize and start a local editable app.
+  pack     Create marketplace-ready skill, MCP, and Codex plugin adapters.
+
+Hosted is the default. Use --local when you want editable source, offline work,
+or a privacy-sensitive local app instance.`;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function normalizeOriginUrl(value: string, field: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${field} must be a valid URL.`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`${field} must use http:// or https://.`);
+  }
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+}
+
+function withMcpPath(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/_agent-native/mcp`;
+}
+
+function normalizeSkillVisibility(value: unknown): SkillVisibility {
+  if (value === "internal" || value === "exported" || value === "both") {
+    return value;
+  }
+  return "both";
+}
+
+function normalizeHostAdapter(value: unknown): AppSkillHostAdapter | null {
+  if (
+    value === "codex-plugin" ||
+    value === "plain-skill" ||
+    value === "claude-skill" ||
+    value === "chatgpt-mcp" ||
+    value === "generic-mcp"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function defaultHostAdapters(): AppSkillHostAdapter[] {
+  return [
+    "codex-plugin",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp",
+  ];
+}
+
+function uniqueAdapters(values: AppSkillHostAdapter[]): AppSkillHostAdapter[] {
+  const seen = new Set<AppSkillHostAdapter>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
+  if (!isRecord(raw)) throw new Error("App skill manifest must be an object.");
+  const schemaVersion = raw.schemaVersion ?? 1;
+  if (schemaVersion !== 1) {
+    throw new Error(`Unsupported app skill schemaVersion: ${schemaVersion}`);
+  }
+
+  const id = stringValue(raw.id);
+  if (!id || !/^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/.test(id)) {
+    throw new Error(
+      "App skill manifest id must be kebab-case and 2-64 characters.",
+    );
+  }
+
+  const hostedRaw = isRecord(raw.hosted) ? raw.hosted : {};
+  const hostedUrl = normalizeOriginUrl(
+    stringValue(hostedRaw.url) ?? "",
+    "hosted.url",
+  );
+  const hostedMcpUrl = normalizeOriginUrl(
+    stringValue(hostedRaw.mcpUrl) ?? withMcpPath(hostedUrl),
+    "hosted.mcpUrl",
+  );
+
+  const mcpRaw = isRecord(raw.mcp) ? raw.mcp : {};
+  const localRaw = isRecord(raw.local) ? raw.local : undefined;
+  const commandsRaw = isRecord(localRaw?.commands)
+    ? localRaw.commands
+    : undefined;
+  const surfacesRaw = Array.isArray(raw.surfaces) ? raw.surfaces : [];
+  const skillsRaw = Array.isArray(raw.skills) ? raw.skills : [];
+  const adaptersRaw = Array.isArray(raw.hostAdapters) ? raw.hostAdapters : [];
+  const authRaw = isRecord(raw.auth) ? raw.auth : undefined;
+
+  const adapters = uniqueAdapters(
+    adaptersRaw
+      .map(normalizeHostAdapter)
+      .filter((value): value is AppSkillHostAdapter => Boolean(value)),
+  );
+
+  return {
+    schemaVersion: 1,
+    id,
+    displayName: stringValue(raw.displayName) ?? id,
+    description:
+      stringValue(raw.description) ??
+      `Agent-native app-backed skill for ${id}.`,
+    hosted: {
+      url: hostedUrl,
+      mcpUrl: hostedMcpUrl,
+    },
+    mcp: {
+      serverName: stringValue(mcpRaw.serverName) ?? `agent-native-${id}`,
+    },
+    ...(localRaw
+      ? {
+          local: {
+            ...(stringValue(localRaw.template)
+              ? { template: stringValue(localRaw.template) }
+              : {}),
+            ...(stringValue(localRaw.sourcePath)
+              ? { sourcePath: stringValue(localRaw.sourcePath) }
+              : {}),
+            ...(stringValue(localRaw.defaultUrl)
+              ? {
+                  defaultUrl: normalizeOriginUrl(
+                    stringValue(localRaw.defaultUrl)!,
+                    "local.defaultUrl",
+                  ),
+                }
+              : {}),
+            commands: {
+              install: stringValue(commandsRaw?.install) ?? "pnpm install",
+              dev: stringValue(commandsRaw?.dev) ?? "pnpm dev",
+              start: stringValue(commandsRaw?.start) ?? "pnpm start",
+            },
+          },
+        }
+      : {}),
+    ...(authRaw
+      ? {
+          auth: {
+            ...(authRaw.mode === "oauth" ||
+            authRaw.mode === "device" ||
+            authRaw.mode === "none"
+              ? { mode: authRaw.mode }
+              : {}),
+            ...(stringValue(authRaw.setup)
+              ? { setup: stringValue(authRaw.setup) }
+              : {}),
+          },
+        }
+      : {}),
+    surfaces: surfacesRaw.filter(isRecord).map((surface) => ({
+      id: stringValue(surface.id) ?? "app",
+      ...(stringValue(surface.action)
+        ? { action: stringValue(surface.action) }
+        : {}),
+      path: stringValue(surface.path) ?? "/",
+      mediaTypes: stringArray(surface.mediaTypes),
+      ...(stringValue(surface.defaultMediaType)
+        ? { defaultMediaType: stringValue(surface.defaultMediaType) }
+        : {}),
+    })),
+    skills: skillsRaw
+      .filter(isRecord)
+      .map((skill) => ({
+        path: stringValue(skill.path) ?? "",
+        visibility: normalizeSkillVisibility(skill.visibility),
+        ...(stringValue(skill.exportAs)
+          ? { exportAs: stringValue(skill.exportAs) }
+          : {}),
+      }))
+      .filter((skill) => skill.path),
+    hostAdapters: adapters.length ? adapters : defaultHostAdapters(),
+  };
+}
+
+export function findAppSkillManifest(startDir: string = process.cwd()): string {
+  let current = path.resolve(startDir);
+  while (true) {
+    const candidate = path.join(current, "agent-native.app-skill.json");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  throw new Error(
+    "Could not find agent-native.app-skill.json. Pass --manifest <file>.",
+  );
+}
+
+export function loadAppSkillManifest(file?: string): LoadedAppSkillManifest {
+  const resolved = path.resolve(file ?? findAppSkillManifest());
+  const raw = JSON.parse(fs.readFileSync(resolved, "utf-8"));
+  return {
+    manifest: normalizeAppSkillManifest(raw),
+    file: resolved,
+    dir: path.dirname(resolved),
+  };
+}
+
+export function exportedSkills(
+  manifest: AppSkillManifest,
+): AppSkillManifestSkill[] {
+  return manifest.skills.filter(
+    (skill) => skill.visibility === "exported" || skill.visibility === "both",
+  );
+}
+
+export function internalSkills(
+  manifest: AppSkillManifest,
+): AppSkillManifestSkill[] {
+  return manifest.skills.filter(
+    (skill) => skill.visibility === "internal" || skill.visibility === "both",
+  );
+}
+
+export function parseAppSkillArgs(argv: string[]): ParsedAppSkillArgs {
+  const first = argv[0];
+  const command =
+    first === "ensure" || first === "launch" || first === "pack"
+      ? first
+      : first === "help" || first === "--help" || first === "-h"
+        ? "help"
+        : "ensure";
+  const args =
+    command === "ensure" && first !== "ensure" ? argv : argv.slice(1);
+  const out: ParsedAppSkillArgs = {
+    command,
+    client: "all",
+    scope: "user",
+    mode: "hosted",
+    dryRun: false,
+    skipInstall: false,
+    noRegister: false,
+    printJson: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const eat = (flag: string): string | undefined => {
+      if (arg === flag) return args[++i];
+      if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+      return undefined;
+    };
+    let value: string | undefined;
+    if ((value = eat("--manifest")) !== undefined) out.manifest = value;
+    else if ((value = eat("--client")) !== undefined) out.client = value;
+    else if ((value = eat("--scope")) !== undefined) out.scope = value;
+    else if ((value = eat("--name")) !== undefined) out.serverName = value;
+    else if ((value = eat("--server-name")) !== undefined)
+      out.serverName = value;
+    else if ((value = eat("--out")) !== undefined) out.out = value;
+    else if ((value = eat("--into")) !== undefined) out.into = value;
+    else if (arg === "--local") out.mode = "local";
+    else if (arg === "--hosted") out.mode = "hosted";
+    else if (arg === "--dry-run") out.dryRun = true;
+    else if (arg === "--skip-install" || arg === "--no-install")
+      out.skipInstall = true;
+    else if (arg === "--no-register") out.noRegister = true;
+    else if (arg === "--json") out.printJson = true;
+    else if (!arg.startsWith("-") && !out.manifest) out.manifest = arg;
+  }
+
+  return out;
+}
+
+function resolveSkillSource(manifestDir: string, skill: AppSkillManifestSkill) {
+  return path.resolve(manifestDir, skill.path);
+}
+
+function skillExportName(skill: AppSkillManifestSkill): string {
+  if (skill.exportAs) return skill.exportAs;
+  const normalized = skill.path.replace(/\/+$/, "");
+  return path.basename(normalized);
+}
+
+function copyDirFiltered(source: string, dest: string): void {
+  const sourceRoot = path.resolve(source);
+  const destRoot = path.resolve(dest);
+  const relativeDest = path.relative(sourceRoot, destRoot);
+  const outputRootInsideSource =
+    relativeDest &&
+    !relativeDest.startsWith("..") &&
+    !path.isAbsolute(relativeDest)
+      ? path.join(sourceRoot, relativeDest.split(path.sep)[0])
+      : destRoot;
+  fs.cpSync(source, dest, {
+    recursive: true,
+    filter: (src) => {
+      const resolved = path.resolve(src);
+      if (
+        resolved === outputRootInsideSource ||
+        resolved.startsWith(`${outputRootInsideSource}${path.sep}`)
+      ) {
+        return false;
+      }
+      const base = path.basename(src);
+      return (
+        base !== "node_modules" &&
+        base !== ".git" &&
+        base !== "dist" &&
+        base !== ".output" &&
+        base !== ".react-router" &&
+        base !== ".env" &&
+        base !== ".env.local" &&
+        !base.endsWith(".db") &&
+        !base.endsWith(".sqlite") &&
+        !base.endsWith(".sqlite3")
+      );
+    },
+  });
+}
+
+function copySkill(
+  manifestDir: string,
+  skill: AppSkillManifestSkill,
+  destRoot: string,
+): string {
+  const source = resolveSkillSource(manifestDir, skill);
+  const exportName = skillExportName(skill);
+  const dest = path.join(destRoot, exportName);
+  if (!fs.existsSync(source)) {
+    throw new Error(`Exported skill source not found: ${source}`);
+  }
+  fs.mkdirSync(destRoot, { recursive: true });
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) {
+    copyDirFiltered(source, dest);
+  } else {
+    fs.mkdirSync(dest, { recursive: true });
+    fs.copyFileSync(source, path.join(dest, "SKILL.md"));
+  }
+  return dest;
+}
+
+function writeJson(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n", "utf-8");
+}
+
+function mcpServerConfig(manifest: AppSkillManifest, serverName?: string) {
+  return {
+    mcpServers: {
+      [serverName ?? manifest.mcp.serverName]: buildHttpMcpEntry(
+        manifest.hosted.mcpUrl,
+      ),
+    },
+  };
+}
+
+function pluginName(manifest: AppSkillManifest): string {
+  return `agent-native-${manifest.id}`;
+}
+
+function writeCodexPluginAdapter(
+  manifest: AppSkillManifest,
+  outDir: string,
+): void {
+  const name = pluginName(manifest);
+  writeJson(path.join(outDir, ".codex-plugin", "plugin.json"), {
+    name,
+    version: "0.1.0",
+    description: manifest.description,
+    author: {
+      name: "Agent-Native",
+      url: "https://agent-native.com",
+    },
+    homepage: manifest.hosted.url,
+    license: "MIT",
+    keywords: [
+      "agent-native",
+      manifest.id,
+      "mcp",
+      "skills",
+      "app-backed-skill",
+    ],
+    skills: "./skills/",
+    mcpServers: "./.mcp.json",
+    interface: {
+      displayName: manifest.displayName,
+      shortDescription: manifest.description,
+      longDescription:
+        `${manifest.displayName} packages agent instructions, app actions, ` +
+        "an MCP connector, and inline UI surfaces as an installable skill.",
+      developerName: "Agent-Native",
+      category: "Productivity",
+      capabilities: ["Interactive", "Read", "Write"],
+      websiteURL: manifest.hosted.url,
+      defaultPrompt: [
+        `Open ${manifest.displayName} where useful`,
+        `Use ${manifest.displayName} for app-backed workflows`,
+        `Search ${manifest.displayName} and return usable context`,
+      ],
+      brandColor: "#2563EB",
+    },
+  });
+  writeJson(path.join(outDir, ".mcp.json"), mcpServerConfig(manifest));
+}
+
+function writeMcpAdapter(
+  manifest: AppSkillManifest,
+  outDir: string,
+  adapter: "generic-mcp" | "chatgpt-mcp",
+): void {
+  const dir = path.join(outDir, "adapters", adapter);
+  if (adapter === "generic-mcp") {
+    writeJson(path.join(dir, "mcp.json"), mcpServerConfig(manifest));
+    return;
+  }
+  writeJson(path.join(dir, "connector.json"), {
+    name: manifest.mcp.serverName,
+    title: manifest.displayName,
+    url: manifest.hosted.mcpUrl,
+    auth: manifest.auth?.mode ?? "oauth",
+    surfaces: manifest.surfaces,
+  });
+}
+
+function copySkillAdapter(
+  manifestDir: string,
+  skills: AppSkillManifestSkill[],
+  outDir: string,
+  adapter: "plain-skill" | "claude-skill",
+): void {
+  const skillRoot = path.join(outDir, "adapters", adapter, "skills");
+  for (const skill of skills) copySkill(manifestDir, skill, skillRoot);
+}
+
+export interface AppSkillPackResult {
+  outDir: string;
+  exportedSkillNames: string[];
+  files: string[];
+}
+
+export function buildAppSkillPack(
+  loaded: LoadedAppSkillManifest,
+  outDir: string,
+): AppSkillPackResult {
+  const manifest = loaded.manifest;
+  const target = path.resolve(outDir);
+  const skills = exportedSkills(manifest);
+  if (skills.length === 0) {
+    throw new Error("Manifest has no exported or both-visibility skills.");
+  }
+
+  fs.mkdirSync(target, { recursive: true });
+  const appSource = resolveLocalSourceDir(loaded);
+  const packedManifest: AppSkillManifest = appSource
+    ? {
+        ...manifest,
+        local: {
+          ...(manifest.local ?? {}),
+          sourcePath: "./app",
+          commands: manifest.local?.commands ?? {
+            install: "pnpm install",
+            dev: "pnpm dev",
+            start: "pnpm start",
+          },
+        },
+      }
+    : manifest;
+  writeJson(path.join(target, "agent-native.app-skill.json"), packedManifest);
+  if (appSource) {
+    copyDirFiltered(appSource, path.join(target, "app"));
+  }
+  const exportedSkillNames = skills.map(skillExportName);
+  for (const skill of skills)
+    copySkill(loaded.dir, skill, path.join(target, "skills"));
+
+  const files: string[] = [
+    path.join(target, "agent-native.app-skill.json"),
+    ...(appSource ? [path.join(target, "app")] : []),
+    ...exportedSkillNames.map((name) =>
+      path.join(target, "skills", name, "SKILL.md"),
+    ),
+  ];
+
+  if (manifest.hostAdapters.includes("codex-plugin")) {
+    writeCodexPluginAdapter(manifest, target);
+    files.push(
+      path.join(target, ".codex-plugin", "plugin.json"),
+      path.join(target, ".mcp.json"),
+    );
+  }
+  if (manifest.hostAdapters.includes("plain-skill")) {
+    copySkillAdapter(loaded.dir, skills, target, "plain-skill");
+    files.push(path.join(target, "adapters", "plain-skill", "skills"));
+  }
+  if (manifest.hostAdapters.includes("claude-skill")) {
+    copySkillAdapter(loaded.dir, skills, target, "claude-skill");
+    files.push(path.join(target, "adapters", "claude-skill", "skills"));
+  }
+  if (manifest.hostAdapters.includes("generic-mcp")) {
+    writeMcpAdapter(manifest, target, "generic-mcp");
+    files.push(path.join(target, "adapters", "generic-mcp", "mcp.json"));
+  }
+  if (manifest.hostAdapters.includes("chatgpt-mcp")) {
+    writeMcpAdapter(manifest, target, "chatgpt-mcp");
+    files.push(path.join(target, "adapters", "chatgpt-mcp", "connector.json"));
+  }
+
+  return { outDir: target, exportedSkillNames, files };
+}
+
+function appSkillCacheDir(appId: string): string {
+  return path.join(os.homedir(), ".agent-native", "app-skills", appId, "app");
+}
+
+function resolveLocalSourceDir(
+  loaded: LoadedAppSkillManifest,
+): string | undefined {
+  const local = loaded.manifest.local;
+  if (local?.sourcePath) {
+    const source = path.resolve(loaded.dir, local.sourcePath);
+    if (fs.existsSync(source)) return source;
+  }
+  if (local?.template) {
+    const repoTemplate = path.resolve(
+      process.cwd(),
+      "templates",
+      local.template,
+    );
+    if (fs.existsSync(repoTemplate)) return repoTemplate;
+  }
+  return undefined;
+}
+
+export function resolveLaunchPlan(
+  loaded: LoadedAppSkillManifest,
+  options: LaunchAppSkillOptions = {},
+): AppSkillLaunchPlan {
+  const manifest = loaded.manifest;
+  const mode = options.mode ?? "hosted";
+  const serverName = options.serverName ?? manifest.mcp.serverName;
+  if (mode === "hosted") {
+    return {
+      mode,
+      appId: manifest.id,
+      url: manifest.hosted.url,
+      mcpUrl: manifest.hosted.mcpUrl,
+      serverName,
+      commands: {},
+    };
+  }
+
+  const defaultUrl = manifest.local?.defaultUrl ?? "http://127.0.0.1:8100";
+  const appDir = path.resolve(options.into ?? appSkillCacheDir(manifest.id));
+  return {
+    mode,
+    appId: manifest.id,
+    appDir,
+    sourceDir: resolveLocalSourceDir(loaded),
+    url: defaultUrl,
+    mcpUrl: withMcpPath(defaultUrl),
+    serverName,
+    commands: manifest.local?.commands ?? {
+      install: "pnpm install",
+      dev: "pnpm dev",
+      start: "pnpm start",
+    },
+  };
+}
+
+function printPlan(plan: AppSkillLaunchPlan, log: (message: string) => void) {
+  log(`  App:        ${plan.appId}`);
+  log(`  Mode:       ${plan.mode}`);
+  log(`  URL:        ${plan.url}`);
+  log(`  MCP URL:    ${plan.mcpUrl}`);
+  log(`  Server:     ${plan.serverName}`);
+  if (plan.appDir) log(`  App dir:    ${plan.appDir}`);
+  if (plan.sourceDir) log(`  Source:     ${plan.sourceDir}`);
+  if (plan.commands.install) log(`  Install:    ${plan.commands.install}`);
+  if (plan.commands.dev) log(`  Dev:        ${plan.commands.dev}`);
+}
+
+function runShell(command: string, cwd: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, {
+      cwd,
+      env: process.env,
+      shell: true,
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => resolve(code ?? 0));
+  });
+}
+
+function openUrl(url: string): void {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "cmd"
+        : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, args, {
+    detached: true,
+    stdio: "ignore",
+    shell: process.platform === "win32",
+  });
+  child.unref();
+}
+
+export async function ensureAppSkill(
+  loaded: LoadedAppSkillManifest,
+  options: EnsureAppSkillOptions = {},
+): Promise<EnsureAppSkillResult> {
+  const manifest = loaded.manifest;
+  const mode = options.mode ?? "hosted";
+  const clients = options.clients ?? resolveClients("all");
+  const serverName = options.serverName ?? manifest.mcp.serverName;
+  const scope = options.scope ?? "user";
+  const plan = resolveLaunchPlan(loaded, { mode, serverName });
+  const result: EnsureAppSkillResult = {
+    mode,
+    serverName,
+    mcpUrl: plan.mcpUrl,
+    clients,
+    written: [],
+  };
+
+  if (options.dryRun) return result;
+
+  result.written = writeConfigs(
+    clients,
+    serverName,
+    plan.mcpUrl,
+    undefined,
+    scope,
+    options.baseDir ?? process.cwd(),
+  );
+  options.log?.(
+    `Registered ${serverName} for ${clients.join(", ")} at ${plan.mcpUrl}`,
+  );
+  return result;
+}
+
+export async function launchAppSkill(
+  loaded: LoadedAppSkillManifest,
+  options: LaunchAppSkillOptions = {},
+): Promise<AppSkillLaunchPlan> {
+  const log =
+    options.log ?? ((message: string) => process.stdout.write(`${message}\n`));
+  const plan = resolveLaunchPlan(loaded, options);
+
+  if (options.dryRun) {
+    printPlan(plan, log);
+    return plan;
+  }
+
+  if (plan.mode === "hosted") {
+    log(`Opening ${loaded.manifest.displayName}: ${plan.url}`);
+    openUrl(plan.url);
+    return plan;
+  }
+
+  if (!plan.appDir) throw new Error("Local launch plan is missing appDir.");
+  if (!fs.existsSync(path.join(plan.appDir, "package.json"))) {
+    if (!plan.sourceDir) {
+      throw new Error(
+        "Local launch needs bundled app source. Pass --into <path> from a manifest with local.sourcePath.",
+      );
+    }
+    fs.mkdirSync(path.dirname(plan.appDir), { recursive: true });
+    copyDirFiltered(plan.sourceDir, plan.appDir);
+    log(`Materialized ${loaded.manifest.displayName} at ${plan.appDir}`);
+  } else {
+    log(`Using existing local app at ${plan.appDir}`);
+  }
+
+  if (!options.noRegister) {
+    await ensureAppSkill(loaded, {
+      mode: "local",
+      clients: options.clients,
+      scope: options.scope,
+      serverName: options.serverName,
+      baseDir: options.baseDir,
+      log,
+    });
+  }
+
+  if (!options.skipInstall && plan.commands.install) {
+    const installCode = await runShell(plan.commands.install, plan.appDir);
+    if (installCode !== 0) {
+      throw new Error(`Install command failed with exit code ${installCode}.`);
+    }
+  }
+
+  if (plan.commands.dev) {
+    const code = await runShell(plan.commands.dev, plan.appDir);
+    if (code !== 0) throw new Error(`Dev command exited with code ${code}.`);
+  }
+
+  return plan;
+}
+
+function resolveArgsClients(parsed: ParsedAppSkillArgs): ClientId[] {
+  return resolveClients(parsed.client);
+}
+
+export async function runAppSkill(argv: string[]): Promise<void> {
+  const parsed = parseAppSkillArgs(argv);
+  if (parsed.command === "help") {
+    process.stdout.write(`${HELP}\n`);
+    return;
+  }
+
+  try {
+    const loaded = loadAppSkillManifest(parsed.manifest);
+    if (parsed.command === "ensure") {
+      const result = await ensureAppSkill(loaded, {
+        mode: parsed.mode,
+        clients: resolveArgsClients(parsed),
+        scope: parsed.scope,
+        serverName: parsed.serverName,
+        dryRun: parsed.dryRun,
+        log: (message) => process.stdout.write(`${message}\n`),
+      });
+      if (parsed.printJson) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else if (parsed.dryRun) {
+        process.stdout.write(
+          `Would register ${result.serverName} at ${result.mcpUrl} for ${result.clients.join(", ")}\n`,
+        );
+      }
+      return;
+    }
+
+    if (parsed.command === "launch") {
+      const plan = await launchAppSkill(loaded, {
+        mode: parsed.mode,
+        into: parsed.into,
+        dryRun: parsed.dryRun,
+        skipInstall: parsed.skipInstall,
+        noRegister: parsed.noRegister,
+        clients: resolveArgsClients(parsed),
+        scope: parsed.scope,
+        serverName: parsed.serverName,
+        log: (message) => process.stdout.write(`${message}\n`),
+      });
+      if (parsed.printJson) {
+        process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+      }
+      return;
+    }
+
+    if (parsed.command === "pack") {
+      if (!parsed.out) {
+        throw new Error("Missing --out <dir> for app-skill pack.");
+      }
+      const result = buildAppSkillPack(loaded, parsed.out);
+      if (parsed.printJson) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        process.stdout.write(
+          `Packed ${loaded.manifest.displayName} app skill at ${result.outDir}\n`,
+        );
+      }
+    }
+  } catch (err: any) {
+    process.stderr.write(`  ${err?.message ?? err}\n`);
+    process.exitCode = 1;
+  }
+}

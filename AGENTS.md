@@ -27,7 +27,7 @@ Do not mark advisory-only answers green. If the user asked "what should we do?" 
 
 ## The Six Rules
 
-1. **Data lives in SQL** — via Drizzle ORM. Any SQL database (SQLite/Postgres/D1/Turso/Supabase/Neon). See `portability` skill.
+1. **Data lives in SQL** — via Drizzle ORM. Use the framework schema helpers and Drizzle query builder so app code stays provider-agnostic; raw SQL is only for additive migrations, health checks, or one-off maintenance. Local SQLite is only the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL`. Do not imply Turso is required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. See `portability` and `storing-data` skills.
 2. **All AI goes through the agent chat** — the UI never calls an LLM directly. Use `sendToAgentChat()`. See `delegate-to-agent`.
 3. **Actions are the single source of truth** — define once in `actions/`; the agent calls them as tools, the frontend calls them as HTTP endpoints at `/_agent-native/actions/:name`. See `actions`.
 4. **Polling keeps the UI in sync** — `useDbSync()` polls `/_agent-native/poll` every 2s and invalidates React Query caches. Works on all serverless/edge hosts. See `real-time-sync`.

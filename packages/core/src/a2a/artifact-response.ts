@@ -772,7 +772,7 @@ const KNOWN_AGENT_NATIVE_ARTIFACT_HOSTS: Record<
   document: new Set(["content.agent-native.com"]),
   dashboard: new Set(["analytics.agent-native.com"]),
   analysis: new Set(["analytics.agent-native.com"]),
-  image: new Set(["images.agent-native.com"]),
+  image: new Set(["assets.agent-native.com", "images.agent-native.com"]),
 };
 
 function safeHostnameFromOrigin(

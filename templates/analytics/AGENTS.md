@@ -323,7 +323,7 @@ To override the default org plugin (e.g. to add custom validation or extra handl
 
 | Var                                   | Required for                                                                                                 |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                        | All deployments — Neon Postgres URL                                                                          |
+| `DATABASE_URL`                        | All deployments — persistent SQL connection string                                                           |
 | `BETTER_AUTH_SECRET`                  | Auth — random 32-byte hex string                                                                             |
 | `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`                                                                  |
 | `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA)                                                             |

@@ -2263,8 +2263,12 @@ export function createProductionAgentHandler(
       if (options.skipFilesContext) return filesContext;
       if (history.length === 0) {
         try {
-          const { resourceListAccessible, SHARED_OWNER, resourceGet } =
-            await import("../resources/store.js");
+          const {
+            resourceListAccessible,
+            SHARED_OWNER,
+            WORKSPACE_OWNER,
+            resourceGet,
+          } = await import("../resources/store.js");
           const {
             getResourceKind,
             parseCustomAgentProfile,
@@ -2281,7 +2285,12 @@ export function createProductionAgentHandler(
             const agentLines: string[] = [];
             const jobLines: string[] = [];
             for (const r of allResources) {
-              const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+              const scope =
+                r.owner === WORKSPACE_OWNER
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
               const kind = getResourceKind(r.path);
               if (kind === "file") {
                 fileLines.push(`  ${r.path} (${scope})`);

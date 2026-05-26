@@ -102,6 +102,12 @@ coding agents can discover the same workspace-wide guidance from the root.
   for the same data unless the route is for uploads, streaming, webhooks,
   OAuth, or another route-only concern. Action-backed UI is what makes
   agent-created or agent-edited records appear without a manual refresh.
+- App database code must be provider-agnostic. Define schemas with
+  `@agent-native/core/db/schema` helpers and write app reads/writes with
+  Drizzle's query builder and portable `drizzle-orm` operators. Do not import
+  from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates.
+  Keep raw SQL for additive migrations, health checks, or carefully scoped
+  maintenance, and never write SQLite-only or Postgres-only product code.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch

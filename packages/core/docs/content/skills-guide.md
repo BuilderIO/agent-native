@@ -42,6 +42,59 @@ Templates include skills specific to their domain. These live in the same `.agen
 
 Domain skills follow the same format as framework skills. They encode patterns specific to the template that the agent needs to follow.
 
+## App-backed skills {#app-backed-skills}
+
+App-backed skills package an agent-native app as a skill marketplace artifact.
+The bundle can include agent instructions, exported skills, MCP connector
+metadata, hosted/local launch instructions, and UI surfaces such as MCP Apps.
+
+Each app-backed skill starts with `agent-native.app-skill.json` at the app root:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+Skill visibility controls what ships:
+
+| Visibility | Meaning                                                         |
+| ---------- | --------------------------------------------------------------- |
+| `internal` | Used by the app's own agent, not exported to marketplaces.      |
+| `exported` | Exported to marketplaces, but not needed by the app internally. |
+| `both`     | Used internally and exported.                                   |
+
+Hosted is the default install path. Local launch is explicit for customization,
+offline work, or privacy-sensitive use.
+
+```bash
+# Register the hosted MCP connector for local agent clients.
+agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# Materialize and run editable local source.
+agent-native app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# Build marketplace adapters: Codex plugin, plain/Claude skills, and MCP configs.
+agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+```
+
+Keep secrets out of skill files. The manifest should contain URL-only connector
+metadata; OAuth/device setup happens in the MCP host or through the app's normal
+settings flow.
+
 ## Creating custom skills {#creating-skills}
 
 Create a skill when:
