@@ -279,6 +279,21 @@ describe("app skill packaging", () => {
     ).toThrow(/local\.sourcePath must resolve inside/);
   });
 
+  it("rejects a configured local source path that is missing", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.local.sourcePath = "missing-app";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    expect(() =>
+      buildAppSkillPack(
+        loadAppSkillManifest(manifestFile),
+        path.join(tmpDir(), "out"),
+      ),
+    ).toThrow(/local\.sourcePath "missing-app" does not exist/);
+  });
+
   it("omits common secret files from packed local app source", () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);

@@ -101,8 +101,13 @@ function postEnvelope(
   return true;
 }
 
-function sameSource(event: MessageEvent, iframe: HTMLIFrameElement | null) {
-  return !iframe?.contentWindow || event.source === iframe.contentWindow;
+export function isEmbeddedAppMessageSource(
+  event: Pick<MessageEvent, "source">,
+  iframe: Pick<HTMLIFrameElement, "contentWindow"> | null,
+) {
+  return Boolean(
+    iframe?.contentWindow && event.source === iframe.contentWindow,
+  );
 }
 
 export const EmbeddedApp = forwardRef<EmbeddedAppRef, EmbeddedAppProps>(
@@ -222,7 +227,7 @@ export const EmbeddedApp = forwardRef<EmbeddedAppRef, EmbeddedAppProps>(
 
     useEffect(() => {
       const listener = (event: MessageEvent) => {
-        if (!sameSource(event, iframeRef.current)) return;
+        if (!isEmbeddedAppMessageSource(event, iframeRef.current)) return;
         if (!isAllowedEmbeddedAppOrigin(event.origin, trustedOrigins)) return;
         if (!isAgentNativeEmbedEnvelope(event.data)) return;
 

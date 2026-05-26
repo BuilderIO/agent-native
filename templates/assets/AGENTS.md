@@ -133,7 +133,10 @@ skill visibility metadata.
   the host complete auth. Do not store shared secrets in skill files.
 - Local launch is explicit for customization, offline work, or privacy-sensitive
   workflows: `agent-native app-skill launch --local --into <path>`.
+- The preferred hosted install path is now one command:
+  `npx @agent-native/core@latest skills add assets`. It installs the exported
+  skill instructions and registers the hosted Assets MCP connector together.
 - Marketplace packages include a Vercel Labs `skills` adapter:
-  `npx skills add ./dist/assets-skill/adapters/vercel-skills --skill assets`.
+  `npx skills add ./dist/assets-skill --skill assets`.
   Install the skill instructions first, then run `agent-native app-skill ensure`
   to register the Assets MCP connector.

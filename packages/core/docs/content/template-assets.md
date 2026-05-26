@@ -83,6 +83,9 @@ The Assets app skill has app id `assets` and hosted MCP URL
 `https://assets.agent-native.com/_agent-native/mcp`.
 
 ```bash
+# Easiest hosted install: exported skill instructions plus MCP connector.
+npx @agent-native/core@latest skills add assets
+
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
@@ -93,15 +96,15 @@ agent-native app-skill launch --manifest templates/assets/agent-native.app-skill
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
 # Install the exported Assets skill with the open skills CLI.
-npx skills add ./dist/assets-skill/adapters/vercel-skills --skill assets -a codex -y
+npx skills add ./dist/assets-skill --skill assets -a codex -y
 ```
 
 The exported skill teaches agents to use the picker for human-in-the-loop
 selection, direct actions for unattended image/video generation, and browser
 links when inline MCP Apps are unavailable.
 
-After installing the skill, register the hosted MCP connector so those
-instructions can call the live Assets app:
+If you install from a raw marketplace bundle with `npx skills`, register the
+hosted MCP connector so those instructions can call the live Assets app:
 
 ```bash
 npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes

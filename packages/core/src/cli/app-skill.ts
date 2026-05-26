@@ -838,6 +838,10 @@ function resolveLocalSourceDir(
       "local.sourcePath",
     );
     if (fs.existsSync(source)) return source;
+    throw new Error(
+      `local.sourcePath "${local.sourcePath}" does not exist. ` +
+        "Run pack from the directory containing the app source.",
+    );
   }
   if (local?.template) {
     if (!/^[a-z0-9][a-z0-9-]*$/i.test(local.template)) {

@@ -5,6 +5,33 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 
+async function assertParentIsNotDescendant(
+  db: ReturnType<typeof getDb>,
+  folderId: string,
+  parent: typeof schema.assetFolders.$inferSelect,
+) {
+  const seen = new Set<string>([parent.id]);
+  let cursor = parent;
+  while (cursor.parentId) {
+    if (cursor.parentId === folderId) {
+      throw new Error("A folder cannot be moved into one of its children.");
+    }
+    if (seen.has(cursor.parentId)) {
+      throw new Error("Parent folder hierarchy is already circular.");
+    }
+    seen.add(cursor.parentId);
+    const [nextParent] = await db
+      .select()
+      .from(schema.assetFolders)
+      .where(eq(schema.assetFolders.id, cursor.parentId))
+      .limit(1);
+    if (!nextParent || nextParent.libraryId !== parent.libraryId) {
+      throw new Error("Parent folder hierarchy is invalid.");
+    }
+    cursor = nextParent;
+  }
+}
+
 export default defineAction({
   description:
     "Rename, describe, reorder, or move a folder in an asset library.",
@@ -36,6 +63,7 @@ export default defineAction({
       if (!parent || parent.libraryId !== folder.libraryId) {
         throw new Error("Parent folder does not belong to this library.");
       }
+      await assertParentIsNotDescendant(db, id, parent);
     }
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title.trim();
