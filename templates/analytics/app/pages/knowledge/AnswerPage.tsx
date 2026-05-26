@@ -152,13 +152,9 @@ export default function AnswerPage({ id }: Props) {
         sessionId: s.id,
         question: s.question,
         sources: s.sources,
-        instruction: [
-          "Answer the knowledge question above. Make ONE tool call then immediately call store-answer.",
-          /dashboard|workbook|chart|visualization|sigma/i.test(s.question)
-            ? "The question mentions dashboards/Sigma — use Sigma MCP: begin_session first, then search."
-            : "Use dbt MCP: ONE targeted lookup for the model/metric, then store-answer.",
-          "store-answer must be called within 25 seconds. Do not chain multiple lookups.",
-        ].join(" "),
+        instruction: /dashboard|workbook|chart|visualization|sigma/i.test(s.question)
+          ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
+          : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
       }),
       submit: true,
       background: true,

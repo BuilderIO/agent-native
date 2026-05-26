@@ -8,55 +8,79 @@ The user asked a question in the Knowledge Assistant. The app has already:
 2. Run a GitHub code search and stored initial sources
 3. Called `sendToAgentChat` with the question + context JSON
 
-## Speed Requirement
-
-**Answer in under 30 seconds.** The user is watching a loading skeleton. Make ONE tool call max (dbt or Sigma), synthesize the answer immediately, then call `store-answer`. Do not chain lookups or browse multiple sources.
-
 ## Context Format
 
 ```json
 {
   "sessionId": "<uuid>",
-  "sources": [...],
   "question": "...",
+  "sources": [...],
   "instruction": "..."
 }
 ```
 
-## Decision Tree
+## Tool Priority by Question Type
 
-**Does the question mention "dashboard", "workbook", "chart", "visualization", or "Sigma"?**
+### 1. Dashboard / workbook / chart / visualization questions
+> "What does the Revenue Dashboard show?", "Where is ARR tracked in Sigma?", "Which dashboards use fct_orders?"
 
-→ **YES** — use Sigma MCP:
-  1. `mcp__sigma__begin_session` (required first)
-  2. `mcp__sigma__search` with the key term from the question
-  3. Call `store-answer` with what you found
+**Primary: Sigma MCP**
+1. `mcp__sigma__begin_session` — always required first
+2. `mcp__sigma__search` — find relevant workbooks/datasets by keyword
+3. `mcp__sigma__describe` — inspect schema if you need column details
+4. `mcp__sigma__query` — run SQL against a Sigma data source if needed
 
-→ **NO** — use dbt MCP (ONE call only):
+**Follow-up: dbt MCP** — if the answer requires understanding the underlying dbt model feeding the dashboard.
 
-| Question type             | dbt MCP call                              |
-| ------------------------- | ----------------------------------------- |
-| "What is X?" / definition | Get model X description and columns       |
-| "How is X tracked?"       | Find the model/metric capturing X         |
-| "How fresh is X?"         | Get model X freshness/last run info       |
-| "Where is X used?"        | Get downstream dependencies of model X    |
+---
 
-## store-answer Example
+### 2. Model / metric / column definition questions
+> "What fields does dim_contracts have?", "How is ARR calculated?", "What does fct_subscriptions contain?"
+
+**Primary: dbt MCP**
+1. Get model description and columns for the named model
+2. Check metric definitions if it's a business metric
+
+**Follow-up: GitHub sources** — already in context as `sources[]`, cite them as `[1][2]`
+
+---
+
+### 3. Data freshness / pipeline / dependency questions
+> "How fresh is dim_accounts?", "Where does MRR come from?", "What depends on fct_revenue?"
+
+**Primary: dbt MCP**
+1. Get model freshness / last run info
+2. Get upstream or downstream dependencies
+
+---
+
+### 4. Broad / exploratory questions
+> "What tables track churn?", "How is expansion revenue defined?"
+
+**Primary: dbt MCP** to search for relevant models, then GitHub sources already in context.
+**If results are sparse:** also search Sigma for related workbooks.
+
+---
+
+## Synthesizing the Answer
+
+- Write a clear markdown answer — use headers, bullets, and code blocks where helpful
+- Cite sources inline: `[1]`, `[2]` etc. (GitHub sources are 1-indexed from the `sources` array in context; dbt/Sigma sources get the next numbers)
+- Be factual and specific — name actual table/column names, not generalities
+
+## Calling store-answer
+
+Always call `store-answer` when done:
 
 ```
 store-answer({
-  sessionId: "abc-123",
-  answer: "The `dim_contracts` model [1] has the following fields:\n- `contract_id`...",
-  additionalSources: [{ type: "dbt", title: "dim_contracts", excerpt: "..." }]
+  sessionId: "<id from context>",
+  answer: "<your markdown answer>",
+  additionalSources: [
+    { type: "dbt", title: "dim_contracts", excerpt: "contract_type, arr_amount..." },
+    { type: "other", title: "Revenue Dashboard (Sigma)", url: "...", excerpt: "..." }
+  ]
 })
 ```
 
-For Sigma sources use `type: "other"` and set `title` to the workbook/dataset name.
-
-## Rules
-
-- **Always call `store-answer`** — the UI shows a skeleton until you do
-- **One external tool call only** — dbt OR Sigma, not both
-- **Call `store-answer` even on error** — use `status: "error"` and explain what failed in the `answer` field
-- Cite GitHub sources as `[1]`, `[2]` (1-indexed from the `sources` array in context); dbt/Sigma sources get the next numbers
-- Keep answers focused: 2–4 paragraphs max
+**Call `store-answer` even on error** — use `status: "error"` and explain what failed in the `answer` field. The UI shows a skeleton until you call it.
