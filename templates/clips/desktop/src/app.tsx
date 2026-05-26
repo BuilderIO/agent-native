@@ -16,6 +16,7 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  discardBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
@@ -532,6 +533,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+    null,
+  );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
@@ -1746,7 +1750,7 @@ export function App() {
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (retryingUploadId) return;
-    const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
+    const targetServerUrl = serverUrl.replace(/\/+$/, "");
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
     try {
@@ -1761,6 +1765,7 @@ export function App() {
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
+          serverUrl: targetServerUrl,
           authToken,
         });
       }
@@ -1778,6 +1783,32 @@ export function App() {
       await loadPendingUploads();
     } finally {
       setRetryingUploadId(null);
+    }
+  }
+
+  async function discardPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || discardingUploadId) return;
+    setRecError(null);
+    setDiscardingUploadId(upload.recordingId);
+    setPendingUploads((uploads) =>
+      uploads.filter((item) => item.recordingId !== upload.recordingId),
+    );
+    try {
+      if (upload.kind === "native") {
+        await invoke("native_fullscreen_recording_discard_upload", {
+          recordingId: upload.recordingId,
+        });
+      } else {
+        await discardBrowserRecordingBackup(upload.recordingId);
+      }
+      await loadPendingUploads();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] discard saved upload failed:", err);
+      setRecError(message);
+      await loadPendingUploads();
+    } finally {
+      setDiscardingUploadId(null);
     }
   }
 
@@ -2222,7 +2253,9 @@ export function App() {
         <PendingUploadBanner
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
+          discardingUploadId={discardingUploadId}
           onRetry={retryPendingUpload}
+          onDiscard={discardPendingUpload}
         />
       ) : null}
 
@@ -2566,11 +2599,15 @@ function PermissionRecoveryBanner({
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  discardingUploadId,
   onRetry,
+  onDiscard,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  discardingUploadId: string | null;
   onRetry: (upload: PendingDesktopUpload) => void;
+  onDiscard: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
@@ -2600,15 +2637,27 @@ function PendingUploadBanner({
           {errorText ? ` · ${errorText}` : ""}
         </div>
       </div>
-      <button
-        type="button"
-        className="pending-upload-retry"
-        disabled={!!retryingUploadId}
-        onClick={() => onRetry(latest)}
-      >
-        <IconRefresh size={14} stroke={2} />
-        {retrying ? "Retrying" : "Retry"}
-      </button>
+      <div className="pending-upload-actions">
+        <button
+          type="button"
+          className="pending-upload-retry"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onRetry(latest)}
+        >
+          <IconRefresh size={14} stroke={2} />
+          {retrying ? "Retrying" : "Retry"}
+        </button>
+        <button
+          type="button"
+          className="pending-upload-discard"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onDiscard(latest)}
+          aria-label="Discard saved local clip"
+          title="Discard saved local clip"
+        >
+          <IconTrash size={14} stroke={2} />
+        </button>
+      </div>
     </div>
   );
 }

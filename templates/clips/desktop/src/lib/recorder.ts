@@ -401,6 +401,12 @@ async function deleteBrowserRecordingBackup(
   }
 }
 
+export async function discardBrowserRecordingBackup(
+  recordingId: string,
+): Promise<void> {
+  await deleteBrowserRecordingBackup(recordingId);
+}
+
 async function markBrowserRecordingBackupError(
   recordingId: string,
   error: string,
@@ -490,11 +496,16 @@ async function resetBrowserRecordingBackupUpload(
 
 export async function retryBrowserRecordingBackup(input: {
   recordingId: string;
+  serverUrl?: string;
   authToken?: string;
 }): Promise<{ recordingId: string; viewUrl: string }> {
-  const meta = await getBrowserRecordingBackupMeta(input.recordingId);
+  let meta = await getBrowserRecordingBackupMeta(input.recordingId);
   if (!meta) {
     throw new Error("Local recording backup not found");
+  }
+  const serverUrl = input.serverUrl?.trim().replace(/\/+$/, "");
+  if (serverUrl) {
+    meta = { ...meta, serverUrl };
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
   if (chunks.length === 0) {

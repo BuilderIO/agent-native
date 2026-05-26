@@ -990,6 +990,16 @@ pub async fn native_fullscreen_recording_retry_upload(
     }
 }
 
+#[tauri::command]
+pub async fn native_fullscreen_recording_discard_upload(
+    app: AppHandle,
+    recording_id: String,
+) -> Result<(), String> {
+    let saved = read_saved_recording_metadata(&app, &recording_id)?;
+    clear_saved_recording(&app, &saved);
+    Ok(())
+}
+
 fn sanitize_recording_id(value: &str) -> String {
     let safe: String = value
         .chars()

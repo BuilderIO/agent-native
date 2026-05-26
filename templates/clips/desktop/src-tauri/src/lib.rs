@@ -102,6 +102,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_resume,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_discard_upload,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
