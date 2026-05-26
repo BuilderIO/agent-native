@@ -1908,6 +1908,69 @@ audio.media-block__content {
   background: hsl(210 100% 52% / 0.2);
 }
 
+@media print {
+  @page {
+    margin: 0.65in;
+  }
+
+  body:has([data-document-print-root]) {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  body:has([data-document-print-root]) * {
+    visibility: hidden !important;
+  }
+
+  body:has([data-document-print-root]) [data-document-print-root],
+  body:has([data-document-print-root]) [data-document-print-root] * {
+    visibility: visible !important;
+  }
+
+  [data-document-print-root] {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: auto !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  [data-document-print-root] > div,
+  [data-document-print-scroll] {
+    display: block !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  [data-document-print-root] [class*="absolute"],
+  [data-document-print-root] .media-block__toolbar,
+  [data-document-print-root] .media-block__overlay,
+  [data-document-print-root] .media-block__resize-handle,
+  [data-document-print-root] .media-block__alt-badge,
+  [data-document-print-root] .ProseMirror-selectednode::selection {
+    display: none !important;
+  }
+
+  [data-document-print-root] textarea,
+  [data-document-print-root] .notion-editor {
+    color: #111 !important;
+  }
+
+  [data-document-print-root] .notion-editor {
+    min-height: auto !important;
+  }
+
+  [data-document-print-root] pre,
+  [data-document-print-root] blockquote,
+  [data-document-print-root] img,
+  [data-document-print-root] table {
+    break-inside: avoid;
+  }
+}
+
 /* ===== Bubble Toolbar ===== */
 .bubble-toolbar {
   display: flex;

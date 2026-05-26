@@ -16,6 +16,7 @@ import {
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
+  shouldApplyExternalContentSync,
   shouldSeedCollaborativeContent,
 } from "./VisualEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -445,6 +446,40 @@ describe("VisualEditor markdown round-tripping", () => {
         fragmentLength: 1,
       }),
     ).toBe(false);
+  });
+
+  it("does not apply stale SQL snapshots over live collaborative edits", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: true,
+        docChanged: false,
+        content: "Older collaborator snapshot",
+        lastEmittedMarkdown: "Merged live content",
+        currentMarkdown: "Merged live content",
+        nextMarkdown: "Older collaborator snapshot",
+        editorFocused: false,
+        lastTypedAt: 0,
+        now: 10_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("still applies external content before collaborative edits begin", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: false,
+        docChanged: false,
+        content: "Pulled from Notion",
+        lastEmittedMarkdown: "",
+        currentMarkdown: "Saved body",
+        nextMarkdown: "Pulled from Notion",
+        editorFocused: false,
+        lastTypedAt: 0,
+        now: 10_000,
+      }),
+    ).toBe(true);
   });
 
   it("labels empty quote blocks with the quote placeholder", () => {

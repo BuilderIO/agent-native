@@ -3,9 +3,13 @@ import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconDownload,
   IconExternalLink,
+  IconFileTypeHtml,
+  IconFileTypePdf,
   IconLinkOff,
   IconLoader2,
+  IconMarkdown,
   IconSearch,
   IconFileText,
   IconPlus,
@@ -18,6 +22,13 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
   AgentToggleButton,
@@ -49,6 +60,63 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
+type ExportFormat = "pdf" | "markdown" | "html";
+
+interface ExportDocumentResult {
+  filename: string;
+  mimeType: string;
+  content: string;
+  format: ExportFormat;
+  print: boolean;
+}
+
+function downloadExportFile(result: ExportDocumentResult) {
+  const blob = new Blob([result.content], { type: result.mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = result.filename;
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printExportHtml(result: ExportDocumentResult) {
+  const iframe = window.document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  window.document.body.appendChild(iframe);
+
+  const frameWindow = iframe.contentWindow;
+  const frameDocument = frameWindow?.document;
+  if (!frameWindow || !frameDocument) {
+    iframe.remove();
+    throw new Error("Could not open the print preview.");
+  }
+
+  const cleanup = () => {
+    setTimeout(() => iframe.remove(), 500);
+  };
+
+  frameWindow.addEventListener("afterprint", cleanup, { once: true });
+  frameDocument.open();
+  frameDocument.write(result.content);
+  frameDocument.close();
+
+  window.setTimeout(() => {
+    frameWindow.focus();
+    frameWindow.print();
+  }, 100);
+
+  window.setTimeout(cleanup, 60_000);
+}
+
 function NotionIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 100 100" className={cn("notion-logo-icon", className)}>
@@ -69,6 +137,7 @@ function NotionIcon({ className }: { className?: string }) {
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
+  documentContent?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -81,6 +150,7 @@ interface DocumentToolbarProps {
 export function DocumentToolbar({
   documentId,
   documentTitle,
+  documentContent,
   activeUsers,
   agentPresent,
   agentActive,
@@ -104,6 +174,7 @@ export function DocumentToolbar({
   const setDocumentDiscoverability = useActionMutation(
     "set-document-discoverability",
   );
+  const exportDocument = useActionMutation("export-document");
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -333,6 +404,38 @@ export function DocumentToolbar({
     setOpen(false);
   };
 
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      try {
+        const result = (await exportDocument.mutateAsync({
+          id: documentId,
+          format,
+          title: documentTitle,
+          content: documentContent,
+        })) as ExportDocumentResult;
+
+        if (result.print) {
+          printExportHtml(result);
+          toast.success("Print dialog opened", {
+            description: "Choose Save as PDF to finish the export.",
+          });
+          return;
+        }
+
+        downloadExportFile(result);
+        toast.success(
+          `Exported ${format === "markdown" ? "Markdown" : "HTML"}`,
+        );
+      } catch (error) {
+        toast.error("Export failed", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      }
+    },
+    [documentContent, documentId, documentTitle, exportDocument],
+  );
+
   return (
     <>
       <div
@@ -395,6 +498,52 @@ export function DocumentToolbar({
           onOpenChange={setHistoryOpen}
           canRestore={canEdit}
         />
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+                  disabled={exportDocument.isPending}
+                  aria-label="Export page"
+                >
+                  {exportDocument.isPending ? (
+                    <IconLoader2 size={16} className="animate-spin" />
+                  ) : (
+                    <IconDownload size={16} />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Export page</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                disabled={exportDocument.isPending}
+                onSelect={() => void handleExport("pdf")}
+              >
+                <IconFileTypePdf className="mr-2 h-4 w-4" />
+                PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportDocument.isPending}
+                onSelect={() => void handleExport("markdown")}
+              >
+                <IconMarkdown className="mr-2 h-4 w-4" />
+                Markdown
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportDocument.isPending}
+                onSelect={() => void handleExport("html")}
+              >
+                <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                HTML
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {canEdit ? (
           <Popover open={open} onOpenChange={setOpen}>

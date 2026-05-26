@@ -91,21 +91,22 @@ cd templates/content && pnpm action <name> [args]
 
 ### Document Operations
 
-| Action                         | Args                                                                                     | Purpose                                                                               |
-| ------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `list-documents`               | `[--format json]`                                                                        | List document metadata/tree; no full bodies                                           |
-| `search-documents`             | `--query <text> [--format json]`                                                         | Search by title/content and return snippets                                           |
-| `get-document`                 | `--id <id> [--format json]`                                                              | Get a single document with content                                                    |
-| `pull-document`                | `--id <id> [--format markdown\|text]`                                                    | Collab-aware "ingest the final" read                                                  |
-| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                       | Create a new document                                                                 |
-| `edit-document`                | `--id <id> --find <text> --replace <text>`                                               | Surgical text edit (preferred for modifications)                                      |
-| `edit-document`                | `--id <id> --edits <json>`                                                               | Batch surgical text edits                                                             |
-| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                               | Full rewrite of document fields                                                       |
-| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                 | Hide/show an org-accessible document in Organization/search while keeping link access |
-| `move-document`                | `--id <id> [--parentId] [--position]`                                                    | Move or reorder a document in the page tree                                           |
-| `delete-document`              | `--id <id>`                                                                              | Delete with recursive children                                                        |
-| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text> [--imageOccurrence <n>]`            | Set generated or edited alt text for a specific image                                 |
-| `transcribe-media`             | `--documentId <id> --mediaUrl <url> --mediaType audio\|video [--placeholderText <text>]` | Transcribe audio/video media into the Transcript toggle beneath the block             |
+| Action                         | Args                                                                                     | Purpose                                                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `list-documents`               | `[--format json]`                                                                        | List document metadata/tree; no full bodies                                                                 |
+| `search-documents`             | `--query <text> [--format json]`                                                         | Search by title/content and return snippets                                                                 |
+| `get-document`                 | `--id <id> [--format json]`                                                              | Get a single document with content                                                                          |
+| `pull-document`                | `--id <id> [--format markdown\|text]`                                                    | Collab-aware "ingest the final" read                                                                        |
+| `export-document`              | `--id <id> [--format pdf\|markdown\|html]`                                               | Export a page; PDF returns print-ready HTML for Save as PDF, Markdown/HTML return downloadable file content |
+| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                       | Create a new document                                                                                       |
+| `edit-document`                | `--id <id> --find <text> --replace <text>`                                               | Surgical text edit (preferred for modifications)                                                            |
+| `edit-document`                | `--id <id> --edits <json>`                                                               | Batch surgical text edits                                                                                   |
+| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                               | Full rewrite of document fields                                                                             |
+| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                 | Hide/show an org-accessible document in Organization/search while keeping link access                       |
+| `move-document`                | `--id <id> [--parentId] [--position]`                                                    | Move or reorder a document in the page tree                                                                 |
+| `delete-document`              | `--id <id>`                                                                              | Delete with recursive children                                                                              |
+| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text> [--imageOccurrence <n>]`            | Set generated or edited alt text for a specific image                                                       |
+| `transcribe-media`             | `--documentId <id> --mediaUrl <url> --mediaType audio\|video [--placeholderText <text>]` | Transcribe audio/video media into the Transcript toggle beneath the block                                   |
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
@@ -123,6 +124,15 @@ skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
 returns `{ id, title, content, format, deepLink }`, and surfaces an
 "Open document" deep link for external agents. Use `--format text` for a
 plain-text strip of the markdown.
+
+**`export-document` is the page export action.** The UI exposes it from the
+page toolbar export menu. Use `--format pdf` when the user wants a PDF; the
+action returns a print-ready HTML document and the UI opens the print dialog so
+the user can choose Save as PDF. Use `--format markdown` for an exact `.md`
+export that includes the page title as the first H1, or `--format html` for a
+standalone readable HTML file. Word/Google Docs exports are not native in this
+template; use Markdown or HTML unless the user explicitly asks for a heavier
+conversion/integration workflow.
 
 ### Notion Integration
 

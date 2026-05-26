@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  parseSlashCommandQuery,
   parseInlineGeneratePrompt,
   shouldOpenGenerateOnSpace,
 } from "./SlashCommandMenu";
@@ -47,5 +48,19 @@ describe("space generate shortcut", () => {
     } finally {
       editor.destroy();
     }
+  });
+});
+
+describe("slash command menu trigger", () => {
+  it("opens for slash commands at the start of a block", () => {
+    expect(parseSlashCommandQuery("/")).toBe("");
+    expect(parseSlashCommandQuery("/heading")).toBe("heading");
+    expect(parseSlashCommandQuery("  /table")).toBe("table");
+  });
+
+  it("does not open for slashes embedded in normal prose", () => {
+    expect(parseSlashCommandQuery("hello/world")).toBeNull();
+    expect(parseSlashCommandQuery("hello /world")).toBeNull();
+    expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
   });
 });

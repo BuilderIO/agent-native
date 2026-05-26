@@ -268,7 +268,7 @@ export function useCollaborativeDoc(
         if (data?.state) {
           const binary = base64ToUint8Array(data.state);
           if (binary.length > 4) {
-            Y.applyUpdate(ydoc, binary);
+            Y.applyUpdate(ydoc, binary, "remote");
           }
         }
         setIsLoading(false);
@@ -360,6 +360,31 @@ export function useCollaborativeDoc(
         }
 
         pollVersionRef.current = version;
+
+        try {
+          // The poll ring buffer is process-local. Fetching a state-vector diff
+          // makes collaboration durable across serverless invocations, process
+          // restarts, or any missed poll event.
+          const stateVector = uint8ArrayToBase64(Y.encodeStateVector(ydoc));
+          const stateRes = await fetch(
+            `${baseUrl}/${docId}/state?stateVector=${encodeURIComponent(
+              stateVector,
+            )}`,
+          );
+          if (stateRes.ok) {
+            const stateData = (await stateRes.json().catch(() => null)) as {
+              state?: string;
+            } | null;
+            if (stateData?.state) {
+              const binary = base64ToUint8Array(stateData.state);
+              if (binary.length > 2) {
+                Y.applyUpdate(ydoc, binary, "remote");
+              }
+            }
+          }
+        } catch {
+          // The next poll retries; awareness should still sync below.
+        }
 
         // Sync awareness (cursor positions)
         if (awareness) {

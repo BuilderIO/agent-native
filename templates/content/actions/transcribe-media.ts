@@ -15,11 +15,10 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import { eq } from "drizzle-orm";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { z } from "zod";
-import { getDb, schema } from "../server/db/index.js";
+import "../server/db/index.js";
 import updateDocument from "./update-document.js";
 import {
   assertAudioHasAudibleSignal,
@@ -431,13 +430,8 @@ async function applyTranscriptToDocument({
   placeholderText?: string;
   transcript: string;
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
-  const db = getDb();
-  const [freshDoc] = await db
-    .select({ content: schema.documents.content })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId))
-    .limit(1);
-  if (!freshDoc) throw new Error(`Document "${documentId}" not found`);
+  const freshAccess = await assertAccess("document", documentId, "editor");
+  const freshDoc = freshAccess.resource;
 
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;

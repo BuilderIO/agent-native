@@ -3,7 +3,12 @@
  */
 
 import * as Y from "yjs";
-import { loadYDocState, saveYDocState } from "./storage.js";
+import {
+  loadYDocRecord,
+  loadYDocState,
+  saveYDocState,
+  trySaveYDocState,
+} from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
 import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 import {
@@ -25,6 +30,7 @@ interface CacheEntry {
 }
 
 const _cache = new Map<string, CacheEntry>();
+const _writeLocks = new Map<string, Promise<void>>();
 
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
@@ -42,6 +48,60 @@ function evictIfNeeded(): void {
     entry?.doc.destroy();
     _cache.delete(oldest);
   }
+}
+
+async function withDocWriteLock<T>(
+  docId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = _writeLocks.get(docId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = previous.catch(() => {}).then(() => current);
+  _writeLocks.set(docId, chained);
+
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (_writeLocks.get(docId) === chained) {
+      _writeLocks.delete(docId);
+    }
+  }
+}
+
+async function applyStoredState(docId: string, doc: Y.Doc): Promise<void> {
+  const stored = await loadYDocState(docId);
+  if (stored && stored.length > 0) {
+    Y.applyUpdate(doc, stored);
+  }
+}
+
+async function persistMergedState(
+  docId: string,
+  doc: Y.Doc,
+  getTextSnapshot: () => string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const latest = await loadYDocRecord(docId);
+    if (latest?.state && latest.state.length > 0) {
+      Y.applyUpdate(doc, latest.state);
+    }
+
+    const saved = await trySaveYDocState(
+      docId,
+      Y.encodeStateAsUpdate(doc),
+      getTextSnapshot(),
+      latest?.version ?? null,
+    );
+    if (saved) return;
+  }
+
+  await applyStoredState(docId, doc);
+  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), getTextSnapshot());
 }
 
 /**
@@ -74,14 +134,17 @@ export async function applyUpdate(
   update: Uint8Array,
   requestSource?: string,
 ): Promise<void> {
-  const doc = await getDoc(docId);
-  Y.applyUpdate(doc, update);
+  return withDocWriteLock(docId, async () => {
+    const doc = await getDoc(docId);
+    await applyStoredState(docId, doc);
+    Y.applyUpdate(doc, update);
 
-  const state = Y.encodeStateAsUpdate(doc);
-  const text = doc.getText(DEFAULT_FIELD).toString();
-  await saveYDocState(docId, state, text);
+    await persistMergedState(docId, doc, () =>
+      doc.getText(DEFAULT_FIELD).toString(),
+    );
 
-  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+  });
 }
 
 /**
@@ -96,19 +159,22 @@ export async function applyText(
   fieldName: string = DEFAULT_FIELD,
   requestSource?: string,
 ): Promise<string> {
-  const doc = await getDoc(docId);
-  const update = applyTextToYDoc(doc, fieldName, newText, "server");
+  return withDocWriteLock(docId, async () => {
+    const doc = await getDoc(docId);
+    await applyStoredState(docId, doc);
+    const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
-  if (update.length === 0) {
+    if (update.length === 0) {
+      return doc.getText(fieldName).toString();
+    }
+
+    await persistMergedState(docId, doc, () =>
+      doc.getText(fieldName).toString(),
+    );
+
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     return doc.getText(fieldName).toString();
-  }
-
-  const state = Y.encodeStateAsUpdate(doc);
-  const text = doc.getText(fieldName).toString();
-  await saveYDocState(docId, state, text);
-
-  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
-  return text;
+  });
 }
 
 /**
@@ -123,34 +189,34 @@ export async function searchAndReplace(
   replace: string,
   requestSource?: string,
 ): Promise<{ found: boolean; update: Uint8Array }> {
-  const doc = await getDoc(docId);
-  const fragment = doc.getXmlFragment("default");
+  return withDocWriteLock(docId, async () => {
+    const doc = await getDoc(docId);
+    await applyStoredState(docId, doc);
+    const fragment = doc.getXmlFragment("default");
 
-  // Capture the update produced by the transaction
-  let update: Uint8Array = new Uint8Array(0);
-  const handler = (u: Uint8Array) => {
-    update = u;
-  };
-  doc.on("update", handler);
+    // Capture the update produced by the transaction
+    let update: Uint8Array = new Uint8Array(0);
+    const handler = (u: Uint8Array) => {
+      update = u;
+    };
+    doc.on("update", handler);
 
-  let found = false;
-  doc.transact(() => {
-    found = searchAndReplaceInYXml(fragment, find, replace);
-  }, "agent");
+    let found = false;
+    doc.transact(() => {
+      found = searchAndReplaceInYXml(fragment, find, replace);
+    }, "agent");
 
-  doc.off("update", handler);
+    doc.off("update", handler);
 
-  if (!found || update.length === 0) {
-    return { found: false, update: new Uint8Array(0) };
-  }
+    if (!found || update.length === 0) {
+      return { found: false, update: new Uint8Array(0) };
+    }
 
-  // Persist and emit
-  const state = Y.encodeStateAsUpdate(doc);
-  const textSnapshot = extractTextFromYXml(fragment);
-  await saveYDocState(docId, state, textSnapshot);
-  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
 
-  return { found: true, update };
+    return { found: true, update };
+  });
 }
 
 /**
@@ -161,6 +227,7 @@ export async function getText(
   fieldName: string = DEFAULT_FIELD,
 ): Promise<string> {
   const doc = await getDoc(docId);
+  await applyStoredState(docId, doc);
   return doc.getText(fieldName).toString();
 }
 
@@ -169,6 +236,7 @@ export async function getText(
  */
 export async function getState(docId: string): Promise<Uint8Array> {
   const doc = await getDoc(docId);
+  await applyStoredState(docId, doc);
   return Y.encodeStateAsUpdate(doc);
 }
 
@@ -180,6 +248,7 @@ export async function getIncUpdate(
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
   const doc = await getDoc(docId);
+  await applyStoredState(docId, doc);
   return Y.encodeStateAsUpdate(doc, clientStateVector);
 }
 
@@ -192,15 +261,17 @@ export async function seedFromText(
   text: string,
   fieldName: string = DEFAULT_FIELD,
 ): Promise<void> {
-  const existing = await loadYDocState(docId);
-  if (existing && existing.length > 0) return; // Already seeded
+  return withDocWriteLock(docId, async () => {
+    const existing = await loadYDocState(docId);
+    if (existing && existing.length > 0) return; // Already seeded
 
-  const { doc, state } = initYDocWithText(fieldName, text);
-  await saveYDocState(docId, state, text);
+    const { doc, state } = initYDocWithText(fieldName, text);
+    await saveYDocState(docId, state, text);
 
-  // Cache the doc
-  evictIfNeeded();
-  _cache.set(docId, { doc, lastAccess: Date.now() });
+    // Cache the doc
+    evictIfNeeded();
+    _cache.set(docId, { doc, lastAccess: Date.now() });
+  });
 }
 
 // ─── Structured JSON Operations ─────────────────────────────────────
@@ -216,15 +287,17 @@ export async function applyJson(
   type: "map" | "array" = "map",
   requestSource?: string,
 ): Promise<void> {
-  const doc = await getDoc(docId);
-  const update = applyJsonDiff(doc, fieldName, newJson, "server");
+  return withDocWriteLock(docId, async () => {
+    const doc = await getDoc(docId);
+    await applyStoredState(docId, doc);
+    const update = applyJsonDiff(doc, fieldName, newJson, "server");
 
-  if (update.length === 0) return;
+    if (update.length === 0) return;
 
-  const state = Y.encodeStateAsUpdate(doc);
-  await saveYDocState(docId, state, JSON.stringify(newJson));
+    await persistMergedState(docId, doc, () => JSON.stringify(newJson));
 
-  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+  });
 }
 
 /**
@@ -236,16 +309,19 @@ export async function applyPatchOps(
   fieldName: string = "data",
   requestSource?: string,
 ): Promise<void> {
-  const doc = await getDoc(docId);
-  const update = applyJsonPatch(doc, fieldName, ops, "server");
+  return withDocWriteLock(docId, async () => {
+    const doc = await getDoc(docId);
+    await applyStoredState(docId, doc);
+    const update = applyJsonPatch(doc, fieldName, ops, "server");
 
-  if (update.length === 0) return;
+    if (update.length === 0) return;
 
-  const state = Y.encodeStateAsUpdate(doc);
-  const json = yDocToJson(doc, fieldName);
-  await saveYDocState(docId, state, JSON.stringify(json));
+    await persistMergedState(docId, doc, () =>
+      JSON.stringify(yDocToJson(doc, fieldName)),
+    );
 
-  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+  });
 }
 
 /**
@@ -256,6 +332,7 @@ export async function getJson(
   fieldName: string = "data",
 ): Promise<any> {
   const doc = await getDoc(docId);
+  await applyStoredState(docId, doc);
   return yDocToJson(doc, fieldName);
 }
 
@@ -269,15 +346,17 @@ export async function seedFromJson(
   fieldName: string = "data",
   type: "map" | "array" = "map",
 ): Promise<void> {
-  const existing = await loadYDocState(docId);
-  if (existing && existing.length > 0) return; // Already seeded
+  return withDocWriteLock(docId, async () => {
+    const existing = await loadYDocState(docId);
+    if (existing && existing.length > 0) return; // Already seeded
 
-  const { doc, state } = initYDocWithJson(fieldName, json, type);
-  await saveYDocState(docId, state, JSON.stringify(json));
+    const { doc, state } = initYDocWithJson(fieldName, json, type);
+    await saveYDocState(docId, state, JSON.stringify(json));
 
-  // Cache the doc
-  evictIfNeeded();
-  _cache.set(docId, { doc, lastAccess: Date.now() });
+    // Cache the doc
+    evictIfNeeded();
+    _cache.set(docId, { doc, lastAccess: Date.now() });
+  });
 }
 
 /**
