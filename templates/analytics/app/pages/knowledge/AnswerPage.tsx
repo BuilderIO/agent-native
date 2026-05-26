@@ -67,7 +67,15 @@ function SourceCard({ source, index }: { source: Source; index: number }) {
   );
 }
 
-function StatusLabel({ status }: { status: string }) {
+const DASHBOARD_RE = /dashboard|workbook|chart|visualization|sigma/i;
+
+function StatusLabel({
+  status,
+  question,
+}: {
+  status: string;
+  question?: string;
+}) {
   if (status === "searching")
     return (
       <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-pulse">
@@ -75,13 +83,18 @@ function StatusLabel({ status }: { status: string }) {
         Searching GitHub…
       </span>
     );
-  if (status === "generating")
+  if (status === "generating") {
+    const label =
+      question && DASHBOARD_RE.test(question)
+        ? "Searching Sigma…"
+        : "Consulting dbt MCP…";
     return (
       <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-pulse">
         <span className="h-2 w-2 rounded-full bg-blue-400" />
-        Consulting dbt MCP…
+        {label}
       </span>
     );
+  }
   if (status === "error")
     return (
       <span className="flex items-center gap-1.5 text-sm text-destructive">
@@ -96,7 +109,7 @@ interface Props {
   id: string;
 }
 
-const AGENT_TIMEOUT_MS = 45_000;
+const AGENT_TIMEOUT_MS = 60_000;
 
 export default function AnswerPage({ id }: Props) {
   const queryClient = useQueryClient();
@@ -184,7 +197,7 @@ export default function AnswerPage({ id }: Props) {
         <span className="text-sm text-muted-foreground truncate flex-1">
           {question}
         </span>
-        {!isDone && <StatusLabel status={session?.status ?? "searching"} />}
+        {!isDone && <StatusLabel status={session?.status ?? "searching"} question={question} />}
         {isDone && session?.status === "done" && (
           <Badge variant="secondary" className="shrink-0">
             answered
