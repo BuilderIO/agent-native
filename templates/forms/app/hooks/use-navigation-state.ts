@@ -34,6 +34,12 @@ export function useNavigationState() {
       }
     } else if (path.startsWith("/f/")) {
       state.view = "public-form";
+    } else if (path.startsWith("/team")) {
+      state.view = "team";
+    } else if (path.startsWith("/extensions")) {
+      state.view = "extensions";
+    } else if (path.startsWith("/form-preview")) {
+      state.view = "form-preview";
     }
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -79,6 +85,12 @@ export function useNavigationState() {
       path = `/forms/${cmd.formId}/responses`;
     } else if (cmd.view === "forms") {
       path = "/forms";
+    } else if (cmd.view === "team") {
+      path = "/team";
+    } else if (cmd.view === "extensions") {
+      path = "/extensions";
+    } else if (cmd.view === "form-preview") {
+      path = "/form-preview";
     }
 
     navigate(path);
