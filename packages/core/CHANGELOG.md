@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.22.45
+
+### Patch Changes
+
+- 4bed290: Harden collaborative editing against missed updates and concurrent Yjs persistence races.
+
 ## 0.22.44
 
 ### Patch Changes
