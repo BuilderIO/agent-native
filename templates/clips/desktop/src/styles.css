@@ -2176,7 +2176,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
@@ -2312,9 +2311,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  /* Drop shadow only — no brand ring. The bubble is the user's face;
-     a bright purple halo competes with what matters visually. */
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   /* Position context for absolute children (close X, canvas). */
   position: relative;
   /* Cursor hint — the drag region is here. */
@@ -2407,7 +2403,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   z-index: 3;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .bubble-close:hover {
@@ -2433,7 +2428,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   z-index: 3;
   /* Cursor over the pill should not be a grab cursor (we're not dragging
      the bubble when clicking its controls). */

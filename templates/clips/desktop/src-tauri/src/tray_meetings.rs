@@ -71,6 +71,7 @@ pub fn handle_meeting_menu_click(app: &AppHandle, menu_id: &str) -> bool {
     }
     use tauri::Emitter;
     if let Some(window) = app.get_webview_window("popover") {
+        crate::util::configure_overlay_behavior(&window);
         let _ = window.show();
         let _ = window.set_focus();
     }

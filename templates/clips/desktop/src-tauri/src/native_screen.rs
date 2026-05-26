@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(target_os = "macos")]
+use core_graphics::display::{CGDisplay, CGPoint};
+#[cfg(target_os = "macos")]
 use screencapturekit::audio_devices::AudioInputDevice;
 #[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
@@ -80,6 +82,8 @@ struct RestartInfo {
     mic_device_label: Option<String>,
     /// Monotonic counter feeding the per-segment filename suffix.
     segment_counter: u32,
+    /// CGDirectDisplayID of the display to record. None = first available.
+    target_display_id: Option<u32>,
 }
 
 enum NativeFullscreenBackend {
@@ -558,6 +562,7 @@ pub async fn native_fullscreen_recording_resume(
         restart.mic_device_id.as_deref(),
         restart.mic_device_label.as_deref(),
         &segment_path,
+        restart.target_display_id,
     )?;
     session.backend = Some(backend);
     session.segments.push(segment_path);
@@ -674,6 +679,7 @@ fn start_segment_backend(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     segment_path: &Path,
+    target_display_id: Option<u32>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     #[cfg(target_os = "macos")]
     {
@@ -686,6 +692,7 @@ fn start_segment_backend(
             include_audio,
             mic_device_id,
             mic_device_label,
+            target_display_id,
         ) {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
@@ -695,7 +702,7 @@ fn start_segment_backend(
             }
         }
         let (backend, w, h) =
-            start_screencapture_backend_at(segment_path, include_audio).map_err(|fallback_err| {
+            start_screencapture_backend_at(segment_path, include_audio, target_display_id).map_err(|fallback_err| {
                 format!("ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})")
             })?;
         Ok((backend, w, h))
@@ -722,12 +729,14 @@ fn start_screencapturekit_backend_at(
     include_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
+    target_display_id: Option<u32>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     let content =
         SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
     let displays = content.displays();
-    let display = displays
-        .first()
+    let display = target_display_id
+        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+        .or_else(|| displays.first())
         .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
 
     let width = display.width();
@@ -805,16 +814,25 @@ fn start_screencapturekit_backend_at(
 fn start_screencapture_backend_at(
     output_path: &Path,
     include_audio: bool,
+    target_display_id: Option<u32>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     if !std::path::Path::new("/usr/sbin/screencapture").exists() {
         return Err("macOS screencapture is unavailable on this machine.".into());
     }
+    // screencapture -D<N> uses 1-based position in CGGetActiveDisplayList.
+    let display_flag = target_display_id
+        .and_then(|id| {
+            CGDisplay::active_displays().ok().and_then(|ids| {
+                ids.iter().position(|&aid| aid == id).map(|p| format!("-D{}", p + 1))
+            })
+        })
+        .unwrap_or_else(|| "-D1".to_string());
     let mut command = Command::new("/usr/sbin/screencapture");
     command
         .arg("-v")
         .arg("-x")
         .arg("-C")
-        .arg("-D1")
+        .arg(display_flag)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -1234,11 +1252,18 @@ fn capture_thumbnail_bytes(app: &AppHandle, recording_id: &str) -> Result<Vec<u8
 
         let path = thumbnail_path(app, recording_id)?;
         let _ = std::fs::remove_file(&path);
+        let thumb_display_flag = tray_display_id(app)
+            .and_then(|id| {
+                CGDisplay::active_displays().ok().and_then(|ids| {
+                    ids.iter().position(|&aid| aid == id).map(|p| format!("-D{}", p + 1))
+                })
+            })
+            .unwrap_or_else(|| "-D1".to_string());
         let status = Command::new("/usr/sbin/screencapture")
             .arg("-x")
             .arg("-t")
             .arg("jpg")
-            .arg("-D1")
+            .arg(thumb_display_flag)
             .arg(&path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1337,6 +1362,61 @@ fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecordi
 }
 
 #[cfg(target_os = "macos")]
+/// Return the `CGDirectDisplayID` of the display containing the centre of
+/// the last-clicked tray icon. Uses the Tauri monitor list to locate the
+/// right monitor and converts from physical pixels to the logical-point
+/// coordinate space that `CGDisplay::displays_with_point` requires.
+/// Returns `None` when the tray anchor hasn't been set yet or any lookup
+/// fails — callers fall back to the first available display.
+#[cfg(target_os = "macos")]
+fn tray_display_id(app: &AppHandle) -> Option<u32> {
+    let tray_rect = app
+        .try_state::<crate::state::TrayAnchor>()
+        .and_then(|a| a.0.lock().ok().and_then(|g| *g))?;
+
+    let icon_x = match tray_rect.position {
+        tauri::Position::Physical(p) => p.x as f64,
+        tauri::Position::Logical(p) => p.x,
+    };
+    let icon_y = match tray_rect.position {
+        tauri::Position::Physical(p) => p.y as f64,
+        tauri::Position::Logical(p) => p.y,
+    };
+    let icon_w = match tray_rect.size {
+        tauri::Size::Physical(s) => s.width as f64,
+        tauri::Size::Logical(s) => s.width,
+    };
+    let icon_h = match tray_rect.size {
+        tauri::Size::Physical(s) => s.height as f64,
+        tauri::Size::Logical(s) => s.height,
+    };
+
+    let cx_phys = icon_x + icon_w / 2.0;
+    let cy_phys = icon_y + icon_h / 2.0;
+
+    // CGDisplay uses logical (point) coordinates; Tauri gives physical pixels.
+    // Divide by the monitor's scale factor to convert.
+    let scale = app
+        .get_webview_window("popover")
+        .and_then(|w| w.available_monitors().ok())
+        .and_then(|monitors| {
+            monitors.into_iter().find(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                cx_phys as i32 >= mp.x
+                    && (cx_phys as i32) < mp.x + ms.width as i32
+                    && cy_phys as i32 >= mp.y
+                    && (cy_phys as i32) < mp.y + ms.height as i32
+            })
+        })
+        .map(|m| m.scale_factor())
+        .unwrap_or(2.0);
+
+    let point = CGPoint::new(cx_phys / scale, cy_phys / scale);
+    let (ids, _) = CGDisplay::displays_with_point(point, 4).ok()?;
+    ids.into_iter().next()
+}
+
 fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
@@ -1344,6 +1424,7 @@ fn start_screencapturekit_recording(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
 ) -> Result<NativeFullscreenSession, String> {
+    let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
     let (backend, width, height) = start_screencapturekit_backend_at(
@@ -1351,6 +1432,7 @@ fn start_screencapturekit_recording(
         include_audio,
         mic_device_id,
         mic_device_label,
+        target_display_id,
     )?;
     let (fallback_width, fallback_height) = primary_monitor_size(app);
     Ok(new_fullscreen_session(
@@ -1365,6 +1447,7 @@ fn start_screencapturekit_recording(
             mic_device_id: mic_device_id.map(str::to_string),
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
+            target_display_id,
         },
     ))
 }
@@ -1375,9 +1458,10 @@ fn start_screencapture_recording(
     safe_id: &str,
     include_audio: bool,
 ) -> Result<NativeFullscreenSession, String> {
+    let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
-    let (backend, _w, _h) = start_screencapture_backend_at(&path, include_audio)?;
+    let (backend, _w, _h) = start_screencapture_backend_at(&path, include_audio, target_display_id)?;
     let (width, height) = primary_monitor_size(app);
     Ok(new_fullscreen_session(
         backend,
@@ -1391,6 +1475,7 @@ fn start_screencapture_recording(
             mic_device_id: None,
             mic_device_label: None,
             segment_counter: 0,
+            target_display_id,
         },
     ))
 }

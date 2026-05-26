@@ -1,7 +1,9 @@
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::dlog;
-use crate::state::{DictationActive, PopoverShownAt, RecordingActive, VoiceWakePopover};
+use crate::state::{
+    DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
+};
 
 // ---------------------------------------------------------------------------
 // Capture-sharing helpers (macOS only)
@@ -92,6 +94,64 @@ pub fn set_capture_excluded_always(window: &WebviewWindow) {
 #[cfg(target_os = "macos")]
 pub fn set_capture_included(window: &WebviewWindow) {
     set_window_capture_excluded(window, false);
+}
+
+pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
+    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+        .title("Clips")
+        .inner_size(360.0, 520.0)
+        .position(2.0, 2.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(true)
+        .shadow(false)
+        .accept_first_mouse(true)
+        .build()
+}
+
+// Sets NSWindowCollectionBehaviorCanJoinAllSpaces (bit 0) and
+// NSWindowCollectionBehaviorFullScreenAuxiliary (bit 8). Bit 0 keeps the
+// window visible when the user switches Spaces; bit 8 keeps it visible over
+// fullscreen apps. Tauri exposes bit 0 via set_visible_on_all_workspaces but
+// not bit 8. Must be called before every show — orderOut: resets these bits.
+#[cfg(target_os = "macos")]
+pub fn configure_overlay_behavior(window: &WebviewWindow) {
+    let win = window.clone();
+    // AppKit calls must run on the main thread.
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] configure_overlay_behavior({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] configure_overlay_behavior({label}): ns_window is null");
+            return;
+        }
+        // SAFETY: ns_window() returns a live NSWindow*; called on main thread.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let current: usize = objc2::msg_send![&*obj, collectionBehavior];
+            let next = current | (1usize << 0) | (1usize << 8); // CanJoinAllSpaces | FullScreenAuxiliary
+            let _: () = objc2::msg_send![&*obj, setCollectionBehavior: next];
+        }
+        dlog!("[clips-tray] configure_overlay_behavior({label}): CanJoinAllSpaces|FullScreenAuxiliary");
+    }) {
+        eprintln!("[clips-tray] configure_overlay_behavior: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn configure_overlay_behavior(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Spaces are a macOS concept.
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -196,6 +256,63 @@ pub fn show_without_activation(window: &WebviewWindow) {
     // is a macOS-flavored complaint; if it shows up on Windows / Linux
     // we'll add a per-platform fix.
     let _ = window.show();
+}
+
+/// Returns `(x, y, width, height)` of the monitor where the tray icon was last
+/// clicked, in physical pixels. Falls back to the primary monitor. Use this
+/// instead of `primary_monitor_physical_size` for any overlay that should appear
+/// on the same screen as the recording.
+pub fn tray_monitor_physical_rect(app: &AppHandle) -> (i32, i32, u32, u32) {
+    let tray_rect = app
+        .try_state::<TrayAnchor>()
+        .and_then(|a| a.0.lock().ok().and_then(|g| *g));
+
+    let (icon_cx, icon_cy) = tray_rect
+        .map(|rect| {
+            let x = match rect.position {
+                tauri::Position::Physical(p) => p.x,
+                tauri::Position::Logical(p) => p.x as i32,
+            };
+            let y = match rect.position {
+                tauri::Position::Physical(p) => p.y,
+                tauri::Position::Logical(p) => p.y as i32,
+            };
+            let w = match rect.size {
+                tauri::Size::Physical(s) => s.width as i32,
+                tauri::Size::Logical(s) => s.width as i32,
+            };
+            let h = match rect.size {
+                tauri::Size::Physical(s) => s.height as i32,
+                tauri::Size::Logical(s) => s.height as i32,
+            };
+            (x + w / 2, y + h / 2)
+        })
+        .unwrap_or((0, 0));
+
+    let window = app.get_webview_window("popover");
+    let monitor = window
+        .as_ref()
+        .and_then(|w| w.available_monitors().ok())
+        .and_then(|monitors| {
+            monitors.into_iter().find(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                icon_cx >= mp.x
+                    && icon_cx < mp.x + ms.width as i32
+                    && icon_cy >= mp.y
+                    && icon_cy < mp.y + ms.height as i32
+            })
+        })
+        .or_else(|| window.and_then(|w| w.primary_monitor().ok().flatten()));
+
+    match monitor {
+        Some(m) => {
+            let p = m.position();
+            let s = m.size();
+            (p.x, p.y, s.width, s.height)
+        }
+        None => (0, 0, 2880, 1800),
+    }
 }
 
 pub fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
