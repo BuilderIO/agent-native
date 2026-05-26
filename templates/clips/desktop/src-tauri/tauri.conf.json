@@ -11,26 +11,7 @@
   },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "popover",
-        "title": "Clips",
-        "width": 360,
-        "height": 520,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "focus": true,
-        "shadow": false,
-        "center": false,
-        "acceptFirstMouse": true,
-        "x": 2,
-        "y": 2
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

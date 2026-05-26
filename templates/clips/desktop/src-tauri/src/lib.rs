@@ -29,7 +29,7 @@ use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
     RecordingActive, TrayAnchor, TrayMeetings, VoiceWakePopover,
 };
-use util::{is_recording_active, set_capture_included};
+use util::{configure_overlay_behavior, is_recording_active, set_capture_included};
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
 // has *something* to display even if `icons/tray.png` is missing on disk. The
@@ -46,6 +46,7 @@ pub fn run() {
             // over focus and neither popover shows.
             if let Some(window) = app.get_webview_window("popover") {
                 set_capture_included(&window);
+                configure_overlay_behavior(&window);
                 position_popover(app, &window);
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -161,15 +162,17 @@ pub fn run() {
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
-            // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
-            // in dev here. In unbundled dev runs, Accessory mode sometimes
-            // prevents the tray icon from registering in the macOS menu bar at
-            // all. Production builds (.app bundle) ship with LSUIElement=1 in
-            // Info.plist, which is the proper way to get pure menu-bar behavior.
-            #[cfg(all(target_os = "macos", not(debug_assertions)))]
+            // Keeps the app from yanking the user out of fullscreen when the
+            // popover appears. Production bundles reinforce this with LSUIElement=1.
+            #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
+
+            util::build_popover_window(app).map_err(|err| {
+                eprintln!("[clips-tray] popover build failed: {err}");
+                err
+            })?;
 
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
