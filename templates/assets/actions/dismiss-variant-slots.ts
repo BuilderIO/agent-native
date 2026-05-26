@@ -23,7 +23,12 @@ export default defineAction({
     }),
   run: async ({ slotId, scope }) => {
     const raw = (await readAppState("asset-variants")) as unknown | null;
-    const state = (raw ?? null) as AssetVariantState | null;
+    const legacyRaw =
+      raw ??
+      ((await readAppState("image-variants").catch(() => null)) as
+        | unknown
+        | null);
+    const state = (legacyRaw ?? null) as AssetVariantState | null;
     if (!state || !Array.isArray(state.slots) || state.slots.length === 0) {
       return { dismissed: 0, assetsDeleted: 0, cleared: true };
     }
@@ -59,6 +64,7 @@ export default defineAction({
 
     if (remaining.length === 0) {
       await deleteAppState("asset-variants");
+      await deleteAppState("image-variants").catch(() => {});
       return {
         dismissed: toRemove.length,
         assetsDeleted,
@@ -72,6 +78,7 @@ export default defineAction({
       "asset-variants",
       state as unknown as Record<string, unknown>,
     );
+    await deleteAppState("image-variants").catch(() => {});
     return {
       dismissed: toRemove.length,
       assetsDeleted,

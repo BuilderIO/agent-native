@@ -2276,8 +2276,13 @@ export function createProductionAgentHandler(
             parseSkillMetadata,
           } = await import("../resources/metadata.js");
           const ownerEmail = getRequestUserEmail();
+          const orgId = getRequestOrgId();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(ownerEmail);
+          const allResources = await resourceListAccessible(
+            ownerEmail,
+            undefined,
+            { userEmail: ownerEmail, orgId },
+          );
 
           if (allResources.length > 0) {
             const fileLines: string[] = [];
@@ -2307,7 +2312,10 @@ export function createProductionAgentHandler(
                 kind === "agent" ||
                 kind === "remote-agent"
               ) {
-                const full = await resourceGet(r.id);
+                const full = await resourceGet(r.id, {
+                  userEmail: ownerEmail,
+                  orgId,
+                });
                 if (!full) continue;
                 if (kind === "skill") {
                   const skill = parseSkillMetadata(full.content, r.path);

@@ -26,7 +26,7 @@ export type EmbeddedAppRequestHandler = (
 export interface EmbeddedAppBridgeOptions {
   /**
    * Exact parent origin to post back to. Defaults to document.referrer's
-   * origin when available, otherwise "*".
+   * origin when available. If no origin can be resolved, sends fail closed.
    */
   parentOrigin?: string;
   /**
@@ -41,7 +41,7 @@ export interface EmbeddedAppBridgeOptions {
 }
 
 export interface EmbeddedAppBridge {
-  parentOrigin: string;
+  parentOrigin: string | null;
   postMessage<TPayload = unknown>(name: string, payload?: TPayload): boolean;
   request<TResult = unknown, TPayload = unknown>(
     name: string,
@@ -59,21 +59,22 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
-function resolveParentOrigin(win: Window, explicit?: string): string {
+function resolveParentOrigin(win: Window, explicit?: string): string | null {
   if (explicit) return explicit;
   const referrerOrigin = embeddedAppOrigin(win.document?.referrer ?? "");
-  return referrerOrigin ?? "*";
+  return referrerOrigin;
 }
 
 function postToParent(
   win: Window,
   parent: Window | null,
-  parentOrigin: string,
+  parentOrigin: string | null,
   envelope: AgentNativeEmbedEnvelope,
 ): boolean {
   const target = parent ?? (win.parent === win ? null : win.parent);
+  if (!parentOrigin) return false;
   if (!target) return false;
-  target.postMessage(envelope, parentOrigin || "*");
+  target.postMessage(envelope, parentOrigin);
   return true;
 }
 
@@ -84,7 +85,7 @@ export function createEmbeddedAppBridge(
   const parentOrigin = resolveParentOrigin(win, options.parentOrigin);
   const allowedOrigins =
     options.allowedOrigins ??
-    (parentOrigin && parentOrigin !== "*" ? [parentOrigin] : undefined);
+    (parentOrigin && parentOrigin !== "*" ? [parentOrigin] : []);
   const pending = new Map<string, PendingRequest>();
   let destroyed = false;
 

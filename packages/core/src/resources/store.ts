@@ -409,14 +409,8 @@ function requestScopedResourceIdentity(options?: ResourceResolutionOptions): {
   userEmail: string | null;
   orgId: string | null;
 } {
-  const userEmail =
-    options && "userEmail" in options
-      ? (options.userEmail ?? null)
-      : (getRequestUserEmail() ?? null);
-  const orgId =
-    options && "orgId" in options
-      ? (options.orgId ?? null)
-      : (getRequestOrgId() ?? null);
+  const userEmail = options?.userEmail ?? getRequestUserEmail() ?? null;
+  const orgId = options?.orgId ?? getRequestOrgId() ?? null;
   return { userEmail, orgId };
 }
 

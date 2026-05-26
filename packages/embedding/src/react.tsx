@@ -91,12 +91,13 @@ const defaultStyle: CSSProperties = {
 
 function postEnvelope(
   iframe: HTMLIFrameElement | null,
-  targetOrigin: string | undefined,
+  targetOrigin: string | null | undefined,
   envelope: AgentNativeEmbedEnvelope,
 ): boolean {
   const targetWindow = iframe?.contentWindow;
+  if (!targetOrigin) return false;
   if (!targetWindow) return false;
-  targetWindow.postMessage(envelope, targetOrigin || "*");
+  targetWindow.postMessage(envelope, targetOrigin);
   return true;
 }
 

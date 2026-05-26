@@ -45,14 +45,40 @@ export function isAgentNativeEmbedEnvelope(
     return false;
   }
   const candidate = value as Partial<AgentNativeEmbedEnvelope>;
-  return (
-    candidate.protocol === AGENT_NATIVE_EMBED_PROTOCOL &&
-    candidate.version === AGENT_NATIVE_EMBED_VERSION &&
-    typeof candidate.type === "string" &&
-    Object.values(AGENT_NATIVE_EMBED_MESSAGE_TYPES).includes(
+  if (
+    candidate.protocol !== AGENT_NATIVE_EMBED_PROTOCOL ||
+    candidate.version !== AGENT_NATIVE_EMBED_VERSION ||
+    typeof candidate.type !== "string" ||
+    !Object.values(AGENT_NATIVE_EMBED_MESSAGE_TYPES).includes(
       candidate.type as AgentNativeEmbedMessageType,
     )
-  );
+  ) {
+    return false;
+  }
+  if (candidate.name !== undefined && typeof candidate.name !== "string") {
+    return false;
+  }
+  if (
+    candidate.requestId !== undefined &&
+    typeof candidate.requestId !== "string"
+  ) {
+    return false;
+  }
+  if (candidate.error !== undefined) {
+    if (
+      !candidate.error ||
+      typeof candidate.error !== "object" ||
+      Array.isArray(candidate.error)
+    ) {
+      return false;
+    }
+    const error = candidate.error as Partial<AgentNativeEmbedErrorPayload>;
+    if (typeof error.message !== "string") return false;
+    if (error.code !== undefined && typeof error.code !== "string") {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function createAgentNativeEmbedEnvelope<TPayload>(
@@ -89,7 +115,7 @@ export function isAllowedEmbeddedAppOrigin(
   origin: string,
   allowedOrigins: readonly string[] | undefined,
 ): boolean {
-  if (!allowedOrigins?.length) return true;
+  if (!allowedOrigins?.length) return false;
   return allowedOrigins.some(
     (allowed) => allowed === "*" || allowed === origin,
   );
@@ -142,6 +168,12 @@ export function withEmbeddedAppParams(
 }
 
 export function createEmbeddedAppRequestId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `embed-${crypto.randomUUID()}`;
+  }
   return `embed-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 

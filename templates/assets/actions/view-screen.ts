@@ -23,21 +23,13 @@ export default defineAction({
     };
     const nav = navigation as any;
     if (nav?.libraryId) {
-      screen.library = await getLibrary
-        .run({ id: nav.libraryId })
-        .catch((err) => ({
-          error: err instanceof Error ? err.message : String(err),
-        }));
+      screen.library = await getLibrary.run({ id: nav.libraryId });
     }
     if (nav?.assetId) {
-      screen.asset = await getAsset.run({ id: nav.assetId }).catch((err) => ({
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      screen.asset = await getAsset.run({ id: nav.assetId });
     }
     if (nav?.view === "audit") {
-      screen.audit = await listAuditRuns.run({ limit: 20 }).catch((err) => ({
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      screen.audit = await listAuditRuns.run({ limit: 20 });
     }
     return screen;
   },

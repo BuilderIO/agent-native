@@ -1,12 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  requireLibrary,
-  serializeAsset,
-  serializeGenerationRun,
-} from "./_helpers.js";
+import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 
 export default defineAction({
@@ -23,7 +20,7 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    await requireLibrary(run.libraryId);
+    await assertAccess("asset-library", run.libraryId, "editor");
     if ((run.mediaType ?? "image") !== "video") {
       return { run: serializeGenerationRun(run), assets: [] };
     }

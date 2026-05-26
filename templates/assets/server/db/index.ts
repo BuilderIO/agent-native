@@ -5,7 +5,7 @@ import { registerShareableResource } from "@agent-native/core/sharing";
 export const getDb = createGetDb(schema);
 export { schema };
 
-for (const type of ["asset-library", "asset-library"] as const) {
+for (const type of ["asset-library", "image-library"] as const) {
   registerShareableResource({
     type,
     resourceTable: schema.assetLibraries,

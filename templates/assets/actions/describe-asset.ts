@@ -23,6 +23,8 @@ export default defineAction({
     if (!overwrite && (asset.description || asset.altText)) {
       return serializeAsset(asset);
     }
+    // Cost guard: this downloads media and calls Gemini, so default to cached
+    // descriptions unless the caller explicitly passes overwrite=true.
     const bytes = await getObject(asset.objectKey);
     if (bytes.byteLength > MAX_INLINE_MEDIA_BYTES) {
       throw new Error(

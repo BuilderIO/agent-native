@@ -87,6 +87,7 @@ export interface ParsedAppSkillArgs {
   skipInstall: boolean;
   noRegister: boolean;
   printJson: boolean;
+  yes: boolean;
 }
 
 export interface EnsureAppSkillOptions {
@@ -96,6 +97,8 @@ export interface EnsureAppSkillOptions {
   serverName?: string;
   baseDir?: string;
   dryRun?: boolean;
+  confirm?: boolean;
+  yes?: boolean;
   log?: (message: string) => void;
 }
 
@@ -117,6 +120,8 @@ export interface LaunchAppSkillOptions {
   scope?: string;
   serverName?: string;
   baseDir?: string;
+  confirm?: boolean;
+  yes?: boolean;
   log?: (message: string) => void;
 }
 
@@ -138,9 +143,9 @@ export interface AppSkillLaunchPlan {
 const HELP = `agent-native app-skill
 
 Usage:
-  agent-native app-skill ensure [--manifest <file>] [--client all|codex|claude-code|cowork] [--scope user|project]
-  agent-native app-skill launch [--manifest <file>] [--local] [--into <path>] [--dry-run]
-  agent-native app-skill pack   [--manifest <file>] --out <dir>
+  agent-native app-skill ensure [--manifest <file>] [--hosted|--local] [--client all|codex|claude-code|claude-code-cli|cowork] [--scope user|project] [--name <server>] [--yes] [--dry-run] [--json]
+  agent-native app-skill launch [--manifest <file>] [--local|--hosted] [--into <path>] [--client <client>] [--scope user|project] [--name <server>] [--no-register] [--skip-install] [--yes] [--dry-run] [--json]
+  agent-native app-skill pack   [--manifest <file>] --out <dir> [--json]
 
 Commands:
   ensure   Register the app skill MCP connector for your local agent clients.
@@ -149,6 +154,25 @@ Commands:
 
 Hosted is the default. Use --local when you want editable source, offline work,
 or a privacy-sensitive local app instance.`;
+
+const APP_SKILL_COMMANDS = new Set(["ensure", "launch", "pack"]);
+const APP_SKILL_SCOPES = new Set(["user", "project"]);
+const SAFE_PACKAGE_EXECUTABLES = new Set(["pnpm", "npm", "bun", "yarn"]);
+const SAFE_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "TERM",
+  "CI",
+  "PNPM_HOME",
+  "COREPACK_HOME",
+  "SystemRoot",
+  "ComSpec",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -379,14 +403,17 @@ export function internalSkills(
 
 export function parseAppSkillArgs(argv: string[]): ParsedAppSkillArgs {
   const first = argv[0];
-  const command =
-    first === "ensure" || first === "launch" || first === "pack"
-      ? first
-      : first === "help" || first === "--help" || first === "-h"
-        ? "help"
-        : "ensure";
-  const args =
-    command === "ensure" && first !== "ensure" ? argv : argv.slice(1);
+  let command: ParsedAppSkillArgs["command"] = "ensure";
+  let args = argv;
+  if (first === "help" || first === "--help" || first === "-h") {
+    command = "help";
+    args = argv.slice(1);
+  } else if (APP_SKILL_COMMANDS.has(first ?? "")) {
+    command = first as ParsedAppSkillArgs["command"];
+    args = argv.slice(1);
+  } else if (first && !first.startsWith("-") && !looksLikeManifestArg(first)) {
+    throw new Error(`Unknown app-skill command: ${first}`);
+  }
   const out: ParsedAppSkillArgs = {
     command,
     client: "all",
@@ -396,13 +423,24 @@ export function parseAppSkillArgs(argv: string[]): ParsedAppSkillArgs {
     skipInstall: false,
     noRegister: false,
     printJson: false,
+    yes: false,
   };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const eat = (flag: string): string | undefined => {
-      if (arg === flag) return args[++i];
-      if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+      if (arg === flag) {
+        const next = args[++i];
+        if (!next || next.startsWith("-")) {
+          throw new Error(`Missing value for ${flag}.`);
+        }
+        return next;
+      }
+      if (arg.startsWith(`${flag}=`)) {
+        const value = arg.slice(flag.length + 1);
+        if (!value) throw new Error(`Missing value for ${flag}.`);
+        return value;
+      }
       return undefined;
     };
     let value: string | undefined;
@@ -421,18 +459,56 @@ export function parseAppSkillArgs(argv: string[]): ParsedAppSkillArgs {
       out.skipInstall = true;
     else if (arg === "--no-register") out.noRegister = true;
     else if (arg === "--json") out.printJson = true;
-    else if (!arg.startsWith("-") && !out.manifest) out.manifest = arg;
+    else if (arg === "--yes" || arg === "-y") out.yes = true;
+    else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
+    else if (!out.manifest) out.manifest = arg;
+    else throw new Error(`Unexpected argument: ${arg}`);
+  }
+
+  if (!APP_SKILL_SCOPES.has(out.scope)) {
+    throw new Error("--scope must be either user or project.");
   }
 
   return out;
 }
 
+function looksLikeManifestArg(value: string): boolean {
+  return (
+    value.endsWith(".json") ||
+    value.includes("/") ||
+    value.includes("\\") ||
+    fs.existsSync(value)
+  );
+}
+
+function assertPathInside(root: string, target: string, field: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  if (relative && (relative.startsWith("..") || path.isAbsolute(relative))) {
+    throw new Error(`${field} must resolve inside ${resolvedRoot}.`);
+  }
+  return resolvedTarget;
+}
+
 function resolveSkillSource(manifestDir: string, skill: AppSkillManifestSkill) {
-  return path.resolve(manifestDir, skill.path);
+  if (path.isAbsolute(skill.path)) {
+    throw new Error(`Skill path must be relative: ${skill.path}`);
+  }
+  return assertPathInside(
+    manifestDir,
+    path.resolve(manifestDir, skill.path),
+    `Skill path ${skill.path}`,
+  );
 }
 
 function skillExportName(skill: AppSkillManifestSkill): string {
-  if (skill.exportAs) return skill.exportAs;
+  if (skill.exportAs) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(skill.exportAs)) {
+      throw new Error(`Invalid skill export name: ${skill.exportAs}`);
+    }
+    return skill.exportAs;
+  }
   const normalized = skill.path.replace(/\/+$/, "");
   return path.basename(normalized);
 }
@@ -458,17 +534,26 @@ function copyDirFiltered(source: string, dest: string): void {
         return false;
       }
       const base = path.basename(src);
+      const lower = base.toLowerCase();
       return (
         base !== "node_modules" &&
         base !== ".git" &&
         base !== "dist" &&
         base !== ".output" &&
         base !== ".react-router" &&
-        base !== ".env" &&
-        base !== ".env.local" &&
-        !base.endsWith(".db") &&
-        !base.endsWith(".sqlite") &&
-        !base.endsWith(".sqlite3")
+        base !== ".netlify" &&
+        base !== "secrets" &&
+        base !== "private" &&
+        !base.startsWith(".env") &&
+        base !== ".dev.vars" &&
+        base !== ".npmrc" &&
+        !lower.endsWith(".db") &&
+        !lower.endsWith(".sqlite") &&
+        !lower.endsWith(".sqlite3") &&
+        !lower.endsWith(".pem") &&
+        !lower.endsWith(".key") &&
+        !lower.endsWith(".crt") &&
+        !lower.endsWith(".p12")
       );
     },
   });
@@ -674,10 +759,20 @@ function resolveLocalSourceDir(
 ): string | undefined {
   const local = loaded.manifest.local;
   if (local?.sourcePath) {
-    const source = path.resolve(loaded.dir, local.sourcePath);
+    if (path.isAbsolute(local.sourcePath)) {
+      throw new Error("local.sourcePath must be relative to the manifest.");
+    }
+    const source = assertPathInside(
+      loaded.dir,
+      path.resolve(loaded.dir, local.sourcePath),
+      "local.sourcePath",
+    );
     if (fs.existsSync(source)) return source;
   }
   if (local?.template) {
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(local.template)) {
+      throw new Error("local.template must be a direct template name.");
+    }
     const repoTemplate = path.resolve(
       process.cwd(),
       "templates",
@@ -736,16 +831,52 @@ function printPlan(plan: AppSkillLaunchPlan, log: (message: string) => void) {
   if (plan.commands.dev) log(`  Dev:        ${plan.commands.dev}`);
 }
 
+function safeChildEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of SAFE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+function parsePackageCommand(command: string): {
+  executable: string;
+  args: string[];
+} {
+  const trimmed = command.trim();
+  if (!trimmed) throw new Error("Command cannot be empty.");
+  if (/[\n\r;&|<>`$]/.test(trimmed)) {
+    throw new Error(
+      `Unsafe shell syntax is not allowed in command: ${command}`,
+    );
+  }
+  const parts = trimmed.split(/\s+/);
+  const executable = parts[0];
+  if (!SAFE_PACKAGE_EXECUTABLES.has(executable)) {
+    throw new Error(
+      `Unsupported app-skill command executable: ${executable}. Use pnpm, npm, bun, or yarn.`,
+    );
+  }
+  return { executable, args: parts.slice(1) };
+}
+
 function runShell(command: string, cwd: string): Promise<number> {
+  const { executable, args } = parsePackageCommand(command);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, {
+    const child = spawn(executable, args, {
       cwd,
-      env: process.env,
-      shell: true,
+      env: safeChildEnv(),
       stdio: "inherit",
     });
     child.on("error", reject);
-    child.on("exit", (code) => resolve(code ?? 0));
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`Command "${command}" was terminated by ${signal}.`));
+        return;
+      }
+      resolve(code ?? 1);
+    });
   });
 }
 
@@ -785,6 +916,10 @@ export async function ensureAppSkill(
 
   if (options.dryRun) return result;
 
+  if (options.confirm && !options.yes) {
+    await confirmMcpRegistration(result, loaded.manifest.displayName, scope);
+  }
+
   result.written = writeConfigs(
     clients,
     serverName,
@@ -797,6 +932,39 @@ export async function ensureAppSkill(
     `Registered ${serverName} for ${clients.join(", ")} at ${plan.mcpUrl}`,
   );
   return result;
+}
+
+async function confirmMcpRegistration(
+  result: EnsureAppSkillResult,
+  displayName: string,
+  scope: string,
+): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(
+      "Refusing to register MCP servers from a manifest without confirmation. Re-run with --yes to approve.",
+    );
+  }
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const answer = await rl.question(
+      [
+        `Register ${displayName} MCP server "${result.serverName}"?`,
+        `  URL:     ${result.mcpUrl}`,
+        `  Clients: ${result.clients.join(", ")}`,
+        `  Scope:   ${scope}`,
+        "Proceed? [y/N] ",
+      ].join("\n"),
+    );
+    if (!/^(y|yes)$/i.test(answer.trim())) {
+      throw new Error("Cancelled app-skill MCP registration.");
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 export async function launchAppSkill(
@@ -839,6 +1007,8 @@ export async function launchAppSkill(
       scope: options.scope,
       serverName: options.serverName,
       baseDir: options.baseDir,
+      confirm: options.confirm,
+      yes: options.yes,
       log,
     });
   }
@@ -863,14 +1033,18 @@ function resolveArgsClients(parsed: ParsedAppSkillArgs): ClientId[] {
 }
 
 export async function runAppSkill(argv: string[]): Promise<void> {
-  const parsed = parseAppSkillArgs(argv);
-  if (parsed.command === "help") {
-    process.stdout.write(`${HELP}\n`);
-    return;
-  }
-
   try {
+    const parsed = parseAppSkillArgs(argv);
+    if (parsed.command === "help") {
+      process.stdout.write(`${HELP}\n`);
+      return;
+    }
+
     const loaded = loadAppSkillManifest(parsed.manifest);
+    const log = (message: string) =>
+      (parsed.printJson ? process.stderr : process.stdout).write(
+        `${message}\n`,
+      );
     if (parsed.command === "ensure") {
       const result = await ensureAppSkill(loaded, {
         mode: parsed.mode,
@@ -878,7 +1052,9 @@ export async function runAppSkill(argv: string[]): Promise<void> {
         scope: parsed.scope,
         serverName: parsed.serverName,
         dryRun: parsed.dryRun,
-        log: (message) => process.stdout.write(`${message}\n`),
+        confirm: true,
+        yes: parsed.yes,
+        log,
       });
       if (parsed.printJson) {
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -900,7 +1076,9 @@ export async function runAppSkill(argv: string[]): Promise<void> {
         clients: resolveArgsClients(parsed),
         scope: parsed.scope,
         serverName: parsed.serverName,
-        log: (message) => process.stdout.write(`${message}\n`),
+        confirm: true,
+        yes: parsed.yes,
+        log,
       });
       if (parsed.printJson) {
         process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -922,7 +1100,7 @@ export async function runAppSkill(argv: string[]): Promise<void> {
       }
     }
   } catch (err: any) {
-    process.stderr.write(`  ${err?.message ?? err}\n`);
+    process.stderr.write(`${err?.message ?? err}\n`);
     process.exitCode = 1;
   }
 }

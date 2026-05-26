@@ -19,9 +19,16 @@ export default defineAction({
   run: async ({ assetId, slotId }) => {
     let resolvedAssetId = assetId;
     const raw = (await readAppState("asset-variants")) as unknown | null;
+    const legacyRaw =
+      raw ??
+      ((await readAppState("image-variants").catch(() => null)) as
+        | unknown
+        | null);
     const variants = (raw ?? null) as AssetVariantState | null;
-    if (!resolvedAssetId && slotId && variants) {
-      resolvedAssetId = variants.slots.find(
+    const legacyVariants = (legacyRaw ?? null) as AssetVariantState | null;
+    const activeVariants = variants ?? legacyVariants;
+    if (!resolvedAssetId && slotId && activeVariants) {
+      resolvedAssetId = activeVariants.slots.find(
         (slot) => slot.slotId === slotId,
       )?.assetId;
     }
@@ -29,17 +36,19 @@ export default defineAction({
       throw new Error("assetId or a ready slotId is required.");
     await markAssetSaved(resolvedAssetId);
     const asset = await getAssetOrThrow(resolvedAssetId);
-    if (variants) {
-      variants.slots = variants.slots.filter(
+    if (activeVariants) {
+      activeVariants.slots = activeVariants.slots.filter(
         (slot) => slot.assetId !== resolvedAssetId,
       );
-      if (variants.slots.length) {
+      if (activeVariants.slots.length) {
         await writeAppState(
           "asset-variants",
-          variants as unknown as Record<string, unknown>,
+          activeVariants as unknown as Record<string, unknown>,
         );
+        await deleteAppState("image-variants").catch(() => {});
       } else {
         await deleteAppState("asset-variants");
+        await deleteAppState("image-variants").catch(() => {});
       }
     }
     return serializeAsset({ ...asset, status: "saved" });

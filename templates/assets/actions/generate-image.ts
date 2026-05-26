@@ -327,7 +327,12 @@ async function wasSlotDismissed(
   slotId: string,
 ): Promise<boolean> {
   const raw = (await readAppState("asset-variants")) as unknown | null;
-  const state = (raw ?? null) as AssetVariantState | null;
+  const legacyRaw =
+    raw ??
+    ((await readAppState("image-variants").catch(() => null)) as
+      | unknown
+      | null);
+  const state = (legacyRaw ?? null) as AssetVariantState | null;
   if (!state) return true;
   if (state.libraryId !== libraryId) return false;
   return !state.slots.some((s) => s.slotId === slotId);
@@ -346,7 +351,12 @@ async function upsertVariantSlot(input: {
   error?: string;
 }) {
   const current = (await readAppState("asset-variants")) as unknown | null;
-  const previous = (current ?? null) as AssetVariantState | null;
+  const legacyCurrent =
+    current ??
+    ((await readAppState("image-variants").catch(() => null)) as
+      | unknown
+      | null);
+  const previous = (legacyCurrent ?? null) as AssetVariantState | null;
   const state: AssetVariantState =
     previous?.libraryId === input.libraryId
       ? previous
@@ -374,4 +384,5 @@ async function upsertVariantSlot(input: {
     "asset-variants",
     state as unknown as Record<string, unknown>,
   );
+  await deleteAppState("image-variants").catch(() => {});
 }

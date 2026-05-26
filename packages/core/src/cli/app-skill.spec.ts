@@ -152,6 +152,18 @@ describe("app skill manifests", () => {
       dryRun: true,
     });
   });
+
+  it("rejects unknown commands and invalid flag values", () => {
+    expect(() => parseAppSkillArgs(["packk"])).toThrow(
+      /Unknown app-skill command/,
+    );
+    expect(() => parseAppSkillArgs(["--manifest", "--scope", "user"])).toThrow(
+      /Missing value for --manifest/,
+    );
+    expect(() => parseAppSkillArgs(["--scope", "usre"])).toThrow(
+      /--scope must be either user or project/,
+    );
+  });
 });
 
 describe("app skill packaging", () => {
@@ -204,6 +216,53 @@ describe("app skill packaging", () => {
       name: "agent-native-assets",
       url: "https://assets.agent-native.com/_agent-native/mcp",
     });
+  });
+
+  it("rejects pack paths that escape the manifest or output root", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.skills[0].exportAs = "../outside";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    expect(() =>
+      buildAppSkillPack(
+        loadAppSkillManifest(manifestFile),
+        path.join(tmpDir(), "out"),
+      ),
+    ).toThrow(/Invalid skill export name/);
+
+    manifest.skills[0].exportAs = "assets";
+    manifest.local.sourcePath = "../../..";
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    expect(() =>
+      buildAppSkillPack(
+        loadAppSkillManifest(manifestFile),
+        path.join(tmpDir(), "out"),
+      ),
+    ).toThrow(/local\.sourcePath must resolve inside/);
+  });
+
+  it("omits common secret files from packed local app source", () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    fs.writeFileSync(path.join(root, ".env.production"), "SECRET=1", "utf-8");
+    fs.writeFileSync(
+      path.join(root, ".npmrc"),
+      "//example/:_authToken=x",
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(root, "cert.pem"), "secret", "utf-8");
+
+    const outDir = path.join(tmpDir(), "packed-assets");
+    buildAppSkillPack(loadAppSkillManifest(manifestFile), outDir);
+
+    expect(fs.existsSync(path.join(outDir, "app", ".env.production"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(outDir, "app", ".npmrc"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "app", "cert.pem"))).toBe(false);
   });
 });
 

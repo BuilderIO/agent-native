@@ -17,15 +17,15 @@ image_libraries           — top-level library, has ownableColumns + shares
   └─ image_generation_runs — one per generate call, inherits access
 ```
 
-`image_assets` and `image_collections` and `image_generation_runs` do **NOT** carry `ownableColumns` themselves. They inherit access from their parent `library_id` via `assertAccess("image-library", libraryId, ...)`.
+`image_assets` and `image_collections` and `image_generation_runs` do **NOT** carry `ownableColumns` themselves. They inherit access from their parent `library_id` via `assertAccess("asset-library", libraryId, ...)`.
 
 ## Access control
 
 Every action that touches an ownable resource must scope its queries:
 
-- **List queries**: `accessFilter(schema.imageLibraries, schema.imageLibraryShares)` in WHERE.
-- **Read by id**: `await resolveAccess("image-library", libraryId)`. The `requireLibrary(id)` helper in `_helpers.ts` wraps this.
-- **Write**: `await assertAccess("image-library", libraryId, "editor")` for updates / inserts; `"admin"` for deletes.
+- **List queries**: `accessFilter(schema.assetLibraries, schema.assetLibraryShares)` in WHERE.
+- **Read by id**: `await resolveAccess("asset-library", libraryId)`. The `requireLibrary(id)` helper in `_helpers.ts` wraps this.
+- **Write**: `await assertAccess("asset-library", libraryId, "editor")` for updates / inserts; `"admin"` for deletes.
 
 All assets / runs derive `libraryId` first, then assert against the parent library. Never query `image_assets` without also pinning `library_id` to a value the caller has access to.
 
@@ -54,7 +54,7 @@ Example: adding `image_libraries.icon`:
 Libraries follow the standard framework sharing model:
 - `visibility: "private" | "org" | "public"`
 - Per-user / per-org grants in `image_library_shares` with `viewer | editor | admin` roles.
-- Use the framework actions `share-resource`, `unshare-resource`, `set-resource-visibility` with `--resourceType=image-library`.
+- Use the framework actions `share-resource`, `unshare-resource`, `set-resource-visibility` with `--resourceType=asset-library`. The legacy `image-library` alias remains registered for existing grants.
 
 Generated assets and references inherit the parent library's visibility. v1 doesn't support per-asset overrides; the schema is forward-compatible (`image_generated_image_shares` could be added without disturbing existing rows) but not surfaced in the UI.
 
