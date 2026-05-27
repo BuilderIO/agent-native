@@ -1,4 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   IconX,
   IconPlus,
@@ -16,10 +23,20 @@ import {
   IconFolder,
   IconFolderPlus,
   IconAlertCircle,
+  IconKeyboard,
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import type { UpdateStatus } from "@shared/ipc-channels";
 import { generateAppId } from "@shared/app-registry";
+import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  type DesktopShortcutBehavior,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpsertRequest,
+} from "@shared/desktop-shortcuts";
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
 
@@ -209,6 +226,142 @@ function updateStatusCopy(status: UpdateStatus | null): {
   };
 }
 
+interface ShortcutDraft {
+  id?: string;
+  accelerator: string;
+  app: string;
+  view: string;
+  behavior: DesktopShortcutBehavior;
+  enabled: boolean;
+}
+
+function defaultShortcutDraft(apps: AppConfig[]): ShortcutDraft {
+  const firstEnabledApp =
+    apps.find((app) => app.enabled !== false) ?? apps[0] ?? null;
+  return {
+    accelerator: "",
+    app: firstEnabledApp?.id ?? "",
+    view: "",
+    behavior: "toggle",
+    enabled: true,
+  };
+}
+
+function shortcutDraftFromBinding(
+  binding: DesktopShortcutBinding,
+): ShortcutDraft {
+  return {
+    id: binding.id,
+    accelerator: binding.accelerator,
+    app: binding.app,
+    view: binding.view ?? "",
+    behavior: binding.behavior,
+    enabled: binding.enabled,
+  };
+}
+
+function shortcutRequestFromDraft(
+  draft: ShortcutDraft,
+): DesktopShortcutUpsertRequest {
+  return {
+    id: draft.id,
+    accelerator: draft.accelerator,
+    app: draft.app,
+    view: draft.view.trim() || undefined,
+    behavior: draft.behavior,
+    enabled: draft.enabled,
+  };
+}
+
+function shortcutKeyFromEvent(event: ReactKeyboardEvent): {
+  accelerator?: string;
+  error?: string;
+} {
+  const modifierKeys = new Set(["Alt", "Control", "Meta", "Shift"]);
+  if (modifierKeys.has(event.key)) return {};
+
+  const parts: string[] = [];
+  if (event.metaKey) parts.push("Command");
+  if (event.ctrlKey) parts.push("Control");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+
+  if (!parts.length) return { error: "Use at least one modifier plus a key." };
+
+  const key = event.key === " " ? "Space" : event.key;
+  return normalizeDesktopShortcutAccelerator([...parts, key].join("+"));
+}
+
+function ShortcutRecorder({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <div className="settings-shortcut-recorder-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`settings-shortcut-recorder${recording ? " settings-shortcut-recorder--recording" : ""}`}
+        onClick={() => {
+          setError(null);
+          setRecording(true);
+          requestAnimationFrame(() => buttonRef.current?.focus());
+        }}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          if (event.key === "Backspace" || event.key === "Delete") {
+            onChange("");
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          const next = shortcutKeyFromEvent(event);
+          if (!next.accelerator) {
+            if (next.error) setError(next.error);
+            return;
+          }
+          onChange(next.accelerator);
+          setError(null);
+          setRecording(false);
+        }}
+        onKeyUp={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        <IconKeyboard size={14} />
+        <span>
+          {recording
+            ? "Press shortcut"
+            : value
+              ? formatDesktopShortcutAccelerator(
+                  value,
+                  window.electronAPI?.platform,
+                )
+              : "Record shortcut"}
+        </span>
+      </button>
+      {error && <span className="settings-shortcut-error">{error}</span>}
+    </div>
+  );
+}
+
 function SoftwareUpdateCard() {
   const status = useUpdateStatus();
   const copy = updateStatusCopy(status);
@@ -347,6 +500,14 @@ export default function AppSettings({
   const [providerLoadMessage, setProviderLoadMessage] = useState<string | null>(
     null,
   );
+  const [showShortcutSettings, setShowShortcutSettings] = useState(false);
+  const [shortcutSettings, setShortcutSettings] =
+    useState<DesktopShortcutSettings | null>(null);
+  const [shortcutDraft, setShortcutDraft] = useState<ShortcutDraft>(() =>
+    defaultShortcutDraft(apps),
+  );
+  const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
+  const [shortcutSaving, setShortcutSaving] = useState(false);
 
   // Load frame settings
   useEffect(() => {
