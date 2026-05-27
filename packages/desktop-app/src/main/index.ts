@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   Notification,
@@ -62,11 +63,19 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import {
+  formatDesktopShortcutAccelerator,
+  shortcutOpenPathForBinding,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+} from "@shared/desktop-shortcuts";
 import {
   FRAME_PORT,
   getTemplate,
@@ -576,10 +585,56 @@ async function handleDeepLink(url: string) {
       } else {
         focusMainWindow();
       }
+    } else if (parsed.host === "shortcuts" && parsed.pathname === "/upsert") {
+      await handleShortcutUpsertDeepLink(parsed);
     }
   } catch {
     // Malformed URL — ignore
   }
+}
+
+async function handleShortcutUpsertDeepLink(parsed: URL) {
+  const accelerator = parsed.searchParams.get("accelerator") ?? "";
+  const targetApp = parsed.searchParams.get("app") ?? "";
+  const view = parsed.searchParams.get("view") ?? undefined;
+  const behavior =
+    parsed.searchParams.get("behavior") === "show" ? "show" : "toggle";
+  const apps = loadAppsForAuthContext();
+  const appConfig = apps.find((candidate) => candidate.id === targetApp);
+  const win = focusMainWindow();
+  const appLabel = appConfig?.name ?? targetApp;
+  const detail = [
+    `Shortcut: ${formatDesktopShortcutAccelerator(accelerator, process.platform)}`,
+    `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
+    `Behavior: ${behavior === "show" ? "show and switch" : "toggle visibility"}`,
+  ].join("\n");
+
+  const result = await dialog.showMessageBox(win ?? undefined, {
+    type: "question",
+    buttons: ["Add Shortcut", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    message: "Add Agent Native app shortcut?",
+    detail,
+  });
+  if (result.response !== 0) return;
+
+  const update = AppStore.upsertDesktopShortcutBinding({
+    accelerator,
+    app: targetApp,
+    view,
+    behavior,
+    enabled: true,
+  });
+  if (!update.ok) {
+    await dialog.showMessageBox(win ?? undefined, {
+      type: "error",
+      message: "Shortcut was not added",
+      detail: update.error,
+    });
+    return;
+  }
+  registerDesktopShortcutBindings();
 }
 
 async function injectSessionAndReload(
@@ -918,6 +973,11 @@ function createWindow(): BrowserWindow {
 
 let activeAppId = "";
 let activeWebviewContentsId: number | undefined;
+let desktopShortcutRegistrations = new Map<
+  string,
+  DesktopShortcutRegistration
+>();
+const registeredDesktopShortcutAccelerators = new Set<string>();
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
@@ -967,6 +1027,131 @@ function getActiveWebviewContents() {
       })) ||
     webviewContents[0]
   );
+}
+
+function getDesktopShortcutSettings(): DesktopShortcutSettings {
+  const bindings = AppStore.loadDesktopShortcutBindings();
+  return {
+    bindings,
+    registrations: bindings.map(
+      (binding) =>
+        desktopShortcutRegistrations.get(binding.id) ?? {
+          id: binding.id,
+          registered: false,
+          error: binding.enabled ? "Shortcut is not registered." : undefined,
+        },
+    ),
+  };
+}
+
+function unregisterDesktopShortcutBindings() {
+  for (const accelerator of registeredDesktopShortcutAccelerators) {
+    try {
+      globalShortcut.unregister(accelerator);
+    } catch {
+      // Best effort; Electron also clears global shortcuts on quit.
+    }
+  }
+  registeredDesktopShortcutAccelerators.clear();
+}
+
+function hideMainWindowForShortcut() {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+  if (process.platform === "darwin") {
+    app.hide();
+  } else if (win && !win.isDestroyed()) {
+    win.hide();
+  }
+}
+
+function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+  const isTargetAlreadyFrontmost =
+    Boolean(win && !win.isDestroyed() && win.isVisible() && win.isFocused()) &&
+    activeAppId === binding.app;
+
+  if (binding.behavior === "toggle" && isTargetAlreadyFrontmost) {
+    hideMainWindowForShortcut();
+    return;
+  }
+
+  sendOpenRequestToRenderer({
+    app: binding.app,
+    path: shortcutOpenPathForBinding(binding),
+  });
+}
+
+function registerDesktopShortcutBindings() {
+  unregisterDesktopShortcutBindings();
+  const registrations = new Map<string, DesktopShortcutRegistration>();
+  const bindings = AppStore.loadDesktopShortcutBindings();
+  const apps = loadAppsForAuthContext();
+  const appsById = new Map(apps.map((appConfig) => [appConfig.id, appConfig]));
+  const claimedAccelerators = new Set<string>();
+
+  for (const binding of bindings) {
+    if (!binding.enabled) {
+      registrations.set(binding.id, { id: binding.id, registered: false });
+      continue;
+    }
+
+    const targetApp = appsById.get(binding.app);
+    if (!targetApp) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Target app is not installed.",
+      });
+      continue;
+    }
+    if (targetApp.enabled === false) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Target app is disabled.",
+      });
+      continue;
+    }
+    if (claimedAccelerators.has(binding.accelerator)) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Another binding already uses this shortcut.",
+      });
+      continue;
+    }
+
+    try {
+      const registered = globalShortcut.register(binding.accelerator, () =>
+        handleDesktopShortcutBinding(binding),
+      );
+      if (registered) {
+        claimedAccelerators.add(binding.accelerator);
+        registeredDesktopShortcutAccelerators.add(binding.accelerator);
+        registrations.set(binding.id, { id: binding.id, registered: true });
+      } else {
+        registrations.set(binding.id, {
+          id: binding.id,
+          registered: false,
+          error: "macOS or another app is already using this shortcut.",
+        });
+      }
+    } catch (err) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  desktopShortcutRegistrations = registrations;
 }
 
 function toggleWebviewDevTools() {

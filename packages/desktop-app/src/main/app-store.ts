@@ -1,4 +1,5 @@
 import { app, safeStorage } from "electron";
+import { randomUUID } from "node:crypto";
 import fs from "fs";
 import path from "path";
 import {
@@ -12,11 +13,18 @@ import type {
   CodeAgentProviderSettingsUpdate,
   CodeAgentProviderStatus,
 } from "@shared/ipc-channels";
+import {
+  normalizeDesktopShortcutAccelerator,
+  type DesktopShortcutBehavior,
+  type DesktopShortcutBinding,
+  type DesktopShortcutUpsertRequest,
+} from "@shared/desktop-shortcuts";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
+const SHORTCUT_STORE_FILE = "shortcut-config.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
 type StoredSecret =
@@ -84,6 +92,11 @@ export interface FrameSettings {
 
 export interface RemoteConnectorSettings {
   enabled: boolean;
+}
+
+interface ShortcutStore {
+  version: 1;
+  bindings: DesktopShortcutBinding[];
 }
 
 function defaultFrameSettings(): FrameSettings {
@@ -166,6 +179,10 @@ function getCodeAgentProviderStorePath(): string {
   return path.join(app.getPath("userData"), CODE_AGENT_PROVIDER_STORE_FILE);
 }
 
+function getShortcutStorePath(): string {
+  return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
+}
+
 function defaultCodeAgentProviderStore(): CodeAgentProviderStore {
   return { version: 1, credentials: {} };
 }
@@ -198,6 +215,67 @@ function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   } catch {
     // Best effort: the file still lives inside Electron's userData directory.
   }
+}
+
+function defaultShortcutStore(): ShortcutStore {
+  return { version: 1, bindings: [] };
+}
+
+function sanitizeShortcutBehavior(behavior: unknown): DesktopShortcutBehavior {
+  return behavior === "show" ? "show" : "toggle";
+}
+
+function sanitizeShortcutBinding(
+  candidate: Partial<DesktopShortcutBinding>,
+): DesktopShortcutBinding | null {
+  const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+  const appId = typeof candidate.app === "string" ? candidate.app.trim() : "";
+  const normalized = normalizeDesktopShortcutAccelerator(
+    typeof candidate.accelerator === "string" ? candidate.accelerator : "",
+  );
+  if (!id || !appId || !normalized.accelerator) return null;
+
+  const view =
+    typeof candidate.view === "string" && candidate.view.trim()
+      ? candidate.view.trim()
+      : undefined;
+
+  return {
+    id,
+    accelerator: normalized.accelerator,
+    app: appId,
+    view,
+    behavior: sanitizeShortcutBehavior(candidate.behavior),
+    enabled: candidate.enabled !== false,
+  };
+}
+
+function loadShortcutStore(): ShortcutStore {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getShortcutStorePath(), "utf-8"),
+    ) as Partial<ShortcutStore>;
+    const bindings = Array.isArray(raw.bindings)
+      ? raw.bindings
+          .map((binding) =>
+            sanitizeShortcutBinding(binding as Partial<DesktopShortcutBinding>),
+          )
+          .filter((binding): binding is DesktopShortcutBinding =>
+            Boolean(binding),
+          )
+      : [];
+    return { version: 1, bindings };
+  } catch {
+    return defaultShortcutStore();
+  }
+}
+
+function saveShortcutStore(store: ShortcutStore): void {
+  fs.writeFileSync(
+    getShortcutStorePath(),
+    JSON.stringify(store, null, 2),
+    "utf-8",
+  );
 }
 
 function canUseSafeStorage(): boolean {
@@ -421,6 +499,56 @@ export function saveRemoteConnectorSettings(
     "utf-8",
   );
   return updated;
+}
+
+export function loadDesktopShortcutBindings(): DesktopShortcutBinding[] {
+  return loadShortcutStore().bindings;
+}
+
+export function upsertDesktopShortcutBinding(
+  request: DesktopShortcutUpsertRequest,
+):
+  | { ok: true; binding: DesktopShortcutBinding }
+  | { ok: false; error: string } {
+  const normalized = normalizeDesktopShortcutAccelerator(request.accelerator);
+  if (!normalized.accelerator) {
+    return { ok: false, error: normalized.error ?? "Invalid shortcut." };
+  }
+
+  const appId = request.app.trim();
+  if (!appId) return { ok: false, error: "Choose an app." };
+
+  const store = loadShortcutStore();
+  const existingIndex = request.id
+    ? store.bindings.findIndex((binding) => binding.id === request.id)
+    : -1;
+  const existing =
+    existingIndex >= 0 ? store.bindings[existingIndex] : undefined;
+  const binding: DesktopShortcutBinding = {
+    id: existing?.id ?? request.id ?? randomUUID(),
+    accelerator: normalized.accelerator,
+    app: appId,
+    view: request.view?.trim() || undefined,
+    behavior: sanitizeShortcutBehavior(request.behavior ?? existing?.behavior),
+    enabled: request.enabled ?? existing?.enabled ?? true,
+  };
+
+  if (existingIndex >= 0) {
+    store.bindings[existingIndex] = binding;
+  } else {
+    store.bindings.push(binding);
+  }
+  saveShortcutStore(store);
+  return { ok: true, binding };
+}
+
+export function removeDesktopShortcutBinding(
+  id: string,
+): DesktopShortcutBinding[] {
+  const store = loadShortcutStore();
+  const bindings = store.bindings.filter((binding) => binding.id !== id);
+  saveShortcutStore({ version: 1, bindings });
+  return bindings;
 }
 
 function getStorePath(): string {
