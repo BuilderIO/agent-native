@@ -117,6 +117,17 @@ export const templates = [
     color: "#8B5CF6",
   },
   {
+    name: "Assets",
+    slug: "assets",
+    replaces:
+      "Replaces or augments DAMs, brand asset libraries, and AI media generators",
+    cliCommand: "npx @agent-native/core create my-assets-app --template assets",
+    demoUrl: "https://assets.agent-native.com",
+    description:
+      "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+    color: "#0F766E",
+  },
+  {
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments design prototyping tools",
@@ -154,7 +165,7 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = templates.filter(
-  (template) => !["brain", "video"].includes(template.slug),
+  (template) => template.slug !== "video",
 );
 
 function CliPopoverContent({ template }: { template: Template }) {

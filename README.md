@@ -141,8 +141,28 @@ Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispat
 Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
-<td width="33%" align="center" valign="top"></td>
-<td width="33%" align="center" valign="top"></td>
+<td width="33%" align="center" valign="top">
+
+**Brain**
+
+<a href="https://agent-native.com/templates/brain">Brain template</a>
+
+**Agent-Native company memory**
+
+Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Assets**
+
+<a href="https://agent-native.com/templates/assets">Assets template</a>
+
+**Agent-Native asset library**
+
+Upload, organize, search, and generate on-brand image and video assets that other apps can reuse.
+
+</td>
 </tr>
 </table>
 
