@@ -1263,11 +1263,15 @@ export default function RecordRoute() {
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
-          toast.error("Upload failed", {
-            description:
-              "The clip was marked failed in your library. You can remove it from the card menu.",
-            duration: 12_000,
-          });
+          toast.error(
+            isUploadSizeError(message) ? "Video is too large" : "Upload failed",
+            {
+              description: createdId
+                ? "The clip was marked failed in your library. You can remove it from the card menu."
+                : friendlyRecordingErrorMessage(message),
+              duration: 12_000,
+            },
+          );
         }
       } finally {
         if (fileUploadAbortRef.current === abort) {
