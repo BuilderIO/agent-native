@@ -1639,6 +1639,12 @@ body[data-clips-route="recording-pill"] #root {
   white-space: nowrap;
 }
 
+.pending-upload-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .pending-upload-retry {
   height: 28px;
   border: 1px solid #bfdbfe;
@@ -1659,12 +1665,63 @@ body[data-clips-route="recording-pill"] #root {
     opacity 120ms;
 }
 
+.pending-upload-discard {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #2563eb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-folder {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
 .pending-upload-retry:hover {
   background: #dbeafe;
   border-color: #93c5fd;
 }
 
-.pending-upload-retry:disabled {
+.pending-upload-folder:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-discard:hover {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.pending-upload-retry:disabled,
+.pending-upload-folder:disabled,
+.pending-upload-discard:disabled {
   cursor: default;
   opacity: 0.6;
 }
@@ -1840,9 +1897,32 @@ body[data-clips-route="recording-pill"] #root {
     color: #dbeafe;
   }
 
+  .pending-upload-discard {
+    background: rgba(15, 23, 42, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #bfdbfe;
+  }
+
+  .pending-upload-folder {
+    background: rgba(15, 23, 42, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
   .pending-upload-retry:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-folder:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-discard:hover {
+    background: rgba(127, 29, 29, 0.34);
+    border-color: rgba(248, 113, 113, 0.62);
+    color: #fecaca;
   }
 
   .error-banner {

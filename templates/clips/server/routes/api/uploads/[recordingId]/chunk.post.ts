@@ -92,7 +92,10 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
-  const MAX_CHUNK_BYTES = 6 * 1024 * 1024; // 6MB cap (5MB client + slack)
+  // Netlify functions have a 6 MB buffered request cap, but binary requests
+  // are base64 encoded by the gateway and effectively cap out around 4.5 MB.
+  // Keep our own cap lower so dev/local failures match production.
+  const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
   const contentLength = Number(getHeader(event, "content-length") || 0);
   if (contentLength > MAX_CHUNK_BYTES) {
     setResponseStatus(event, 413);

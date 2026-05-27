@@ -70,6 +70,7 @@ export type CaptureSource = "full-screen" | "window";
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
+const LIVE_UPLOAD_CHUNK_MS = 1_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -401,6 +402,12 @@ async function deleteBrowserRecordingBackup(
   }
 }
 
+export async function discardBrowserRecordingBackup(
+  recordingId: string,
+): Promise<void> {
+  await deleteBrowserRecordingBackup(recordingId);
+}
+
 async function markBrowserRecordingBackupError(
   recordingId: string,
   error: string,
@@ -490,11 +497,16 @@ async function resetBrowserRecordingBackupUpload(
 
 export async function retryBrowserRecordingBackup(input: {
   recordingId: string;
+  serverUrl?: string;
   authToken?: string;
 }): Promise<{ recordingId: string; viewUrl: string }> {
-  const meta = await getBrowserRecordingBackupMeta(input.recordingId);
+  let meta = await getBrowserRecordingBackupMeta(input.recordingId);
   if (!meta) {
     throw new Error("Local recording backup not found");
+  }
+  const serverUrl = input.serverUrl?.trim().replace(/\/+$/, "");
+  if (serverUrl) {
+    meta = { ...meta, serverUrl };
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
   if (chunks.length === 0) {
@@ -2582,7 +2594,7 @@ async function startNativeRecordingInner(
   }
   await showRegionGuidesForRecording(wantsScreen);
   await playRecordingStartCueBeforeCapture(recordingStartCue);
-  recorder.start(2_000);
+  recorder.start(LIVE_UPLOAD_CHUNK_MS);
   startedAt = Date.now();
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).

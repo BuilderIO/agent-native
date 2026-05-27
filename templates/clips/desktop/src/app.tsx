@@ -16,6 +16,7 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  discardBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
@@ -37,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
   IconArrowLeft,
+  IconFolderOpen,
   IconPencil,
   IconInfoCircle,
   IconRefresh,
@@ -56,6 +58,7 @@ interface PendingNativeUpload {
   kind: "native";
   recordingId: string;
   serverUrl: string;
+  folderPath?: string;
   durationMs: number;
   width?: number | null;
   height?: number | null;
@@ -202,6 +205,18 @@ function originForUrl(value: string, base?: string): string | null {
 
 function originForServer(serverUrl: string): string {
   return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
+}
+
+function normalizeServerUrl(serverUrl: string): string {
+  return serverUrl.trim().replace(/\/+$/, "");
+}
+
+function serverUrlForPendingUpload(
+  upload: PendingDesktopUpload,
+  currentServerUrl: string,
+): string {
+  const normalizedCurrent = normalizeServerUrl(currentServerUrl);
+  return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -532,6 +547,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+    null,
+  );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
@@ -1745,8 +1763,8 @@ export function App() {
   }
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId) return;
-    const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
+    if (retryingUploadId || discardingUploadId) return;
+    const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
     try {
@@ -1761,6 +1779,7 @@ export function App() {
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
+          serverUrl: targetServerUrl,
           authToken,
         });
       }
@@ -1779,6 +1798,46 @@ export function App() {
     } finally {
       setRetryingUploadId(null);
     }
+  }
+
+  async function discardPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || discardingUploadId) return;
+    setRecError(null);
+    setDiscardingUploadId(upload.recordingId);
+    setPendingUploads((uploads) =>
+      uploads.filter((item) => item.recordingId !== upload.recordingId),
+    );
+    try {
+      if (upload.kind === "native") {
+        await invoke("native_fullscreen_recording_discard_upload", {
+          recordingId: upload.recordingId,
+        });
+      } else {
+        await discardBrowserRecordingBackup(upload.recordingId);
+      }
+      await loadPendingUploads();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] discard saved upload failed:", err);
+      setRecError(message);
+      await loadPendingUploads();
+    } finally {
+      setDiscardingUploadId(null);
+    }
+  }
+
+  function openPendingUploadFolder(upload: PendingDesktopUpload) {
+    if (upload.kind !== "native" || !upload.folderPath) {
+      setRecError("This saved upload is stored in the browser backup cache.");
+      return;
+    }
+    invoke("open_local_recording_folder", {
+      path: upload.folderPath,
+    }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] open pending upload folder failed:", err);
+      setRecError(message);
+    });
   }
 
   async function startRecording() {
@@ -2222,7 +2281,10 @@ export function App() {
         <PendingUploadBanner
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
+          discardingUploadId={discardingUploadId}
           onRetry={retryPendingUpload}
+          onDiscard={discardPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
         />
       ) : null}
 
@@ -2566,16 +2628,23 @@ function PermissionRecoveryBanner({
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  discardingUploadId,
   onRetry,
+  onDiscard,
+  onOpenFolder,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  discardingUploadId: string | null;
   onRetry: (upload: PendingDesktopUpload) => void;
+  onDiscard: (upload: PendingDesktopUpload) => void;
+  onOpenFolder: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2600,15 +2669,39 @@ function PendingUploadBanner({
           {errorText ? ` · ${errorText}` : ""}
         </div>
       </div>
-      <button
-        type="button"
-        className="pending-upload-retry"
-        disabled={!!retryingUploadId}
-        onClick={() => onRetry(latest)}
-      >
-        <IconRefresh size={14} stroke={2} />
-        {retrying ? "Retrying" : "Retry"}
-      </button>
+      <div className="pending-upload-actions">
+        {canOpenFolder ? (
+          <button
+            type="button"
+            className="pending-upload-folder"
+            disabled={discardingUploadId === latest.recordingId}
+            onClick={() => onOpenFolder(latest)}
+            aria-label="Open saved local clip folder"
+            title="Open saved local clip folder"
+          >
+            <IconFolderOpen size={14} stroke={2} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="pending-upload-retry"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onRetry(latest)}
+        >
+          <IconRefresh size={14} stroke={2} />
+          {retrying ? "Retrying" : "Retry"}
+        </button>
+        <button
+          type="button"
+          className="pending-upload-discard"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onDiscard(latest)}
+          aria-label="Discard saved local clip"
+          title="Discard saved local clip"
+        >
+          <IconTrash size={14} stroke={2} />
+        </button>
+      </div>
     </div>
   );
 }
