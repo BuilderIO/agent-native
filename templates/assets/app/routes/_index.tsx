@@ -193,9 +193,7 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
           icon={<IconKey className="h-3.5 w-3.5" />}
           title="Image generation"
           detail={
-            imageReady
-              ? "Builder or BYOK ready"
-              : "Builder, OpenAI, or Gemini"
+            imageReady ? "Builder or BYOK ready" : "Builder, OpenAI, or Gemini"
           }
           ready={imageReady}
         />
@@ -782,9 +780,9 @@ function HomeGeneratePanel({
               <LibraryCard
                 key={library.id}
                 library={library}
+                to={`/library/${library.id}`}
                 selected={selectedLibrary?.id === library.id}
                 compact
-                onClick={() => chooseLibrary(library.id)}
               />
             ))}
           </div>

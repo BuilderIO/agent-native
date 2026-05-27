@@ -1,5 +1,11 @@
 import { Link, useParams } from "react-router";
-import { useEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -73,6 +79,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Spinner } from "@/components/ui/spinner";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
@@ -100,8 +107,13 @@ export default function LibraryPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
+  const [activeTab, setActiveTab] = useState<LibraryTab>("references");
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -144,21 +156,93 @@ export default function LibraryPage() {
   const candidates = generated.filter((asset) => asset.status === "candidate");
   const unfiledCount = assets.filter((asset) => !asset.folderId).length;
   const customInstructions = getLibraryCustomInstructions(library);
+  const pendingVisibleUploads = pendingUploads.filter((upload) => {
+    if (mediaFilter !== "all" && upload.mediaType !== mediaFilter) return false;
+    if (activeFolderId === "all") return true;
+    if (activeFolderId === null) return !upload.folderId;
+    return upload.folderId === activeFolderId;
+  });
 
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
 
+  useEffect(() => {
+    const selectableAssets =
+      activeTab === "references"
+        ? references
+        : activeTab === "generated"
+          ? [...candidates, ...saved]
+          : [];
+    const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
+    setSelectedAssetIds((current) => {
+      const next = new Set(
+        [...current].filter((assetId) => selectableIds.has(assetId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [activeTab, references, candidates, saved]);
+
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-request-source": "assets-ui",
+      },
+      body: JSON.stringify({
+        view: "library",
+        libraryId,
+        activeTab,
+        folderId: activeFolderId,
+        mediaFilter,
+        search,
+        selectedAssetIds: [...selectedAssetIds],
+      }),
+    }).catch(() => {});
+  }, [
+    activeFolderId,
+    activeTab,
+    libraryId,
+    mediaFilter,
+    search,
+    selectedAssetIds,
+  ]);
+
+  function refreshLibrary() {
+    return queryClient.invalidateQueries({
+      queryKey: ["action", "get-library", { id: libraryId }],
+    });
+  }
+
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length) return;
+    const selectedFiles = Array.from(files);
+    const selectedFolderId =
+      activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
+    const pending = selectedFiles.map((file, index) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      name: file.name,
+      mediaType: file.type.startsWith("video/") ? "video" : "image",
+      folderId: selectedFolderId,
+      status: "uploading" as const,
+    }));
+    setPendingUploads(pending);
     setUploading(true);
+    let keepPending = false;
+    const toastId = toast.loading(
+      `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
+      {
+        description: "Processing previews and saving them to the library.",
+      },
+    );
     try {
       const form = new FormData();
       form.append("libraryId", libraryId);
       form.append("category", category);
-      if (activeFolderId && activeFolderId !== "all") {
-        form.append("folderId", activeFolderId);
+      if (selectedFolderId) {
+        form.append("folderId", selectedFolderId);
       }
-      for (const file of files) form.append("files", file);
+      for (const file of selectedFiles) form.append("files", file);
       const response = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -172,15 +256,40 @@ export default function LibraryPage() {
       const result = (await response.json().catch(() => null)) as {
         count?: number;
       } | null;
-      const count = result?.count ?? files.length;
-      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`);
-      await queryClient.invalidateQueries({
-        queryKey: ["action", "get-library", { id: libraryId }],
+      const count = result?.count ?? selectedFiles.length;
+      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`, {
+        id: toastId,
       });
+      await refreshLibrary();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      const message = e instanceof Error ? e.message : "Upload failed";
+      const indeterminate =
+        /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
+          message,
+        );
+      if (indeterminate) {
+        keepPending = true;
+        setPendingUploads(
+          pending.map((upload) => ({ ...upload, status: "checking" })),
+        );
+        toast.warning("Upload is taking longer than expected.", {
+          id: toastId,
+          description:
+            "The server may still finish saving these assets. We will keep checking this library.",
+        });
+        void refreshLibrary();
+        window.setTimeout(() => void refreshLibrary(), 4_000);
+        window.setTimeout(() => {
+          void refreshLibrary();
+          setPendingUploads([]);
+        }, 12_000);
+      } else {
+        toast.error(message, { id: toastId });
+      }
     } finally {
       setUploading(false);
+      if (!keepPending) setPendingUploads([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -416,7 +525,11 @@ export default function LibraryPage() {
           </section>
         )}
 
-        <Tabs defaultValue="references" className="space-y-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as LibraryTab)}
+          className="space-y-4"
+        >
           <TabsList>
             <TabsTrigger value="references">References</TabsTrigger>
             <TabsTrigger value="generated">Generated</TabsTrigger>
@@ -431,6 +544,8 @@ export default function LibraryPage() {
               emptyTitle="Upload reference assets"
               emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
               onEmptyClick={() => fileInputRef.current?.click()}
+              selectedIds={selectedAssetIds}
+              onSelectedIdsChange={setSelectedAssetIds}
             />
           </TabsContent>
 
@@ -441,6 +556,8 @@ export default function LibraryPage() {
               emptyTitle="Generate your first assets"
               emptyBody="Use the chat-driven generate flow to create image or video candidates, then save the ones that work."
               onEmptyClick={() => setGenerateOpen(true)}
+              selectedIds={selectedAssetIds}
+              onSelectedIdsChange={setSelectedAssetIds}
             />
           </TabsContent>
 
@@ -560,6 +677,8 @@ type GenerateOptions = {
   category: string;
   includeLogo: boolean;
 };
+
+type LibraryTab = "references" | "generated" | "runs" | "settings";
 
 function RunCard({
   run,
@@ -1079,35 +1198,28 @@ function AssetGrid({
   emptyTitle,
   emptyBody,
   onEmptyClick,
+  selectedIds,
+  onSelectedIdsChange,
 }: {
   assets: any[];
   folders: any[];
   emptyTitle: string;
   emptyBody: string;
   onEmptyClick: () => void;
+  selectedIds: Set<string>;
+  onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
 }) {
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
   const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
   const selectedCount = selectedAssets.length;
   const allSelected = assets.length > 0 && selectedCount === assets.length;
   const deleting = deleteAsset.isPending || deleteAssets.isPending;
 
-  useEffect(() => {
-    setSelectedIds((current) => {
-      const visibleIds = new Set(assets.map((asset) => asset.id));
-      const next = new Set(
-        [...current].filter((assetId) => visibleIds.has(assetId)),
-      );
-      return next.size === current.size ? current : next;
-    });
-  }, [assets]);
-
   function toggleAsset(assetId: string, checked: boolean) {
-    setSelectedIds((current) => {
+    onSelectedIdsChange((current) => {
       const next = new Set(current);
       if (checked) {
         next.add(assetId);
@@ -1119,7 +1231,7 @@ function AssetGrid({
   }
 
   function toggleAll(checked: boolean) {
-    setSelectedIds(
+    onSelectedIdsChange(
       checked ? new Set(assets.map((asset) => asset.id)) : new Set(),
     );
   }
@@ -1138,7 +1250,7 @@ function AssetGrid({
         {
           onSuccess: () => {
             setConfirmDeleteIds([]);
-            setSelectedIds((current) => {
+            onSelectedIdsChange((current) => {
               const next = new Set(current);
               next.delete(id);
               return next;
@@ -1154,7 +1266,7 @@ function AssetGrid({
         onSuccess: () => {
           const deletedIds = new Set(confirmDeleteIds);
           setConfirmDeleteIds([]);
-          setSelectedIds((current) => {
+          onSelectedIdsChange((current) => {
             const next = new Set(current);
             for (const id of deletedIds) next.delete(id);
             return next;
@@ -1235,7 +1347,7 @@ function AssetGrid({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setSelectedIds(new Set())}
+              onClick={() => onSelectedIdsChange(new Set())}
             >
               Clear
             </Button>

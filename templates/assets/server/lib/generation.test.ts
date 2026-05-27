@@ -109,6 +109,40 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
+    resolveBuilderAuthHeaderMock.mockResolvedValue(null);
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: Buffer.from([9, 8, 7]).toString("base64") }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
+      expect.objectContaining({
+        image: Buffer.from([9, 8, 7]),
+        mimeType: "image/png",
+        model: "gpt-image-2",
+        provider: "openai",
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/images/generations",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer sk-openai-test",
+        }),
+      }),
+    );
+  });
+
   it("reports transient Builder outages as retryable provider failures", async () => {
     const fetchMock = mockBuilderFailure(503, {
       error: { message: "Provider warming up" },

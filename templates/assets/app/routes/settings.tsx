@@ -21,6 +21,8 @@ type ImageGenerationConfig = {
   builderEnabled?: boolean;
   builderConnected?: boolean;
   geminiConfigured?: boolean;
+  openaiConfigured?: boolean;
+  objectStorageConfigured?: boolean;
   configured?: boolean;
   lastIssue?: {
     message?: unknown;
@@ -35,18 +37,20 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Settings</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connect Builder-managed image generation, Gemini video generation, and
-          object storage to start creating brand assets.
+          Connect Builder-managed image generation, manual provider keys, video
+          generation, and object storage to start creating brand assets.
         </p>
       </div>
 
-      <OnboardingPanel title="Setup" />
+      <section id="asset-generation-setup" className="scroll-mt-4">
+        <OnboardingPanel title="Setup" />
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3">
         <InfoTile
           icon={<IconKey className="h-5 w-5" />}
           title="Asset generation"
-          body="Builder-managed image generation uses Builder credits; Gemini powers video generation and fallback image runs."
+          body="Builder uses managed credits; OpenAI or Gemini keys can power manual image runs. Gemini also powers video."
         />
         <InfoTile
           icon={<IconCloudUpload className="h-5 w-5" />}
@@ -114,8 +118,8 @@ function ManageCredentialsSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           Builder-managed image generation is disabled for this deployment by
           the <code className="text-xs">BUILDER_IMAGE_GENERATION_ENABLED</code>{" "}
-          environment variable. Add a Gemini API key from the Setup checklist
-          above; the manual fallback is the only path that will succeed until
+          environment variable. Add an OpenAI or Gemini API key from the Setup
+          checklist above; manual keys are the only path that will succeed until
           the flag is re-enabled.
         </p>
         {setupIssue ? <SetupIssueCallout message={setupIssue} /> : null}
@@ -130,8 +134,8 @@ function ManageCredentialsSection() {
           <h3 className="text-sm font-semibold">Manage credentials</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {configured
-              ? "Builder.io is connected for managed image generation. Add Gemini for video generation, or reconnect to switch Builder account or space."
-              : "Connect Builder.io for one-click managed image generation, or add a Gemini API key for video generation and image fallback from the Setup checklist above."}
+              ? "Builder.io is connected for managed image generation and storage. Add Gemini for video generation, or add OpenAI/Gemini keys as manual fallbacks."
+              : "Connect Builder.io for one-click managed image generation and storage, or add OpenAI/Gemini keys plus object storage from the Setup checklist above."}
           </p>
           {configured && orgName ? (
             <p className="mt-1 text-xs text-muted-foreground">
