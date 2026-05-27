@@ -468,7 +468,13 @@ function renderStartingApp(app: TemplateApp): string {
       pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), ${JSON.stringify(refreshScriptDelay)});</script>
+    <script>
+      (() => {
+        const reload = () => window.location.reload();
+        setTimeout(reload, ${JSON.stringify(refreshScriptDelay)});
+        setInterval(reload, ${JSON.stringify(Math.max(refreshScriptDelay, 3_000))});
+      })();
+    </script>
   </head>
   <body>
     <main class="${failure ? "failed" : ""}">
@@ -601,6 +607,41 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function probeHttpReady(
+  app: Pick<TemplateApp, "id" | "port">,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let req: http.ClientRequest;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      resolve(ok);
+    };
+    req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: app.port,
+        method: "GET",
+        path: `/${app.id}`,
+        headers: {
+          accept: "text/html",
+          host: `127.0.0.1:${app.port}`,
+        },
+      },
+      (res) => {
+        res.resume();
+        finish(true);
+      },
+    );
+    req.setTimeout(timeoutMs, () => finish(false));
+    req.once("error", () => finish(false));
+    req.end();
+  });
+}
+
 async function waitForPort(port: number, deadline: number): Promise<boolean> {
   while (Date.now() < deadline) {
     if (await probePort(port)) return true;
@@ -611,9 +652,23 @@ async function waitForPort(port: number, deadline: number): Promise<boolean> {
   return false;
 }
 
+async function waitForHttpReady(
+  app: TemplateApp,
+  deadline: number,
+): Promise<boolean> {
+  while (Date.now() < deadline) {
+    const timeoutMs = Math.min(1_000, Math.max(1, deadline - Date.now()));
+    if (await probeHttpReady(app, timeoutMs)) return true;
+    await new Promise((resolve) =>
+      setTimeout(resolve, PROXY_READY_RETRY_DELAY_MS),
+    );
+  }
+  return false;
+}
+
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
-  app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+  app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
     .then((ready) => {
       if (ready) {
         app.ready = true;
@@ -659,7 +714,7 @@ async function prewarmRemainingApps(): Promise<void> {
       if (app.process && !app.process.killed) continue;
       startApp(app);
       ensureReadinessProbe(app);
-      await waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).catch(
+      await waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).catch(
         () => false,
       );
     }
@@ -805,8 +860,8 @@ function failAppStartupTimeout(app: TemplateApp): void {
   if (app.ready || app.restartTimer) return;
   const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
   const message =
-    `Timed out waiting ${timeout} for /${app.id} to accept ` +
-    `connections on 127.0.0.1:${app.port}.`;
+    `Timed out waiting ${timeout} for /${app.id} to return ` +
+    `an HTTP response on 127.0.0.1:${app.port}.`;
   const output = [message, app.outputTail?.trim()]
     .filter(Boolean)
     .join("\n\nLast child output:\n");
@@ -873,13 +928,13 @@ function proxyHttp(
     return;
   }
 
-  void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
+  void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
       failAppStartupTimeout(app);
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(
-          `Template "${app.id}" is not ready yet: connect ECONNREFUSED 127.0.0.1:${app.port}`,
+          `Template "${app.id}" is not ready yet: no HTTP response from 127.0.0.1:${app.port}`,
         );
       } else {
         res.end();

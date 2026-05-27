@@ -418,6 +418,41 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function probeHttpReady(
+  app: Pick<WorkspaceApp, "id" | "port">,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let req: http.ClientRequest;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      resolve(ok);
+    };
+    req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: app.port,
+        method: "GET",
+        path: `/${app.id}`,
+        headers: {
+          accept: "text/html",
+          host: `127.0.0.1:${app.port}`,
+        },
+      },
+      (res) => {
+        res.resume();
+        finish(true);
+      },
+    );
+    req.setTimeout(timeoutMs, () => finish(false));
+    req.once("error", () => finish(false));
+    req.end();
+  });
+}
+
 function firstHeaderValue(
   value: string | string[] | number | undefined,
 ): string | undefined {
@@ -475,7 +510,13 @@ function renderStartingApp(app: WorkspaceApp): string {
       pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), ${JSON.stringify(refreshScriptDelay)});</script>
+    <script>
+      (() => {
+        const reload = () => window.location.reload();
+        setTimeout(reload, ${JSON.stringify(refreshScriptDelay)});
+        setInterval(reload, ${JSON.stringify(Math.max(refreshScriptDelay, 3_000))});
+      })();
+    </script>
   </head>
   <body>
     <main class="${failure ? "failed" : ""}">
@@ -875,8 +916,8 @@ export async function runWorkspaceDev(
     if (app.installing || app.ready || app.restartTimer) return;
     const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
     const message =
-      `Timed out waiting ${timeout} for /${app.id} to accept ` +
-      `connections on 127.0.0.1:${app.port}.`;
+      `Timed out waiting ${timeout} for /${app.id} to return ` +
+      `an HTTP response on 127.0.0.1:${app.port}.`;
     const output = [message, app.outputTail?.trim()]
       .filter(Boolean)
       .join("\n\nLast child output:\n");
@@ -927,9 +968,21 @@ export async function runWorkspaceDev(
     return false;
   }
 
+  async function waitForHttpReady(
+    app: WorkspaceApp,
+    deadline: number,
+  ): Promise<boolean> {
+    while (Date.now() < deadline) {
+      const timeoutMs = Math.min(1_000, Math.max(1, deadline - Date.now()));
+      if (await probeHttpReady(app, timeoutMs)) return true;
+      await new Promise((r) => setTimeout(r, PROXY_READY_RETRY_DELAY_MS));
+    }
+    return false;
+  }
+
   function ensureReadinessProbe(app: WorkspaceApp): void {
     if (app.ready || app.readinessProbe || app.installing) return;
-    app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+    app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
       .then((ready) => {
         if (ready) {
           app.ready = true;
@@ -999,14 +1052,14 @@ export async function runWorkspaceDev(
 
     // Cold path: hold non-HTML requests open while the child server boots.
     // Node keeps the request body paused until pipe() attaches.
-    void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
+    void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
           failAppStartupTimeout(app);
           if (!res.headersSent) {
             res.writeHead(502, { "content-type": "text/plain" });
             res.end(
-              `App "${app.id}" is not ready yet: connect ECONNREFUSED 127.0.0.1:${app.port}`,
+              `App "${app.id}" is not ready yet: no HTTP response from 127.0.0.1:${app.port}`,
             );
           } else {
             res.end();
@@ -1151,11 +1204,11 @@ export async function runWorkspaceDev(
         if (app.process && !app.process.killed) continue;
         startApp(app);
         ensureReadinessProbe(app);
-        // Wait for the upstream to accept connections before pulling the next
+        // Wait for the upstream to answer HTTP before pulling the next
         // app off the queue. This is what actually limits *concurrent
         // prebundling* (not just concurrent spawning) and keeps CPU pressure
         // sane. proxyReadyTimeoutMs caps any single stuck app.
-        await waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).catch(
+        await waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).catch(
           () => false,
         );
       }
