@@ -12,7 +12,11 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  captureClientException,
+} from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
@@ -32,7 +36,12 @@ import {
   defaultRecordingTitle,
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
-import { MAX_UPLOAD_BYTES, formatMb } from "@/lib/compress";
+import {
+  COMPRESS_THRESHOLD_BYTES,
+  MAX_UPLOAD_BYTES,
+  compressBlobIfTooLarge,
+  formatMb,
+} from "@/lib/compress";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -1119,8 +1128,72 @@ export default function RecordRoute() {
 
         let uploadBlob: Blob = file;
         let uploadMimeType = mimeType;
+        let compressionError: {
+          message: string;
+          stderrTail: string[];
+          elapsedMs: number;
+        } | null = null;
 
-        if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+        if (file.size > COMPRESS_THRESHOLD_BYTES) {
+          setUiState("compressing");
+          const compression = await compressBlobIfTooLarge(file, mimeType, {
+            width: meta.width,
+            height: meta.height,
+            durationMs: meta.durationMs,
+            signal: abort.signal,
+            onProgress: ({ stage, progress }) => {
+              if (stage === "encoding" && typeof progress === "number") {
+                setCompressionProgress(progress);
+              } else if (stage === "finalizing") {
+                setCompressionProgress(1);
+              } else {
+                setCompressionProgress(null);
+              }
+            },
+            onError: (err) => {
+              compressionError = err;
+              captureClientException(
+                new Error(`Upload compression failed: ${err.message}`),
+                {
+                  tags: {
+                    uploadStep: "local-file-compression",
+                    mimeType,
+                  },
+                  extra: {
+                    filename: file.name,
+                    fileBytes: file.size,
+                    width: meta.width,
+                    height: meta.height,
+                    stderrTail: err.stderrTail,
+                    elapsedMs: err.elapsedMs,
+                  },
+                },
+              );
+            },
+          });
+          if (isStale()) return;
+
+          uploadBlob = compression.blob;
+          uploadMimeType = compression.outputMimeType || mimeType;
+          if (compressionError) {
+            console.warn(
+              "[recorder] upload compression failed, falling back to source file",
+              compressionError,
+            );
+          }
+          if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+            const detail = compression.compressed
+              ? `${formatMb(uploadBlob.size)} after compression`
+              : `${formatMb(uploadBlob.size)}`;
+            throw new Error(
+              `Video is too large to upload (${detail}, limit is ${formatMb(
+                MAX_UPLOAD_BYTES,
+              )}). Try a shorter recording or lower the screen resolution / frame rate.`,
+            );
+          }
+          setCompressionProgress(null);
+          setUiState("uploading");
+        } else if (uploadBlob.size > MAX_UPLOAD_BYTES) {
           throw new Error(
             `Video is too large to upload (${formatMb(
               uploadBlob.size,
