@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.19
+
+### Patch Changes
+
+- 9f3a798: Add a full-page Dispatch chat route with sidebar thread history.
+
 ## 0.8.18
 
 ### Patch Changes
