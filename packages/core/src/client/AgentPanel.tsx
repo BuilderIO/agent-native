@@ -367,6 +367,8 @@ export interface AgentPanelProps extends Omit<
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active chat thread on mount. Default: true. */
+  restoreActiveThread?: boolean;
   /**
    * Bind the chat to a specific resource (deck, design, dashboard, ...).
    * When set, chats started inside the panel inherit this scope and tuck
@@ -492,6 +494,7 @@ function AgentPanelInner({
   onToggleFullscreen,
   devAppUrl,
   storageKey,
+  restoreActiveThread = true,
   scope,
   browserTabId,
   chatNotice,
@@ -1380,6 +1383,7 @@ function AgentPanelInner({
             execMode={execMode}
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
             scope={scope}
             browserTabId={browserTabId}
           />

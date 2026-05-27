@@ -14,6 +14,8 @@ vi.mock("./emitter.js", () => ({
 
 import {
   forkThread,
+  setThreadArchived,
+  setThreadPinned,
   setThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
@@ -30,6 +32,8 @@ type ChatThreadRow = {
   scope_type?: string | null;
   scope_id?: string | null;
   scope_label?: string | null;
+  pinned_at?: number | null;
+  archived_at?: number | null;
 };
 
 const userMessage = {
@@ -94,6 +98,20 @@ describe("chat thread store", () => {
           message_count: args[3],
           updated_at: args[4],
         };
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET pinned_at/i.test(sql)) {
+        if (!row || row.id !== args[1]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, pinned_at: args[0] };
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
+        if (!row || row.id !== args[1]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, archived_at: args[0] };
         return { rows: [], rowsAffected: 1 };
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -161,6 +179,20 @@ describe("chat thread store", () => {
       "user-1",
       "assistant-1",
     ]);
+  });
+
+  it("pins and archives threads as lightweight metadata", async () => {
+    await setThreadPinned("thread-1", true);
+    expect(row!.pinned_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBe(1);
+
+    await setThreadPinned("thread-1", false);
+    expect(row!.pinned_at).toBeNull();
+
+    await setThreadArchived("thread-1", true);
+    expect(row!.archived_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBe(1);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
   });
 
   it("forks from a client snapshot when the source thread is not persisted yet", async () => {

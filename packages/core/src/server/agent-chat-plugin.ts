@@ -96,6 +96,8 @@ import {
   getThread,
   listThreads,
   searchThreads,
+  setThreadArchived,
+  setThreadPinned,
   setThreadScope,
   updateThreadData,
   withThreadDataLock,
@@ -1182,7 +1184,8 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
- * Creates a unified chat-history ActionEntry that dispatches to search or open.
+ * Creates a unified chat-history ActionEntry that dispatches to search, open,
+ * or lightweight organization actions.
  */
 async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
   try {
@@ -1238,14 +1241,14 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
       "chat-history": {
         tool: {
           description:
-            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, or 'open' to open a thread in the UI.",
+            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'pin'/'unpin'/'archive' to organize history.",
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["search", "open"],
+                enum: ["search", "open", "pin", "unpin", "archive"],
               },
               query: {
                 type: "string",
@@ -1263,7 +1266,8 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               },
               id: {
                 type: "string",
-                description: "(open) The chat thread ID to open",
+                description:
+                  "(open, pin, unpin, archive) The chat thread ID to manage",
               },
             },
             required: ["action"],
@@ -1272,6 +1276,28 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
         run: async (args) => {
           if (args?.action === "open") {
             return openEntry.run(args);
+          }
+          if (
+            args?.action === "pin" ||
+            args?.action === "unpin" ||
+            args?.action === "archive"
+          ) {
+            const id = typeof args?.id === "string" ? args.id : "";
+            if (!id) return "Missing required id.";
+            const owner =
+              getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
+            if (!owner) return "No authenticated user is available.";
+            const thread = await getThread(id);
+            if (!thread || thread.ownerEmail !== owner) {
+              return `Chat thread "${id}" not found.`;
+            }
+            const title = thread.title || thread.preview || "(untitled)";
+            if (args.action === "archive") {
+              await setThreadArchived(id, true);
+              return `Archived chat: ${title}`;
+            }
+            await setThreadPinned(id, args.action === "pin");
+            return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }
           return searchEntry.run(args);
         },
@@ -2087,6 +2113,7 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
+- \`chat-history\` (actions: "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 
@@ -2287,6 +2314,7 @@ Which routes are renderable as embeds is template-specific — the app's \`AGENT
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
+- \`chat-history\` (actions: "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.
 
@@ -6031,6 +6059,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ? body.queuedMessages
                 : [];
               await setThreadQueuedMessages(threadId, queued);
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("pin")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              await setThreadPinned(threadId, body?.pinned !== false);
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("archive")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              await setThreadArchived(threadId, body?.archived !== false);
               return { ok: true };
             }
 

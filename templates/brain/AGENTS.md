@@ -50,6 +50,14 @@ broader permission-aware workspace search layer over time.
 
 JSON is stored in text columns. There is no vector database.
 
+## Ask Chat UX
+
+Fresh loads of the Ask route intentionally start a new empty chat instead of
+restoring the previous active thread. Past chats stay available from the left
+sidebar, sorted with pinned chats first and then most-recently-updated chats.
+Archived chats are hidden from the sidebar; agents can still find them with the
+core `chat-history` tool by searching prior conversations.
+
 ## Actions
 
 | Action                                                                              | Purpose                                                                                                                                                                              |

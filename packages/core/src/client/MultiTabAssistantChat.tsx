@@ -711,6 +711,8 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active thread and open tabs from localStorage. */
+  restoreActiveThread?: boolean;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
@@ -730,6 +732,7 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  restoreActiveThread = true,
   browserTabId,
   scope = null,
   ...props
@@ -748,7 +751,7 @@ export function MultiTabAssistantChat({
     searchThreads,
     refreshThreads,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope);
+  } = useChatThreads(apiUrl, storageKey, scope, { restoreActiveThread });
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1028,6 +1031,10 @@ export function MultiTabAssistantChat({
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+    if (!restoreActiveThread && activeThreadId) {
+      for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
+      return [activeThreadId];
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1052,6 +1059,10 @@ export function MultiTabAssistantChat({
     if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
     openTabsKeyRef.current = OPEN_TABS_KEY;
     initializedRef.current = false;
+    if (!restoreActiveThread) {
+      setOpenTabIds(activeThreadId ? [activeThreadId] : []);
+      return;
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1064,7 +1075,7 @@ export function MultiTabAssistantChat({
       }
     } catch {}
     setOpenTabIds([]);
-  }, [OPEN_TABS_KEY]);
+  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
 
   // Look up the active thread's actual scope from the list — when the
   // user opens a chat from history that was scoped to a different

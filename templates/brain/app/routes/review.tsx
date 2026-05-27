@@ -6,6 +6,7 @@ import {
   IconChartBar,
   IconCheck,
   IconBook,
+  IconDotsVertical,
   IconExternalLink,
   IconFileText,
   IconGitMerge,
@@ -32,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -43,6 +43,13 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   EmptyActionState,
   LoadingRows,
@@ -355,76 +362,50 @@ export default function ReviewRoute() {
                       : proposal.title
                   }
                 >
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <CardHeader className="pb-3 sm:pb-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <CardTitle className="min-w-0 break-words text-base">
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <CardTitle className="min-w-0 break-words text-base leading-6">
                             {proposal.title}
                           </CardTitle>
-                          <StatusBadge status={proposal.status ?? "pending"} />
-                          {proposal.proposedAction ? (
-                            <Badge variant="secondary" className="capitalize">
-                              {proposal.proposedAction}
-                            </Badge>
-                          ) : null}
-                          <ConfidenceBadge confidence={insight.confidence} />
-                          {hasChanges ? (
-                            <Badge variant="outline">Unsaved edits</Badge>
-                          ) : null}
-                          {publishCanonical ? (
-                            <Badge variant="outline" className="gap-1.5">
-                              <IconBook className="size-3" />
-                              Company context
-                            </Badge>
-                          ) : null}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span>{formatDate(proposal.createdAt)}</span>
+                            <span className="hidden sm:inline">/</span>
+                            <span>
+                              {proposal.createdBy ?? "Reviewer queue"}
+                            </span>
+                            {hasChanges ? (
+                              <>
+                                <span className="hidden sm:inline">/</span>
+                                <span className="font-medium text-foreground">
+                                  Unsaved edits
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {formatDate(proposal.createdAt)} ·{" "}
-                          {proposal.createdBy ?? "Reviewer queue"}
-                        </p>
                       </div>
-                      {sourceUrl ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="outline"
-                          className="w-full sm:w-auto"
-                        >
-                          <a href={sourceUrl} target="_blank" rel="noreferrer">
-                            <IconExternalLink className="size-4" />
-                            Open source
-                          </a>
-                        </Button>
-                      ) : null}
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={proposal.status ?? "pending"} />
+                        <ConfidenceBadge confidence={insight.confidence} />
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="grid gap-4">
-                    <div className="grid gap-3">
-                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                  <CardContent className="grid gap-4 pt-0">
+                    <div className="grid gap-4">
+                      <p className="line-clamp-3 max-w-5xl whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
                         {draftValue(proposal, "body") ||
                           "No proposed knowledge."}
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{insight.target.label}</Badge>
-                        <Badge variant="outline">
-                          {privacySummary(insight.privacyFlags)}
-                        </Badge>
-                        {evidence.length ? (
-                          <Badge variant="outline">
-                            {evidence.length} source{" "}
-                            {evidence.length === 1 ? "snippet" : "snippets"}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {evidence.length ? (
-                      <EvidencePreview
-                        evidence={evidence}
-                        proposalId={proposal.id}
+                      <ReviewSignalStrip
+                        target={insight.target.label}
+                        privacy={privacySummary(insight.privacyFlags)}
+                        evidenceCount={evidence.length}
+                        proposedAction={proposal.proposedAction}
+                        publishCanonical={publishCanonical}
                       />
-                    ) : null}
+                    </div>
 
                     {editing ? (
                       <div className="grid gap-4 rounded-md border border-border bg-muted/20 p-4">
@@ -541,15 +522,15 @@ export default function ReviewRoute() {
                       </div>
                     ) : null}
 
-                    <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs leading-5 text-muted-foreground">
+                    <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs leading-5 text-muted-foreground sm:max-w-xl">
                         {canReview
                           ? hasChanges
                             ? "Approval saves wording edits first."
                             : "Approve durable, sourced memories; reject anything too narrow or uncertain."
                           : reviewedSummary(proposal)}
                       </p>
-                      <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <ProposalDetailsSheet
                           proposal={proposal}
                           insight={insight}
@@ -560,21 +541,24 @@ export default function ReviewRoute() {
                           draftRationale={draftValue(proposal, "rationale")}
                           hasDraftChanges={hasChanges}
                         />
-                        {canReview ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={pendingMutation}
-                            onClick={() => toggleProposalEditing(proposal.id)}
-                          >
-                            <IconPencil className="size-4" />
-                            {editing ? "Hide editing" : "Edit"}
-                          </Button>
-                        ) : null}
+                        <ProposalOverflowMenu
+                          canReview={canReview}
+                          editing={editing}
+                          pendingMutation={pendingMutation}
+                          publishCanonical={publishCanonical}
+                          sourceUrl={sourceUrl}
+                          onToggleEditing={() =>
+                            toggleProposalEditing(proposal.id)
+                          }
+                          onPreviewCanonical={() =>
+                            void openCanonicalPreview(proposal)
+                          }
+                        />
                         {editing && canReview ? (
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="secondary"
+                            className="col-span-2 sm:col-span-1"
                             disabled={pendingMutation || !hasChanges}
                             onClick={() => void saveDraft(proposal)}
                           >
@@ -582,23 +566,29 @@ export default function ReviewRoute() {
                             Save wording
                           </Button>
                         ) : null}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!canReview || pendingMutation}
-                          onClick={() => void reject(proposal)}
-                        >
-                          <IconX className="size-4" />
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={!canReview || pendingMutation}
-                          onClick={() => void approve(proposal)}
-                        >
-                          <IconCheck className="size-4" />
-                          {insight.approveLabel}
-                        </Button>
+                        {canReview ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="col-span-2 sm:col-span-1"
+                              disabled={pendingMutation}
+                              onClick={() => void reject(proposal)}
+                            >
+                              <IconX className="size-4" />
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="col-span-2 sm:col-span-1"
+                              disabled={pendingMutation}
+                              onClick={() => void approve(proposal)}
+                            >
+                              <IconCheck className="size-4" />
+                              {insight.approveLabel}
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </CardContent>
@@ -987,40 +977,116 @@ function SignalRow({
   );
 }
 
-function EvidencePreview({
-  evidence,
-  proposalId,
+function ReviewSignalStrip({
+  target,
+  privacy,
+  evidenceCount,
+  proposedAction,
+  publishCanonical,
 }: {
-  evidence: NonNullable<ReviewItem["evidence"]>;
-  proposalId: string;
+  target: string;
+  privacy: string;
+  evidenceCount: number;
+  proposedAction?: string | null;
+  publishCanonical: boolean;
 }) {
+  const signals = [
+    { label: "Target", value: target },
+    { label: "Privacy", value: privacy },
+    {
+      label: "Evidence",
+      value: evidenceCount
+        ? `${evidenceCount} ${evidenceCount === 1 ? "snippet" : "snippets"}`
+        : "No snippets",
+    },
+  ];
+
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <IconFileText className="size-4 text-muted-foreground" />
-          Source snippets
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+      {signals.map((signal) => (
+        <div key={signal.label} className="flex min-w-0 items-center gap-1.5">
+          <span className="text-muted-foreground">{signal.label}</span>
+          <span className="max-w-56 truncate font-medium text-foreground">
+            {signal.value}
+          </span>
         </div>
-        {evidence.length > 2 ? (
-          <Badge variant="outline">+{evidence.length - 2} more</Badge>
-        ) : null}
-      </div>
-      {evidence.length ? (
-        evidence
-          .slice(0, 2)
-          .map((item, index) => (
-            <EvidenceSnippet
-              key={`${proposalId}-evidence-${index}`}
-              item={item}
-              compact
-            />
-          ))
-      ) : (
-        <p className="rounded-md border border-dashed border-border bg-background p-3 text-sm leading-6 text-muted-foreground">
-          No source snippets were attached to this proposal.
-        </p>
-      )}
+      ))}
+      {proposedAction ? (
+        <Badge variant="secondary" className="h-5 capitalize">
+          {proposedAction}
+        </Badge>
+      ) : null}
+      {publishCanonical ? (
+        <Badge variant="outline" className="h-5 gap-1.5">
+          <IconBook className="size-3" />
+          Company context
+        </Badge>
+      ) : null}
     </div>
+  );
+}
+
+function ProposalOverflowMenu({
+  canReview,
+  editing,
+  pendingMutation,
+  publishCanonical,
+  sourceUrl,
+  onToggleEditing,
+  onPreviewCanonical,
+}: {
+  canReview: boolean;
+  editing: boolean;
+  pendingMutation: boolean;
+  publishCanonical: boolean;
+  sourceUrl: string | null;
+  onToggleEditing: () => void;
+  onPreviewCanonical: () => void;
+}) {
+  if (!canReview && !sourceUrl) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          aria-label="More review actions"
+        >
+          <IconDotsVertical className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {canReview ? (
+          <DropdownMenuItem
+            disabled={pendingMutation}
+            onSelect={onToggleEditing}
+          >
+            <IconPencil className="size-4" />
+            {editing ? "Hide editor" : "Edit wording"}
+          </DropdownMenuItem>
+        ) : null}
+        {canReview && publishCanonical ? (
+          <DropdownMenuItem
+            disabled={pendingMutation}
+            onSelect={onPreviewCanonical}
+          >
+            <IconFileText className="size-4" />
+            Preview company context
+          </DropdownMenuItem>
+        ) : null}
+        {sourceUrl && canReview ? <DropdownMenuSeparator /> : null}
+        {sourceUrl ? (
+          <DropdownMenuItem asChild>
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <IconExternalLink className="size-4" />
+              Open source
+            </a>
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1100,7 +1166,7 @@ function ProposalDetailsSheet({
       <SheetTrigger asChild>
         <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <IconListDetails className="size-4" />
-          Review details
+          Details
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
