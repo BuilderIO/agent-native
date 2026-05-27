@@ -4,6 +4,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import {
   IconChevronDown,
   IconChevronUp,
+  IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
@@ -316,10 +317,14 @@ export function RecordingPill() {
             disabled={stopping}
             data-no-drag
             className="ml-1 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
-            aria-label={stopLabel}
-            title={stopLabel}
+            aria-label={stopping ? "Stopping" : stopLabel}
+            title={stopping ? "Stopping..." : stopLabel}
           >
-            <IconPlayerStopFilled size={14} />
+            {stopping ? (
+              <IconLoader2 className="animate-spin" size={14} />
+            ) : (
+              <IconPlayerStopFilled size={14} />
+            )}
           </button>
           <button
             type="button"
@@ -375,10 +380,15 @@ export function RecordingPill() {
                 disabled={stopping}
                 data-no-drag
                 className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-red-500 px-3 text-[12px] font-medium text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
-                aria-label={stopLabel}
+                aria-label={stopping ? "Stopping" : stopLabel}
+                title={stopping ? "Stopping..." : stopLabel}
               >
-                <IconPlayerStopFilled size={14} />
-                Stop
+                {stopping ? (
+                  <IconLoader2 className="animate-spin" size={14} />
+                ) : (
+                  <IconPlayerStopFilled size={14} />
+                )}
+                {stopping ? "Stopping" : "Stop"}
               </button>
             </div>
           </>

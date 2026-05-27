@@ -22,6 +22,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
+  --popover-shadow-gutter: 12px;
+  --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md:
@@ -75,6 +77,10 @@ body {
   overflow: visible;
 }
 
+body[data-clips-route="popover"] {
+  overflow: hidden;
+}
+
 html[data-clips-route]:not([data-clips-route="popover"]),
 body[data-clips-route]:not([data-clips-route="popover"]) {
   width: 100vw;
@@ -93,9 +99,18 @@ button {
   background: transparent;
 }
 
+body[data-clips-route="popover"] #root {
+  min-height: 100vh;
+  padding: var(--popover-shadow-gutter);
+}
+
 body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 100vh;
   overflow: hidden;
+}
+
+body[data-clips-route="recording-pill"] #root {
+  padding: var(--overlay-shadow-gutter);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -115,7 +130,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: 100vh;
+  max-height: calc(
+    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1880,10 +1897,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  /* No glow — the bare white numeral is crisper on camera than a
-     haloed one, which tends to bloom and lose edge detail in the
-     recorded output. */
-  animation: cd-pop 0.85s ease-out forwards;
+  -webkit-text-stroke: 1px rgba(17, 24, 39, 0.22);
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.48),
+    0 12px 34px rgba(0, 0, 0, 0.36),
+    0 0 2px rgba(0, 0, 0, 0.72);
+  animation: cd-pop 1s ease-out forwards;
   line-height: 1;
 }
 
@@ -1898,6 +1917,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-pill);
   background: rgba(10, 12, 16, 0.28);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
   color: rgba(255, 255, 255, 0.58);
   font-size: 11px;
   font-weight: 500;
@@ -2163,7 +2183,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .toolbar-v {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2176,6 +2196,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 4px 12px rgba(0, 0, 0, 0.34);
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
@@ -2213,6 +2236,16 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: currentColor;
   border-radius: 2px;
   display: inline-block;
+}
+
+.toolbar-v-spinner {
+  animation: toolbar-v-spin 0.8s linear infinite;
+}
+
+@keyframes toolbar-v-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .toolbar-v-time {
@@ -2288,7 +2321,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
  */
 .bubble-wrapper {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2311,6 +2344,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 50%;
   overflow: hidden;
   background: #000;
+  box-shadow:
+    0 22px 54px rgba(0, 0, 0, 0.28),
+    0 4px 14px rgba(0, 0, 0, 0.18);
   /* Position context for absolute children (close X, canvas). */
   position: relative;
   /* Cursor hint — the drag region is here. */
@@ -3078,7 +3114,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    the words being recognized in real time. */
 .flow-bar-root {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;

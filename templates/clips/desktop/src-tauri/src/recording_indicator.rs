@@ -33,7 +33,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBui
 
 use crate::dlog;
 use crate::util::{
-    configure_overlay_behavior, build_overlay_url, set_capture_excluded, show_without_activation,
+    build_overlay_url, configure_overlay_behavior, set_capture_excluded, show_without_activation,
     tray_monitor_physical_rect,
 };
 
@@ -64,6 +64,7 @@ const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 const PILL_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -77,6 +78,10 @@ fn scale_factor(app: &AppHandle) -> f64 {
     app.get_webview_window("popover")
         .and_then(|w| w.scale_factor().ok())
         .unwrap_or(2.0)
+}
+
+fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
+    (OVERLAY_SHADOW_GUTTER_LOGICAL * scale_factor(app).max(1.0)).round() as u32
 }
 
 /// Persist the last-known pill position so the next `show` re-opens at the
@@ -204,7 +209,7 @@ fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
+fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let scale = scale_factor(app);
     let detached = PILL_DETACHED.load(Ordering::Relaxed);
     // Detached mode ignores the `expanded` flag — the floating pill is a
@@ -220,6 +225,12 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let w = (w_log as f64 * scale) as u32;
     let h = (h_log as f64 * scale) as u32;
     (w, h)
+}
+
+fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
+    let (content_w, content_h) = pill_content_size_physical(app, expanded);
+    let gutter = overlay_shadow_gutter_physical(app);
+    (content_w + gutter * 2, content_h + gutter * 2)
 }
 
 /// Default top-right anchor (physical px) for detached mode.
