@@ -1264,6 +1264,7 @@ let remoteConnectorLastExitSignal: string | null | undefined;
 let remoteConnectorNextRestartAt: string | undefined;
 let remoteConnectorError: string | undefined;
 let appIsQuitting = false;
+const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 
 function remoteDeviceConfigPath(): string {
   return path.resolve(
@@ -1472,6 +1473,18 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   } catch (err) {
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
+  }
+  return getRemoteConnectorStatus();
+}
+
+function getRemoteConnectorStatusForUserRequest(): CodeAgentRemoteConnectorStatus {
+  if (
+    remoteConnectorEnabled &&
+    !appIsQuitting &&
+    !remoteConnectorProcess?.pid &&
+    !remoteConnectorNextRestartAt
+  ) {
+    return startRemoteCodeAgentConnector();
   }
   return getRemoteConnectorStatus();
 }
@@ -5116,7 +5129,8 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus => getRemoteConnectorStatus(),
+  (): CodeAgentRemoteConnectorStatus =>
+    getRemoteConnectorStatusForUserRequest(),
 );
 
 ipcMain.handle(
@@ -6388,6 +6402,24 @@ function refreshApplicationMenu() {
   installApplicationMenu();
 }
 
+function configurePermissionHandlers(sess: Electron.Session) {
+  if (permissionConfiguredSessions.has(sess)) return;
+  permissionConfiguredSessions.add(sess);
+
+  sess.setPermissionCheckHandler((_webContents, permission) => {
+    if (permission === "fileSystem") return false;
+    return true;
+  });
+
+  sess.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "fileSystem") {
+      callback(false);
+      return;
+    }
+    callback(true);
+  });
+}
+
 app.whenReady().then(() => {
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -6405,6 +6437,7 @@ app.whenReady().then(() => {
   ) {
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
+    configurePermissionHandlers(sess);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -6494,7 +6527,6 @@ app.whenReady().then(() => {
   const win = createWindow();
   registerDesktopShortcutBindings();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
-  startRemoteCodeAgentConnector();
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
