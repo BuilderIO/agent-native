@@ -62,17 +62,6 @@ function findTabAppId(
   return undefined;
 }
 
-function getOrderedVisibleTabs(
-  tabsByApp: Record<string, AppTabState>,
-  orderedAppIds: string[],
-  visibleAppIds: Set<string>,
-): Tab[] {
-  return orderedAppIds.flatMap((appId) => {
-    if (!visibleAppIds.has(appId)) return [];
-    return tabsByApp[appId]?.tabs ?? [];
-  });
-}
-
 function markAppMounted(prev: Set<string>, appId: string): Set<string> {
   if (!appId || appId === CODE_AGENTS_SURFACE_ID || prev.has(appId)) {
     return prev;
@@ -218,24 +207,32 @@ export default function App() {
   const activeTabId = currentAppTabs?.activeTabId ?? "";
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
-  const visibleTabAppIds = new Set(
-    [...mountedAppIds, activeSidebarAppId].filter(Boolean),
-  );
-  const visibleTabs = getOrderedVisibleTabs(
-    appTabs,
-    appDefs.map((app) => app.id),
-    visibleTabAppIds,
-  );
 
   const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
     setApps(newApps);
   }, []);
 
-  const activateApp = useCallback((appId: string) => {
-    if (!appId) return;
-    setMountedAppIds((prev) => markAppMounted(prev, appId));
-    setActiveSidebarAppId(appId);
-  }, []);
+  const activateApp = useCallback(
+    (appId: string, options: { ensureTab?: boolean } = {}) => {
+      if (!appId) return;
+      const { ensureTab = true } = options;
+      const app = enabledApps.find((candidate) => candidate.id === appId);
+      if (ensureTab && appId !== CODE_AGENTS_SURFACE_ID && app) {
+        setAppTabs((prev) => {
+          const appState = prev[appId];
+          if (appState?.tabs.length) return prev;
+          const tab = createTab(app);
+          return {
+            ...prev,
+            [appId]: { tabs: [tab], activeTabId: tab.id },
+          };
+        });
+      }
+      setMountedAppIds((prev) => markAppMounted(prev, appId));
+      setActiveSidebarAppId(appId);
+    },
+    [enabledApps],
+  );
 
   const handleAddApp = useCallback(
     async (app: AppConfig) => {
@@ -328,42 +325,35 @@ export default function App() {
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
-      const appId = findTabAppId(appTabs, tabId);
-      if (!appId) return;
-
-      activateApp(appId);
       setAppTabs((prev) => {
-        const appState = prev[appId];
+        const appState = prev[activeSidebarAppId];
         if (!appState?.tabs.some((tab) => tab.id === tabId)) return prev;
 
         return {
           ...prev,
-          [appId]: {
+          [activeSidebarAppId]: {
             ...appState,
             activeTabId: tabId,
           },
         };
       });
     },
-    [activateApp, appTabs],
+    [activeSidebarAppId],
   );
 
   const handleTabClose = useCallback(
     (tabId: string) => {
-      const closeAppId = findTabAppId(appTabs, tabId);
-      if (!closeAppId) return;
-      const appState = appTabs[closeAppId];
+      const appState = appTabs[activeSidebarAppId];
       const closedTab = appState?.tabs.find((t) => t.id === tabId);
       if (closedTab) {
         closedTabsRef.current.push({
           tab: closedTab,
-          appId: closeAppId,
+          appId: activeSidebarAppId,
         });
       }
 
       setAppTabs((prev) => {
-        const appId = findTabAppId(prev, tabId) ?? closeAppId;
-        const prevAppState = prev[appId];
+        const prevAppState = prev[activeSidebarAppId];
         if (!prevAppState) return prev;
 
         const idx = prevAppState.tabs.findIndex((t) => t.id === tabId);
@@ -372,12 +362,9 @@ export default function App() {
         const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
-          const app = enabledApps.find((a) => a.id === appId);
-          if (!app) return prev;
-          const tab = createTab(app);
           return {
             ...prev,
-            [appId]: { tabs: [tab], activeTabId: tab.id },
+            [activeSidebarAppId]: { tabs: [], activeTabId: "" },
           };
         }
 
@@ -389,11 +376,11 @@ export default function App() {
 
         return {
           ...prev,
-          [appId]: { tabs: next, activeTabId: newActiveId },
+          [activeSidebarAppId]: { tabs: next, activeTabId: newActiveId },
         };
       });
     },
-    [appTabs, enabledApps],
+    [activeSidebarAppId, appTabs],
   );
 
   const handleTabTitleChange = useCallback((tabId: string, title: string) => {
@@ -424,10 +411,9 @@ export default function App() {
     if (!entry) return;
     if (!enabledApps.some((app) => app.id === entry.appId)) return;
 
-    activateApp(entry.appId);
+    activateApp(entry.appId, { ensureTab: false });
     setAppTabs((prev) => {
-      const appState = prev[entry.appId];
-      if (!appState) return prev;
+      const appState = prev[entry.appId] ?? { tabs: [], activeTabId: "" };
 
       return {
         ...prev,
@@ -443,10 +429,12 @@ export default function App() {
     const app = enabledApps.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
     const tab = createTab(app);
-    activateApp(activeSidebarAppId);
+    activateApp(activeSidebarAppId, { ensureTab: false });
     setAppTabs((prev) => {
-      const appState = prev[activeSidebarAppId];
-      if (!appState) return prev;
+      const appState = prev[activeSidebarAppId] ?? {
+        tabs: [],
+        activeTabId: "",
+      };
 
       return {
         ...prev,
@@ -603,9 +591,13 @@ export default function App() {
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
     if (activeSidebarAppId && window.electronAPI?.setActiveApp) {
-      window.electronAPI.setActiveApp(activeSidebarAppId);
+      window.electronAPI.setActiveApp(
+        activeSidebarAppId === CODE_AGENTS_SURFACE_ID || activeTabId
+          ? activeSidebarAppId
+          : "",
+      );
     }
-  }, [activeSidebarAppId]);
+  }, [activeSidebarAppId, activeTabId]);
 
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onCloseTab) return;
@@ -741,7 +733,7 @@ export default function App() {
         </div>
       ) : (
         <TabBar
-          tabs={visibleTabs}
+          tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
