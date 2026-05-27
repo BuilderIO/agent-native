@@ -27,7 +27,11 @@ import {
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import type { UpdateStatus } from "@shared/ipc-channels";
-import { generateAppId } from "@shared/app-registry";
+import {
+  generateAppId,
+  getDesktopTemplateGatewayAppUrl,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
 import {
   formatDesktopShortcutAccelerator,
   normalizeDesktopShortcutAccelerator,
@@ -71,9 +75,19 @@ function inferPortFromUrl(url: string): number {
 
 function appUrlForRemotePairing(app: AppConfig): string {
   if ((app.mode ?? "prod") === "dev") {
-    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+    return (
+      effectiveDevUrlForDisplay(app) ||
+      (app.devPort ? `http://localhost:${app.devPort}` : "")
+    );
   }
   return app.url || app.devUrl || "";
+}
+
+function effectiveDevUrlForDisplay(app: AppConfig): string {
+  if (isDefaultDesktopTemplateDevTarget(app)) {
+    return getDesktopTemplateGatewayAppUrl(app.id) || app.devUrl || "";
+  }
+  return app.devUrl || "";
 }
 
 function defaultRemoteRelayUrl(apps: AppConfig[]): string {
@@ -921,7 +935,7 @@ export default function AppSettings({
                       <span className="settings-app-name">{app.name}</span>
                       <span className="settings-app-url">
                         {app.mode === "dev" && app.devUrl
-                          ? app.devUrl
+                          ? effectiveDevUrlForDisplay(app)
                           : app.url || app.devUrl}
                       </span>
                     </div>

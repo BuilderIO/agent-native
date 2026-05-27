@@ -79,8 +79,9 @@ import {
 } from "@shared/desktop-shortcuts";
 import {
   FRAME_PORT,
+  getDesktopTemplateGatewayAppUrl,
   getTemplate,
-  getTemplateGatewayAppUrl,
+  isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import {
@@ -329,12 +330,29 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
+function desktopTemplateGatewayOverridesDevUrls(): boolean {
+  const value =
+    process.env["AGENT_NATIVE_USE_TEMPLATE_GATEWAY"] ||
+    process.env["VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY"];
+  return value === "1" || value === "true";
+}
+
+function resolveDesktopTemplateGatewayUrl(appConfig: AppConfig): string | null {
+  if (
+    !desktopTemplateGatewayOverridesDevUrls() &&
+    !isDefaultDesktopTemplateDevTarget(appConfig)
+  ) {
+    return null;
+  }
+  return getDesktopTemplateGatewayAppUrl(appConfig.id);
+}
+
 function resolveAppBaseUrl(appConfig: AppConfig): string | null {
   const isProdMode = appConfig.mode !== "dev";
   if (isProdMode && appConfig.url) return appConfig.url;
   if (!isProdMode) {
     return (
-      getTemplateGatewayAppUrl(appConfig.id) ||
+      resolveDesktopTemplateGatewayUrl(appConfig) ||
       appConfig.devUrl ||
       (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : null) ||
       appConfig.url ||
@@ -6472,7 +6490,7 @@ app.whenReady().then(() => {
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
-          const gatewayAppUrl = getTemplateGatewayAppUrl(app.id);
+          const gatewayAppUrl = resolveDesktopTemplateGatewayUrl(app);
           const appUrl = details.url.replace(
             `http://localhost:${FRAME_PORT}`,
             gatewayAppUrl || `http://localhost:${app.devPort}`,
