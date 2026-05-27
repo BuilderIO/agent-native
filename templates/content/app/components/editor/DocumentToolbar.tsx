@@ -508,9 +508,7 @@ export function DocumentToolbar({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                onSelect={() => setHistoryOpen(true)}
-              >
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
                 <IconHistory className="mr-2 h-4 w-4" />
                 Version history
               </DropdownMenuItem>
