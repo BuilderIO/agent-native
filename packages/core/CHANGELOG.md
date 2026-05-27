@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.24.2
+
+### Patch Changes
+
+- ff0fae2: Allow Brain and Dispatch sidebar chat threads to be renamed from their row menu.
+- ff0fae2: Add fresh-start chat surfaces plus chat thread pin/archive metadata.
+- ff0fae2: Generalize the onboarding copy for image generation provider key setup.
+- ff0fae2: Keep framework routes registered through the H3 shim visible to Nitro 3 generated server dispatchers.
+- ff0fae2: Promote Brain and Assets in public template catalogs and Dispatch workspace template defaults.
+- ff0fae2: Render workspace app menu links with the same template icons used by the desktop app.
+
 ## 0.24.1
 
 ### Patch Changes

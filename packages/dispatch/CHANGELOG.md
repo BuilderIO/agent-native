@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.8.20
+
+### Patch Changes
+
+- ff0fae2: Allow Brain and Dispatch sidebar chat threads to be renamed from their row menu.
+- ff0fae2: Keep the Dispatch hero composer within the available content column on medium screens.
+- ff0fae2: Promote Brain and Assets in public template catalogs and Dispatch workspace template defaults.
+- ff0fae2: Only show Dispatch chat history in the sidebar while the Chat tab is active.
+
 ## 0.8.19
 
 ### Patch Changes
