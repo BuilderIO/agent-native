@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
-import { NavLink, useNavigate } from "react-router";
-import { IconBrain, IconPlus, IconSettings } from "@tabler/icons-react";
+import { Link, NavLink, useNavigate } from "react-router";
+import { IconPlus, IconSettings } from "@tabler/icons-react";
 import {
+  appPath,
   FeedbackButton,
   useChatThreads,
   type ChatThreadSummary,
@@ -162,17 +163,31 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-        <div className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-          <IconBrain className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-            Brain
-          </p>
-          <p className="truncate text-xs text-sidebar-foreground/70">
-            Company memory
-          </p>
-        </div>
+        <Link
+          to="/"
+          className="flex min-w-0 items-center gap-3 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto shrink-0 dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto shrink-0 dark:block"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+              Brain
+            </p>
+            <p className="truncate text-xs text-sidebar-foreground/70">
+              Company memory
+            </p>
+          </div>
+        </Link>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
