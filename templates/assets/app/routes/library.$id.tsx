@@ -171,6 +171,22 @@ export default function LibraryPage() {
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
 
+  function markAssetsOptimisticallyDeleted(ids: string[]) {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function restoreOptimisticallyDeletedAssets(ids: string[]) {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
   useEffect(() => {
     setOptimisticallyDeletedAssetIds((current) => {
       const serverAssetIds = new Set(serverAssets.map((asset) => asset.id));
@@ -234,7 +250,7 @@ export default function LibraryPage() {
     const selectedFiles = Array.from(files);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
-    const pending = selectedFiles.map((file, index) => ({
+    const pending: PendingUpload[] = selectedFiles.map((file, index) => ({
       id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
       name: file.name,
       mediaType: file.type.startsWith("video/") ? "video" : "image",
@@ -566,6 +582,8 @@ export default function LibraryPage() {
               onEmptyClick={() => fileInputRef.current?.click()}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
+              onOptimisticDelete={markAssetsOptimisticallyDeleted}
+              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
             />
           </TabsContent>
 
@@ -578,6 +596,8 @@ export default function LibraryPage() {
               onEmptyClick={() => setGenerateOpen(true)}
               selectedIds={selectedAssetIds}
               onSelectedIdsChange={setSelectedAssetIds}
+              onOptimisticDelete={markAssetsOptimisticallyDeleted}
+              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
             />
           </TabsContent>
 
@@ -1286,6 +1306,8 @@ function AssetGrid({
   onEmptyClick,
   selectedIds,
   onSelectedIdsChange,
+  onOptimisticDelete,
+  onRestoreOptimisticDelete,
 }: {
   assets: any[];
   folders: any[];
@@ -1295,6 +1317,8 @@ function AssetGrid({
   onEmptyClick: () => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
+  onOptimisticDelete?: (ids: string[]) => void;
+  onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
@@ -1332,11 +1356,12 @@ function AssetGrid({
     if (!confirmDeleteIds.length || deleting) return;
     if (confirmDeleteIds.length === 1) {
       const [id] = confirmDeleteIds;
+      onOptimisticDelete?.([id]);
+      setConfirmDeleteIds([]);
       deleteAsset.mutate(
         { id },
         {
           onSuccess: () => {
-            setConfirmDeleteIds([]);
             onSelectedIdsChange((current) => {
               const next = new Set(current);
               next.delete(id);
@@ -1344,18 +1369,21 @@ function AssetGrid({
             });
           },
           onError: (error) => {
+            onRestoreOptimisticDelete?.([id]);
             toast.error(error.message || "Could not delete asset.");
           },
         },
       );
       return;
     }
+    const ids = [...confirmDeleteIds];
+    onOptimisticDelete?.(ids);
+    setConfirmDeleteIds([]);
     deleteAssets.mutate(
-      { ids: confirmDeleteIds },
+      { ids },
       {
         onSuccess: () => {
-          const deletedIds = new Set(confirmDeleteIds);
-          setConfirmDeleteIds([]);
+          const deletedIds = new Set(ids);
           onSelectedIdsChange((current) => {
             const next = new Set(current);
             for (const id of deletedIds) next.delete(id);
@@ -1366,6 +1394,7 @@ function AssetGrid({
           );
         },
         onError: (error) => {
+          onRestoreOptimisticDelete?.(ids);
           toast.error(error.message || "Could not delete selected assets.");
         },
       },
