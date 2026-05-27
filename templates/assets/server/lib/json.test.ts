@@ -41,6 +41,9 @@ describe("absoluteUrl", () => {
     expect(absoluteUrl("/api/assets/asset-1/content?variant=thumb")).toBe(
       "/assets/api/assets/asset-1/content?variant=thumb",
     );
+    expect(absoluteUrl("/library-presets/soft-travel-3d/bag-clay.webp")).toBe(
+      "/assets/library-presets/soft-travel-3d/bag-clay.webp",
+    );
   });
 
   it("does not double-prefix URLs that already include APP_BASE_PATH", () => {
