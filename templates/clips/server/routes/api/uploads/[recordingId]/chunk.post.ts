@@ -29,6 +29,7 @@ import { debugLog } from "../../../../lib/debug.js";
 import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
+  deleteAppStateByPrefix,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -216,6 +217,7 @@ export default defineEventHandler(async (event: H3Event) => {
           maxBytes: MAX_RECORDING_UPLOAD_BYTES,
           updatedAt: now,
         });
+        await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
         setResponseStatus(event, 413);
         return {
           ok: false,
