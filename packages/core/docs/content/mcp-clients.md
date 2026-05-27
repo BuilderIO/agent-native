@@ -159,6 +159,36 @@ If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips)
 
 Dispatch is the conventional hub — it already coordinates across apps.
 
+For new workspace setups, prefer **Dispatch workspace MCP resources** when you
+want the same All-app vs selected-app grant model used by workspace skills,
+instructions, and reference resources. Add a workspace resource with:
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {
+    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"
+  },
+  "description": "Shared MCP tools for workspace apps"
+}
+```
+
+Save it under `mcp-servers/<name>.json` with kind `mcp-server`. All-app
+resources are loaded by every workspace app; selected resources load only in
+apps with an active Dispatch grant. Secret placeholders resolve from the app
+secret store, so put raw bearer tokens in Dispatch Vault and reference them
+with `${keys.NAME}` instead of storing them in the resource body.
+
+Apps refresh their merged MCP config about once a minute, so central resource
+edits, grant changes, and removals take effect without a deploy. Set
+`AGENT_NATIVE_MCP_CONFIG_REFRESH_MS=0` to disable that background refresh, or
+set it to a value of at least `5000` milliseconds to tune the interval.
+
+The older hub mode below remains useful for coarse “share every org-scope MCP
+server from Dispatch” setups and for deployments that already use the MCP
+settings UI as the source of truth.
+
 ### 1. Enable hub-serve on the hub app (dispatch)
 
 Set an env var in dispatch's deployment:

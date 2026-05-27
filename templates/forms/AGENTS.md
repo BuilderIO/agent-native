@@ -175,7 +175,9 @@ Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`priva
 | ----------- | ------------------------------- | -------------------------------------------------- |
 | `db-schema` | Show all tables, columns, types | `pnpm action db-schema`                            |
 | `db-query`  | Run a SELECT query              | `pnpm action db-query --sql "SELECT * FROM forms"` |
-| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
+| `db-exec`   | Last-resort ad-hoc maintenance  | `pnpm action db-exec --sql "UPDATE forms SET ..."` |
+
+Prefer the form actions for normal work. Use `db-exec` only when no domain action exists and you need a small one-off maintenance change.
 
 ## Common Tasks
 

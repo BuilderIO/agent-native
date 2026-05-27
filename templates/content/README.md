@@ -23,4 +23,4 @@ Open http://localhost:8080 and create your first page.
 
 ## Data
 
-All documents are stored in SQLite (`data/app.db`). The agent can query and modify documents using the built-in `db-query` and `db-exec` scripts.
+Documents are stored in the app's SQL database. Local development defaults to SQLite at `data/app.db`; deployed apps should set `DATABASE_URL` to a persistent SQL database. The agent should use content actions for normal document operations and reserve `db-query` / `db-exec` for inspection or maintenance.

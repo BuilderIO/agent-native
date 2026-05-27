@@ -41,6 +41,10 @@ vi.mock("./hub-client.js", () => ({
   fetchHubServers: async () => ({}),
 }));
 
+vi.mock("./workspace-servers.js", () => ({
+  loadWorkspaceMcpServers: async () => ({}),
+}));
+
 beforeEach(() => {
   mockedSettings.all = {};
   getSessionMock.mockReset();

@@ -1,7 +1,8 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
-import { getDbExec } from "@agent-native/core/db";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../../../db/index.js";
 
 /**
  * DELETE /api/comments/:id
@@ -23,14 +24,15 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const client = getDbExec();
-      const { rows } = await client.execute({
-        sql: "SELECT document_id, author_email FROM document_comments WHERE id = ?",
-        args: [id],
-      });
-      const comment = rows[0] as
-        | { document_id: string; author_email: string }
-        | undefined;
+      const db = getDb();
+      const [comment] = await db
+        .select({
+          documentId: schema.documentComments.documentId,
+          authorEmail: schema.documentComments.authorEmail,
+        })
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.id, id))
+        .limit(1);
 
       if (!comment) {
         setResponseStatus(event, 404);
@@ -38,10 +40,10 @@ export default defineEventHandler(async (event) => {
       }
 
       try {
-        if (comment.author_email === session.email) {
-          await assertAccess("document", comment.document_id, "viewer");
+        if (comment.authorEmail === session.email) {
+          await assertAccess("document", comment.documentId, "viewer");
         } else {
-          await assertAccess("document", comment.document_id, "editor");
+          await assertAccess("document", comment.documentId, "editor");
         }
       } catch (err) {
         if (err instanceof ForbiddenError) {
@@ -51,10 +53,14 @@ export default defineEventHandler(async (event) => {
         throw err;
       }
 
-      await client.execute({
-        sql: "DELETE FROM document_comments WHERE id = ? AND document_id = ?",
-        args: [id, comment.document_id],
-      });
+      await db
+        .delete(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
 
       return { ok: true };
     },

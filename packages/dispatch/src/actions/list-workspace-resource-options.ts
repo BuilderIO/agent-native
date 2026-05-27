@@ -7,7 +7,7 @@ export default defineAction({
     "List lightweight workspace resource options for selectors, without returning full content.",
   schema: z.object({
     kind: z
-      .enum(["skill", "instruction", "agent", "knowledge"])
+      .enum(["skill", "instruction", "agent", "knowledge", "mcp-server"])
       .optional()
       .describe("Filter by resource kind"),
   }),

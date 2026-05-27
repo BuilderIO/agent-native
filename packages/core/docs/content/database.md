@@ -1,19 +1,21 @@
 ---
 title: "Database"
-description: "Connect any SQL database to your agent-native app — SQLite for local dev, Postgres for production."
+description: "Connect a portable SQL database to your agent-native app and write provider-agnostic Drizzle code."
 ---
 
 # Database
 
-Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support any SQL database. By default, apps use SQLite with a local file — set `DATABASE_URL` to connect a production database.
+Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. By default, apps use SQLite with a local file — set `DATABASE_URL` to connect a persistent production database.
 
 ## Default: SQLite {#default-sqlite}
 
 When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. This is great for local development — no setup required.
 
+Do not rely on that local file for deployed apps. Containers, serverless functions, and preview environments may reset their filesystem, which means a local SQLite file can disappear between restarts. Set `DATABASE_URL` to a persistent hosted database before production use.
+
 ## Connecting a Production Database {#production}
 
-Set `DATABASE_URL` in your `.env` file to connect a hosted database:
+Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted database. Turso is not required; use whichever Drizzle-compatible SQL backend fits your deployment:
 
 ```bash
 # Neon Postgres
@@ -27,18 +29,18 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
 # Turso (libSQL)
 DATABASE_URL=libsql://my-db-org.turso.io
-TURSO_AUTH_TOKEN=your-token
+DATABASE_AUTH_TOKEN=your-token
 ```
 
-The framework auto-detects the dialect from the URL and configures Drizzle accordingly.
+The framework auto-detects the dialect from the URL and configures Drizzle accordingly. The built-in adapters cover Postgres URLs, libSQL/Turso URLs, SQLite file URLs, and Cloudflare D1 bindings. Common production choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available.
 
 ## Builder.io Managed Database {#builder-managed}
 
 When connected to Builder.io, your app can use a managed database that is provisioned and scaled automatically. This is the simplest path to production — no connection strings or database admin required. Coming soon.
 
-## Dialect-Agnostic Schema {#schema}
+## Dialect-Agnostic Schema And Queries {#schema}
 
-All SQL must work on both SQLite and Postgres. Never use SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`) or Postgres-only syntax.
+App database code should use Drizzle's schema and query DSL so it can run across providers. Never write SQLite-only syntax (`INSERT OR REPLACE`, `AUTOINCREMENT`, `datetime('now')`) or Postgres-only syntax in product code.
 
 Use the framework's schema helpers from `@agent-native/core/db/schema`:
 
@@ -66,9 +68,29 @@ export const tasks = table("tasks", {
 
 Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly. Always use `@agent-native/core/db/schema`.
 
-## Raw SQL Helpers {#raw-sql}
+For reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`:
 
-For cases where you need raw SQL outside of Drizzle queries:
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import { tasks } from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(tasks)
+  .where(and(eq(tasks.ownerEmail, userEmail), eq(tasks.done, false)))
+  .orderBy(desc(tasks.createdAt));
+
+await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
+```
+
+## Raw SQL Escape Hatches {#raw-sql}
+
+Raw SQL is not the default app-code API. Use it only for additive migrations, health checks, carefully reviewed advanced queries that Drizzle cannot express, or one-off maintenance. Keep it parameterized and dialect-agnostic. For timestamps in Drizzle schemas, prefer `.default(now())`; for migration SQL, use `runMigrations()` so framework-supported compatibility rewrites and dialect-gated statements stay centralized.
+
+For cases where you truly need raw SQL outside of Drizzle queries:
 
 - `getDbExec()` — auto-converts `?` params to `$1` for Postgres
 - `isPostgres()` — runtime dialect check
@@ -97,15 +119,20 @@ Instead of pushing directly, schema changes should be applied via SQL migrations
 ```ts
 import { runMigrations } from "@agent-native/core/db";
 
-export default defineNitroPlugin(async () => {
-  // Executes pending SQL migrations safely at startup
-  await runMigrations();
-});
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
 ```
 
 ## Environment Variables {#environment-variables}
 
-| Variable           | Purpose                                           |
-| ------------------ | ------------------------------------------------- |
-| `DATABASE_URL`     | Database connection string (unset = local SQLite) |
-| `TURSO_AUTH_TOKEN` | Auth token for Turso (libSQL) databases           |
+| Variable              | Purpose                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite, which is only durable for local development) |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                         |

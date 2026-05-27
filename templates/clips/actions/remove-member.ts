@@ -9,9 +9,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
+import { orgMembers } from "@agent-native/core/org";
 import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -24,18 +26,23 @@ export default defineAction({
     email: z.string().email().describe("Member email"),
   }),
   run: async (args) => {
-    const exec = getDbExec();
+    const db = getDb();
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
       ["admin"],
     );
     const targetEmailLower = args.email.toLowerCase();
 
-    const targetRes = await exec.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [organizationId, targetEmailLower],
-    });
-    const target = (targetRes.rows as Array<{ role?: string }>)[0];
+    const [target] = await db
+      .select({ role: orgMembers.role })
+      .from(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, organizationId),
+          sql`lower(${orgMembers.email}) = ${targetEmailLower}`,
+        ),
+      )
+      .limit(1);
     if (!target) {
       throw new Error(`Member not found: ${args.email}`);
     }
@@ -43,10 +50,14 @@ export default defineAction({
       throw new Error("Cannot remove the organization owner.");
     }
 
-    await exec.execute({
-      sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [organizationId, targetEmailLower],
-    });
+    await db
+      .delete(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, organizationId),
+          sql`lower(${orgMembers.email}) = ${targetEmailLower}`,
+        ),
+      );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

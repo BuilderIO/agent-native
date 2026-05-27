@@ -141,7 +141,7 @@ Use `packages/shared` for code-level defaults that should ship with the repo: pl
 Dispatch resources support two scopes:
 
 - **All apps** — global resources for every app in the workspace. Dispatch stores them once at workspace scope and every app agent inherits them at runtime; no copy or sync step is required.
-- **Selected apps** — resources granted per app for app-specific context. Use these sparingly; most company, brand, persona, positioning, messaging, and guardrail context should be All apps.
+- **Selected apps** — resources granted per app for app-specific context or tools. Use these sparingly; most company, brand, persona, positioning, messaging, and guardrail context should be All apps.
 
 Canonical paths control behavior:
 
@@ -151,8 +151,9 @@ Canonical paths control behavior:
 | Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
 | Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
 | Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
+| Shared HTTP MCP servers | `mcp-servers/<slug>.json`               | Loaded into granted apps' MCP tool registry     |
 
-This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, or other shared knowledge that many apps should benefit from.
+This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
 
 For a starter workspace, create these Dispatch resources and scope them to **All apps**:
 

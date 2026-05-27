@@ -7,7 +7,7 @@ This guide is for development-mode agents editing the Calls template's source co
 - **Framework:** `@agent-native/core` + React Router v7 (framework mode)
 - **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui, Tabler Icons
 - **Backend:** Nitro (via `@agent-native/core`) — file-based API routing, server plugins, deploy-anywhere presets
-- **DB:** Drizzle ORM — dialect-agnostic (Neon Postgres in prod, SQLite for local dev)
+- **DB:** Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
 - **Transcription:** Deepgram Nova-3 (diarization)
 - **Meeting bots:** Recall.ai (optional)
 - **Zoom cloud:** Zoom OAuth (optional)
@@ -62,7 +62,7 @@ actions/                     # Agent-callable + HTTP-auto-mounted operations
 shared/
   api.ts                     # Isomorphic types: CallSummary, TranscriptSegment, etc.
 
-data/                        # App data (SQLite DB file in local dev)
+data/                        # Local development database fallback
 
 react-router.config.ts       # React Router framework config
 .agents/skills/              # Agent skills — the source of truth for patterns
@@ -159,18 +159,18 @@ Standard UI components live in `app/components/`. Prefer shadcn/ui primitives fr
 
 ## Environment Variables
 
-| Variable                   | Required          | Description                                                                        |
-| -------------------------- | ----------------- | ---------------------------------------------------------------------------------- |
-| `DATABASE_URL`             | No (has default)  | DB connection string. Default: `file:./data/app.db` (SQLite). Prod: Neon Postgres. |
-| `DATABASE_AUTH_TOKEN`      | For remote DBs    | Turso / LibSQL auth token when using a remote SQLite.                              |
-| `DEEPGRAM_API_KEY`         | For transcription | Deepgram API key (Nova-3 model). Without it, `request-transcript` fails.           |
-| `RECALL_AI_API_KEY`        | Optional          | Enables `schedule-recall-bot` / meeting-bot capture.                               |
-| `ZOOM_OAUTH_CLIENT_ID`     | Optional          | Zoom OAuth app client id for cloud-recording import.                               |
-| `ZOOM_OAUTH_CLIENT_SECRET` | Optional          | Zoom OAuth app secret.                                                             |
-| `ZOOM_OAUTH_REDIRECT_URI`  | Optional          | Must match the URI registered in your Zoom OAuth app.                              |
-| `ACCESS_TOKEN`             | Production only   | Presence enables auth middleware. Absent in dev.                                   |
-| `AUTH_SECRET`              | Production only   | Signs the session cookie.                                                          |
-| `NITRO_PUBLIC_URL`         | Recommended       | Public base URL (used for webhook registration with Recall.ai / Zoom / Deepgram).  |
+| Variable                   | Required                        | Description                                                                       |
+| -------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| `DATABASE_URL`             | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`)        |
+| `DATABASE_AUTH_TOKEN`      | Only when the provider needs it | Auth token for providers such as Turso/libSQL                                     |
+| `DEEPGRAM_API_KEY`         | For transcription               | Deepgram API key (Nova-3 model). Without it, `request-transcript` fails.          |
+| `RECALL_AI_API_KEY`        | Optional                        | Enables `schedule-recall-bot` / meeting-bot capture.                              |
+| `ZOOM_OAUTH_CLIENT_ID`     | Optional                        | Zoom OAuth app client id for cloud-recording import.                              |
+| `ZOOM_OAUTH_CLIENT_SECRET` | Optional                        | Zoom OAuth app secret.                                                            |
+| `ZOOM_OAUTH_REDIRECT_URI`  | Optional                        | Must match the URI registered in your Zoom OAuth app.                             |
+| `ACCESS_TOKEN`             | Production only                 | Presence enables auth middleware. Absent in dev.                                  |
+| `AUTH_SECRET`              | Production only                 | Signs the session cookie.                                                         |
+| `NITRO_PUBLIC_URL`         | Recommended                     | Public base URL (used for webhook registration with Recall.ai / Zoom / Deepgram). |
 
 ## Default Trackers
 

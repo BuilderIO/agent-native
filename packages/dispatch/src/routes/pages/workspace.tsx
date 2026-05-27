@@ -11,6 +11,7 @@ import {
   IconEdit,
   IconFileText,
   IconPlus,
+  IconPlugConnected,
   IconTrash,
   IconUser,
   IconX,
@@ -87,6 +88,13 @@ const KIND_CONFIG = {
     description:
       "Reference resources - brand, positioning, persona, and domain context",
   },
+  "mcp-server": {
+    label: "MCP Server",
+    icon: IconPlugConnected,
+    pathPrefix: "mcp-servers/",
+    description:
+      "HTTP MCP servers - external tools centrally granted to app agents",
+  },
 } as const;
 
 const STARTER_GLOBAL_CONTEXT = [
@@ -135,6 +143,7 @@ function defaultResourcePath(kind: string, name: string): string {
   if (kind === "instruction") return `instructions/${slug}.md`;
   if (kind === "agent") return `agents/${slug}.md`;
   if (kind === "knowledge") return `context/${slug}.md`;
+  if (kind === "mcp-server") return `mcp-servers/${slug}.json`;
   return `${slug}.md`;
 }
 
@@ -347,8 +356,8 @@ function AddResourceDialog() {
         <DialogHeader>
           <DialogTitle>Add workspace resource</DialogTitle>
           <DialogDescription>
-            Create a skill, instruction, agent profile, or reference resource
-            that can be shared across workspace apps.
+            Create a skill, instruction, agent profile, reference resource, or
+            MCP server that can be shared across workspace apps.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -364,6 +373,7 @@ function AddResourceDialog() {
                   <SelectItem value="instruction">Instruction</SelectItem>
                   <SelectItem value="agent">Agent</SelectItem>
                   <SelectItem value="knowledge">Knowledge pack</SelectItem>
+                  <SelectItem value="mcp-server">MCP server</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -390,7 +400,9 @@ function AddResourceDialog() {
                     ? "Research Specialist"
                     : kind === "knowledge"
                       ? "Core GTM Messaging"
-                      : "Code Style Guide"
+                      : kind === "mcp-server"
+                        ? "Zapier MCP"
+                        : "Code Style Guide"
               }
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -407,7 +419,9 @@ function AddResourceDialog() {
             <p className="text-xs text-muted-foreground">
               Skills use skills/name/SKILL.md. Guardrails in AGENTS.md or
               instructions/ auto-load in app chat. Reference resources in
-              context/ are indexed so agents can read them when relevant.
+              context/ are indexed so agents can read them when relevant. MCP
+              server resources use mcp-servers/name.json and are loaded as HTTP
+              MCP tools.
             </p>
           </div>
           <div className="space-y-2">
@@ -428,7 +442,9 @@ function AddResourceDialog() {
                     ? "---\nname: Research Specialist\ndescription: Handles research tasks\n---\n\n# Instructions\n\n..."
                     : kind === "knowledge"
                       ? "# Core GTM Messaging\n\n## Positioning\n\n## ICP\n\n## Proof points\n\n## Source\n\n"
-                      : "# Instructions\n\nAlways-on guardrails for agents across apps..."
+                      : kind === "mcp-server"
+                        ? '{\n  "type": "http",\n  "url": "https://example.com/mcp",\n  "headers": {\n    "Authorization": "Bearer ${keys.MCP_SERVER_TOKEN}"\n  },\n  "description": "Shared MCP tools for workspace apps"\n}\n'
+                        : "# Instructions\n\nAlways-on guardrails for agents across apps..."
               }
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -447,7 +463,12 @@ function AddResourceDialog() {
           <Button
             onClick={() =>
               create.mutate({
-                kind: kind as "skill" | "instruction" | "agent" | "knowledge",
+                kind: kind as
+                  | "skill"
+                  | "instruction"
+                  | "agent"
+                  | "knowledge"
+                  | "mcp-server",
                 name,
                 description: description || undefined,
                 path: path || defaultResourcePath(kind, name),
@@ -1010,6 +1031,9 @@ export default function WorkspaceRoute() {
   const knowledge = (resources || []).filter(
     (r: any) => r.kind === "knowledge",
   );
+  const mcpServers = (resources || []).filter(
+    (r: any) => r.kind === "mcp-server",
+  );
 
   function ResourceList({
     items,
@@ -1056,7 +1080,7 @@ export default function WorkspaceRoute() {
   return (
     <DispatchShell
       title="Workspace Resources"
-      description="Manage inherited workspace skills, guardrail instructions, agent profiles, and reference resources. All-app resources are available to every app without syncing."
+      description="Manage inherited workspace skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
     >
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
@@ -1087,6 +1111,9 @@ export default function WorkspaceRoute() {
           <TabsTrigger value="knowledge">
             Knowledge {knowledge.length > 0 && `(${knowledge.length})`}
           </TabsTrigger>
+          <TabsTrigger value="mcp">
+            MCP {mcpServers.length > 0 && `(${mcpServers.length})`}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="skills" className="mt-4">
@@ -1114,6 +1141,13 @@ export default function WorkspaceRoute() {
           <ResourceList
             items={knowledge}
             emptyText="No knowledge packs yet. Add GTM, product, or domain context that apps can reuse."
+          />
+        </TabsContent>
+
+        <TabsContent value="mcp" className="mt-4">
+          <ResourceList
+            items={mcpServers}
+            emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
           />
         </TabsContent>
       </Tabs>

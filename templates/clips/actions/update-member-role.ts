@@ -11,9 +11,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
+import { orgMembers } from "@agent-native/core/org";
 import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
 
 const ClipsRoleEnum = z.enum([
   "viewer",
@@ -39,7 +41,7 @@ export default defineAction({
     role: ClipsRoleEnum.describe("New role"),
   }),
   run: async (args) => {
-    const exec = getDbExec();
+    const db = getDb();
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
       ["admin"],
@@ -47,11 +49,16 @@ export default defineAction({
     const role = mapRole(args.role);
     const targetEmailLower = args.email.toLowerCase();
 
-    const existsRes = await exec.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [organizationId, targetEmailLower],
-    });
-    const existing = (existsRes.rows as Array<{ role?: string }>)[0];
+    const [existing] = await db
+      .select({ role: orgMembers.role })
+      .from(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, organizationId),
+          sql`lower(${orgMembers.email}) = ${targetEmailLower}`,
+        ),
+      )
+      .limit(1);
     if (!existing) {
       throw new Error(`Member not found: ${args.email}`);
     }
@@ -59,10 +66,15 @@ export default defineAction({
       throw new Error("Cannot change the organization owner's role.");
     }
 
-    await exec.execute({
-      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [role, organizationId, targetEmailLower],
-    });
+    await db
+      .update(orgMembers)
+      .set({ role })
+      .where(
+        and(
+          eq(orgMembers.orgId, organizationId),
+          sql`lower(${orgMembers.email}) = ${targetEmailLower}`,
+        ),
+      );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

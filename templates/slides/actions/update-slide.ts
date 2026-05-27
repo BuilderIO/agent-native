@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getDbExec } from "@agent-native/core/db";
 import {
   hasCollabState,
   agentEnterDocument,
@@ -9,7 +8,8 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { eq } from "drizzle-orm";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
@@ -79,30 +79,36 @@ export default defineAction({
     await assertAccess("deck", deckId, "editor");
 
     const docId = `deck-${deckId}-slide-${slideId}`;
-    const client = getDbExec();
+    const db = getDb();
 
     // Read SQL deck for the slide-existence check and the local fallback
     // computation that keeps decks.data in sync.
-    const existing = await client.execute({
-      sql: "SELECT id, title, data, owner_email, design_system_id FROM decks WHERE id = ?",
-      args: [deckId],
-    });
-    if (!existing.rows?.length) {
+    const [row] = await db
+      .select({
+        id: schema.decks.id,
+        title: schema.decks.title,
+        data: schema.decks.data,
+        ownerEmail: schema.decks.ownerEmail,
+        designSystemId: schema.decks.designSystemId,
+      })
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId))
+      .limit(1);
+    if (!row) {
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const row = existing.rows[0] as Record<string, unknown>;
     await createDeckVersionSnapshot(
       {
-        id: String(row.id ?? deckId),
-        title: String(row.title ?? "Untitled"),
-        data: String(row.data ?? ""),
-        ownerEmail: String(row.owner_email ?? ""),
+        id: row.id,
+        title: row.title ?? "Untitled",
+        data: row.data ?? "",
+        ownerEmail: row.ownerEmail ?? "",
       },
       { label: "Before slide edit" },
     );
 
-    const deck = JSON.parse(row.data as string);
+    const deck = JSON.parse(row.data);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const slide = deck.slides?.find((s: any) => s.id === slideId);
     if (!slide) {
@@ -195,10 +201,10 @@ export default defineAction({
     if (applied) {
       const now = new Date().toISOString();
       deck.updatedAt = now;
-      await client.execute({
-        sql: "UPDATE decks SET data = ?, updated_at = ? WHERE id = ?",
-        args: [JSON.stringify(deck), now, deckId],
-      });
+      await db
+        .update(schema.decks)
+        .set({ data: JSON.stringify(deck), updatedAt: now })
+        .where(eq(schema.decks.id, deckId));
     }
 
     notifyClients(deckId);

@@ -186,7 +186,8 @@ export type WorkspaceResourceKind =
   | "skill"
   | "instruction"
   | "agent"
-  | "knowledge";
+  | "knowledge"
+  | "mcp-server";
 export type WorkspaceResourceScope = "all" | "selected";
 
 export interface WorkspaceResourceInput {
@@ -969,10 +970,6 @@ export async function getWorkspaceResourceEffectiveContext(input: {
     await materializeGlobalResource(row);
   }
 
-  const coreContext: EffectiveResourceContext = await resourceEffectiveContext(
-    userEmail,
-    path,
-  );
   const resource = row ? workspaceResourceOption(row) : null;
   const activeGrant =
     resource?.scope === "selected" && appId
@@ -984,6 +981,15 @@ export async function getWorkspaceResourceEffectiveContext(input: {
     resource,
     appId,
     activeGrantId: activeGrant?.id ?? null,
+  });
+  const resolveEffectiveContext = resourceEffectiveContext as (
+    userEmail: string,
+    path: string,
+    options?: { workspaceAppId?: string | null; orgId?: string | null },
+  ) => Promise<EffectiveResourceContext>;
+  const coreContext = await resolveEffectiveContext(userEmail, path, {
+    workspaceAppId: appId,
+    orgId: ctx.orgId,
   });
 
   return {
@@ -1373,6 +1379,7 @@ export async function listWorkspaceResourcesOverview() {
   const instructions = resources.filter((r) => r.kind === "instruction");
   const agents = resources.filter((r) => r.kind === "agent");
   const knowledge = resources.filter((r) => r.kind === "knowledge");
+  const mcpServers = resources.filter((r) => r.kind === "mcp-server");
   const activeGrants = grants.filter((g) => g.status === "active");
 
   return {
@@ -1380,6 +1387,7 @@ export async function listWorkspaceResourcesOverview() {
     instructionCount: instructions.length,
     agentCount: agents.length,
     knowledgeCount: knowledge.length,
+    mcpServerCount: mcpServers.length,
     totalResources: resources.length,
     activeGrantCount: activeGrants.length,
   };

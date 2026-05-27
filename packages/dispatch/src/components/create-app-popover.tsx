@@ -36,7 +36,7 @@ interface VaultSecretOption {
 
 interface WorkspaceResourceOption {
   id: string;
-  kind: "skill" | "instruction" | "agent" | "knowledge";
+  kind: "skill" | "instruction" | "agent" | "knowledge" | "mcp-server";
   name: string;
   description?: string | null;
   path: string;

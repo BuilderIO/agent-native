@@ -52,6 +52,14 @@ Create an action in `actions/` using `defineAction`. This serves double duty: th
 
 Update `AGENTS.md` and/or create a skill in `.agents/skills/` if the feature introduces patterns the agent needs to know. At minimum, add the new actions to the action table in the template's `AGENTS.md`.
 
+Reusable actions are part of the app contract, not just implementation detail. When an action is useful outside one screen, update agent instructions in the same change so app agents know when to call it, which arguments matter, and what output to preserve. If the capability is workflow-heavy, cross-app, provider-backed, or has a non-obvious sequence of actions, add or update a skill instead of burying the behavior in one long `AGENTS.md` paragraph.
+
+For app-backed skills, declare skill visibility in the app-skill manifest:
+
+- `internal` — only the app's own agents should use it.
+- `exported` — marketplace installs receive it, but the app does not need it loaded internally.
+- `both` — shared between the app's internal agents and exported marketplace bundles.
+
 ### 4. Application State Sync
 
 Expose navigation and selection state so the agent knows what the user is looking at. Write to the `navigation` app-state key on route changes. Update the `view-screen` action to fetch relevant data for the new feature. Add a `navigate` command if the agent needs to open the new view.

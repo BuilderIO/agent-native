@@ -92,3 +92,62 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
 }
+
+.brain-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: center;
+  padding-bottom: clamp(4rem, 12vh, 8rem);
+}
+
+.brain-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+  width: min(760px, calc(100vw - 3rem));
+  max-width: 760px;
+  padding: 0;
+}
+
+.brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+  min-height: 10.5rem;
+  border-color: hsl(var(--border));
+  border-radius: 1rem;
+  background: hsl(var(--card));
+  box-shadow:
+    0 20px 60px hsl(220 10% 2% / 0.12),
+    0 0 0 1px hsl(var(--border) / 0.45);
+}
+
+.dark
+  .brain-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-root {
+  box-shadow:
+    0 24px 80px hsl(220 10% 2% / 0.4),
+    0 0 0 1px hsl(var(--border) / 0.7);
+}
+
+.brain-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-prosemirror {
+  min-height: 6.75rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
+}
+
+@media (max-width: 767px) {
+  .brain-chat-panel [data-agent-empty-state="centered"] {
+    padding: 1rem;
+    padding-bottom: 5rem;
+  }
+
+  .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+    width: 100%;
+  }
+
+  .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+    min-height: 9rem;
+  }
+}

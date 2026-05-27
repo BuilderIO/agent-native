@@ -63,7 +63,7 @@ describe("agent discovery", () => {
 
     expect(ids).toContain("clips");
     expect(ids).toContain("design");
-    expect(ids).toContain("images");
+    expect(ids).toContain("assets");
     expect(ids).not.toContain("issues");
     expect(ids).not.toContain("recruiting");
     expect(ids).not.toContain("calls");
@@ -76,8 +76,11 @@ describe("agent discovery", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "dispatch" }, "dispatch"),
     ).toBe(false);
-    expect(shouldIncludeRemoteAgentManifest({ id: "images" }, "dispatch")).toBe(
+    expect(shouldIncludeRemoteAgentManifest({ id: "assets" }, "dispatch")).toBe(
       true,
+    );
+    expect(shouldIncludeRemoteAgentManifest({ id: "images" }, "assets")).toBe(
+      false,
     );
     expect(shouldIncludeRemoteAgentManifest({ id: "issues" }, "dispatch")).toBe(
       false,

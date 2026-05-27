@@ -21,7 +21,7 @@ jobs:
         with:
           script: |
             const SITES = [
-              ['images',        '5868670b-649a-4a45-9e34-45ef3e75f3fd'],
+              ['assets',        '5868670b-649a-4a45-9e34-45ef3e75f3fd'],
               ['design',        '1e6bd63d-2972-4272-86bd-7b33f493606d'],
               ['voice',         '65ba35b8-8b97-4711-bad2-dc66ff1fe245'],
               ['meeting-notes', '500f9618-f9a1-49ba-b533-7700ab667844'],

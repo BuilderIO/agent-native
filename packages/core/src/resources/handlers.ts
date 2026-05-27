@@ -67,6 +67,15 @@ async function resolveEmail(event: any): Promise<string> {
   return session.email;
 }
 
+async function resolveOrgId(event: any): Promise<string | null> {
+  try {
+    const ctx = await getOrgContext(event);
+    return ctx.orgId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Reject writes to organization-wide resources unless the user is the
  * organization owner/admin (or the deployment is solo — no org membership).
@@ -184,9 +193,14 @@ export async function handleListResources(event: any) {
   const prefix = (query.prefix as string) || undefined;
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
-  const listOptions = shouldIncludeAgentScratch(query)
+  const orgId = await resolveOrgId(event);
+  const includeAgentScratch = shouldIncludeAgentScratch(query);
+  const localListOptions = includeAgentScratch
     ? { includeAgentScratch: true }
     : undefined;
+  const scopedListOptions = includeAgentScratch
+    ? { includeAgentScratch: true, userEmail: email, orgId }
+    : { userEmail: email, orgId };
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -194,22 +208,18 @@ export async function handleListResources(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = listOptions
-      ? await resourceList(email, prefix, listOptions)
+    resources = localListOptions
+      ? await resourceList(email, prefix, localListOptions)
       : await resourceList(email, prefix);
   } else if (scope === "workspace") {
-    resources = listOptions
-      ? await resourceList(WORKSPACE_OWNER, prefix, listOptions)
-      : await resourceList(WORKSPACE_OWNER, prefix);
+    resources = await resourceList(WORKSPACE_OWNER, prefix, scopedListOptions);
   } else if (scope === "shared") {
-    resources = listOptions
-      ? await resourceList(SHARED_OWNER, prefix, listOptions)
+    resources = localListOptions
+      ? await resourceList(SHARED_OWNER, prefix, localListOptions)
       : await resourceList(SHARED_OWNER, prefix);
   } else {
     // "all" — personal + organization/shared + inherited workspace
-    resources = listOptions
-      ? await resourceListAccessible(email, prefix, listOptions)
-      : await resourceListAccessible(email, prefix);
+    resources = await resourceListAccessible(email, prefix, scopedListOptions);
   }
 
   return { resources };
@@ -220,9 +230,14 @@ export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
-  const listOptions = shouldIncludeAgentScratch(query)
+  const orgId = await resolveOrgId(event);
+  const includeAgentScratch = shouldIncludeAgentScratch(query);
+  const localListOptions = includeAgentScratch
     ? { includeAgentScratch: true }
     : undefined;
+  const scopedListOptions = includeAgentScratch
+    ? { includeAgentScratch: true, userEmail: email, orgId }
+    : { userEmail: email, orgId };
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
@@ -230,21 +245,25 @@ export async function handleGetResourceTree(event: any) {
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
-    resources = listOptions
-      ? await resourceList(email, undefined, listOptions)
+    resources = localListOptions
+      ? await resourceList(email, undefined, localListOptions)
       : await resourceList(email);
   } else if (scope === "workspace") {
-    resources = listOptions
-      ? await resourceList(WORKSPACE_OWNER, undefined, listOptions)
-      : await resourceList(WORKSPACE_OWNER);
+    resources = await resourceList(
+      WORKSPACE_OWNER,
+      undefined,
+      scopedListOptions,
+    );
   } else if (scope === "shared") {
-    resources = listOptions
-      ? await resourceList(SHARED_OWNER, undefined, listOptions)
+    resources = localListOptions
+      ? await resourceList(SHARED_OWNER, undefined, localListOptions)
       : await resourceList(SHARED_OWNER);
   } else {
-    resources = listOptions
-      ? await resourceListAccessible(email, undefined, listOptions)
-      : await resourceListAccessible(email);
+    resources = await resourceListAccessible(
+      email,
+      undefined,
+      scopedListOptions,
+    );
   }
 
   const tree = buildTree(resources);
@@ -265,8 +284,9 @@ export async function handleGetEffectiveResourceContext(event: any) {
   }
 
   const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
   await ensurePersonalDefaults(email);
-  return resourceEffectiveContext(email, path);
+  return resourceEffectiveContext(email, path, { userEmail: email, orgId });
 }
 
 /**
@@ -350,13 +370,14 @@ export async function handleGetResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const resource = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const resource = await resourceGet(id, { userEmail: email, orgId });
   if (!resource) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
-  const email = await resolveEmail(event);
   if (!canReadOwner(resource.owner, email)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };

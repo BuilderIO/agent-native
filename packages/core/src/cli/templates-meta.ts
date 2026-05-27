@@ -244,18 +244,18 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "embedding"],
     core: true,
   },
   {
-    name: "images",
-    label: "Images",
-    hint: "Brand image libraries — generate on-brand heroes, diagrams, product shots, and slide art",
+    name: "assets",
+    label: "Assets",
+    hint: "Digital asset manager — upload, organize, search, and generate on-brand images and videos",
     icon: "Photo",
     color: "#0F766E",
     colorRgb: "15 118 110",
     devPort: 8100,
-    prodUrl: "https://images.agent-native.com",
+    prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     hidden: true,
     defaultAgent: true,
@@ -347,8 +347,11 @@ export function coreTemplates(): TemplateMeta[] {
 
 /** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
-  // Tolerate the legacy "video" alias.
+  // Tolerate legacy / renamed aliases.
   if (name === "video") name = "videos";
+  if (name === "image" || name === "images" || name === "asset") {
+    name = "assets";
+  }
   return TEMPLATES.find((t) => t.name === name);
 }
 

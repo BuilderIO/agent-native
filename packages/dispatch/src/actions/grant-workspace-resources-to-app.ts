@@ -4,7 +4,7 @@ import { grantWorkspaceResourcesToApp } from "../server/lib/workspace-resources-
 
 export default defineAction({
   description:
-    "Grant several selected workspace resources or knowledge packs to an app, skipping existing active grants.",
+    "Grant several selected workspace resources, knowledge packs, or MCP servers to an app, skipping existing active grants.",
   schema: z.object({
     appId: z.string().describe("App ID receiving the resources"),
     resourceIds: z

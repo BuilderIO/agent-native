@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-import "../server/db/index.js";
+import { and, asc, eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",
@@ -16,11 +16,17 @@ export default defineAction({
 
     const access = await assertAccess("document", documentId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM document_comments WHERE document_id = ? AND owner_email = ? ORDER BY created_at ASC`,
-      args: [documentId, ownerEmail],
-    });
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.ownerEmail, ownerEmail),
+        ),
+      )
+      .orderBy(asc(schema.documentComments.createdAt));
 
     return { comments: rows };
   },

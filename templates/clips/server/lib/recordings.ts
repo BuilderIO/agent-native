@@ -1,7 +1,8 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { H3Event } from "h3";
-import { getDb, getDbExec, schema } from "../db/index.js";
+import { getDb, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
+import { orgMembers } from "@agent-native/core/org";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -67,15 +68,19 @@ export async function getOrganizationRoleForEmail(
   organizationId: string,
   email: string,
 ): Promise<OrganizationAccessRole | null> {
-  const exec = getDbExec();
   const lowerEmail = email.toLowerCase();
 
   try {
-    const res = await exec.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [organizationId, lowerEmail],
-    });
-    const row = (res.rows as Array<{ role?: string }>)[0];
+    const [row] = await getDb()
+      .select({ role: orgMembers.role })
+      .from(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, organizationId),
+          sql`lower(${orgMembers.email}) = ${lowerEmail}`,
+        ),
+      )
+      .limit(1);
     if (row?.role) return normalizeOrganizationRole(row.role);
   } catch {
     // org_members table may not exist yet on first boot before migrations finish.
@@ -136,7 +141,6 @@ export async function getActiveOrganizationId(
   if (ctxOrgId) return ctxOrgId;
 
   const email = getRequestUserEmail();
-  const exec = getDbExec();
 
   if (email) {
     try {

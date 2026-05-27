@@ -104,6 +104,7 @@ describe("resource handlers", () => {
       expect(mockResourceListAccessible).toHaveBeenCalledWith(
         "test@test.com",
         undefined,
+        { userEmail: "test@test.com", orgId: null },
       );
       expect(result.resources).toHaveLength(3);
     });
@@ -132,7 +133,14 @@ describe("resource handlers", () => {
       const event = { _query: { scope: "workspace" } };
       await handleListResources(event);
 
-      expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
+      expect(mockResourceList).toHaveBeenCalledWith(
+        "__workspace__",
+        undefined,
+        {
+          userEmail: "test@test.com",
+          orgId: null,
+        },
+      );
     });
 
     it("passes prefix filter", async () => {
@@ -144,6 +152,7 @@ describe("resource handlers", () => {
       expect(mockResourceListAccessible).toHaveBeenCalledWith(
         "test@test.com",
         "skills/",
+        { userEmail: "test@test.com", orgId: null },
       );
     });
 
@@ -158,7 +167,11 @@ describe("resource handlers", () => {
       expect(mockResourceListAccessible).toHaveBeenCalledWith(
         "test@test.com",
         undefined,
-        { includeAgentScratch: true },
+        {
+          includeAgentScratch: true,
+          userEmail: "test@test.com",
+          orgId: null,
+        },
       );
     });
   });
@@ -184,6 +197,7 @@ describe("resource handlers", () => {
       expect(mockResourceEffectiveContext).toHaveBeenCalledWith(
         "test@test.com",
         "instructions/guardrails.md",
+        { userEmail: "test@test.com", orgId: null },
       );
       expect(result).toEqual(context);
     });

@@ -1,8 +1,9 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../../../db/index.js";
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
@@ -23,14 +24,16 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const client = getDbExec();
-      const { rows } = await client.execute({
-        sql: `SELECT deck_id, thread_id, author_email FROM slide_comments WHERE id = ?`,
-        args: [id],
-      });
-      const comment = rows[0] as
-        | { deck_id: string; thread_id: string; author_email: string }
-        | undefined;
+      const db = getDb();
+      const [comment] = await db
+        .select({
+          deckId: schema.slideComments.deckId,
+          threadId: schema.slideComments.threadId,
+          authorEmail: schema.slideComments.authorEmail,
+        })
+        .from(schema.slideComments)
+        .where(eq(schema.slideComments.id, id))
+        .limit(1);
 
       if (!comment) {
         setResponseStatus(event, 404);
@@ -38,10 +41,10 @@ export default defineEventHandler(async (event) => {
       }
 
       try {
-        if (resolved === true || comment.author_email !== session.email) {
-          await assertAccess("deck", comment.deck_id, "editor");
+        if (resolved === true || comment.authorEmail !== session.email) {
+          await assertAccess("deck", comment.deckId, "editor");
         } else {
-          await assertAccess("deck", comment.deck_id, "viewer");
+          await assertAccess("deck", comment.deckId, "viewer");
         }
       } catch (err) {
         if (err instanceof ForbiddenError) {
@@ -51,19 +54,29 @@ export default defineEventHandler(async (event) => {
         throw err;
       }
 
-      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+      const updatedAt = new Date().toISOString();
 
       if (resolved === true) {
         // Resolve the entire thread, but only within the authorized deck.
-        await client.execute({
-          sql: `UPDATE slide_comments SET resolved = ?, updated_at = ${nowExpr} WHERE deck_id = ? AND thread_id = ?`,
-          args: [isPostgres() ? true : 1, comment.deck_id, comment.thread_id],
-        });
+        await db
+          .update(schema.slideComments)
+          .set({ resolved: true, updatedAt })
+          .where(
+            and(
+              eq(schema.slideComments.deckId, comment.deckId),
+              eq(schema.slideComments.threadId, comment.threadId),
+            ),
+          );
       } else if (content !== undefined) {
-        await client.execute({
-          sql: `UPDATE slide_comments SET content = ?, updated_at = ${nowExpr} WHERE id = ? AND deck_id = ?`,
-          args: [content, id, comment.deck_id],
-        });
+        await db
+          .update(schema.slideComments)
+          .set({ content, updatedAt })
+          .where(
+            and(
+              eq(schema.slideComments.id, id),
+              eq(schema.slideComments.deckId, comment.deckId),
+            ),
+          );
       }
 
       return { ok: true };

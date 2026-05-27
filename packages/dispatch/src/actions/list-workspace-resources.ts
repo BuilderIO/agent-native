@@ -4,10 +4,10 @@ import { listWorkspaceResources } from "../server/lib/workspace-resources-store.
 
 export default defineAction({
   description:
-    "List all workspace-wide resources (skills, instructions, agent profiles, and reference resources) that apps inherit at runtime.",
+    "List all workspace-wide resources (skills, instructions, agent profiles, reference resources, and MCP servers) that apps inherit at runtime.",
   schema: z.object({
     kind: z
-      .enum(["skill", "instruction", "agent", "knowledge"])
+      .enum(["skill", "instruction", "agent", "knowledge", "mcp-server"])
       .optional()
       .describe("Filter by resource kind"),
   }),

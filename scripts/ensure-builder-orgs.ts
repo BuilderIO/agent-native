@@ -16,7 +16,7 @@ const DEFAULT_APPS = [
   "dispatch",
   "forms",
   "design",
-  "images",
+  "assets",
 ];
 
 const ORG_NAME = "Builder.io";

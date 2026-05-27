@@ -11,18 +11,12 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
+import { orgInvitations, orgMembers } from "@agent-native/core/org";
 import { putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
-
-interface InvitationRow {
-  id: string;
-  org_id: string;
-  email: string | null;
-  role: string | null;
-  status: string | null;
-}
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -31,15 +25,20 @@ export default defineAction({
     token: z.string().min(1).describe("Invite token (invitation id)"),
   }),
   run: async (args) => {
-    const exec = getDbExec();
+    const db = getDb();
     const me = getCurrentOwnerEmail();
     const meLower = me.toLowerCase();
 
-    const inviteRes = await exec.execute({
-      sql: `SELECT id, org_id, email, role, status FROM org_invitations WHERE id = ? LIMIT 1`,
-      args: [args.token],
-    });
-    const invite = (inviteRes.rows as InvitationRow[])[0];
+    const [invite] = await db
+      .select({
+        id: orgInvitations.id,
+        orgId: orgInvitations.orgId,
+        role: orgInvitations.role,
+        status: orgInvitations.status,
+      })
+      .from(orgInvitations)
+      .where(eq(orgInvitations.id, args.token))
+      .limit(1);
     if (!invite) throw new Error("Invite not found.");
     if (invite.status === "accepted")
       throw new Error("Invite already accepted.");
@@ -51,30 +50,39 @@ export default defineAction({
     const nowMs = Date.now();
 
     // Skip insert if the user is already a member of this org.
-    const existsRes = await exec.execute({
-      sql: `SELECT id FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [invite.org_id, meLower],
-    });
+    const existing = await db
+      .select({ id: orgMembers.id })
+      .from(orgMembers)
+      .where(
+        and(
+          eq(orgMembers.orgId, invite.orgId),
+          sql`lower(${orgMembers.email}) = ${meLower}`,
+        ),
+      )
+      .limit(1);
 
-    if (!(existsRes.rows as any[]).length) {
-      await exec.execute({
-        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
-        args: [nanoid(), invite.org_id, me, role, nowMs],
+    if (!existing.length) {
+      await db.insert(orgMembers).values({
+        id: nanoid(),
+        orgId: invite.orgId,
+        email: me,
+        role,
+        joinedAt: nowMs,
       });
     }
 
-    await exec.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
-      args: [invite.id],
-    });
+    await db
+      .update(orgInvitations)
+      .set({ status: "accepted" })
+      .where(eq(orgInvitations.id, invite.id));
 
-    await putUserSetting(me, "active-org-id", { orgId: invite.org_id });
+    await putUserSetting(me, "active-org-id", { orgId: invite.orgId });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    console.log(`Accepted invite for ${me} into organization ${invite.org_id}`);
+    console.log(`Accepted invite for ${me} into organization ${invite.orgId}`);
     return {
-      organizationId: invite.org_id,
+      organizationId: invite.orgId,
       email: me,
       role,
     };

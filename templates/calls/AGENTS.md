@@ -58,7 +58,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ## Data Sources
 
-All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions. This is the summary:
+All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** across supported providers. See `server/db/schema.ts` for full column definitions. This is the summary:
 
 | Table                 | Holds                                                                              |
 | --------------------- | ---------------------------------------------------------------------------------- |
@@ -420,7 +420,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 3. **Snippets are pointer-only.** A snippet is a row with `call_id` + `[start_ms, end_ms]` — there is no re-encode, no second media file. The snippet player reads the parent call's bytes and enforces bounds client-side. See the `snippets` skill.
 4. **View-counting rule.** A view counts when the viewer hits **≥ 5 seconds** OR **≥ 75% completion** OR scrubs to the end. Applies to both `call_viewers` and `snippet_viewers`. Always go through the canonical `shouldCountView` helper.
 5. **Use the framework sharing system.** Never write custom share tables. `registerShareableResource({ type: "call", ... })` and `{ type: "snippet", ... }` are wired in `server/db/index.ts`. Compose with the auto-mounted actions. Add password, `expiresAt`, `shareIncludesSummary`, and `shareIncludesTranscript` as **additional** checks in the share-resolution path, not replacements. See the `call-sharing` skill.
-6. **SQL must be dialect-agnostic.** The target is Neon Postgres. Use Drizzle operators only. No SQLite-specific functions (`datetime('now')`, `|| ''`), no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the framework `portability` skill.
+6. **SQL must be dialect-agnostic.** Use Drizzle operators only. No SQLite-specific or Postgres-specific functions (`datetime('now')`, `|| ''`, casts, JSON dialect helpers), no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the framework `portability` skill.
 7. **Screen context is auto-included.** Check `<current-screen>` in the user's message before running `view-screen` — you usually don't need to call it.
 8. **Trigger refresh after mutations.** `writeAppState("refresh-signal", { ts: Date.now() })` — `useDbSync` invalidates the affected query keys. Most actions do this automatically.
 9. **Scoping.** All list/get actions filter via `accessFilter(schema.calls, schema.callShares)` (or the snippet equivalent). Write actions guard via `assertAccess("call", id, "editor")` (or `"viewer"` for reads that need explicit gating, `"admin"` for delete).

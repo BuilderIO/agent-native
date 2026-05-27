@@ -165,7 +165,7 @@ Credentials are stored via the framework's settings/env layer — no secrets in 
 
 | Variable                                 | Purpose                       |
 | ---------------------------------------- | ----------------------------- |
-| `DATABASE_URL`                           | Neon Postgres URL             |
+| `DATABASE_URL`                           | Persistent SQL connection URL |
 | `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Auth                          |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | Google sign-in (OAuth 2.0)    |
 | `BIGQUERY_PROJECT_ID`                    | BigQuery project              |

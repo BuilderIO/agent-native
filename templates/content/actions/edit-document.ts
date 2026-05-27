@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   hasCollabState,
@@ -8,7 +7,8 @@ import {
 } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-import "../server/db/index.js";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 
 interface TextEdit {
   find: string;
@@ -175,12 +175,11 @@ export default defineAction({
     // overwrite this with the merged Y.Doc state, which already contains the
     // agent's edits.
     if (changeCount > 0) {
-      const client = getDbExec();
-      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-      await client.execute({
-        sql: `UPDATE documents SET content = ?, updated_at = ${nowExpr} WHERE id = ?`,
-        args: [content, id],
-      });
+      const db = getDb();
+      await db
+        .update(schema.documents)
+        .set({ content, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
     }
 
     // Trigger UI refresh

@@ -72,7 +72,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ## Data Sources
 
-All structured data lives in SQL via Drizzle ORM -- **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions.
+All structured data lives in SQL via Drizzle ORM -- **dialect-agnostic** across supported providers. See `server/db/schema.ts` for full column definitions.
 
 | Table                 | Holds                                                                                        |
 | --------------------- | -------------------------------------------------------------------------------------------- |
@@ -213,7 +213,7 @@ Templates control the output structure. Built-in templates include things like "
 
 1. **All AI goes through the agent chat.** Delegate to the agent by writing a structured request to `application_state` via `writeAppState`. Do **not** `import OpenAI` / `@anthropic-ai/sdk` directly.
 2. **Transcription is the one exception.** Audio-to-text runs directly via Deepgram or AssemblyAI because it takes raw audio, not a prompt.
-3. **SQL must be dialect-agnostic.** The target is Neon Postgres. Use Drizzle operators only. No SQLite-specific functions, no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
+3. **SQL must be dialect-agnostic.** Use Drizzle operators only. No SQLite-specific or Postgres-specific functions, no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
 4. **Screen context is auto-included.** Check `<current-screen>` in the user's message before running `view-screen`.
 5. **Trigger refresh after mutations.** `writeAppState("refresh-signal", { ts: Date.now() })` -- most actions do this automatically.
 6. **Scoping.** All list/get actions filter via `accessFilter(schema.meetings, schema.meetingShares)`.

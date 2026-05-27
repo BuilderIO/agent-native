@@ -45,6 +45,8 @@ export default defineAction({
 
 The `schema` field accepts a Zod schema (or any Standard Schema-compatible library). It provides runtime validation with clear error messages (400 for HTTP, error result for agent), full TypeScript type inference for `run()` args, and auto-generated JSON Schema for the agent's tool definition. `zod` is a dependency of all templates.
 
+When an action reads or writes app data, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not use raw SQL, `getDbExec()`, or dialect-specific schema imports in normal actions unless there is a documented reason Drizzle cannot express the query.
+
 Tips:
 - Use `.describe()` for parameter descriptions
 - Use `.optional()` for optional params
@@ -185,6 +187,8 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Return structured data.** Return objects/arrays, not `JSON.stringify()`.
 - **Use `http: { method: "GET" }`** for read-only actions. Default is POST.
 - **Use `http: false`** for agent-only actions (`navigate`, `view-screen`).
+- **Document reusable actions.** If a new action should be called by agents outside one narrow screen, update `AGENTS.md` with when to use it, important args, and which return fields to preserve.
+- **Promote workflow-heavy actions to skills.** If the action is part of a provider-backed, cross-app, MCP/A2A, or multi-step workflow, create or update a skill in `.agents/skills/` and add app-skill visibility (`internal`, `exported`, or `both`) when it should ship through a marketplace.
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.

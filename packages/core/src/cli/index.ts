@@ -613,6 +613,28 @@ switch (command) {
     break;
   }
 
+  case "app-skill": {
+    // Package or install an agent-native app as a skill-backed MCP/app bundle.
+    import("./app-skill.js")
+      .then((m) => m.runAppSkill(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "skills": {
+    // Friendly skill install surface. Wraps open skills installation plus MCP.
+    import("./skills.js")
+      .then((m) => m.runSkills(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
     const parsed = parseScaffoldArgs(args);
@@ -710,6 +732,10 @@ Usage:
                                 client picker. --all connects every
                                 first-party app; --token is the no-browser
                                 fallback.
+  agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
+                                cmds: ensure | launch | pack
+  agent-native skills add assets
+                                Install Assets skill instructions and MCP in one step
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
   agent-native add-app [name]   Add one or more apps to the current workspace

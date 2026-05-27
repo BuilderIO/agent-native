@@ -1,8 +1,8 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import { notify } from "@agent-native/core/notifications";
+import { orgMembers } from "@agent-native/core/org";
 import { getUserSetting } from "@agent-native/core/settings";
 import {
   getAppProductionUrl,
@@ -105,14 +105,18 @@ async function getMembership(
   orgId: string,
   email: string,
 ): Promise<{ email: string; role: string } | null> {
-  const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT email, role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [orgId, normalizeEmail(email)],
-  });
-  const row = rows[0] as any;
+  const [row] = await getDb()
+    .select({ email: orgMembers.email, role: orgMembers.role })
+    .from(orgMembers)
+    .where(
+      and(
+        eq(orgMembers.orgId, orgId),
+        sql`lower(${orgMembers.email}) = ${normalizeEmail(email)}`,
+      ),
+    )
+    .limit(1);
   if (!row) return null;
-  return { email: String(row.email), role: String(row.role) };
+  return { email: row.email, role: row.role };
 }
 
 export async function requireQueueContext(): Promise<QueueContext> {
@@ -138,15 +142,19 @@ export async function requireQueueContext(): Promise<QueueContext> {
 }
 
 export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
-  const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ? ORDER BY LOWER(email) ASC`,
-    args: [orgId],
-  });
-  return rows.map((row: any) => ({
-    email: String(row.email).toLowerCase(),
-    role: String(row.role),
-    joinedAt: Number(row.joinedAt ?? row.joined_at ?? 0),
+  const rows = await getDb()
+    .select({
+      email: orgMembers.email,
+      role: orgMembers.role,
+      joinedAt: orgMembers.joinedAt,
+    })
+    .from(orgMembers)
+    .where(eq(orgMembers.orgId, orgId))
+    .orderBy(asc(orgMembers.email));
+  return rows.map((row) => ({
+    email: row.email.toLowerCase(),
+    role: row.role,
+    joinedAt: Number(row.joinedAt),
   }));
 }
 

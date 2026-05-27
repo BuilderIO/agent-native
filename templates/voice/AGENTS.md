@@ -58,7 +58,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ## Data Sources
 
-All structured data lives in SQL via Drizzle ORM -- dialect-agnostic (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions.
+All structured data lives in SQL via Drizzle ORM -- dialect-agnostic across supported providers. See `server/db/schema.ts` for full column definitions.
 
 | Table                  | Holds                                                                                                     |
 | ---------------------- | --------------------------------------------------------------------------------------------------------- |

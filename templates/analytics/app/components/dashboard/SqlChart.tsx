@@ -252,10 +252,17 @@ function configuredKeysMissingFromRows(
   const missing = new Set<string>();
   const config = panel.config;
   if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
-  if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
-  for (const key of config?.yKeys ?? []) {
-    if (!rowKeys.has(key)) missing.add(key);
+
+  // Pivoted charts turn the configured value column into one column per
+  // discovered series. After that transform, yKey/yKeys are no longer active
+  // output columns, so do not warn that the original value column is absent.
+  if (!config?.pivot) {
+    if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
+    for (const key of config?.yKeys ?? []) {
+      if (!rowKeys.has(key)) missing.add(key);
+    }
   }
+
   for (const col of config?.columns ?? []) {
     if (!rowKeys.has(col.key)) missing.add(col.key);
     if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);

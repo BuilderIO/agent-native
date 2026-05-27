@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
+  EmbeddedApp,
+  type EmbeddedAppRef,
+} from "@agent-native/embedding/react";
+import {
   appBasePath,
   PromptComposer,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
+import { IconPhoto, IconX } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 export interface UploadedFile {
   path: string;
@@ -15,6 +22,65 @@ export interface UploadedFile {
   size: number;
   textContent?: string;
   textTruncated?: boolean;
+}
+
+const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+
+interface PickedAssetImagePayload {
+  url?: unknown;
+  previewUrl?: unknown;
+  downloadUrl?: unknown;
+  embedUrl?: unknown;
+  altText?: unknown;
+  title?: unknown;
+  mimeType?: unknown;
+}
+
+function assetsPickerUrl() {
+  return (
+    import.meta.env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL ||
+    DEFAULT_ASSETS_PICKER_URL
+  );
+}
+
+function pickedAssetString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function pickedAssetImageSource(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const image = payload as PickedAssetImagePayload;
+  return (
+    pickedAssetString(image.url) ??
+    pickedAssetString(image.previewUrl) ??
+    pickedAssetString(image.downloadUrl) ??
+    pickedAssetString(image.embedUrl)
+  );
+}
+
+function pickedAssetFilename(payload: unknown, url: string) {
+  if (payload && typeof payload === "object") {
+    const image = payload as PickedAssetImagePayload;
+    const title = pickedAssetString(image.title);
+    if (title) return title;
+  }
+
+  try {
+    const name = new URL(url).pathname.split("/").filter(Boolean).pop();
+    return name ? decodeURIComponent(name) : "assets-image";
+  } catch {
+    return "assets-image";
+  }
+}
+
+function pickedAssetContext(payload: unknown, url: string) {
+  const lines = [`Remote image URL: ${url}`];
+  if (payload && typeof payload === "object") {
+    const image = payload as PickedAssetImagePayload;
+    const altText = pickedAssetString(image.altText);
+    if (altText) lines.push(`Alt text: ${altText}`);
+  }
+  return lines.join("\n");
 }
 
 interface PromptPopoverProps {
@@ -47,7 +113,15 @@ export default function PromptPopover({
   centered = false,
 }: PromptPopoverProps) {
   const [uploading, setUploading] = useState(false);
+  const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
+  const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open) return;
+    setAssetsPickerOpen(false);
+    setPickedAssets([]);
+  }, [open]);
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
@@ -91,6 +165,7 @@ export default function PromptPopover({
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (target?.closest("[data-agent-native-composer-popover]")) return;
+      if (target?.closest("[data-assets-picker-dialog]")) return;
       if (
         panelRef.current &&
         !panelRef.current.contains(e.target as Node) &&
@@ -100,7 +175,7 @@ export default function PromptPopover({
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === "Escape" && !assetsPickerOpen) onOpenChange(false);
     };
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
@@ -108,7 +183,7 @@ export default function PromptPopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [assetsPickerOpen, open, onOpenChange, anchorRef]);
 
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
@@ -146,15 +221,65 @@ export default function PromptPopover({
     ) => {
       try {
         const uploaded = await uploadFiles(files);
-        onSubmit(text.trim(), uploaded, options);
+        onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        setPickedAssets([]);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Failed to upload file",
         );
       }
     },
-    [onSubmit, uploadFiles],
+    [onSubmit, pickedAssets, uploadFiles],
   );
+
+  const handleAssetsPickerReady = useCallback(
+    (_payload: unknown, _event: MessageEvent, ref: EmbeddedAppRef) => {
+      ref.postMessage("configure", {});
+    },
+    [],
+  );
+
+  const handleAssetsPickerMessage = useCallback(
+    (name: string, payload: unknown) => {
+      if (name === "close") {
+        setAssetsPickerOpen(false);
+        return;
+      }
+
+      if (name !== "chooseImage") return;
+      const url = pickedAssetImageSource(payload);
+      if (!url) {
+        toast.error("Assets did not return an image URL.");
+        return;
+      }
+
+      const filename = pickedAssetFilename(payload, url);
+      const mimeType =
+        payload && typeof payload === "object"
+          ? pickedAssetString((payload as PickedAssetImagePayload).mimeType)
+          : null;
+      setPickedAssets((current) => [
+        ...current,
+        {
+          path: url,
+          originalName: filename,
+          filename,
+          type: mimeType ?? "image/url",
+          size: 0,
+          textContent: pickedAssetContext(payload, url),
+        },
+      ]);
+      setAssetsPickerOpen(false);
+      toast.success("Asset added");
+    },
+    [],
+  );
+
+  const removePickedAsset = useCallback((path: string) => {
+    setPickedAssets((current) =>
+      current.filter((asset) => asset.path !== path),
+    );
+  }, []);
 
   if (!open) return null;
 
@@ -187,6 +312,36 @@ export default function PromptPopover({
           />
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-2 py-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={loading || uploading}
+            onClick={() => setAssetsPickerOpen(true)}
+          >
+            <IconPhoto className="h-4 w-4" />
+            Assets
+          </Button>
+          {pickedAssets.map((asset) => (
+            <span
+              key={asset.path}
+              className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+            >
+              <span className="truncate">{asset.originalName}</span>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={`Remove ${asset.originalName}`}
+                onClick={() => removePickedAsset(asset.path)}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+
         {onSkip && (
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
@@ -201,6 +356,24 @@ export default function PromptPopover({
             </button>
           </div>
         )}
+
+        <Dialog open={assetsPickerOpen} onOpenChange={setAssetsPickerOpen}>
+          <DialogContent
+            data-assets-picker-dialog
+            className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0"
+          >
+            <div className="flex h-12 shrink-0 items-center border-b px-4">
+              <DialogTitle className="text-base">Assets</DialogTitle>
+            </div>
+            <EmbeddedApp
+              url={assetsPickerUrl()}
+              title="Assets image picker"
+              className="min-h-0 flex-1 border-0 bg-background"
+              onReady={handleAssetsPickerReady}
+              onMessage={handleAssetsPickerMessage}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </>
   );

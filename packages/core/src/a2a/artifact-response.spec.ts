@@ -692,11 +692,11 @@ describe("appendA2AArtifactLinks", () => {
           }),
         },
       ],
-      { baseUrl: "https://images.agent.test" },
+      { baseUrl: "https://assets.agent.test" },
     );
 
     expect(text).toContain(
-      "- Image: https://images.agent.test/image/asset_123 (ID: asset_123, Run: run_123)",
+      "- Image: https://assets.agent.test/image/asset_123 (ID: asset_123, Run: run_123)",
     );
   });
 
@@ -714,21 +714,21 @@ describe("appendA2AArtifactLinks", () => {
           }),
         },
       ],
-      { baseUrl: "https://images.agent.test/" },
+      { baseUrl: "https://assets.agent.test/" },
     );
 
     expect(text).toContain(
-      "- Image: https://images.agent.test/image/asset_one (ID: asset_one, Run: run_one)",
+      "- Image: https://assets.agent.test/image/asset_one (ID: asset_one, Run: run_one)",
     );
     expect(text).toContain(
-      "- Image: https://images.agent.test/image/asset_two (ID: asset_two)",
+      "- Image: https://assets.agent.test/image/asset_two (ID: asset_two)",
     );
     expect(text).not.toContain("blocked");
   });
 
   it("blocks unverified production image URLs from other apps", () => {
     const text = appendA2AArtifactLinks(
-      "Image ready: https://images.agent-native.com/image/asset_fake",
+      "Image ready: https://assets.agent-native.com/image/asset_fake",
       [],
       { baseUrl: "https://slides.agent-native.com" },
     );
@@ -739,13 +739,13 @@ describe("appendA2AArtifactLinks", () => {
 
   it("allows image URLs proven by a downstream call-agent artifact block", () => {
     const text = appendA2AArtifactLinks(
-      "Image: https://images.agent-native.com/image/asset_real",
+      "Image: https://assets.agent-native.com/image/asset_real",
       [
         {
           tool: "call-agent",
           result: [
             "Artifacts:",
-            "- Image: https://images.agent-native.com/image/asset_real (ID: asset_real, Run: run_real)",
+            "- Image: https://assets.agent-native.com/image/asset_real (ID: asset_real, Run: run_real)",
           ].join("\n"),
         },
       ],
@@ -753,7 +753,7 @@ describe("appendA2AArtifactLinks", () => {
     );
 
     expect(text).toBe(
-      "Image: https://images.agent-native.com/image/asset_real",
+      "Image: https://assets.agent-native.com/image/asset_real",
     );
   });
 });

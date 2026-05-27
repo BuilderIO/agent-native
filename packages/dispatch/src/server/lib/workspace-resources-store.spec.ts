@@ -703,6 +703,7 @@ describe("workspace resource materialization", () => {
     expect(mocks.resourceEffectiveContext).toHaveBeenCalledWith(
       "person@example.test",
       "context/brand.md",
+      { workspaceAppId: "analytics", orgId: "org_123" },
     );
     expect(mocks.resourcePut).toHaveBeenCalledWith(
       "__workspace__",
@@ -899,6 +900,7 @@ describe("workspace resource materialization", () => {
     expect(mocks.resourceEffectiveContext).toHaveBeenCalledWith(
       "owner@example.test",
       "context/analytics-launch.md",
+      { workspaceAppId: "analytics", orgId: "org_123" },
     );
   });
 

@@ -12,8 +12,8 @@
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "packageManager": "pnpm@10.29.1",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/dispatch build",
-    "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/scheduling build && pnpm install",
+    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/embedding build && pnpm --filter @agent-native/dispatch build",
+    "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm --filter @agent-native/migrate build && pnpm --filter @agent-native/scheduling build && pnpm --filter @agent-native/embedding build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r --reporter-hide-prefix typecheck",

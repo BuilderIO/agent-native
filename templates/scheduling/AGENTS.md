@@ -42,7 +42,9 @@ The first four are must-reads for most tasks. The skill files live in
 ## Architecture
 
 - Frontend: React Router (SSR) with `@tanstack/react-query` polling for sync.
-- Server: Nitro + Drizzle ORM. Works with SQLite, Postgres (Neon), Turso.
+- Server: Nitro + Drizzle ORM over portable SQL. Works with SQLite, Postgres
+  providers such as Neon/Supabase, Turso/libSQL, D1, and other supported
+  `DATABASE_URL` targets.
 - Schema comes from `@agent-native/scheduling/schema` — don't duplicate.
 - Server logic comes from `@agent-native/scheduling/server` (repos,
   availability engine, booking service, providers).

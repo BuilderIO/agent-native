@@ -40,7 +40,18 @@ interface ForkSnapshotWithScope extends ChatThreadSnapshot {
   scope: ChatThreadScope | null;
 }
 
+export interface UseChatThreadsOptions {
+  /** Create an optimistic empty thread on mount when no active thread exists. */
+  autoCreate?: boolean;
+}
+
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
+const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
+
+function emitThreadsUpdated() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
+}
 
 function scopeKeySegment(scope?: ChatThreadScope | null): string {
   if (!scope) return "";
@@ -81,7 +92,9 @@ export function useChatThreads(
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey?: string,
   scope?: ChatThreadScope | null,
+  options?: UseChatThreadsOptions,
 ) {
+  const autoCreate = options?.autoCreate !== false;
   // Each (storageKey, scope) pair gets its own active-thread localStorage key
   // for chats that belong to a resource. General chats keep using the unscoped
   // key even while the user is looking at a resource, so clicking into a deck,
@@ -356,7 +369,7 @@ export function useChatThreads(
         addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
         // activeThreadId already === savedId from the localStorage
         // initializer; nothing else to set.
-      } else if (!savedId) {
+      } else if (!savedId && autoCreate) {
         if (typeof crypto !== "undefined" && crypto.randomUUID) {
           // Brand new surface — synthesize a local id so the composer has a
           // target. No POST: the server creates the row on first send.
@@ -368,7 +381,7 @@ export function useChatThreads(
       }
       setIsLoading(false);
     })();
-  }, [fetchThreads, addOptimisticThread]);
+  }, [fetchThreads, addOptimisticThread, autoCreate]);
 
   const createThread = useCallback(
     (preferredId?: string): Promise<string | null> => {
@@ -401,6 +414,7 @@ export function useChatThreads(
           prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
         );
         optimisticThreadScopesRef.current.set(threadId, null);
+        emitThreadsUpdated();
       } catch {}
     },
     [apiUrl],
@@ -421,6 +435,7 @@ export function useChatThreads(
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "DELETE",
         });
+        emitThreadsUpdated();
       } catch {}
       optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => {
@@ -464,6 +479,7 @@ export function useChatThreads(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...data, scope: localScope }),
         });
+        emitThreadsUpdated();
         // Update local thread list metadata. If the thread isn't in our
         // local list yet (an optimistic-only thread that the server just
         // created via persistSubmittedUserMessage), add it so HistoryPopover
@@ -618,6 +634,7 @@ export function useChatThreads(
           },
           ...prev,
         ]);
+        emitThreadsUpdated();
         return thread.id;
       } catch (err) {
         console.error(`[chat] fork threw for ${sourceId}:`, err);

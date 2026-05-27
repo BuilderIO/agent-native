@@ -10,11 +10,13 @@ description: >-
 
 ## Rule
 
-All application data lives in **SQL** (SQLite locally, cloud database in production). The agent and UI share the same database. There is no filesystem dependency for data.
+All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem.
 
 ## How It Works
 
-Agent-native apps use SQLite via Drizzle ORM + `@libsql/client`. This works locally out of the box and upgrades seamlessly to cloud databases (Turso, Neon, Supabase, D1) by setting `DATABASE_URL`. **Local and production behave identically.**
+Agent-native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.
+
+For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
 ### Core SQL Stores (auto-created, available in all templates)
 
@@ -27,7 +29,25 @@ Agent-native apps use SQLite via Drizzle ORM + `@libsql/client`. This works loca
 
 ### Domain Data (per-template)
 
-Define schema with Drizzle ORM in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+Define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+
+```ts
+import { eq } from "drizzle-orm";
+import { table, text, integer, now } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  completed: integer("completed", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
+```
+
+Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
@@ -40,15 +60,15 @@ Define schema with Drizzle ORM in `server/db/schema.ts`. Get a database instance
 
 ### Agent Access
 
-The agent uses actions to read/write the database:
+The agent uses app-specific actions to read/write the database. Core DB scripts are for inspection and maintenance, not for implementing normal product behavior:
 
 - `pnpm action db-schema` — Show all tables, columns, types
 - `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
-- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT / UPDATE / DELETE / REPLACE. Use for short columns, multi-column writes, computed updates. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
+- `pnpm action db-exec --sql "UPDATE ..."` — Last-resort ad-hoc maintenance for short columns, multi-column writes, or computed updates when no domain action exists. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
 - `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
 - App-specific actions for domain operations (auto-exposed as HTTP endpoints) — **always prefer these over raw SQL when one exists.** They encode business rules, and for editor-backed tables (documents, slides) they also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
 
-**How to choose between `db-exec UPDATE` and `db-patch`:**
+**For one-off maintenance, how to choose between `db-exec UPDATE` and `db-patch`:**
 
 | Scenario                                                       | Use          |
 | -------------------------------------------------------------- | ------------ |
@@ -79,13 +99,15 @@ const { mutate } = useActionMutation<Meal>("log-meal");
 
 Actions are the **preferred way** for the frontend to access data. You rarely need custom `/api/` routes — only for file uploads, streaming, webhooks, or OAuth callbacks.
 
-### Cloud Deployment
+### Production / Cloud Deployment
 
-Local SQLite works out of the box. To deploy to production with a cloud database:
+Local SQLite works out of the box for development. To deploy to production or any environment where data must survive restarts:
 
-1. Set `DATABASE_URL` (e.g. `libsql://your-db.turso.io`)
-2. Set `DATABASE_AUTH_TOKEN` for auth
-3. No code changes needed — `@libsql/client` handles both local and remote
+1. Set `DATABASE_URL` to a persistent SQL database.
+2. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
+3. No code changes should be needed when the schema and queries stay portable.
+
+Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and Builder.io-managed environments when available.
 
 ### Real-time Sync
 
@@ -94,6 +116,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 ## Do
 
 - Use Drizzle ORM for structured domain data (forms, bookings, documents)
+- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and portable operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
+- Use framework schema helpers from `@agent-native/core/db/schema`, not dialect-specific Drizzle imports
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
@@ -107,6 +131,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Don't store app state in localStorage, sessionStorage, or cookies (except for UI-only preferences like sidebar width)
 - Don't keep state only in memory (server variables, global stores)
 - Don't use Redis or any external state store for app data
+- Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
+- Don't write SQLite-only or Postgres-only SQL in app code
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
 
 ## Security

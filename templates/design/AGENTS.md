@@ -96,6 +96,16 @@ Each design is stored as one or more files in the `design_files` table:
 8. **NEVER generate empty/placeholder images** — for decorative placeholders use solid color blocks, gradients, SVG patterns, or CSS shapes. When the user wants real raster imagery, or a design needs a brand/product/hero image, call the Images agent over A2A with `call-agent` agent "images" and use the returned asset IDs and URLs; do not call image providers directly.
 9. **CSS custom properties for theming** — always define a `:root` block with theme variables so the tweaks panel can modify them live.
 
+### Assets Picker
+
+The Design prompt popover includes an Assets button that embeds the Assets app
+picker at `VITE_AGENT_NATIVE_ASSETS_PICKER_URL` when set, or
+`https://assets.agent-native.com/picker` by default. User-picked images are
+passed to the design agent as remote uploaded-file context with the image URL
+and alt text. Use that context as visual reference material when generating or
+updating designs; for unattended generation/search/export, prefer A2A calls to
+the Assets app rather than trying to drive the iframe.
+
 ### Complete HTML Skeleton
 
 Every design starts from this skeleton:
@@ -381,10 +391,10 @@ Prefer the template actions above for all normal Design work. Do **not** call
 `db-schema` to understand or create designs; the design workflow is fully
 covered by `create-design`, `generate-design`, `get-design`, and the import/export actions.
 
-| Action     | Args                 | Purpose                  |
-| ---------- | -------------------- | ------------------------ |
-| `db-query` | `--sql "SELECT ..."` | Run a SELECT query       |
-| `db-exec`  | `--sql "INSERT ..."` | Run INSERT/UPDATE/DELETE |
+| Action     | Args                 | Purpose                 |
+| ---------- | -------------------- | ----------------------- |
+| `db-query` | `--sql "SELECT ..."` | Inspect rows            |
+| `db-exec`  | `--sql "UPDATE ..."` | Last-resort maintenance |
 
 ---
 
