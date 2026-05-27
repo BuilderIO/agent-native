@@ -16,6 +16,7 @@ import {
   getCookie,
   setCookie,
   deleteCookie,
+  getRequestURL,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
@@ -665,21 +666,18 @@ export function createCoreRoutesPlugin(
 
     const resolveBuilderOwnerContext = async (
       event: H3Event,
+      mode?: "connect" | "callback",
     ): Promise<BuilderOwnerContext> => {
       const session = await getSession(event).catch(() => null);
       if (session?.email) {
         return { email: session.email, session, anonymous: false };
       }
 
-      const rawUrl = event.node?.req?.url ?? event.path ?? "/";
-      const queryStart = rawUrl.indexOf("?");
-      const rawPath = queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
-      const search = queryStart >= 0 ? rawUrl.slice(queryStart + 1) : "";
-      const path = stripAppBasePath(rawPath);
+      const searchParams = getRequestURL(event).searchParams;
 
-      if (path === `${P}/builder/connect`) {
+      if (mode === "connect") {
         const ownerFromConnectToken = verifyBuilderConnectTokenAndGetOwner(
-          new URLSearchParams(search).get(BUILDER_CONNECT_PARAM),
+          searchParams.get(BUILDER_CONNECT_PARAM),
         );
         if (ownerFromConnectToken) {
           return {
@@ -690,7 +688,7 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      if (path === `${P}/builder/callback`) {
+      if (mode === "callback") {
         // Prefer the signed _an_state owner over the legacy
         // an_builder_connect_owner cookie. The cookie can be stale on a
         // shared browser — user A signed in earlier, user B starts a fresh
@@ -699,7 +697,7 @@ export function createCoreRoutesPlugin(
         // state is per-flow and TTL-bounded, so it's authoritative when
         // both are present.
         const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
-          new URLSearchParams(search).get(BUILDER_STATE_PARAM),
+          searchParams.get(BUILDER_STATE_PARAM),
         );
         if (ownerFromCallbackState) {
           return {
@@ -967,7 +965,7 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
       defineEventHandler(async (event) => {
-        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerContext = await resolveBuilderOwnerContext(event, "connect");
         const ownerEmail = ownerContext.email;
         if (!ownerEmail) {
           setResponseStatus(event, 401);
@@ -1224,7 +1222,10 @@ export function createCoreRoutesPlugin(
         // A real session or a template-approved anonymous owner is required;
         // the pending-row check below (combined with the same-origin gate on
         // /builder/connect) blocks CSRF and callback replay.
-        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerContext = await resolveBuilderOwnerContext(
+          event,
+          "callback",
+        );
         const ownerEmail = ownerContext.email;
         // Diagnostic: log the resolver's inputs for debugging "No active
         // connect flow found" reports. Reveals session-vs-state owner
