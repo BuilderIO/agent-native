@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, inArray, isNull } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { serializeAsset, serializeLibrary } from "./_helpers.js";
@@ -18,7 +18,12 @@ export default defineAction({
     const rows = await db
       .select()
       .from(schema.assetLibraries)
-      .where(accessFilter(schema.assetLibraries, schema.assetLibraryShares))
+      .where(
+        and(
+          accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+          isNull(schema.assetLibraries.archivedAt),
+        ),
+      )
       .orderBy(desc(schema.assetLibraries.updatedAt));
     const assets = rows.length
       ? await db
