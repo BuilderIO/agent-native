@@ -355,6 +355,8 @@ const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
 const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
   camera: "ms-settings:privacy-webcam",
   microphone: "ms-settings:privacy-microphone",
+  // No dedicated screen-capture privacy page that works on all Windows
+  // versions, so open the top-level Privacy settings page.
   screen: "ms-settings:privacy",
   speech: "ms-settings:privacy-speechtyping",
   accessibility: "ms-settings:easeofaccess",
