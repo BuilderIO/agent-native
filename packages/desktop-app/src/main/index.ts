@@ -5346,14 +5346,18 @@ ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
 ipcMain.handle(
   IPC.APPS_ADD,
   (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
-    return AppStore.addApp(app);
+    const apps = AppStore.addApp(app);
+    registerDesktopShortcutBindings();
+    return apps;
   },
 );
 
 ipcMain.handle(
   IPC.APPS_REMOVE,
   (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
-    return AppStore.removeApp(id);
+    const apps = AppStore.removeApp(id);
+    registerDesktopShortcutBindings();
+    return apps;
   },
 );
 
@@ -5364,12 +5368,16 @@ ipcMain.handle(
     id: string,
     updates: Partial<AppConfig>,
   ): AppConfig[] => {
-    return AppStore.updateApp(id, updates);
+    const apps = AppStore.updateApp(id, updates);
+    registerDesktopShortcutBindings();
+    return apps;
   },
 );
 
 ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
-  return AppStore.resetToDefaults();
+  const apps = AppStore.resetToDefaults();
+  registerDesktopShortcutBindings();
+  return apps;
 });
 
 ipcMain.handle(

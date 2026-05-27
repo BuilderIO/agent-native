@@ -515,7 +515,7 @@ export function upsertDesktopShortcutBinding(
     return { ok: false, error: normalized.error ?? "Invalid shortcut." };
   }
 
-  const appId = request.app.trim();
+  const appId = typeof request.app === "string" ? request.app.trim() : "";
   if (!appId) return { ok: false, error: "Choose an app." };
 
   const store = loadShortcutStore();
