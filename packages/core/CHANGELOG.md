@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.24.1
+
+### Patch Changes
+
+- 7aa1703: fix builder connect 401 for unauthenticated users with a valid connect token
+
 ## 0.24.0
 
 ### Minor Changes
