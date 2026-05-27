@@ -1311,10 +1311,17 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
-              await setThreadArchived(id, true);
+              const archived = await setThreadArchived(id, true, {
+                ownerEmail: owner,
+              });
+              if (!archived)
+                return `Chat thread "${id}" could not be archived.`;
               return `Archived chat: ${title}`;
             }
-            await setThreadPinned(id, args.action === "pin");
+            const pinned = await setThreadPinned(id, args.action === "pin", {
+              ownerEmail: owner,
+            });
+            if (!pinned) return `Chat thread "${id}" could not be updated.`;
             return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }
           return searchEntry.run(args);
@@ -6137,7 +6144,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event).catch(() => ({}));
-              await setThreadPinned(threadId, body?.pinned !== false);
+              if (typeof body?.pinned !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "pinned boolean is required" };
+              }
+              const pinned = await setThreadPinned(threadId, body.pinned, {
+                ownerEmail: owner,
+              });
+              if (!pinned) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               return { ok: true };
             }
 
@@ -6148,7 +6165,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event).catch(() => ({}));
-              await setThreadArchived(threadId, body?.archived !== false);
+              if (typeof body?.archived !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "archived boolean is required" };
+              }
+              const archived = await setThreadArchived(
+                threadId,
+                body.archived,
+                { ownerEmail: owner },
+              );
+              if (!archived) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               return { ok: true };
             }
 

@@ -9,7 +9,7 @@ Dispatch is the central app that sits in front of every other app in your worksp
 
 Without Dispatch, every app in a multi-app workspace ends up re-implementing the same plumbing: its own Slack bot, its own secret store, its own scheduled jobs, its own copy of the workspace's instructions. Rotating one API key turns into ten redeployments. Adding a new policy turns into ten copy-pastes. Dispatch centralizes all of that in one app so the others stay focused on their domain.
 
-> Dispatch is shipped as a first-party template. This page covers the **concept** — what it is, why you'd want it, and how it fits into a workspace. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/templates/dispatch).
+> Dispatch is shipped as a first-party template. This page covers the **concept** — what it is, why you'd want it, and how it fits into a workspace. For the scaffolded app itself (routes, screens, agent guide), see the [Dispatch template](/docs/template-dispatch).
 
 ## When you want Dispatch {#when}
 
@@ -151,7 +151,7 @@ Then add credentials to the vault and (optionally) author global workspace resou
 
 ## See also {#see-also}
 
-- [Dispatch template](/templates/dispatch) — the actual scaffolded app, with its full action catalog and agent guide
+- [Dispatch template](/docs/template-dispatch) — the actual scaffolded app, with its full action catalog and agent guide
 - [Messaging](/docs/messaging) — connecting Slack, email, Telegram, WhatsApp
 - [A2A Protocol](/docs/a2a-protocol) — how cross-app delegation works under the hood
 - [Multi-App Workspace](/docs/multi-app-workspace) — the deployment shape Dispatch is built for

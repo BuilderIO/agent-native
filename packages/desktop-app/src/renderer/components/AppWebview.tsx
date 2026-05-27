@@ -38,6 +38,8 @@ interface AppWebviewProps {
   urlOpenNonce?: number;
   /** Safe app-relative path to load inside this app's origin. */
   urlPath?: string;
+  /** When true, apply an explicit open request without resetting a live webview. */
+  urlOpenSoft?: boolean;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
   /** Increment to trigger a webview reload (Cmd+R) */
@@ -169,6 +171,33 @@ function withUrlPath(rawUrl: string, path?: string): string {
   }
 }
 
+function isAgentNativeOpenPath(path: string | undefined): path is string {
+  if (!path) return false;
+  try {
+    const target = new URL(path, "http://agent-native.invalid");
+    return target.pathname === "/_agent-native/open";
+  } catch {
+    return false;
+  }
+}
+
+function canSoftOpenWebview(
+  wv: ElectronWebviewElement,
+  targetUrl: string,
+): boolean {
+  try {
+    const currentUrl = wv.getURL();
+    if (!currentUrl || currentUrl === "about:blank") return false;
+    return new URL(currentUrl).origin === new URL(targetUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function buildSoftOpenScript(path: string): string {
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then((response) => response.ok && response.type !== "opaqueredirect", () => false))()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
@@ -177,6 +206,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       isActive,
       urlOpenNonce,
       urlPath,
+      urlOpenSoft,
       urlParams,
       refreshKey = 0,
       onTitleChange,
@@ -391,22 +421,44 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // Keep mode toggles, edited prod URLs, and custom dev URLs in sync.
     useEffect(() => {
       const wv = webviewRef.current;
-      if (
-        !wv ||
-        app.placeholder ||
-        (prevUrlRef.current === url &&
-          prevUrlOpenNonceRef.current === urlOpenNonce)
-      ) {
+      if (!wv || app.placeholder) {
         return;
       }
+      const urlChanged = prevUrlRef.current !== url;
+      const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
+      if (!urlChanged && !openNonceChanged) return;
+
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
       setError(false);
+
+      if (
+        urlOpenSoft &&
+        openNonceChanged &&
+        isAgentNativeOpenPath(urlPath) &&
+        canSoftOpenWebview(wv, url)
+      ) {
+        void wv
+          .executeJavaScript(buildSoftOpenScript(urlPath), false)
+          .then((ok) => {
+            if (ok !== false) return;
+            setIsLoading(true);
+            setSlowLoad(false);
+            wv.setAttribute("src", url);
+          })
+          .catch(() => {
+            setIsLoading(true);
+            setSlowLoad(false);
+            wv.setAttribute("src", url);
+          });
+        return;
+      }
+
       setIsLoading(true);
       setSlowLoad(false);
       wv.setAttribute("src", url);
-    }, [url, urlOpenNonce, app.placeholder]);
+    }, [url, urlOpenNonce, urlOpenSoft, urlPath, app.placeholder]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,

@@ -3,6 +3,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { parsePlanInputsJson } from "./_utils.js";
 
 export default defineAction({
   description: "List Migration Workbench runs.",
@@ -63,6 +64,7 @@ export default defineAction({
         target: run.target,
         phase: run.phase,
         approved: run.approved,
+        hasPlanInputs: Boolean(parsePlanInputsJson(run.planInputsJson)),
         taskCount: countMap.get(run.id) ?? 0,
         passedTaskCount: passedMap.get(run.id) ?? 0,
         coveredTaskCount: coveredMap.get(run.id) ?? 0,

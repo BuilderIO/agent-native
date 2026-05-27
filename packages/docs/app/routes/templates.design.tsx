@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -159,6 +160,7 @@ export default function DesignTemplate() {
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
               </a>
+              <TemplateDocsLink template={template} location="landing_page" />
               <CliCopy />
             </div>
           </div>
@@ -435,13 +437,13 @@ export default function DesignTemplate() {
           agent that edits the source.
         </p>
         <div className="flex items-center justify-center gap-4">
-          <Link
-            prefetch="render"
-            to="/docs"
+          <TemplateDocsLink
+            template={template}
+            location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Get Started
-          </Link>
+            Read the docs
+          </TemplateDocsLink>
           <Link
             prefetch="render"
             to="/templates"

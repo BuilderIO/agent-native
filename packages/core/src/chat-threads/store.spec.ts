@@ -105,11 +105,17 @@ describe("chat thread store", () => {
         if (!row || row.id !== args[1]) {
           return { rows: [], rowsAffected: 0 };
         }
+        if (args[2] && row.owner_email !== args[2]) {
+          return { rows: [], rowsAffected: 0 };
+        }
         row = { ...row, pinned_at: args[0] };
         return { rows: [], rowsAffected: 1 };
       }
       if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
         if (!row || row.id !== args[1]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (args[2] && row.owner_email !== args[2]) {
           return { rows: [], rowsAffected: 0 };
         }
         row = { ...row, archived_at: args[0] };
@@ -189,11 +195,28 @@ describe("chat thread store", () => {
 
     await setThreadPinned("thread-1", false);
     expect(row!.pinned_at).toBeNull();
+    expect(row!.updated_at).toBe(1);
 
     await setThreadArchived("thread-1", true);
     expect(row!.archived_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses to pin or archive a thread for a different owner", async () => {
+    const pinned = await setThreadPinned("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+    const archived = await setThreadArchived("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+
+    expect(pinned).toBe(false);
+    expect(archived).toBe(false);
+    expect(row!.pinned_at).toBeUndefined();
+    expect(row!.archived_at).toBeUndefined();
+    expect(row!.updated_at).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("renames threads with a durable title override", async () => {

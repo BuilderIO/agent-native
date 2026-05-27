@@ -9,6 +9,28 @@ Assets is an agent-native workspace for creating and managing brand-consistent m
 
 Use it when your team needs reusable visual direction and searchable source assets instead of one-off generic media prompts.
 
+![Assets library for brand media and generated output](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200)
+
+## Start Here
+
+1. **Create a library.** Add the brand, campaign, product, or content stream you
+   want to manage.
+2. **Upload references.** Add approved logos, product shots, style examples, or
+   existing videos so the agent has concrete material to work from.
+3. **Generate from chat or a library.** Ask for a hero image, diagram, product
+   shot, or video variant. Assets stores the prompt, references, model, status,
+   and lineage for review.
+4. **Use the asset elsewhere.** Copy the export, embed the picker in another
+   app, or let another agent call Assets over A2A.
+
+## Useful Prompts
+
+- "Generate three blog hero options using the Acme product screenshots as references."
+- "Create a square social image in the launch-campaign style."
+- "Find all approved assets for the onboarding redesign."
+- "Turn this uploaded diagram into a cleaner product explainer image."
+- "Create a video storyboard and save the best frame set to this library."
+
 ## What You Can Do With It
 
 - **Create asset libraries.** Group reference images, videos, canonical logos, style notes, palettes, folders, and generated output by brand, campaign, product, or category.
@@ -77,7 +99,7 @@ context where the host supports it.
 Use A2A when another agent needs to create, search, or export assets without a
 human picker UI.
 
-### Distribute The App Skill
+### Developer: Distribute The App Skill
 
 The Assets app skill has app id `assets` and hosted MCP URL
 `https://assets.agent-native.com/_agent-native/mcp`.

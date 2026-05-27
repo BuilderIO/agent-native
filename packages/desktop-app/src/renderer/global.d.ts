@@ -471,6 +471,7 @@ type DesktopOpenRequest = {
   app?: string;
   goalId?: string;
   path?: string;
+  softOpen?: boolean;
   runId?: string;
 };
 

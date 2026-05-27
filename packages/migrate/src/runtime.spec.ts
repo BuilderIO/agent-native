@@ -17,7 +17,7 @@ import {
   verifyMigration,
 } from "./runtime.js";
 import { selectSourceAdapter } from "./adapters/source-registry.js";
-import type { SourceAdapter } from "./types.js";
+import type { ProjectIR, SourceAdapter } from "./types.js";
 import { createBrowserVerifier } from "./verifiers/browser.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +140,149 @@ describe("migration runtime", () => {
         "logged-in-pages-to-client-app-shell",
       ]),
     );
+  });
+
+  it("adds custom AEM, Builder, and jQuery plan input tasks", async () => {
+    const tmp = await fs.mkdtemp(
+      path.join(os.tmpdir(), "an-migrate-plan-inputs-"),
+    );
+    const run = await createMigrationRun({
+      sourceRoot:
+        "AEM site with Content Fragments, Experience Fragments, and jQuery clientlibs",
+      inputKind: "description",
+      outputRoot: path.join(tmp, "migrated-app"),
+      artifactRoot: path.join(tmp, "artifacts"),
+      id: "mig_plan_inputs",
+    });
+    const discovered = await discoverMigrationWithAgentIntrospection(run);
+
+    const planned = await planMigration(discovered.run, discovered.ir, {
+      planInputs: {
+        summary: "Controlled AEM to Agent-Native + Builder migration",
+        aem: {
+          modes: ["crawl", "api", "package", "code"],
+          contentFragmentPolicy: "headless",
+          experienceFragmentPolicy: "builder-section",
+          componentPolicy: "builder-registered-component",
+        },
+        builder: {
+          enabled: true,
+          componentRegistration: "register",
+          routeOwnership: [
+            { pattern: "static/low-change pages", owner: "builder-page" },
+            { pattern: "dynamic pages", owner: "headless" },
+          ],
+        },
+        headless: {
+          provider: "Akeneo",
+          routePatterns: ["dynamic pages"],
+        },
+        jquery: { policy: "rewrite" },
+        verification: {
+          sampleSize: 3,
+          required: ["screenshots", "DOM/text parity"],
+        },
+      },
+    });
+
+    expect(planned.tasks.map((task) => task.recipeName)).toEqual(
+      expect.arrayContaining([
+        "aem-evidence-inventory",
+        "aem-content-fragments-to-target-models",
+        "aem-experience-fragments-to-components",
+        "aem-components-to-react",
+        "builder-component-registration-plan",
+        "route-ownership-map",
+        "headless-dynamic-route-map",
+        "jquery-clientlibs-to-react",
+        "sample-sweep-verification",
+      ]),
+    );
+    expect(
+      planned.tasks
+        .filter((task) => task.id.includes(":plan-input-"))
+        .every((task) => task.id.startsWith("mig_plan_inputs:")),
+    ).toBe(true);
+
+    const plan = await fs.readFile(planned.planPath, "utf-8");
+    expect(plan).toContain("Custom Plan Inputs");
+    expect(plan).toContain("AEM modes: crawl, api, package, code");
+    await expect(
+      fs.stat(path.join(run.artifactDir, "02-plan-inputs.json")),
+    ).resolves.toBeTruthy();
+    const tasksJson = JSON.parse(
+      await fs.readFile(path.join(run.artifactDir, "tasks.json"), "utf-8"),
+    );
+    expect(tasksJson).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recipeName: "jquery-clientlibs-to-react" }),
+      ]),
+    );
+  });
+
+  it("matches literal question marks in plan input route patterns", async () => {
+    const tmp = await fs.mkdtemp(
+      path.join(os.tmpdir(), "an-migrate-route-patterns-"),
+    );
+    const run = await createMigrationRun({
+      sourceRoot: "Route ownership fixture",
+      inputKind: "description",
+      outputRoot: path.join(tmp, "migrated-app"),
+      artifactRoot: path.join(tmp, "artifacts"),
+      id: "mig_route_patterns",
+    });
+    const ir: ProjectIR = {
+      site: {
+        framework: "unknown",
+        sourceRoot: run.sourceRoot,
+        routes: [
+          {
+            id: "literal-query",
+            path: "/users/?id",
+            filePath: "pages/users.tsx",
+            router: "unknown",
+            kind: "app",
+            dynamic: false,
+            public: true,
+          },
+          {
+            id: "path-id",
+            path: "/users/id",
+            filePath: "pages/users-id.tsx",
+            router: "unknown",
+            kind: "app",
+            dynamic: false,
+            public: true,
+          },
+        ],
+        redirects: [],
+        metadata: {},
+      },
+      components: { components: [], designTokens: {} },
+      content: { models: [], assets: [] },
+      behavior: {
+        apiEndpoints: [],
+        dataStores: [],
+        llmCalls: [],
+        clientState: [],
+        auth: [],
+        jobs: [],
+      },
+    };
+
+    const planned = await planMigration(run, ir, {
+      planInputs: {
+        builder: {
+          enabled: true,
+          routeOwnership: [{ pattern: "/users/?id", owner: "builder-page" }],
+        },
+      },
+    });
+
+    expect(
+      planned.tasks.find((task) => task.recipeName === "route-ownership-map")
+        ?.targetIds,
+    ).toEqual(["literal-query"]);
   });
 
   it("selects matching deterministic adapters from a registry", async () => {

@@ -12,6 +12,11 @@ import {
   type SourceAdapterRegistry,
 } from "./adapters/source-registry.js";
 import { createAgentNativeRecipes } from "./recipes/agent-native.js";
+import {
+  migrationPlanInputTasks,
+  summarizeMigrationPlanInputs,
+  type PlanMigrationOptions,
+} from "./plan-inputs.js";
 import type {
   CriticDecision,
   MigrationArtifacts,
@@ -82,6 +87,7 @@ export function artifactPaths(run: MigrationRun): MigrationArtifacts {
     runDir: run.artifactDir,
     assessmentPath: path.join(run.artifactDir, "01-assessment.md"),
     planPath: path.join(run.artifactDir, "02-plan.md"),
+    planInputsPath: path.join(run.artifactDir, "02-plan-inputs.json"),
     tasksPath: path.join(run.artifactDir, "03-tasks.md"),
     reportPath: path.join(run.artifactDir, "04-report.md"),
     irPath: path.join(run.artifactDir, "ir.json"),
@@ -139,16 +145,26 @@ export const discoverMigrationWithAgent =
 export async function planMigration(
   run: MigrationRun,
   ir: ProjectIR,
+  options: PlanMigrationOptions = {},
 ): Promise<{ run: MigrationRun; tasks: MigrationTask[]; planPath: string }> {
   const context = migrationContext(run, ir, []);
   const recipes = createAgentNativeRecipes();
   const taskGroups = await Promise.all(
     recipes.map((recipe) => recipe.selectTasks(context)),
   );
-  const tasks = taskGroups.flat();
+  const tasks = [
+    ...taskGroups.flat(),
+    ...migrationPlanInputTasks(run, ir, options.planInputs),
+  ];
   const updated = touch({ ...run, phase: "approve" as const });
   const artifacts = artifactPaths(updated);
-  await fs.writeFile(artifacts.planPath, renderPlan(updated, ir, tasks));
+  await fs.writeFile(
+    artifacts.planPath,
+    renderPlan(updated, ir, tasks, options.planInputs),
+  );
+  if (options.planInputs) {
+    await writeJson(artifacts.planInputsPath, options.planInputs);
+  }
   await fs.writeFile(artifacts.tasksPath, renderTasks(tasks));
   await writeJson(path.join(updated.artifactDir, "tasks.json"), tasks);
   await writeJson(path.join(updated.artifactDir, "run.json"), updated);
@@ -265,12 +281,14 @@ function renderPlan(
   run: MigrationRun,
   ir: ProjectIR,
   tasks: MigrationTask[],
+  planInputs?: PlanMigrationOptions["planInputs"],
 ): string {
   const confidence = {
     high: tasks.filter((task) => task.confidence === "high").length,
     medium: tasks.filter((task) => task.confidence === "medium").length,
     low: tasks.filter((task) => task.confidence === "low").length,
   };
+  const planInputSummary = summarizeMigrationPlanInputs(planInputs);
   return `# Migration Plan
 
 Run: \`${run.id}\`
@@ -286,6 +304,10 @@ This plan follows the agent-native migration rules: actions, SQL, agent chat del
 ## Sample / Tune / Sweep
 
 Start with a representative sample of ${Math.min(5, Math.max(1, ir.site.routes.length))} route(s), tune recipes until those pass verification, then sweep the remaining route inventory.
+
+## Custom Plan Inputs
+
+${planInputSummary.map((line) => `- ${line}`).join("\n") || "- No custom plan inputs provided."}
 
 ## Tasks
 

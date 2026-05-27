@@ -42,21 +42,22 @@ Prefer `run-migration-goal` for Code Agents goal-driven operation. It is idempot
 
 ## Actions
 
-| Action                    | Args                                                           | Purpose                                   |
-| ------------------------- | -------------------------------------------------------------- | ----------------------------------------- |
-| `list-migration-runs`     |                                                                | List runs and task counts                 |
-| `get-migration-run`       | `--id <runId>`                                                 | Get run details, tasks, verifiers         |
-| `create-migration-run`    | `--sourceRoot <path-url-or-description> [--outputRoot <path>]` | Create a run                              |
-| `assess-migration`        | `--id <runId>`                                                 | Build IR and assessment artifacts         |
-| `generate-migration-plan` | `--id <runId>`                                                 | Build plan and task artifacts             |
-| `approve-migration-plan`  | `--id <runId>`                                                 | Approve generated output writes           |
-| `run-migration-task`      | `--id <runId> [--taskId <taskId>]`                             | Run the next migration task               |
-| `run-migration-goal`      | `--id <runId> [--maxTasks 1] [--verify true]`                  | Safely advance the `/migrate` goal        |
-| `verify-migration`        | `--id <runId>`                                                 | Run deterministic verification            |
-| `read-migration-artifact` | `--id <runId> --file <artifact.md>`                            | Read assessment, plan, tasks, report      |
-| `get-migration-seed`      |                                                                | Read CLI seed from `agent-native migrate` |
-| `view-screen`             |                                                                | See current UI/run context                |
-| `navigate`                | `--view <name>`, `--runId <id>`, or `--path`                   | Navigate the UI                           |
+| Action                         | Args                                                           | Purpose                                                   |
+| ------------------------------ | -------------------------------------------------------------- | --------------------------------------------------------- |
+| `list-migration-runs`          |                                                                | List runs and task counts                                 |
+| `get-migration-run`            | `--id <runId>`                                                 | Get run details, tasks, verifiers                         |
+| `create-migration-run`         | `--sourceRoot <path-url-or-description> [--outputRoot <path>]` | Create a run                                              |
+| `update-migration-plan-inputs` | `--id <runId> --planInputsText <json-or-notes>`                | Set custom AEM/Builder/jQuery plan inputs before planning |
+| `assess-migration`             | `--id <runId>`                                                 | Build IR and assessment artifacts                         |
+| `generate-migration-plan`      | `--id <runId>`                                                 | Build plan and task artifacts                             |
+| `approve-migration-plan`       | `--id <runId>`                                                 | Approve generated output writes                           |
+| `run-migration-task`           | `--id <runId> [--taskId <taskId>]`                             | Run the next migration task                               |
+| `run-migration-goal`           | `--id <runId> [--maxTasks 1] [--verify true]`                  | Safely advance the `/migrate` goal                        |
+| `verify-migration`             | `--id <runId>`                                                 | Run deterministic verification                            |
+| `read-migration-artifact`      | `--id <runId> --file <artifact.md>`                            | Read assessment, plan, tasks, report                      |
+| `get-migration-seed`           |                                                                | Read CLI seed from `agent-native migrate`                 |
+| `view-screen`                  |                                                                | See current UI/run context                                |
+| `navigate`                     | `--view <name>`, `--runId <id>`, or `--path`                   | Navigate the UI                                           |
 
 ## Agent-Native Mapping Rules
 
@@ -70,6 +71,22 @@ Recipe names mirror the `/migrate` goal contract:
 - `shared-resources-to-access-helpers`
 - `public-pages-to-ssr`
 - `logged-in-pages-to-client-app-shell`
+- `aem-evidence-inventory`
+- `aem-content-fragments-to-target-models`
+- `aem-experience-fragments-to-components`
+- `aem-components-to-react`
+- `builder-component-registration-plan`
+- `route-ownership-map`
+- `headless-dynamic-route-map`
+- `jquery-clientlibs-to-react`
+- `sample-sweep-verification`
+
+Custom plan inputs live as normalized JSON on a run before planning. Use them to
+make customer-specific constraints binding: AEM evidence modes, Content Fragment
+policy, Experience Fragment policy, Builder route ownership, headless ownership,
+jQuery/clientlib policy, and sample/sweep verification gates. Do not change plan
+inputs after `generate-migration-plan`; create a new run or add an explicit reset
+flow so approved artifacts cannot drift.
 
 ## Skills
 

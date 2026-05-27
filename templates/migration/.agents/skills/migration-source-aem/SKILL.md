@@ -24,6 +24,9 @@ complete.
 ## How
 
 - Use path, URL, and description together when available.
+- Capture customer-specific AEM assumptions as plan inputs before generating the
+  migration plan: modes, Content Fragment policy, Experience Fragment policy,
+  component policy, jQuery/clientlib policy, and verification gates.
 - Keep credentials out of artifacts and chat. Ask for configured secrets or
   authenticated connectors when protected AEM APIs are needed.
 - Separate content modeling, component mapping, asset migration, redirects, and

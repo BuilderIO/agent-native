@@ -16,6 +16,7 @@ export interface MigrationRunSummary {
   target: string;
   phase: MigrationPhase;
   approved: boolean;
+  hasPlanInputs?: boolean;
   taskCount: number;
   passedTaskCount: number;
   coveredTaskCount: number;

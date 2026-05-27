@@ -149,7 +149,11 @@ function BrainChatsSection() {
   async function handleArchiveThread(threadId: string) {
     const wasActive =
       threadId === activeThreadId || threadId === persistedActiveThreadId();
-    await archiveThread(threadId);
+    const archived = await archiveThread(threadId);
+    if (!archived) {
+      toast.error("Could not archive chat.");
+      return;
+    }
     if (wasActive) {
       await handleNewChat();
     }

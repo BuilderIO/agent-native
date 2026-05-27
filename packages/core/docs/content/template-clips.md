@@ -30,6 +30,25 @@ Think along the lines of Loom + Granola + Wisprflow rolled into one app — but 
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
 
+## Start Here
+
+1. **Open Library.** Browse screen recordings, meeting recordings, dictations,
+   folders, and spaces from one place.
+2. **Record or import.** Capture a screen recording, start from a calendar
+   meeting, or use push-to-talk dictation.
+3. **Let the agent clean it up.** Generate a title, summary, chapters, action
+   items, or cleaned-up transcript text.
+4. **Search and reuse.** Ask for the clip, quote, action item, or decision you
+   need, then share the result with the right visibility.
+
+## Useful Prompts
+
+- "Summarize this clip for a product update."
+- "Find the meeting where we discussed the rollout plan."
+- "Pull three customer quotes from this transcript."
+- "Create action items from the last sales call."
+- "Clean up this dictation and turn it into a Linear ticket."
+
 ## Why it's interesting
 
 Three things make Clips a good showcase of what agent-native enables:

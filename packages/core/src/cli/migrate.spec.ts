@@ -42,6 +42,8 @@ describe("parseMigrateArgs", () => {
         "--target",
         "agent-native",
         "--plan-only",
+        "--plan-file",
+        "aem-plan.md",
       ]),
     ).toEqual({
       source: "./next-app",
@@ -49,6 +51,7 @@ describe("parseMigrateArgs", () => {
       appName: "migration-lab",
       target: "agent-native",
       planOnly: true,
+      planFile: "aem-plan.md",
     });
   });
 
@@ -242,6 +245,88 @@ describe("parseMigrateArgs", () => {
       site: { framework: "nextjs" },
     });
     expect(fs.existsSync(path.join(sourceRoot, "AGENTS.md"))).toBe(false);
+  });
+
+  it("emits custom migration plan inputs into the dossier", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-plan-"));
+    tmpRoots.push(root);
+    const sourceRoot = path.join(root, "source");
+    const dossierRoot = path.join(root, "dossier");
+    const planFile = path.join(root, "aem-plan.md");
+    fs.mkdirSync(path.join(sourceRoot, "pages"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "package.json"),
+      JSON.stringify({ dependencies: { next: "^16.0.0" } }),
+    );
+    fs.writeFileSync(
+      path.join(sourceRoot, "pages", "index.tsx"),
+      "export default function Home() { return <main />; }\n",
+    );
+    fs.writeFileSync(
+      planFile,
+      [
+        "# AEM migration plan",
+        "Static/low-change pages go to Builder.",
+        "Dynamic pages go to Akeneo headless.",
+        "Fragments use jQuery clientlibs that should be rewritten.",
+      ].join("\n"),
+    );
+
+    const result = await emitOwnAgentDossier(
+      {
+        source: sourceRoot,
+        emit: true,
+        emitDir: dossierRoot,
+        planFile,
+      },
+      root,
+    );
+
+    expect(result.files).toContain("02-plan-inputs.json");
+    const planInputs = JSON.parse(
+      fs.readFileSync(path.join(dossierRoot, "02-plan-inputs.json"), "utf-8"),
+    );
+    expect(planInputs).toMatchObject({
+      builder: { enabled: true },
+      headless: { provider: "Akeneo" },
+      jquery: { policy: "rewrite" },
+    });
+    expect(
+      fs.readFileSync(path.join(dossierRoot, "MIGRATION_PLAYBOOK.md"), "utf-8"),
+    ).toContain("Use `02-plan-inputs.json`");
+  });
+
+  it("does not treat unsupported JSON plan files as binding plan inputs", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-plan-"));
+    tmpRoots.push(root);
+    const sourceRoot = path.join(root, "source");
+    const dossierRoot = path.join(root, "dossier");
+    const planFile = path.join(root, "empty-plan.json");
+    fs.mkdirSync(path.join(sourceRoot, "pages"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "package.json"),
+      JSON.stringify({ dependencies: { next: "^16.0.0" } }),
+    );
+    fs.writeFileSync(
+      path.join(sourceRoot, "pages", "index.tsx"),
+      "export default function Home() { return <main />; }\n",
+    );
+    fs.writeFileSync(planFile, "[]");
+
+    const result = await emitOwnAgentDossier(
+      {
+        source: sourceRoot,
+        emit: true,
+        emitDir: dossierRoot,
+        planFile,
+      },
+      root,
+    );
+
+    expect(result.files).not.toContain("02-plan-inputs.json");
+    expect(
+      fs.readFileSync(path.join(dossierRoot, "MIGRATION_PLAYBOOK.md"), "utf-8"),
+    ).not.toContain("Use `02-plan-inputs.json`");
   });
 
   it("refuses explicit emit paths inside sourceRoot", async () => {

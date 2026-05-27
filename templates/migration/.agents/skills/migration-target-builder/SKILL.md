@@ -20,6 +20,9 @@ code.
   operations in the generated agent-native app.
 - Preserve route ownership in the plan: Builder page/content model, generated
   React route, or manual mapping.
+- Use custom plan inputs for route-ownership overrides such as
+  `builder-page`, `builder-section`, `agent-native-route`, `headless`, and
+  `manual`.
 - Verify route parity, content model coverage, asset references, and fallback
   behavior before accepting.
 

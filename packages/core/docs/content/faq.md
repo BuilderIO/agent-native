@@ -60,17 +60,17 @@ You can, but agent-native works best when built from the ground up. The architec
 
 The framework ships with production-ready templates you can use as daily drivers:
 
-- **[Calendar](/templates/calendar)** — Google Calendar + Calendly-style booking links
-- **[Content](/templates/content)** — Notion-style documents
-- **[Brain](/templates/brain)** — full-page company chat, cited memory, sources, and review queue
-- **[Assets](/templates/assets)** — brand asset libraries, uploads, and generated media
-- **[Slides](/templates/slides)** — presentation builder
-- **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
-- **[Mail](/templates/mail)** — full-featured email client (like Superhuman)
-- **[Clips](/templates/clips)** — async screen + camera recording (replaces Loom)
-- **[Design](/templates/design)** — agent-native HTML prototyping studio
-- **[Forms](/templates/forms)** — form builder (like Typeform)
-- **[Dispatch](/templates/dispatch)** — workspace control plane: shared secrets, integrations, jobs
+- **[Calendar](/docs/template-calendar)** — Google Calendar + Calendly-style booking links
+- **[Content](/docs/template-content)** — Notion-style documents
+- **[Brain](/docs/template-brain)** — full-page company chat, cited memory, sources, and review queue
+- **[Assets](/docs/template-assets)** — brand asset libraries, uploads, and generated media
+- **[Slides](/docs/template-slides)** — presentation builder
+- **[Analytics](/docs/template-analytics)** — data platform (like Amplitude/Mixpanel)
+- **[Mail](/docs/template-mail)** — full-featured email client (like Superhuman)
+- **[Clips](/docs/template-clips)** — async screen + camera recording (replaces Loom)
+- **[Design](/docs/template-design)** — agent-native HTML prototyping studio
+- **[Forms](/docs/template-forms)** — form builder (like Typeform)
+- **[Dispatch](/docs/template-dispatch)** — workspace control plane: shared secrets, integrations, jobs
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions. See [Templates](/docs/cloneable-saas) for the full picture, or all [Templates](/templates).
 

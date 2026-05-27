@@ -21,6 +21,7 @@ export const migrationRuns = table("migration_runs", {
   planPath: text("plan_path"),
   reportPath: text("report_path"),
   irJson: text("ir_json"),
+  planInputsJson: text("plan_inputs_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   ...ownableColumns(),

@@ -89,12 +89,6 @@ importers:
 
   packages/code-agents-ui:
     dependencies:
-      '@agent-native/core':
-        specifier: workspace:*
-        version: link:../core
-      '@agent-native/shared-app-config':
-        specifier: workspace:*
-        version: link:../shared-app-config
       '@radix-ui/react-dropdown-menu':
         specifier: 2.1.16
         version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -117,6 +111,12 @@ importers:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-native/shared-app-config':
+        specifier: workspace:*
+        version: link:../shared-app-config
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -754,12 +754,6 @@ importers:
 
   packages/frame:
     dependencies:
-      '@agent-native/core':
-        specifier: workspace:*
-        version: link:../core
-      '@agent-native/shared-app-config':
-        specifier: workspace:*
-        version: link:../shared-app-config
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.41.1(react@19.2.5)
@@ -779,6 +773,12 @@ importers:
         specifier: 'catalog:'
         version: 19.2.5(react@19.2.5)
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-native/shared-app-config':
+        specifier: workspace:*
+        version: link:../shared-app-config
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.4(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@25.8.0)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -1000,7 +1000,11 @@ importers:
         specifier: ^4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@29.1.1(@noble/hashes@2.0.1)(canvas@3.2.3))(vite@8.0.13(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/shared-app-config: {}
+  packages/shared-app-config:
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   templates/analytics:
     dependencies:

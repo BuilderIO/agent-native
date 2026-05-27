@@ -4,7 +4,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type { ProjectIR } from "@agent-native/migrate";
-import { assessmentSourceMetadata, loadTasks } from "./_utils.js";
+import {
+  assessmentSourceMetadata,
+  loadTasks,
+  parsePlanInputsJsonWithDiagnostics,
+} from "./_utils.js";
 
 export default defineAction({
   description: "Get a Migration Workbench run with tasks and verifier results.",
@@ -22,6 +26,7 @@ export default defineAction({
       .from(schema.migrationVerifierResults)
       .where(eq(schema.migrationVerifierResults.runId, id));
     const ir = run.irJson ? (JSON.parse(run.irJson) as ProjectIR) : null;
+    const planInputs = parsePlanInputsJsonWithDiagnostics(run.planInputsJson);
     return {
       run: {
         id: run.id,
@@ -37,6 +42,9 @@ export default defineAction({
         assessmentPath: run.assessmentPath,
         planPath: run.planPath,
         reportPath: run.reportPath,
+        planInputs: planInputs.planInputs,
+        planInputsText: planInputs.planInputsText,
+        planInputsParseError: planInputs.planInputsParseError,
         ir,
         role: access.role,
         createdAt: run.createdAt,

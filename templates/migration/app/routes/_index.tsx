@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   IconCheck,
+  IconDeviceFloppy,
   IconFileText,
   IconListCheck,
   IconPlayerPlay,
@@ -40,6 +41,7 @@ type RunSummary = {
   passedTaskCount: number;
   coveredTaskCount: number;
   failedTaskCount: number;
+  hasPlanInputs?: boolean;
   updatedAt: string;
 };
 
@@ -99,6 +101,13 @@ export default function MigrateGoalSurfacePage() {
   const [name, setName] = useState("/migrate run");
   const [sourceRoot, setSourceRoot] = useState("");
   const [outputRoot, setOutputRoot] = useState("../migrated-app");
+  const [planInputsText, setPlanInputsText] = useState("");
+  const [selectedPlanInputsText, setSelectedPlanInputsText] = useState("");
+  const newRunPlanInputsSeedRef = useRef<string | null>(null);
+  const selectedPlanInputsSeedRef = useRef<{
+    runId: string;
+    text: string;
+  } | null>(null);
   const runsQuery = useActionQuery("list-migration-runs", {});
   const seedQuery = useActionQuery("get-migration-seed", {});
   const runs = ((runsQuery.data as { runs?: RunSummary[] } | undefined)?.runs ??
@@ -120,60 +129,10 @@ export default function MigrateGoalSurfacePage() {
   const assess = useActionMutation("assess-migration");
   const plan = useActionMutation("generate-migration-plan");
   const approve = useActionMutation("approve-migration-plan");
+  const updatePlanInputs = useActionMutation("update-migration-plan-inputs");
   const runTask = useActionMutation("run-migration-task");
   const runGoal = useActionMutation("run-migration-goal");
   const verify = useActionMutation("verify-migration");
-
-  useEffect(() => {
-    if (!runIdFromUrl) return;
-    setSelectedRunId(runIdFromUrl);
-    setGoalResult(null);
-  }, [runIdFromUrl]);
-
-  useEffect(() => {
-    const seed = (seedQuery.data as { seed?: any } | undefined)?.seed;
-    if (!seed || sourceRoot) return;
-    const seededSource =
-      seed.source?.value ??
-      seed.sourceRoot ??
-      seed.sourceUrl ??
-      seed.sourceDescription;
-    if (typeof seededSource === "string") setSourceRoot(seededSource);
-    if (typeof seed.outputRoot === "string") setOutputRoot(seed.outputRoot);
-    if (typeof seed.name === "string") setName(seed.name);
-  }, [seedQuery.data, sourceRoot]);
-
-  function selectRun(id: string) {
-    setSelectedRunId(id);
-    setGoalResult(null);
-    const next = new URLSearchParams(searchParams);
-    next.set("run", id);
-    setSearchParams(next);
-  }
-
-  async function create() {
-    if (!sourceRoot.trim()) return;
-    const result = (await createRun.mutateAsync({
-      name,
-      sourceRoot,
-      outputRoot,
-      target: "agent-native",
-      inputDescription: (seedQuery.data as { seed?: any } | undefined)?.seed
-        ?.sourceDescription,
-    } as any)) as { run?: { id: string } };
-    if (result.run?.id) selectRun(result.run.id);
-    setSourceRoot("");
-  }
-
-  async function runSelectedGoal() {
-    if (!selectedRun) return;
-    const result = (await runGoal.mutateAsync({
-      id: selectedRun.id,
-      maxTasks: 1,
-      verify: true,
-    } as any)) as GoalResult;
-    setGoalResult(result);
-  }
 
   const detail = runQuery.data as
     | {
@@ -195,6 +154,106 @@ export default function MigrateGoalSurfacePage() {
         }>;
       }
     | undefined;
+
+  useEffect(() => {
+    if (!runIdFromUrl) return;
+    setSelectedRunId(runIdFromUrl);
+    setGoalResult(null);
+  }, [runIdFromUrl]);
+
+  useEffect(() => {
+    const seed = (seedQuery.data as { seed?: any } | undefined)?.seed;
+    if (!seed || sourceRoot) return;
+    const seededSource =
+      seed.source?.value ??
+      seed.sourceRoot ??
+      seed.sourceUrl ??
+      seed.sourceDescription;
+    if (typeof seededSource === "string") setSourceRoot(seededSource);
+    if (typeof seed.outputRoot === "string") setOutputRoot(seed.outputRoot);
+    if (typeof seed.name === "string") setName(seed.name);
+    if (seed.planInputs) {
+      const seedText = JSON.stringify(seed.planInputs, null, 2);
+      const seedKey = `${seededSource ?? ""}:${seedText}`;
+      if (newRunPlanInputsSeedRef.current !== seedKey && !planInputsText) {
+        newRunPlanInputsSeedRef.current = seedKey;
+        setPlanInputsText(seedText);
+      }
+    }
+  }, [planInputsText, seedQuery.data, sourceRoot]);
+
+  useEffect(() => {
+    if (!selectedRun) return;
+    const runDetail = detail?.run as
+      | { planInputs?: unknown; planInputsText?: string }
+      | undefined;
+    const planInputs = runDetail?.planInputs;
+    const nextText =
+      typeof runDetail?.planInputsText === "string"
+        ? runDetail.planInputsText
+        : planInputs
+          ? JSON.stringify(planInputs, null, 2)
+          : "";
+    const previousSeed = selectedPlanInputsSeedRef.current;
+    const userEditedCurrentRun =
+      previousSeed?.runId === selectedRun.id &&
+      selectedPlanInputsText !== previousSeed.text;
+    if (userEditedCurrentRun && selectedPlanInputsText !== nextText) return;
+    selectedPlanInputsSeedRef.current = {
+      runId: selectedRun.id,
+      text: nextText,
+    };
+    if (selectedPlanInputsText !== nextText) {
+      setSelectedPlanInputsText(nextText);
+    }
+  }, [detail?.run, selectedPlanInputsText, selectedRun]);
+
+  function selectRun(id: string) {
+    setSelectedRunId(id);
+    setGoalResult(null);
+    const next = new URLSearchParams(searchParams);
+    next.set("run", id);
+    setSearchParams(next);
+  }
+
+  async function create() {
+    if (!sourceRoot.trim()) return;
+    const result = (await createRun.mutateAsync({
+      name,
+      sourceRoot,
+      outputRoot,
+      target: "agent-native",
+      inputDescription: (seedQuery.data as { seed?: any } | undefined)?.seed
+        ?.sourceDescription,
+      planInputsText: planInputsText.trim() || undefined,
+    } as any)) as { run?: { id: string } };
+    if (result.run?.id) selectRun(result.run.id);
+    setSourceRoot("");
+    setPlanInputsText("");
+  }
+
+  async function savePlanInputs() {
+    if (!selectedRun) return;
+    await updatePlanInputs.mutateAsync(
+      selectedPlanInputsText.trim()
+        ? {
+            id: selectedRun.id,
+            planInputsText: selectedPlanInputsText,
+          }
+        : { id: selectedRun.id, planInputs: null },
+    );
+  }
+
+  async function runSelectedGoal() {
+    if (!selectedRun) return;
+    const result = (await runGoal.mutateAsync({
+      id: selectedRun.id,
+      maxTasks: 1,
+      verify: true,
+    } as any)) as GoalResult;
+    setGoalResult(result);
+  }
+
   const tasks = detail?.tasks ?? [];
   const progress =
     tasks.length > 0
@@ -244,6 +303,12 @@ export default function MigrateGoalSurfacePage() {
                 value={outputRoot}
                 onChange={(event) => setOutputRoot(event.target.value)}
                 placeholder="../migrated-app"
+              />
+              <Textarea
+                value={planInputsText}
+                onChange={(event) => setPlanInputsText(event.target.value)}
+                placeholder="Optional custom plan JSON or notes"
+                className="min-h-24 font-mono text-xs"
               />
               <Button
                 onClick={create}
@@ -302,6 +367,7 @@ export default function MigrateGoalSurfacePage() {
                       {run.coveredTaskCount > 0 ? (
                         <span>{run.coveredTaskCount} covered</span>
                       ) : null}
+                      {run.hasPlanInputs ? <span>custom plan</span> : null}
                     </div>
                   </button>
                 ))
@@ -475,6 +541,7 @@ export default function MigrateGoalSurfacePage() {
                 <Tabs defaultValue="tasks">
                   <TabsList>
                     <TabsTrigger value="tasks">Tasks</TabsTrigger>
+                    <TabsTrigger value="plan">Plan Inputs</TabsTrigger>
                     <TabsTrigger value="ir">IR</TabsTrigger>
                     <TabsTrigger value="verify">Verify</TabsTrigger>
                   </TabsList>
@@ -508,6 +575,41 @@ export default function MigrateGoalSurfacePage() {
                         </div>
                       ))
                     )}
+                  </TabsContent>
+                  <TabsContent value="plan" className="mt-4 space-y-3">
+                    {detail?.run?.planInputsParseError ? (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                        {detail.run.planInputsParseError}
+                      </div>
+                    ) : null}
+                    <Textarea
+                      value={selectedPlanInputsText}
+                      onChange={(event) =>
+                        setSelectedPlanInputsText(event.target.value)
+                      }
+                      disabled={Boolean(detail?.run?.planPath)}
+                      placeholder="Paste JSON or planning notes before generating the plan."
+                      className="min-h-56 font-mono text-xs"
+                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-muted-foreground">
+                        {detail?.run?.planPath
+                          ? "Plan inputs are locked after plan generation."
+                          : "Saved inputs are converted into migration tasks during planning."}
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={savePlanInputs}
+                        disabled={
+                          !selectedRun ||
+                          updatePlanInputs.isPending ||
+                          Boolean(detail?.run?.planPath)
+                        }
+                      >
+                        <IconDeviceFloppy className="h-4 w-4" />
+                        Save
+                      </Button>
+                    </div>
                   </TabsContent>
                   <TabsContent value="ir" className="mt-4">
                     <pre className="max-h-[420px] overflow-auto rounded-lg bg-muted p-4 text-xs">

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loader } from "../app/routes/templates.$slug";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
+import { getTemplateDocsPath } from "../app/components/template-docs";
 import { NAV_SECTIONS } from "../app/components/docsNavItems";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
 
@@ -44,9 +45,7 @@ describe("template routes", () => {
     const sidebarTemplatePaths = navTemplateSection!.items.map(
       (item) => item.to,
     );
-    const catalogTemplatePaths = featuredTemplates.map(
-      (template) => `/docs/template-${template.slug}`,
-    );
+    const catalogTemplatePaths = featuredTemplates.map(getTemplateDocsPath);
 
     // Every featured catalog template must be reachable from the sidebar.
     // Non-featured templates may still keep direct docs pages without being
@@ -61,6 +60,23 @@ describe("template routes", () => {
       expect(sidebarPath).not.toMatch(/^\/templates\//);
 
       const slug = sidebarPath.replace("/docs/template-", "");
+      expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("maps every template catalog item to a real docs page", () => {
+    const docsDir = path.resolve(docsRoot, "../core/docs/content");
+
+    expect(getTemplateDocsPath("video")).toBe("/docs/template-videos");
+
+    for (const template of templates) {
+      const docsPath = getTemplateDocsPath(template);
+      expect(docsPath).toMatch(/^\/docs\/template-[a-z0-9-]+$/);
+      expect(docsPath).not.toMatch(/^\/templates\//);
+
+      const slug = docsPath.replace("/docs/template-", "");
       expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
         true,
       );

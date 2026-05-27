@@ -586,6 +586,7 @@ export interface DesktopOpenRequest {
   app?: string;
   goalId?: string;
   path?: string;
+  softOpen?: boolean;
   runId?: string;
 }
 
