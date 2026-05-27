@@ -64,6 +64,7 @@ import {
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
   type DesktopShortcutSettings,
+  type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderInfo,
@@ -5382,6 +5383,40 @@ ipcMain.handle(
   },
 );
 
+// ---------- IPC: Local app-launch shortcuts ----------
+
+ipcMain.handle(IPC.SHORTCUTS_LOAD, (): DesktopShortcutSettings => {
+  return getDesktopShortcutSettings();
+});
+
+ipcMain.handle(
+  IPC.SHORTCUTS_UPSERT,
+  (
+    _event: IpcMainInvokeEvent,
+    request: DesktopShortcutUpsertRequest,
+  ): DesktopShortcutUpdateResult => {
+    const result = AppStore.upsertDesktopShortcutBinding(request);
+    if (!result.ok) {
+      return {
+        ok: false,
+        settings: getDesktopShortcutSettings(),
+        error: result.error,
+      };
+    }
+    registerDesktopShortcutBindings();
+    return { ok: true, settings: getDesktopShortcutSettings() };
+  },
+);
+
+ipcMain.handle(
+  IPC.SHORTCUTS_REMOVE,
+  (_event: IpcMainInvokeEvent, id: string): DesktopShortcutUpdateResult => {
+    AppStore.removeDesktopShortcutBinding(id);
+    registerDesktopShortcutBindings();
+    return { ok: true, settings: getDesktopShortcutSettings() };
+  },
+);
+
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
@@ -6427,6 +6462,7 @@ app.whenReady().then(() => {
   reconcileInterruptedCodeAgentRuns("startup");
 
   const win = createWindow();
+  registerDesktopShortcutBindings();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
   startRemoteCodeAgentConnector();
 
@@ -6527,4 +6563,8 @@ app.on("before-quit", () => {
   }
   remoteConnectorProcess?.kill("SIGTERM");
   remoteConnectorProcess = null;
+});
+
+app.on("will-quit", () => {
+  unregisterDesktopShortcutBindings();
 });
