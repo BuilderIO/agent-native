@@ -11,7 +11,7 @@ sanitized before storage by default so Brain stores the company-relevant
 capture, not the full raw call transcript or provider payload.
 
 Brain is not a full Glean replacement today. Position it honestly as an
-open-source, Glean-shaped foundation: durable company memory first, then a
+open-source, Glean-shaped foundation: durable company knowledge first, then a
 broader permission-aware workspace search layer over time.
 
 ## Product Direction
@@ -81,7 +81,7 @@ JSON is stored in text columns. There is no vector database.
 
 ## Retrieval Rules
 
-When answering company-memory questions:
+When answering company-knowledge questions:
 
 1. Call `get-brain-settings` first when current settings are not already in
    context, and apply its effective guidance. The settings control assistant
@@ -104,11 +104,11 @@ When answering company-memory questions:
    only; `balanced` means use raw captures only when reviewed knowledge is
    missing or thin and label them clearly; `exploratory` means raw captures and
    source records can be included as clearly labeled leads, never as approved
-   company memory.
+   company knowledge.
 5. Cite source links from knowledge evidence or raw capture metadata. Prefer
    direct source URLs/permalinks over generic source names.
 6. Distinguish reviewed knowledge from raw captures. Raw captures can provide
-   context, but do not present them as approved company memory unless they have
+   context, but do not present them as approved company knowledge unless they have
    been distilled and reviewed.
 7. If search does not find support, say so plainly. Do not invent an answer or
    imply Brain contains information it did not return.
@@ -127,7 +127,7 @@ then synthesize-with-boundaries loop.
 - `write-knowledge.evidence[].quote` must be an exact substring of the referenced capture.
 - `publishTier: "private"` writes draft/private knowledge.
 - `publishTier: "team"` and `"company"` use org visibility.
-- New shared/company memory should default to org-shared visibility only after
+- New shared/company knowledge should default to org-shared visibility only after
   source allow-lists, exclusions, redaction, and review gates have been applied.
 - Company-tier writes create a proposal by default when `requireApprovalForCompanyKnowledge` is true.
 - Use `proposalMode: "never"` only when the user explicitly wants to bypass review.
@@ -184,7 +184,7 @@ false`, and a recent default history window.
 
 For the real `#dev-fusion` Slack pilot, keep the loop concrete and narrow:
 validate the source, run one safe sample, review captures, distill/propose only
-durable company memory, approve proposal-gated items, then call
+durable company knowledge, approve proposal-gated items, then call
 `get-pilot-report`. Its `pilotTrustLane` field summarizes whether the source is
 blocked, ready to sample, waiting on distillation, waiting on review, waiting on
 retrieval eval, or ready for a narrow expansion. Use the returned
@@ -319,7 +319,7 @@ domain rules.
 ## A2A Retrieval
 
 Brain's public A2A capability is read-only, citation-backed retrieval for
-company-memory questions. Treat the public agent card as discovery metadata, not
+company-knowledge questions. Treat the public agent card as discovery metadata, not
 anonymous data access. Actual retrieval still runs through the authenticated
 A2A/action context and must obey access filters, source policy, redaction,
 review gates, and citation requirements. If a request asks Brain to mutate
@@ -328,7 +328,7 @@ go through authenticated app actions instead of the public retrieval fallback.
 
 `ask-brain` is the external-facing public-agent company lookup. It is GET +
 read-only + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`,
-so an external coding agent or A2A peer can ask a company-memory question over
+so an external coding agent or A2A peer can ask a company-knowledge question over
 MCP and get a cited answer back. Every citation now carries a `deepLink`:
 knowledge citations link to `view: "knowledge"` + `knowledgeId`, capture
 citations to `view: "capture"` + `captureId` (resolved to the Search surface,
@@ -365,7 +365,7 @@ a personal aside as an ignored capture.
 
 Use `run-demo-eval` to verify recall, citations, supersede links, proposal
 gating, redaction, and personal-content exclusion. This is the fastest
-repeatable check that Brain still feels like a trustworthy company memory app.
+repeatable check that Brain still feels like a trustworthy company knowledge app.
 
 Use `run-retrieval-eval` for the offline real-channel-style retrieval checks.
 It first evaluates existing workspace Brain data; when the #dev-fusion/stale

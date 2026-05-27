@@ -168,7 +168,7 @@ function retrievalPolicy(
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
           "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company memory.",
+          "Never present raw capture matches as approved company knowledge.",
           "Say when a result is unreviewed and needs distillation or review.",
         ],
       };

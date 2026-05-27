@@ -251,12 +251,12 @@ const demoCaptures: DemoCaptureSpec[] = [
     metadata: {
       demoSeedId: DEMO_SEED_ID,
       provider: "slack",
-      excludedReason: "Personal aside; not company memory.",
+      excludedReason: "Personal aside; not company knowledge.",
       sourceUrl:
         "https://slack.example.com/archives/CDEMO_PRODUCT/p1778157600000200",
     },
     content:
-      "Personal aside: dentist appointment and childcare schedule are not company memory.",
+      "Personal aside: dentist appointment and childcare schedule are not company knowledge.",
   },
 ];
 
@@ -515,7 +515,7 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     kind: "answer",
     label: "Process and policy knowledge is retrievable",
     question: "What process policy governs Brain imports and proposals?",
-    expectedTitle: "Brain import policy keeps company memory review-gated",
+    expectedTitle: "Brain import policy keeps company knowledge review-gated",
     requiredTerms: [
       "raw imports",
       "company-tier knowledge",
@@ -855,7 +855,7 @@ export async function seedBrainDemoData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company memory review-gated",
+    title: "Brain import policy keeps company knowledge review-gated",
     kind: "policy",
     body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search.",
     summary:
@@ -1065,7 +1065,7 @@ export async function seedBrainRetrievalEvalData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company memory review-gated",
+    title: "Brain import policy keeps company knowledge review-gated",
     kind: "policy",
     body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search until review.",
     summary:
@@ -1524,7 +1524,7 @@ export async function runBrainDemoEval(
   );
 
   const importPolicy = await findKnowledgeByTitle(
-    "Brain import policy keeps company memory review-gated",
+    "Brain import policy keeps company knowledge review-gated",
   );
   const importPolicyEvidence = importPolicy
     ? knowledgeEvidence(importPolicy)

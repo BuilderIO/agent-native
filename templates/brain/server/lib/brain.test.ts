@@ -2384,7 +2384,7 @@ describe("Brain demo eval", () => {
       id: "real-dev-fusion-import-review-policy",
       sourceId: "real-dev-fusion-source",
       externalId: "real-dev-fusion-import-review-policy",
-      title: "Brain import policy keeps company memory review-gated",
+      title: "Brain import policy keeps company knowledge review-gated",
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
