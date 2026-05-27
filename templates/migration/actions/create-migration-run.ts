@@ -8,12 +8,11 @@ import {
   artifactRoot,
   assertSafeOutputRoot,
   normalizePath,
-  serializePlanInputs,
+  resolvePlanInputsUpdate,
 } from "./_utils.js";
 import {
   createMigrationRun,
   inferMigrationInputKind,
-  parseMigrationPlanInputsText,
 } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -59,15 +58,16 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("No authenticated user");
     const orgId = getRequestOrgId();
-    const planInputsJson =
-      args.planInputsText !== undefined
-        ? serializePlanInputs(
-            parseMigrationPlanInputsText(
-              args.planInputsText,
-              "Workbench plan inputs",
-            ),
-          )
-        : serializePlanInputs(args.planInputs);
+    const planInputs =
+      args.planInputsText !== undefined || args.planInputs !== undefined
+        ? resolvePlanInputsUpdate({
+            planInputs: args.planInputs,
+            planInputsText: args.planInputsText,
+          })
+        : null;
+    const planInputsJson = planInputs
+      ? JSON.stringify(planInputs, null, 2)
+      : null;
 
     const run = await createMigrationRun({
       sourceRoot,

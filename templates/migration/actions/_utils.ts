@@ -9,7 +9,10 @@ import type {
   ProjectIR,
   VerifierResult,
 } from "@agent-native/migrate";
-import { normalizeMigrationPlanInputs } from "@agent-native/migrate";
+import {
+  normalizeMigrationPlanInputs,
+  parseMigrationPlanInputsText,
+} from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 
 export function artifactRoot() {
@@ -58,17 +61,90 @@ export function rowToRun(
 export function parsePlanInputsJson(
   value: string | null | undefined,
 ): MigrationPlanInputs | null {
-  if (!value) return null;
+  return parsePlanInputsJsonWithDiagnostics(value).planInputs;
+}
+
+export interface PlanInputsParseResult {
+  planInputs: MigrationPlanInputs | null;
+  planInputsText: string;
+  planInputsParseError?: string;
+}
+
+export function parsePlanInputsJsonWithDiagnostics(
+  value: string | null | undefined,
+): PlanInputsParseResult {
+  if (!value) return { planInputs: null, planInputsText: "" };
   try {
-    return normalizeMigrationPlanInputs(JSON.parse(value));
+    const planInputs = normalizeMigrationPlanInputs(JSON.parse(value));
+    if (!planInputs) {
+      return {
+        planInputs: null,
+        planInputsText: value,
+        planInputsParseError:
+          "Saved plan inputs do not match the supported migration profile schema.",
+      };
+    }
+    return {
+      planInputs,
+      planInputsText: JSON.stringify(planInputs, null, 2),
+    };
   } catch {
-    return null;
+    return {
+      planInputs: null,
+      planInputsText: value,
+      planInputsParseError:
+        "Saved plan inputs are not valid JSON. Review or replace them before saving.",
+    };
   }
 }
 
 export function serializePlanInputs(value: unknown): string | null {
   const normalized = normalizeMigrationPlanInputs(value);
   return normalized ? JSON.stringify(normalized, null, 2) : null;
+}
+
+export function resolvePlanInputsUpdate(input: {
+  planInputs?: unknown;
+  planInputsText?: string;
+}): MigrationPlanInputs | null {
+  const hasPlanInputs = input.planInputs !== undefined;
+  const hasPlanInputsText = input.planInputsText !== undefined;
+  const trimmedText =
+    typeof input.planInputsText === "string" ? input.planInputsText.trim() : "";
+
+  if (!hasPlanInputs && !hasPlanInputsText) {
+    throw new Error(
+      "Provide planInputsText or planInputs. Pass planInputs: null to clear saved plan inputs.",
+    );
+  }
+  if (hasPlanInputsText && trimmedText && hasPlanInputs) {
+    throw new Error("Provide either planInputsText or planInputs, not both.");
+  }
+  if (hasPlanInputsText && trimmedText) {
+    const parsed = parseMigrationPlanInputsText(
+      input.planInputsText ?? "",
+      "Workbench plan inputs",
+    );
+    if (!parsed) {
+      throw new Error(
+        "Plan input text could not be converted into a supported migration profile.",
+      );
+    }
+    return parsed;
+  }
+  if (hasPlanInputs) {
+    if (input.planInputs === null) return null;
+    const normalized = normalizeMigrationPlanInputs(input.planInputs);
+    if (!normalized) {
+      throw new Error(
+        "planInputs must match the supported migration profile schema.",
+      );
+    }
+    return normalized;
+  }
+  throw new Error(
+    "Plan input text is empty. Pass planInputs: null to clear it.",
+  );
 }
 
 export interface AssessmentSourceMetadata {

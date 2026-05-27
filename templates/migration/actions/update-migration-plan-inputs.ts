@@ -2,12 +2,8 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import {
-  normalizeMigrationPlanInputs,
-  parseMigrationPlanInputsText,
-} from "@agent-native/migrate";
+import { getRunRow, resolvePlanInputsUpdate } from "./_utils.js";
 import { getDb, schema } from "../server/db/index.js";
-import { getRunRow } from "./_utils.js";
 
 export default defineAction({
   description:
@@ -32,12 +28,7 @@ export default defineAction({
       );
     }
 
-    const normalized =
-      planInputsText !== undefined
-        ? parseMigrationPlanInputsText(planInputsText, "Workbench plan inputs")
-        : planInputs === null
-          ? null
-          : normalizeMigrationPlanInputs(planInputs);
+    const normalized = resolvePlanInputsUpdate({ planInputs, planInputsText });
     const planInputsJson = normalized
       ? JSON.stringify(normalized, null, 2)
       : null;

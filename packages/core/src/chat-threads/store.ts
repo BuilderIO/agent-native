@@ -524,14 +524,14 @@ export async function setThreadPinned(
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [pinned ? now : null, now, id];
+  const args: (string | number | null)[] = [pinned ? now : null, id];
   let ownerFilter = "";
   if (options.ownerEmail) {
     ownerFilter = " AND owner_email = ?";
     args.push(options.ownerEmail);
   }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET pinned_at = ?, updated_at = ? WHERE id = ?${ownerFilter}`,
+    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ?${ownerFilter}`,
     args,
   });
   if (result.rowsAffected > 0) {
@@ -549,14 +549,14 @@ export async function setThreadArchived(
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [archived ? now : null, now, id];
+  const args: (string | number | null)[] = [archived ? now : null, id];
   let ownerFilter = "";
   if (options.ownerEmail) {
     ownerFilter = " AND owner_email = ?";
     args.push(options.ownerEmail);
   }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET archived_at = ?, updated_at = ? WHERE id = ?${ownerFilter}`,
+    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ?${ownerFilter}`,
     args,
   });
   if (result.rowsAffected > 0) {

@@ -15,6 +15,11 @@ export default defineAction({
   run: async ({ id }) => {
     await assertAccess("migration-run", id, "editor");
     const row = await getRunRow(id);
+    if (row.planPath) {
+      throw new Error(
+        "Run already has a generated plan. Create a new run or use a dedicated reset flow before reassessing the source.",
+      );
+    }
     const run = rowToRun(row);
     const result = await discoverMigration(run);
     const db = getDb();

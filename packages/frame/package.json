@@ -1,6 +1,7 @@
 {
   "name": "@agent-native/frame",
   "version": "0.1.154",
+  "private": true,
   "type": "module",
   "repository": {
     "type": "git",
@@ -13,10 +14,6 @@
   "description": "Local dev frame — agent chat + CLI sidebar with app iframe",
   "license": "MIT",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "files": [
     "client",
     "src",

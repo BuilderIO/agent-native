@@ -181,17 +181,21 @@ function isAgentNativeOpenPath(path: string | undefined): path is string {
   }
 }
 
-function canSoftOpenWebview(wv: ElectronWebviewElement): boolean {
+function canSoftOpenWebview(
+  wv: ElectronWebviewElement,
+  targetUrl: string,
+): boolean {
   try {
     const currentUrl = wv.getURL();
-    return Boolean(currentUrl && currentUrl !== "about:blank");
+    if (!currentUrl || currentUrl === "about:blank") return false;
+    return new URL(currentUrl).origin === new URL(targetUrl).origin;
   } catch {
     return false;
   }
 }
 
 function buildSoftOpenScript(path: string): string {
-  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then((response) => response.ok && response.type !== "opaqueredirect", () => false))()`;
 }
 
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
@@ -433,7 +437,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         urlOpenSoft &&
         openNonceChanged &&
         isAgentNativeOpenPath(urlPath) &&
-        canSoftOpenWebview(wv)
+        canSoftOpenWebview(wv, url)
       ) {
         void wv
           .executeJavaScript(buildSoftOpenScript(urlPath), false)

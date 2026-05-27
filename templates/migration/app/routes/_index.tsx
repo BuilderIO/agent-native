@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   IconCheck,
@@ -103,6 +103,11 @@ export default function MigrateGoalSurfacePage() {
   const [outputRoot, setOutputRoot] = useState("../migrated-app");
   const [planInputsText, setPlanInputsText] = useState("");
   const [selectedPlanInputsText, setSelectedPlanInputsText] = useState("");
+  const newRunPlanInputsSeedRef = useRef<string | null>(null);
+  const selectedPlanInputsSeedRef = useRef<{
+    runId: string;
+    text: string;
+  } | null>(null);
   const runsQuery = useActionQuery("list-migration-runs", {});
   const seedQuery = useActionQuery("get-migration-seed", {});
   const runs = ((runsQuery.data as { runs?: RunSummary[] } | undefined)?.runs ??
@@ -167,19 +172,41 @@ export default function MigrateGoalSurfacePage() {
     if (typeof seededSource === "string") setSourceRoot(seededSource);
     if (typeof seed.outputRoot === "string") setOutputRoot(seed.outputRoot);
     if (typeof seed.name === "string") setName(seed.name);
-    if (seed.planInputs && !planInputsText) {
-      setPlanInputsText(JSON.stringify(seed.planInputs, null, 2));
+    if (seed.planInputs) {
+      const seedText = JSON.stringify(seed.planInputs, null, 2);
+      const seedKey = `${seededSource ?? ""}:${seedText}`;
+      if (newRunPlanInputsSeedRef.current !== seedKey && !planInputsText) {
+        newRunPlanInputsSeedRef.current = seedKey;
+        setPlanInputsText(seedText);
+      }
     }
   }, [planInputsText, seedQuery.data, sourceRoot]);
 
   useEffect(() => {
     if (!selectedRun) return;
-    const planInputs = (detail?.run as { planInputs?: unknown } | undefined)
-      ?.planInputs;
-    setSelectedPlanInputsText(
-      planInputs ? JSON.stringify(planInputs, null, 2) : "",
-    );
-  }, [detail?.run, selectedRun]);
+    const runDetail = detail?.run as
+      | { planInputs?: unknown; planInputsText?: string }
+      | undefined;
+    const planInputs = runDetail?.planInputs;
+    const nextText =
+      typeof runDetail?.planInputsText === "string"
+        ? runDetail.planInputsText
+        : planInputs
+          ? JSON.stringify(planInputs, null, 2)
+          : "";
+    const previousSeed = selectedPlanInputsSeedRef.current;
+    const userEditedCurrentRun =
+      previousSeed?.runId === selectedRun.id &&
+      selectedPlanInputsText !== previousSeed.text;
+    if (userEditedCurrentRun && selectedPlanInputsText !== nextText) return;
+    selectedPlanInputsSeedRef.current = {
+      runId: selectedRun.id,
+      text: nextText,
+    };
+    if (selectedPlanInputsText !== nextText) {
+      setSelectedPlanInputsText(nextText);
+    }
+  }, [detail?.run, selectedPlanInputsText, selectedRun]);
 
   function selectRun(id: string) {
     setSelectedRunId(id);
@@ -550,6 +577,11 @@ export default function MigrateGoalSurfacePage() {
                     )}
                   </TabsContent>
                   <TabsContent value="plan" className="mt-4 space-y-3">
+                    {detail?.run?.planInputsParseError ? (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                        {detail.run.planInputsParseError}
+                      </div>
+                    ) : null}
                     <Textarea
                       value={selectedPlanInputsText}
                       onChange={(event) =>

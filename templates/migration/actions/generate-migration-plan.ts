@@ -25,6 +25,11 @@ export default defineAction({
         "Run has no assessment IR yet. Run assess-migration first.",
       );
     }
+    if (row.planPath) {
+      throw new Error(
+        "Run already has a generated plan. Create a new run or use a dedicated reset flow before regenerating tasks.",
+      );
+    }
     const run = rowToRun(row);
     const ir = JSON.parse(row.irJson) as ProjectIR;
     const result = await planMigration(run, ir, {

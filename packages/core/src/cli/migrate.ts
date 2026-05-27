@@ -984,16 +984,32 @@ async function readMigrationPlanInputs(
       text,
       path.basename(filePath),
     );
-    if (parsed) return parsed;
+    if (migrate.parseMigrationPlanInputsText) return parsed ?? null;
   } catch {
     // The dossier writer can run without the migrate package being bundled.
   }
 
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    return isRecognizedPlanInputJson(parsed) ? parsed : null;
   } catch {
     return inferMigrationPlanInputsFromText(text, path.basename(filePath));
   }
+}
+
+function isRecognizedPlanInputJson(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return [
+    "summary",
+    "notes",
+    "aem",
+    "builder",
+    "headless",
+    "jquery",
+    "verification",
+  ].some((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
 function inferMigrationPlanInputsFromText(

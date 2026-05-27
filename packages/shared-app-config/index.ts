@@ -3,15 +3,15 @@ import {
   getTemplate,
   TEMPLATES,
   type TemplateMeta,
-} from "./templates";
+} from "./templates.js";
 export {
   TEMPLATES,
   visibleTemplates,
   coreTemplates,
   getTemplate,
   allTemplateNames,
-} from "./templates";
-export type { TemplateMeta } from "./templates";
+} from "./templates.js";
+export type { TemplateMeta } from "./templates.js";
 
 export interface AppDefinition {
   id: string;

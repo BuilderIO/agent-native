@@ -6144,11 +6144,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event).catch(() => ({}));
-              const pinned = await setThreadPinned(
-                threadId,
-                body?.pinned !== false,
-                { ownerEmail: owner },
-              );
+              if (typeof body?.pinned !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "pinned boolean is required" };
+              }
+              const pinned = await setThreadPinned(threadId, body.pinned, {
+                ownerEmail: owner,
+              });
               if (!pinned) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -6163,9 +6165,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event).catch(() => ({}));
+              if (typeof body?.archived !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "archived boolean is required" };
+              }
               const archived = await setThreadArchived(
                 threadId,
-                body?.archived !== false,
+                body.archived,
                 { ownerEmail: owner },
               );
               if (!archived) {

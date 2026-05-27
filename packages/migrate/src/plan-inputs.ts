@@ -587,7 +587,7 @@ function matchingRouteIds(ir: ProjectIR, pattern: string): string[] {
 function globishToRegex(pattern: string): RegExp {
   const escaped = pattern
     .trim()
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/[.?+^${}()|[\]\\]/g, "\\$&")
     .replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`, "i");
 }

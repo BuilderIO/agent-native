@@ -7,7 +7,7 @@ import type { ProjectIR } from "@agent-native/migrate";
 import {
   assessmentSourceMetadata,
   loadTasks,
-  parsePlanInputsJson,
+  parsePlanInputsJsonWithDiagnostics,
 } from "./_utils.js";
 
 export default defineAction({
@@ -26,6 +26,7 @@ export default defineAction({
       .from(schema.migrationVerifierResults)
       .where(eq(schema.migrationVerifierResults.runId, id));
     const ir = run.irJson ? (JSON.parse(run.irJson) as ProjectIR) : null;
+    const planInputs = parsePlanInputsJsonWithDiagnostics(run.planInputsJson);
     return {
       run: {
         id: run.id,
@@ -41,7 +42,9 @@ export default defineAction({
         assessmentPath: run.assessmentPath,
         planPath: run.planPath,
         reportPath: run.reportPath,
-        planInputs: parsePlanInputsJson(run.planInputsJson),
+        planInputs: planInputs.planInputs,
+        planInputsText: planInputs.planInputsText,
+        planInputsParseError: planInputs.planInputsParseError,
         ir,
         role: access.role,
         createdAt: run.createdAt,

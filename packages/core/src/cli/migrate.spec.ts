@@ -296,6 +296,39 @@ describe("parseMigrateArgs", () => {
     ).toContain("Use `02-plan-inputs.json`");
   });
 
+  it("does not treat unsupported JSON plan files as binding plan inputs", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-plan-"));
+    tmpRoots.push(root);
+    const sourceRoot = path.join(root, "source");
+    const dossierRoot = path.join(root, "dossier");
+    const planFile = path.join(root, "empty-plan.json");
+    fs.mkdirSync(path.join(sourceRoot, "pages"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, "package.json"),
+      JSON.stringify({ dependencies: { next: "^16.0.0" } }),
+    );
+    fs.writeFileSync(
+      path.join(sourceRoot, "pages", "index.tsx"),
+      "export default function Home() { return <main />; }\n",
+    );
+    fs.writeFileSync(planFile, "[]");
+
+    const result = await emitOwnAgentDossier(
+      {
+        source: sourceRoot,
+        emit: true,
+        emitDir: dossierRoot,
+        planFile,
+      },
+      root,
+    );
+
+    expect(result.files).not.toContain("02-plan-inputs.json");
+    expect(
+      fs.readFileSync(path.join(dossierRoot, "MIGRATION_PLAYBOOK.md"), "utf-8"),
+    ).not.toContain("Use `02-plan-inputs.json`");
+  });
+
   it("refuses explicit emit paths inside sourceRoot", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migrate-"));
     tmpRoots.push(root);

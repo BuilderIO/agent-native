@@ -17,19 +17,33 @@
     "access": "public",
     "provenance": true
   },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./code-agents": "./src/code-agents.ts",
-    "./styles.css": "./src/styles.css",
-    "./types": "./src/types.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./code-agents": {
+      "types": "./dist/code-agents.d.ts",
+      "import": "./dist/code-agents.js",
+      "default": "./dist/code-agents.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    }
   },
   "files": [
-    "src",
+    "dist",
     "CHANGELOG.md"
   ],
   "scripts": {
+    "build": "tsc && cp src/styles.css dist/styles.css",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

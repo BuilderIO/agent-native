@@ -17,7 +17,7 @@ import {
   verifyMigration,
 } from "./runtime.js";
 import { selectSourceAdapter } from "./adapters/source-registry.js";
-import type { SourceAdapter } from "./types.js";
+import type { ProjectIR, SourceAdapter } from "./types.js";
 import { createBrowserVerifier } from "./verifiers/browser.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +218,71 @@ describe("migration runtime", () => {
         expect.objectContaining({ recipeName: "jquery-clientlibs-to-react" }),
       ]),
     );
+  });
+
+  it("matches literal question marks in plan input route patterns", async () => {
+    const tmp = await fs.mkdtemp(
+      path.join(os.tmpdir(), "an-migrate-route-patterns-"),
+    );
+    const run = await createMigrationRun({
+      sourceRoot: "Route ownership fixture",
+      inputKind: "description",
+      outputRoot: path.join(tmp, "migrated-app"),
+      artifactRoot: path.join(tmp, "artifacts"),
+      id: "mig_route_patterns",
+    });
+    const ir: ProjectIR = {
+      site: {
+        framework: "unknown",
+        sourceRoot: run.sourceRoot,
+        routes: [
+          {
+            id: "literal-query",
+            path: "/users/?id",
+            filePath: "pages/users.tsx",
+            router: "unknown",
+            kind: "app",
+            dynamic: false,
+            public: true,
+          },
+          {
+            id: "path-id",
+            path: "/users/id",
+            filePath: "pages/users-id.tsx",
+            router: "unknown",
+            kind: "app",
+            dynamic: false,
+            public: true,
+          },
+        ],
+        redirects: [],
+        metadata: {},
+      },
+      components: { components: [], designTokens: {} },
+      content: { models: [], assets: [] },
+      behavior: {
+        apiEndpoints: [],
+        dataStores: [],
+        llmCalls: [],
+        clientState: [],
+        auth: [],
+        jobs: [],
+      },
+    };
+
+    const planned = await planMigration(run, ir, {
+      planInputs: {
+        builder: {
+          enabled: true,
+          routeOwnership: [{ pattern: "/users/?id", owner: "builder-page" }],
+        },
+      },
+    });
+
+    expect(
+      planned.tasks.find((task) => task.recipeName === "route-ownership-map")
+        ?.targetIds,
+    ).toEqual(["literal-query"]);
   });
 
   it("selects matching deterministic adapters from a registry", async () => {
