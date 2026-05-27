@@ -378,6 +378,238 @@ function EditToolPopover({
   );
 }
 
+function ExtensionHistoryPopover({
+  extensionId,
+  canEdit,
+  onRestored,
+  onOpenChange,
+}: {
+  extensionId: string;
+  canEdit?: boolean;
+  onRestored?: () => void;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const queryClient = useQueryClient();
+
+  const setOpenAndNotify = (v: boolean) => {
+    setOpen(v);
+    onOpenChange?.(v);
+  };
+
+  const historyQuery = useQuery<{ history: ExtensionHistoryEntry[] }>({
+    queryKey: ["extension-history", extensionId],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extensionId}/history`),
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error("Failed to fetch extension history");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const history = historyQuery.data?.history ?? [];
+  useEffect(() => {
+    if (!open || history.length === 0) return;
+    if (!selectedVersion || !history.some((h) => h.version === selectedVersion)) {
+      setSelectedVersion(history[0].version);
+    }
+  }, [history, open, selectedVersion]);
+
+  const detailQuery = useQuery<ExtensionHistoryDetail>({
+    queryKey: ["extension-history-detail", extensionId, selectedVersion],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath(
+          `/_agent-native/extensions/${extensionId}/history/${selectedVersion}`,
+        ),
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error("Failed to fetch extension history version");
+      return res.json();
+    },
+    enabled: open && selectedVersion !== null,
+  });
+
+  const latestVersion = history[0]?.version ?? null;
+  const selectedEntry =
+    history.find((entry) => entry.version === selectedVersion) ?? history[0];
+  const canRestoreSelected =
+    !!canEdit &&
+    !!selectedEntry?.persisted &&
+    selectedEntry.version !== latestVersion;
+
+  const restoreSelected = async () => {
+    if (!selectedEntry || !canRestoreSelected) return;
+    setRestoringVersion(selectedEntry.version);
+    try {
+      const res = await fetch(
+        agentNativePath(
+          `/_agent-native/extensions/${extensionId}/history/${selectedEntry.version}/restore`,
+        ),
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error("Failed to restore extension version");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["extension", extensionId] }),
+        queryClient.invalidateQueries({ queryKey: ["extensions"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["extension-history", extensionId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["extension-history-detail", extensionId],
+        }),
+      ]);
+      onRestored?.();
+    } finally {
+      setRestoringVersion(null);
+    }
+  };
+
+  const compactedDiff = compactDiffLines(detailQuery.data?.diff ?? []);
+
+  return (
+    <Popover open={open} onOpenChange={setOpenAndNotify}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+              aria-label="History"
+            >
+              <IconHistory className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>History</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-[42rem] max-w-[calc(100vw-2rem)] p-0"
+      >
+        <div className="grid max-h-[72vh] min-h-[24rem] grid-cols-1 overflow-hidden sm:grid-cols-[15rem_minmax(0,1fr)]">
+          <div className="border-b border-border/60 sm:border-b-0 sm:border-r">
+            <div className="border-b border-border/60 px-3 py-2">
+              <p className="text-sm font-semibold text-foreground">History</p>
+              <p className="text-[11px] text-muted-foreground">
+                Snapshots are saved when extensions change.
+              </p>
+            </div>
+            <div className="max-h-56 overflow-y-auto p-1 sm:max-h-[calc(72vh-3.5rem)]">
+              {historyQuery.isLoading ? (
+                <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading history
+                </div>
+              ) : history.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">
+                  No history yet.
+                </p>
+              ) : (
+                history.map((entry) => (
+                  <button
+                    key={`${entry.id}-${entry.version}`}
+                    type="button"
+                    onClick={() => setSelectedVersion(entry.version)}
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left text-xs hover:bg-accent ${
+                      entry.version === selectedVersion
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground"
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium">
+                        Version {entry.version}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {operationLabel(entry.operation)}
+                      </span>
+                    </span>
+                    <span className="line-clamp-2 text-[11px] text-muted-foreground">
+                      {entry.summary || "Saved version"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/80">
+                      {formatHistoryTime(entry.createdAt)}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col">
+            <div className="flex items-start justify-between gap-3 border-b border-border/60 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {selectedEntry
+                    ? `Version ${selectedEntry.version}`
+                    : "Select a version"}
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {selectedEntry?.summary ?? "Compare saved extension content"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!canRestoreSelected || restoringVersion !== null}
+                onClick={restoreSelected}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+              >
+                {restoringVersion === selectedEntry?.version ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <IconArrowBackUp className="h-3.5 w-3.5" />
+                )}
+                Restore
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-muted/20">
+              {detailQuery.isLoading ? (
+                <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading diff
+                </div>
+              ) : detailQuery.isError ? (
+                <div className="p-4 text-xs text-destructive">
+                  Could not load this version.
+                </div>
+              ) : compactedDiff.length === 0 ? (
+                <div className="p-4 text-xs text-muted-foreground">
+                  No content changes in this version.
+                </div>
+              ) : (
+                <pre className="min-w-full text-[11px] leading-5">
+                  {compactedDiff.map((line, index) => (
+                    <div
+                      key={index}
+                      className={`grid grid-cols-[2rem_minmax(0,1fr)] px-2 ${diffLineClass(line)}`}
+                    >
+                      <span className="select-none text-right font-mono opacity-70">
+                        {diffLinePrefix(line)}
+                      </span>
+                      <span className="whitespace-pre-wrap break-words pl-3 font-mono">
+                        {line.type === "omitted"
+                          ? `${line.count} unchanged lines`
+                          : line.text}
+                      </span>
+                    </div>
+                  ))}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -851,6 +1083,12 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
             </Tooltip>
+            <ExtensionHistoryPopover
+              extensionId={extensionId}
+              canEdit={extension.canEdit}
+              onRestored={() => setRefreshKey((k) => k + 1)}
+              onOpenChange={onPopoverOpenChange}
+            />
             <EditToolPopover
               extension={extension}
               onOpenChange={onPopoverOpenChange}
