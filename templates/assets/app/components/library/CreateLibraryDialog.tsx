@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -77,6 +78,10 @@ export function CreateLibraryDialog({
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>New asset library</DialogTitle>
+          <DialogDescription>
+            Start from a built-in style preset or create a blank library for
+            your own references.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-5">
           <div className="space-y-3">
