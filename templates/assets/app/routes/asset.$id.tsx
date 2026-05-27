@@ -1,4 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router";
+import { useState } from "react";
 import {
   sendToAgentChat,
   useActionMutation,
@@ -15,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { assetMediaUrl } from "@/lib/asset-urls";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +45,7 @@ export default function AssetDetailPage() {
 
   const isVideo =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
+  const previewUrl = assetMediaUrl(asset.previewUrl);
 
   function refine() {
     sendToAgentChat({
@@ -56,24 +59,8 @@ export default function AssetDetailPage() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex min-h-0 items-center justify-center bg-muted/30 p-6">
-        {isVideo ? (
-          <video
-            src={asset.previewUrl}
-            controls
-            playsInline
-            className="max-h-full max-w-full rounded-lg border border-border bg-black object-contain shadow-sm"
-          />
-        ) : (
-          <img
-            src={asset.previewUrl}
-            alt={asset.altText || asset.title || ""}
-            className="max-h-full max-w-full rounded-lg border border-border object-contain shadow-sm"
-          />
-        )}
-      </div>
-      <aside className="overflow-y-auto border-l border-border bg-background p-5">
+    <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="overflow-y-auto border-b border-border bg-background p-5 lg:border-b-0 lg:border-r">
         <div className="mb-4">
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-2">
             <Link to={`/library/${asset.libraryId}`}>
@@ -136,7 +123,8 @@ export default function AssetDetailPage() {
                 { assetId: asset.id },
                 {
                   onSuccess: (result: any) => {
-                    window.location.href = result.downloadUrl;
+                    window.location.href =
+                      assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
                   },
                 },
               )
@@ -148,7 +136,9 @@ export default function AssetDetailPage() {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() => navigator.clipboard?.writeText(asset.previewUrl)}
+            onClick={() => {
+              if (previewUrl) void navigator.clipboard?.writeText(previewUrl);
+            }}
           >
             <IconCopy className="h-4 w-4" />
             Copy URL
@@ -189,7 +179,47 @@ export default function AssetDetailPage() {
           </AlertDialog>
         </div>
       </aside>
+      <div className="flex min-h-0 items-center justify-center bg-muted/30 p-6">
+        {isVideo ? (
+          <video
+            src={previewUrl}
+            controls
+            playsInline
+            className="max-h-full max-w-full rounded-lg border border-border bg-black object-contain shadow-sm"
+          />
+        ) : (
+          <AssetImagePreview
+            src={previewUrl}
+            alt={asset.altText || asset.title || ""}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+function AssetImagePreview({
+  src,
+  alt,
+}: {
+  src: string | undefined;
+  alt: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <div className="flex min-h-48 min-w-72 items-center justify-center rounded-lg border border-dashed border-border bg-background px-6 text-sm font-medium text-muted-foreground">
+        Preview unavailable
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="max-h-full max-w-full rounded-lg border border-border object-contain shadow-sm"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
