@@ -44,6 +44,7 @@ async function readLocalPresetReference(publicPath: string) {
       return {
         buffer: await fs.readFile(candidatePath),
         mimeType: mimeTypeFromPath(candidatePath),
+        objectKey: publicPath,
       };
     } catch {
       // Try the next build/dev layout.
@@ -76,6 +77,7 @@ async function loadPresetReferenceImage(
   return {
     buffer: Buffer.from(await response.arrayBuffer()),
     mimeType: contentType,
+    objectKey: null,
   };
 }
 
@@ -152,6 +154,8 @@ export default defineAction({
           description: reference.description,
           altText: reference.title,
           sourceUrl: reference.sourceUrl,
+          objectKey: image.objectKey ?? undefined,
+          thumbnailObjectKey: image.objectKey ?? undefined,
           metadata: {
             category: "style-only",
             presetId: preset.id,
