@@ -128,6 +128,8 @@ export const templates = [
     description:
       "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
     color: "#0F766E",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
   },
   {
     name: "Design",

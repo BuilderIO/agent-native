@@ -23,7 +23,15 @@ import {
   IconPhoto,
   IconPhotoPlus,
 } from "@tabler/icons-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +44,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -44,6 +54,7 @@ import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
+import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
   loadLastLibraryId,
@@ -141,85 +152,116 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
   const settingsHref = appPath("/settings#asset-generation-setup");
 
   return (
-    <div className="rounded-lg border border-border bg-card/60 px-4 py-4 text-left shadow-sm">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="overflow-hidden border-border/80 bg-card/80 text-left shadow-sm">
+      <CardHeader className="gap-4 p-4 pb-3 sm:flex-row sm:items-start sm:justify-between sm:p-5 sm:pb-4">
         <div className="flex min-w-0 gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <IconPhoto className="h-4 w-4" />
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-sm">
+            <IconPhoto className="size-5" />
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-foreground">
-              Connect image generation and object storage
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base leading-tight">
+                Connect generation and storage
+              </CardTitle>
+              <Badge
+                variant="secondary"
+                className="border border-border/70 bg-secondary/80 text-[11px]"
+              >
+                Setup required
+              </Badge>
             </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-              Connect Builder.io for managed image generation, or add keys
-              manually for OpenAI/Gemini image generation, Gemini video
-              generation, and S3-compatible object storage.
-            </p>
+            <CardDescription className="max-w-2xl text-sm leading-6">
+              Use Builder.io for managed media and storage in one step, or bring
+              your own OpenAI/Gemini keys and S3-compatible storage.
+            </CardDescription>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {config.builderEnabled !== false ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => flow.start()}
-              disabled={flow.connecting}
-            >
-              {flow.connecting ? (
-                <>
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  Waiting...
-                </>
-              ) : (
-                <>
-                  Connect Builder.io
-                  <IconExternalLink className="h-3.5 w-3.5" />
-                </>
-              )}
-            </Button>
-          ) : null}
-          <Button asChild variant="outline" size="sm">
-            <a href={settingsHref}>
-              Add keys manually
-              <IconArrowUpRight className="h-3.5 w-3.5" />
-            </a>
-          </Button>
+      </CardHeader>
+
+      <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <SetupStatusPill
+            icon={<IconKey className="size-4" />}
+            title="Image generation"
+            detail={
+              imageReady
+                ? "Builder or BYOK is ready"
+                : "Builder, OpenAI, or Gemini"
+            }
+            ready={imageReady}
+          />
+          <SetupStatusPill
+            icon={<IconCloudUpload className="size-4" />}
+            title="Object storage"
+            detail={
+              storageReady ? "Storage is ready" : "Builder or S3-compatible"
+            }
+            ready={storageReady}
+          />
+          <SetupStatusPill
+            icon={<IconMovie className="size-4" />}
+            title="Video generation"
+            detail={videoReady ? "Gemini is ready" : "Gemini API key"}
+            ready={videoReady}
+            required={false}
+          />
         </div>
-      </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        <SetupStatusPill
-          icon={<IconKey className="h-3.5 w-3.5" />}
-          title="Image generation"
-          detail={
-            imageReady ? "Builder or BYOK ready" : "Builder, OpenAI, or Gemini"
-          }
-          ready={imageReady}
-        />
-        <SetupStatusPill
-          icon={<IconMovie className="h-3.5 w-3.5" />}
-          title="Video generation"
-          detail={videoReady ? "Gemini ready" : "Gemini API key"}
-          ready={videoReady}
-        />
-        <SetupStatusPill
-          icon={<IconCloudUpload className="h-3.5 w-3.5" />}
-          title="Object storage"
-          detail={storageReady ? "Storage ready" : "Builder or S3-compatible"}
-          ready={storageReady}
-        />
-      </div>
+        {issueMessage || flow.error ? (
+          <div
+            role="alert"
+            className="mt-3 flex gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          >
+            <IconAlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <p className="line-clamp-3 leading-relaxed">
+              {flow.error ?? issueMessage}
+            </p>
+          </div>
+        ) : null}
 
-      {issueMessage || flow.error ? (
-        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          <IconAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <p className="line-clamp-3 leading-relaxed">
-            {flow.error ?? issueMessage}
+        <div className="mt-4 flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-md text-xs leading-5 text-muted-foreground">
+            {config.builderEnabled !== false
+              ? "Builder.io is the fastest path for image generation and asset storage. Manual setup keeps provider keys in your own stack."
+              : "Manual setup connects your own provider keys and object storage."}
           </p>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            {config.builderEnabled !== false ? (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => flow.start()}
+                disabled={flow.connecting}
+              >
+                {flow.connecting ? (
+                  <>
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                    Waiting...
+                  </>
+                ) : (
+                  <>
+                    Connect Builder.io
+                    <IconExternalLink className="size-3.5" />
+                  </>
+                )}
+              </Button>
+            ) : null}
+            <Button
+              asChild
+              variant={config.builderEnabled !== false ? "outline" : "default"}
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              <a href={settingsHref}>
+                Manual setup
+                <IconArrowUpRight className="size-3.5" />
+              </a>
+            </Button>
+          </div>
         </div>
-      ) : null}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -228,28 +270,53 @@ function SetupStatusPill({
   title,
   detail,
   ready,
+  required = true,
 }: {
   icon: ReactNode;
   title: string;
   detail: string;
   ready: boolean;
+  required?: boolean;
 }) {
+  const statusLabel = ready ? "Ready" : required ? "Needed" : "Optional";
+
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
-      <div
-        className={
-          ready
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-muted-foreground"
-        }
-      >
-        {ready ? <IconCheck className="h-3.5 w-3.5" /> : icon}
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-3 rounded-md border border-border/80 bg-background/70 p-3",
+        ready && "border-emerald-500/20 bg-emerald-500/5",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground",
+            ready &&
+              "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+          )}
+        >
+          {ready ? <IconCheck className="size-4" /> : icon}
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "h-5 shrink-0 px-1.5 text-[10px] font-medium",
+            ready &&
+              "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+            !ready &&
+              required &&
+              "border-border bg-secondary text-secondary-foreground",
+            !ready && !required && "text-muted-foreground",
+          )}
+        >
+          {statusLabel}
+        </Badge>
       </div>
       <div className="min-w-0">
-        <div className="truncate text-xs font-medium text-foreground">
+        <div className="truncate text-sm font-medium text-foreground">
           {title}
         </div>
-        <div className="truncate text-[11px] text-muted-foreground">
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">
           {detail}
         </div>
       </div>
@@ -640,119 +707,156 @@ function HomeGeneratePanel({
               draftScope="assets-create"
             />
 
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Type</span>
-                <Select
-                  value={mediaType}
-                  onValueChange={(value) => {
-                    const next = value as "image" | "video";
-                    setMediaType(next);
-                    if (
-                      next === "video" &&
-                      aspectRatio !== "16:9" &&
-                      aspectRatio !== "9:16"
-                    ) {
-                      setAspectRatio("16:9");
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[130px] text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="image">Image</SelectItem>
-                    <SelectItem value="video">Video</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Library</span>
-                <Select value={selectValue} onValueChange={handleLibraryChange}>
-                  <SelectTrigger className="h-8 w-[220px] text-sm">
-                    <SelectValue placeholder="Choose a library" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortedLibraries.map((library) => (
-                      <SelectItem key={library.id} value={library.id}>
-                        {library.title}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="generic">
-                      No library - generic
-                    </SelectItem>
-                    <SelectItem value="__new__">
-                      <span className="flex items-center gap-2">
-                        <IconPhotoPlus className="h-3.5 w-3.5" />
-                        New library...
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Aspect</span>
-                <Select value={aspectRatio} onValueChange={handleAspectChange}>
-                  <SelectTrigger className="h-8 w-[160px] text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ASPECT_RATIOS.filter(
-                      (ratio) =>
-                        mediaType === "image" ||
-                        ratio.value === "16:9" ||
-                        ratio.value === "9:16",
-                    ).map((ratio) => (
-                      <SelectItem key={ratio.value} value={ratio.value}>
-                        {ratio.label}
-                      </SelectItem>
-                    ))}
-                    {customRatios.length > 0 && (
-                      <div className="my-1 h-px bg-border" />
-                    )}
-                    {customRatios.map((ratio) => (
-                      <SelectItem key={ratio} value={ratio}>
-                        {ratio} - saved
-                      </SelectItem>
-                    ))}
-                    <div className="my-1 h-px bg-border" />
-                    <SelectItem value="__custom__">+ Custom size...</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {mediaType === "image" && (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Count</span>
+            <div className="mt-5 rounded-lg border border-border/80 bg-card/50 p-3 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(12rem,1.6fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Type
+                  </span>
                   <Select
-                    value={String(count)}
-                    onValueChange={(value) => setCount(Number(value))}
+                    value={mediaType}
+                    onValueChange={(value) => {
+                      const next = value as "image" | "video";
+                      setMediaType(next);
+                      if (
+                        next === "video" &&
+                        aspectRatio !== "16:9" &&
+                        aspectRatio !== "9:16"
+                      ) {
+                        setAspectRatio("16:9");
+                      }
+                    }}
                   >
-                    <SelectTrigger className="h-8 w-[110px] text-sm">
+                    <SelectTrigger className="h-9 w-full text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {[1, 2, 3, 4].map((n) => (
-                        <SelectItem key={n} value={String(n)}>
-                          {n} variants
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        <SelectItem value="image">Image</SelectItem>
+                        <SelectItem value="video">Video</SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
-              )}
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Library
+                  </span>
+                  <Select
+                    value={selectValue}
+                    onValueChange={handleLibraryChange}
+                  >
+                    <SelectTrigger className="h-9 w-full text-sm">
+                      <SelectValue placeholder="Choose a library" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {sortedLibraries.map((library) => (
+                          <SelectItem key={library.id} value={library.id}>
+                            {library.title}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="generic">
+                          No library - generic
+                        </SelectItem>
+                      </SelectGroup>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectItem value="__new__">
+                          <span className="flex items-center gap-2">
+                            <IconPhotoPlus className="size-3.5" />
+                            New library...
+                          </span>
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Aspect
+                  </span>
+                  <Select
+                    value={aspectRatio}
+                    onValueChange={handleAspectChange}
+                  >
+                    <SelectTrigger className="h-9 w-full text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {ASPECT_RATIOS.filter(
+                          (ratio) =>
+                            mediaType === "image" ||
+                            ratio.value === "16:9" ||
+                            ratio.value === "9:16",
+                        ).map((ratio) => (
+                          <SelectItem key={ratio.value} value={ratio.value}>
+                            {ratio.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      {customRatios.length > 0 ? (
+                        <>
+                          <SelectSeparator />
+                          <SelectGroup>
+                            {customRatios.map((ratio) => (
+                              <SelectItem key={ratio} value={ratio}>
+                                {ratio} - saved
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </>
+                      ) : null}
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectItem value="__custom__">
+                          Custom size...
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {mediaType === "image" && (
+                  <div className="grid gap-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Count
+                    </span>
+                    <Select
+                      value={String(count)}
+                      onValueChange={(value) => setCount(Number(value))}
+                    >
+                      <SelectTrigger className="h-9 w-full text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {[1, 2, 3, 4].map((n) => (
+                            <SelectItem key={n} value={String(n)}>
+                              {n} variants
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap justify-center gap-2">
             {HOME_CHAT_SUGGESTIONS.map((suggestion) => (
-              <button
+              <Button
                 key={suggestion}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => send(suggestion)}
-                className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
+                className="h-8 rounded-full bg-card px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
               >
                 {suggestion}
-              </button>
+              </Button>
             ))}
           </div>
         </div>

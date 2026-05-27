@@ -10,21 +10,45 @@ export async function requireLibrary(id: string) {
   return access.resource;
 }
 
+function isDirectMediaKey(key: string | null | undefined): key is string {
+  return Boolean(
+    key &&
+    (key.startsWith("http://") ||
+      key.startsWith("https://") ||
+      key.startsWith("/library-presets/") ||
+      key.startsWith("library-presets/")),
+  );
+}
+
+function directMediaUrl(key: string | null | undefined): string | null {
+  if (!isDirectMediaKey(key)) return null;
+  if (key.startsWith("http://") || key.startsWith("https://")) return key;
+  return absoluteUrl(key.startsWith("/") ? key : `/${key}`);
+}
+
 export function assetUrls(asset: {
   id: string;
   thumbnailObjectKey?: string | null;
   objectKey: string;
 }) {
+  const previewUrl =
+    directMediaUrl(asset.objectKey) ??
+    absoluteUrl(`/api/assets/${asset.id}/content`);
+  const thumbnailUrl =
+    directMediaUrl(asset.thumbnailObjectKey) ??
+    directMediaUrl(asset.objectKey) ??
+    absoluteUrl(
+      `/api/assets/${asset.id}/content${asset.thumbnailObjectKey ? "?variant=thumb" : ""}`,
+    );
+
   return {
     url: absoluteUrl(`/asset/${asset.id}`),
     urlPath: `/asset/${asset.id}`,
     legacyUrl: absoluteUrl(`/image/${asset.id}`),
     legacyUrlPath: `/image/${asset.id}`,
     downloadUrl: absoluteUrl(`/api/assets/${asset.id}/content?download=1`),
-    previewUrl: absoluteUrl(`/api/assets/${asset.id}/content`),
-    thumbnailUrl: absoluteUrl(
-      `/api/assets/${asset.id}/content${asset.thumbnailObjectKey ? "?variant=thumb" : ""}`,
-    ),
+    previewUrl,
+    thumbnailUrl,
     embedPath: `/asset/${asset.id}/embed`,
     embedUrl: absoluteUrl(`/asset/${asset.id}/embed`),
   };
@@ -41,6 +65,7 @@ export function serializeLibrary(row: any) {
     canonicalLogoAssetId: row.canonicalLogoAssetId,
     coverAssetId: row.coverAssetId,
     visibility: row.visibility,
+    archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
