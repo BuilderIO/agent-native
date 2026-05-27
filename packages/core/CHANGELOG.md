@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.24.3
+
+### Patch Changes
+
+- daeb0a9: Add custom migration plan inputs for AEM, Builder, headless, jQuery, and verification planning.
+- daeb0a9: Harden chat thread pin and archive updates with owner checks and client rollback on failure.
+
 ## 0.24.2
 
 ### Patch Changes

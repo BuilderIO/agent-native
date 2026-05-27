@@ -1,5 +1,11 @@
 # @agent-native/migrate
 
+## 0.0.4
+
+### Patch Changes
+
+- daeb0a9: Add custom migration plan inputs for AEM, Builder, headless, jQuery, and verification planning.
+
 ## 0.0.3
 
 ### Patch Changes
