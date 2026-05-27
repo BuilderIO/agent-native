@@ -70,6 +70,7 @@ export type CaptureSource = "full-screen" | "window";
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
+const LIVE_UPLOAD_CHUNK_MS = 1_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -2529,7 +2530,7 @@ async function startNativeRecordingInner(
     );
   }
   await showRegionGuidesForRecording(wantsScreen);
-  recorder.start(2_000);
+  recorder.start(LIVE_UPLOAD_CHUNK_MS);
   recordingStartCue.play();
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).

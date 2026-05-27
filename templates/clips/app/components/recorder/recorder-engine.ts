@@ -126,7 +126,7 @@ interface CompressionUploadMeta {
   outputMimeType?: string;
 }
 
-const DEFAULT_CHUNK_MS = 2000;
+const DEFAULT_CHUNK_MS = 1000;
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,

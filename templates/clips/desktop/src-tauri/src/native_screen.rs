@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
@@ -26,8 +26,7 @@ use screencapturekit::stream::{
 
 const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
-// Keep native chunks comfortably under serverless request/event limits. The
-// route still accepts 6 MiB so browser MediaRecorder chunks are unaffected.
+// Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 80 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 95 * 1024 * 1024;
@@ -424,7 +423,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording(&app, &saved);
+            clear_saved_recording(&app, &saved)?;
             Ok(result)
         }
         Err(err) => {
@@ -707,10 +706,16 @@ fn start_segment_backend(
                 );
             }
         }
-        let (backend, w, h) =
-            start_screencapture_backend_at(segment_path, include_audio, target_display_id).map_err(|fallback_err| {
-                format!("ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})")
-            })?;
+        let (backend, w, h) = start_screencapture_backend_at(
+            segment_path,
+            include_audio,
+            target_display_id,
+        )
+        .map_err(|fallback_err| {
+            format!(
+                "ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})"
+            )
+        })?;
         Ok((backend, w, h))
     }
     #[cfg(not(target_os = "macos"))]
@@ -829,7 +834,9 @@ fn start_screencapture_backend_at(
     let display_flag = target_display_id
         .and_then(|id| {
             CGDisplay::active_displays().ok().and_then(|ids| {
-                ids.iter().position(|&aid| aid == id).map(|p| format!("-D{}", p + 1))
+                ids.iter()
+                    .position(|&aid| aid == id)
+                    .map(|p| format!("-D{}", p + 1))
             })
         })
         .unwrap_or_else(|| "-D1".to_string());
@@ -860,20 +867,14 @@ fn start_screencapture_backend_at(
         ));
     }
     eprintln!("[clips-tray] screencapture recording started");
-    Ok((
-        NativeFullscreenBackend::Screencapture { child },
-        None,
-        None,
-    ))
+    Ok((NativeFullscreenBackend::Screencapture { child }, None, None))
 }
 
 /// After all segments are finalized, make sure `session.path` contains a
 /// single playable file. With one segment we just rename it into place;
 /// with multiple, we concatenate via AVFoundation (passthrough export so
 /// there's no re-encoding cost).
-fn consolidate_segments_into_path(
-    session: &mut NativeFullscreenSession,
-) -> Result<(), String> {
+fn consolidate_segments_into_path(session: &mut NativeFullscreenSession) -> Result<(), String> {
     if session.segments.is_empty() {
         return Err("No recorded segments to consolidate.".into());
     }
@@ -984,7 +985,7 @@ pub async fn native_fullscreen_recording_retry_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording(&app, &saved);
+            clear_saved_recording(&app, &saved)?;
             Ok(result)
         }
         Err(err) => {
@@ -1002,8 +1003,7 @@ pub async fn native_fullscreen_recording_discard_upload(
     recording_id: String,
 ) -> Result<(), String> {
     let saved = read_saved_recording_metadata(&app, &recording_id)?;
-    clear_saved_recording(&app, &saved);
-    Ok(())
+    clear_saved_recording(&app, &saved)
 }
 
 fn sanitize_recording_id(value: &str) -> String {
@@ -1271,7 +1271,9 @@ fn capture_thumbnail_bytes(app: &AppHandle, recording_id: &str) -> Result<Vec<u8
         let thumb_display_flag = tray_display_id(app)
             .and_then(|id| {
                 CGDisplay::active_displays().ok().and_then(|ids| {
-                    ids.iter().position(|&aid| aid == id).map(|p| format!("-D{}", p + 1))
+                    ids.iter()
+                        .position(|&aid| aid == id)
+                        .map(|p| format!("-D{}", p + 1))
                 })
             })
             .unwrap_or_else(|| "-D1".to_string());
@@ -1363,11 +1365,18 @@ fn read_saved_recording_metadata(
     read_saved_recording_metadata_path(&path)
 }
 
-fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) {
-    let _ = std::fs::remove_file(&saved.file_path);
-    if let Ok(path) = saved_recording_metadata_path(app, &saved.recording_id) {
-        let _ = std::fs::remove_file(path);
+fn remove_saved_file(path: &Path, label: &str) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("{label} remove failed: {err}")),
     }
+}
+
+fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Result<(), String> {
+    remove_saved_file(&saved.file_path, "pending recording file")?;
+    let path = saved_recording_metadata_path(app, &saved.recording_id)?;
+    remove_saved_file(&path, "pending recording metadata")
 }
 
 fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecording, error: &str) {
@@ -1477,7 +1486,8 @@ fn start_screencapture_recording(
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mov")?;
     let _ = std::fs::remove_file(&path);
-    let (backend, _w, _h) = start_screencapture_backend_at(&path, include_audio, target_display_id)?;
+    let (backend, _w, _h) =
+        start_screencapture_backend_at(&path, include_audio, target_display_id)?;
     let (width, height) = primary_monitor_size(app);
     Ok(new_fullscreen_session(
         backend,
@@ -2147,7 +2157,6 @@ fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Resul
     }
 }
 
-
 /// Concatenate finalized MP4 segments into a single output file using
 /// AVFoundation. We build an `AVMutableComposition` with the video and
 /// audio tracks of each segment appended sequentially, then export it
@@ -2199,10 +2208,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
     }
     unsafe impl Encode for CMTimeRange {
-        const ENCODING: Encoding = Encoding::Struct(
-            "CMTimeRange",
-            &[CMTime::ENCODING, CMTime::ENCODING],
-        );
+        const ENCODING: Encoding =
+            Encoding::Struct("CMTimeRange", &[CMTime::ENCODING, CMTime::ENCODING]);
     }
 
     // `CMTimeFlags::Valid` == 1. kCMTimeZero is value=0, timescale=1, flags=Valid.
@@ -2238,8 +2245,7 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         if allocated.is_null() {
             return None;
         }
-        let inited: *mut AnyObject =
-            msg_send![allocated, initWithUTF8String: cstr.as_ptr()];
+        let inited: *mut AnyObject = msg_send![allocated, initWithUTF8String: cstr.as_ptr()];
         if inited.is_null() {
             return None;
         }
@@ -2257,7 +2263,10 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         Retained::from_raw(url)
     }
 
-    unsafe fn first_track(asset: &AnyObject, media_type: *const AnyObject) -> Option<*mut AnyObject> {
+    unsafe fn first_track(
+        asset: &AnyObject,
+        media_type: *const AnyObject,
+    ) -> Option<*mut AnyObject> {
         let tracks: *mut AnyObject = msg_send![asset, tracksWithMediaType: media_type];
         if tracks.is_null() {
             return None;
@@ -2287,8 +2296,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
     }
 
     unsafe {
-        let composition_cls =
-            class_named("AVMutableComposition").ok_or_else(|| "AVMutableComposition missing".to_string())?;
+        let composition_cls = class_named("AVMutableComposition")
+            .ok_or_else(|| "AVMutableComposition missing".to_string())?;
         let composition: *mut AnyObject = msg_send![composition_cls, composition];
         if composition.is_null() {
             return Err("AVMutableComposition allocation failed".into());
@@ -2311,7 +2320,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
         }
 
         let mut cursor = CM_TIME_ZERO;
-        let asset_cls = class_named("AVURLAsset").ok_or_else(|| "AVURLAsset missing".to_string())?;
+        let asset_cls =
+            class_named("AVURLAsset").ok_or_else(|| "AVURLAsset missing".to_string())?;
         let mut appended_any = false;
 
         for path in segments {
@@ -2329,10 +2339,12 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
             }
             let url = file_url(path)
                 .ok_or_else(|| format!("could not build NSURL for {}", path.display()))?;
-            let asset: *mut AnyObject =
-                msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+            let asset: *mut AnyObject = msg_send![asset_cls, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
             if asset.is_null() {
-                return Err(format!("AVURLAsset URLAssetWithURL returned nil for {}", path.display()));
+                return Err(format!(
+                    "AVURLAsset URLAssetWithURL returned nil for {}",
+                    path.display()
+                ));
             }
             let duration: CMTime = msg_send![asset, duration];
             if duration.flags & 1 == 0 || duration.timescale == 0 || duration.value <= 0 {
