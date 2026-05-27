@@ -1,7 +1,7 @@
 # Agent-Native Brain
 
 Brain is a Company Brain template: clean company chat backed by cited
-institutional memory. The Ask route is the primary product surface for humans
+institutional knowledge. The Ask route is the primary product surface for humans
 and agents; Sources, Review, Knowledge, Ops, and Settings are support/admin
 surfaces for ingestion, trust, and operations. V1 turns imported captures
 (Slack channel messages, Clips recordings, Granola notes, transcripts,
@@ -118,7 +118,7 @@ When answering company-knowledge questions:
    and Dispatch owns workspace resources, provider grants, approvals, secrets,
    recurring jobs, and cross-app routing.
 
-Use the `ask-across-everything` skill for prompts that mix Brain memory with
+Use the `ask-across-everything` skill for prompts that mix Brain knowledge with
 live/app-owned data. It encodes the Brain-first, inspect coverage, delegate,
 then synthesize-with-boundaries loop.
 
@@ -308,7 +308,7 @@ credentials. Never include resolved credential values in action responses,
 stats, errors, or logs.
 
 For "ask across everything" requests, do not treat Brain as the owner of every
-workspace system. Use Brain search for reviewed memory and accessible captures.
+workspace system. Use Brain search for reviewed knowledge and accessible captures.
 If the user asks for live metrics, dashboard numbers, CRM pipeline analysis,
 mailbox state, calendar availability, Dispatch policy, or another app-owned
 surface, call the specialized app agent/action through A2A when available and

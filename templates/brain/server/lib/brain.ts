@@ -986,7 +986,7 @@ export async function previewKnowledgeCanonicalResource(input: {
     }
     if (input.operation === "unpublish" && !row.publishedResourcePath) {
       warnings.push(
-        "This memory is not currently mirrored to workspace context.",
+        "This knowledge is not currently mirrored to workspace context.",
       );
     }
     return {

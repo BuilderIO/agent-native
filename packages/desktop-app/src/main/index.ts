@@ -74,6 +74,7 @@ import {
 import {
   formatDesktopShortcutAccelerator,
   normalizeDesktopShortcutAccelerator,
+  shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
   type DesktopShortcutRegistration,
 } from "@shared/desktop-shortcuts";
@@ -1124,6 +1125,7 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
 
   sendOpenRequestToRenderer({
     app: binding.app,
+    path: shortcutOpenPathForBinding(binding),
   });
 }
 

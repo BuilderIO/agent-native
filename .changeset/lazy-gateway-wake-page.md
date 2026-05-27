@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Prevent lazy workspace gateway wake pages from being cached and replayed.
+Keep lazy gateway wake pages active until app dev servers return HTTP responses.

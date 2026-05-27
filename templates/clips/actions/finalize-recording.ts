@@ -270,11 +270,47 @@ export default defineAction({
         throw new Error(`No chunks found for recording ${id}`);
       }
 
+      const failChunkAssembly = async (failureReason: string) => {
+        const now = new Date().toISOString();
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureReason,
+            updatedAt: now,
+          })
+          .where(eq(schema.recordings.id, id));
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "failed",
+          failureReason,
+          updatedAt: now,
+        });
+        throw new Error(failureReason);
+      };
+
       const parts: Uint8Array[] = [];
       for (const key of chunkKeys) {
         const entry = await readAppState(key);
         const b64 = typeof entry?.data === "string" ? entry.data : null;
-        if (b64) parts.push(b64ToBytes(b64));
+        const index = chunkIndexFromKey(key);
+        if (!b64) {
+          await failChunkAssembly(
+            `Recording chunk ${index} is missing upload data. Please retry the recording.`,
+          );
+        }
+
+        const bytes = b64ToBytes(b64);
+        const expectedBytes = stateNumber(entry, "bytes");
+        if (
+          typeof expectedBytes === "number" &&
+          bytes.byteLength !== expectedBytes
+        ) {
+          await failChunkAssembly(
+            `Recording chunk ${index} is incomplete (${bytes.byteLength} of ${expectedBytes} bytes). Please retry the recording.`,
+          );
+        }
+        parts.push(bytes);
       }
       const assembled = concatBytes(parts);
       // `parts` is no longer needed — dropping the array reference lets V8

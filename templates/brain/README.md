@@ -1,10 +1,10 @@
 # Agent-Native Brain
 
-Brain is clean company chat backed by cited institutional memory. People ask
+Brain is clean company chat backed by cited institutional knowledge. People ask
 questions in the Ask route; Brain answers from approved company knowledge with
 links back to the Slack thread, meeting, transcript, issue, or webhook capture
 that supports the answer. Sources, Review, and Knowledge are the admin/support
-surfaces for connecting data, approving proposals, and inspecting cited memory.
+surfaces for connecting data, approving proposals, and inspecting cited knowledge.
 
 Brain ingests approved Slack channels, Clips recordings, Granola Team-space
 notes, GitHub issues/PRs, and generic transcript/webhook payloads. Transcript
@@ -53,14 +53,14 @@ workspace search.
   records with `get-knowledge` or `get-capture`. Cross-app expansion is exposed
   as delegation guidance, not as hidden reads from other apps.
 - **Review queue:** the Review route lists pending/approved/rejected proposals,
-  lets reviewers edit proposed memory text, inspect evidence/source links, and
+  lets reviewers edit proposed knowledge text, inspect evidence/source links, and
   approve or reject. Reviewers can publish approved proposals as shared
-  `context/company-brain/...` workspace context when the memory should be
+  `context/company-brain/...` workspace context when the knowledge should be
   ambient for Dispatch and other apps.
 - **Source setup:** the Sources route leads with configured sources and one
   clear Add source action. Provider catalog, source filtering, health checks,
   and maintenance syncs live under Advanced. Sources are org-shared by default
-  so approved memory benefits the whole workspace.
+  so approved knowledge benefits the whole workspace.
 - **Ops and settings:** Ops stays available as an advanced/debug route for
   queued, processing, stale, failed, and done distillation work. Settings
   controls assistant identity, source posture, default publish tier,

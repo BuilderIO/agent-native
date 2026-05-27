@@ -402,7 +402,8 @@ export default function ReviewRoute() {
                   <CardContent className="grid gap-4">
                     <div className="grid gap-3">
                       <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                        {draftValue(proposal, "body") || "No proposed memory."}
+                        {draftValue(proposal, "body") ||
+                          "No proposed knowledge."}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">{insight.target.label}</Badge>
@@ -445,7 +446,7 @@ export default function ReviewRoute() {
                           </div>
                           <div className="grid gap-2">
                             <Label htmlFor={`proposal-body-${proposal.id}`}>
-                              Proposed memory
+                              Proposed knowledge
                             </Label>
                             <Textarea
                               id={`proposal-body-${proposal.id}`}
@@ -795,7 +796,7 @@ function buildPrivacyFlags(
     );
   }
   if (context.publishTier === "company") {
-    flags.push("Company-tier memory");
+    flags.push("Company-tier knowledge");
   } else if (context.publishTier) {
     flags.push(`${titleCase(context.publishTier)} publish tier`);
   }
@@ -1160,7 +1161,7 @@ function ProposalDetailsSheet({
               current={draftTitle}
             />
             <DraftDiff
-              label="Memory body"
+              label="Knowledge body"
               queued={queuedBody}
               current={draftBody}
               multiline

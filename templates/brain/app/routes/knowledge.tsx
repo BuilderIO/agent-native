@@ -213,7 +213,7 @@ export default function KnowledgeRoute() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Memory</TableHead>
+                  <TableHead>Knowledge</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Company context</TableHead>
@@ -363,7 +363,7 @@ function CanonicalControl({
       title={
         isPublished
           ? row.publishedResourcePath || "Published to company context"
-          : "Publish this memory to context/company-brain"
+          : "Publish this knowledge to context/company-brain"
       }
     >
       {isPublished ? (

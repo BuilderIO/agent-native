@@ -524,7 +524,7 @@ function seedCapture(overrides: Row = {}) {
 
 beforeEach(resetMocks);
 
-describe("Brain memory quality gates", () => {
+describe("Brain knowledge quality gates", () => {
   it("turns settings into retrieval and distillation guidance", () => {
     const guidance = buildBrainAgentGuidance({
       companyName: "Acme",
@@ -2388,7 +2388,7 @@ describe("Brain demo eval", () => {
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
-        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
         "Low-confidence policy items stay pending proposals and out of published search until review.",
       ].join("\n"),
       metadataJson: JSON.stringify({

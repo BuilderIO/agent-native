@@ -304,7 +304,7 @@ function trustLaneSummary(status: PilotTrustLaneStatus, targetChannel: string) {
     case "needs-eval":
       return `${targetChannel} needs retrieval eval confirmation before broadening sync.`;
     case "ready-to-expand":
-      return `${targetChannel} has cited published memory and is ready for a narrow expansion.`;
+      return `${targetChannel} has cited published knowledge and is ready for a narrow expansion.`;
   }
 }
 
