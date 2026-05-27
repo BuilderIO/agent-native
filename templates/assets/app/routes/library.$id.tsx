@@ -1256,6 +1256,9 @@ function AssetGrid({
               return next;
             });
           },
+          onError: (error) => {
+            toast.error(error.message || "Could not delete asset.");
+          },
         },
       );
       return;
@@ -1274,6 +1277,9 @@ function AssetGrid({
           toast.success(
             `Deleted ${deletedIds.size} asset${deletedIds.size === 1 ? "" : "s"}.`,
           );
+        },
+        onError: (error) => {
+          toast.error(error.message || "Could not delete selected assets.");
         },
       },
     );
@@ -1320,7 +1326,10 @@ function AssetGrid({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmDeleteIds.length || deleting}
-              onClick={handleDeleteConfirmed}
+              onClick={(event) => {
+                event.preventDefault();
+                handleDeleteConfirmed();
+              }}
             >
               Delete
             </AlertDialogAction>
@@ -1329,7 +1338,7 @@ function AssetGrid({
       </AlertDialog>
 
       <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-        <label className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
           <Checkbox
             checked={allSelected}
             onCheckedChange={(checked) => toggleAll(checked === true)}
@@ -1340,7 +1349,7 @@ function AssetGrid({
               ? `${selectedCount} selected`
               : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
           </span>
-        </label>
+        </div>
         {selectedCount > 0 ? (
           <div className="flex items-center gap-2">
             <Button
