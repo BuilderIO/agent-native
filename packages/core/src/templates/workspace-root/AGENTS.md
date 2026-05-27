@@ -60,15 +60,16 @@ coding agents can discover the same workspace-wide guidance from the root.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
-- Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as
+- Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as
   existing hosted/connected neighbors available through links and A2A/default
-  connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at
+  connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at
   `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and
-  `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
-- If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party
+  `https://analytics.agent-native.com`, `https://brain.agent-native.com`, and
+  `https://assets.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, Brain, Assets, or similar first-party
   data/agents, build only the genuinely new workflow and delegate/link to those
   existing apps. Do not create wrapper apps, child apps, nested template copies,
-  or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to
+  or cloned Mail/Calendar/Analytics/Brain/Assets implementations inside the new app just to
   provide access.
 - Only create a first-party app copy when the user explicitly asks for a
   customized fork/copy of that app. Otherwise prefer the hosted/shared app so
