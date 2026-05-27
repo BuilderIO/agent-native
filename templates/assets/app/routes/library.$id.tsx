@@ -81,6 +81,7 @@ import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
+import { assetMediaUrl } from "@/lib/asset-urls";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
@@ -240,9 +241,14 @@ export default function LibraryPage() {
   ]);
 
   function refreshLibrary() {
-    return queryClient.invalidateQueries({
-      queryKey: ["action", "get-library", { id: libraryId }],
-    });
+    return queryClient
+      .invalidateQueries({ queryKey: ["action", "get-library"] })
+      .then(() =>
+        queryClient.refetchQueries({
+          queryKey: ["action", "get-library"],
+          type: "active",
+        }),
+      );
   }
 
   async function upload(files: FileList | null, category = "style-only") {
@@ -1183,7 +1189,7 @@ function AssetPreview({ asset }: { asset: any }) {
     return (
       <div className="relative h-full w-full bg-muted">
         <video
-          src={asset.previewUrl}
+          src={assetMediaUrl(asset.previewUrl)}
           muted
           playsInline
           preload="metadata"
@@ -1195,7 +1201,10 @@ function AssetPreview({ asset }: { asset: any }) {
       </div>
     );
   }
-  const sources = [asset.thumbnailUrl, asset.previewUrl].filter(
+  const sources = [
+    assetMediaUrl(asset.thumbnailUrl),
+    assetMediaUrl(asset.previewUrl),
+  ].filter(
     (source, index, all): source is string =>
       typeof source === "string" &&
       source.length > 0 &&
