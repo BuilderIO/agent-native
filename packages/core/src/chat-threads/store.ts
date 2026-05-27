@@ -2,6 +2,7 @@ import { getDbExec, intType } from "../db/client.js";
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
 import { emitChatThreadChange } from "./emitter.js";
 
@@ -61,17 +62,25 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL,
           scope_type TEXT,
           scope_id TEXT,
-          scope_label TEXT
+          scope_label TEXT,
+          pinned_at ${intType()},
+          archived_at ${intType()}
         )
       `);
       // Additive migration for existing tables. Both SQLite and Postgres
       // accept `ALTER TABLE ADD COLUMN` and will raise when the column
       // already exists; the try/catch makes the call idempotent across
       // both dialects without requiring an information_schema probe.
-      for (const col of ["scope_type", "scope_id", "scope_label"]) {
+      for (const [col, type] of [
+        ["scope_type", "TEXT"],
+        ["scope_id", "TEXT"],
+        ["scope_label", "TEXT"],
+        ["pinned_at", intType()],
+        ["archived_at", intType()],
+      ] as const) {
         try {
           await client.execute(
-            `ALTER TABLE chat_threads ADD COLUMN ${col} TEXT`,
+            `ALTER TABLE chat_threads ADD COLUMN ${col} ${type}`,
           );
         } catch {
           // Column already exists.
@@ -110,6 +119,8 @@ export interface ChatThread {
   createdAt: number;
   updatedAt: number;
   scope: ChatThreadScope | null;
+  pinnedAt: number | null;
+  archivedAt: number | null;
 }
 
 export interface ChatThreadSummary {
@@ -120,6 +131,8 @@ export interface ChatThreadSummary {
   createdAt: number;
   updatedAt: number;
   scope: ChatThreadScope | null;
+  pinnedAt: number | null;
+  archivedAt: number | null;
 }
 
 export interface ForkThreadSourceSnapshot {
@@ -136,6 +149,12 @@ function readScope(r: Record<string, unknown>): ChatThreadScope | null {
   if (!type || !id) return null;
   const label = r.scope_label as string | null | undefined;
   return label ? { type, id, label } : { type, id };
+}
+
+function readNullableNumber(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function normalizeForkSourceSnapshot(
@@ -198,6 +217,8 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
+    pinnedAt: readNullableNumber(r.pinned_at),
+    archivedAt: readNullableNumber(r.archived_at),
   };
 }
 
@@ -214,6 +235,8 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
+    pinnedAt: readNullableNumber(r.pinned_at),
+    archivedAt: readNullableNumber(r.archived_at),
   };
 }
 
@@ -252,11 +275,13 @@ export async function createThread(
     createdAt: now,
     updatedAt: now,
     scope,
+    pinnedAt: null,
+    archivedAt: null,
   };
 }
 
-const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label`;
-const SUMMARY_COLUMNS = `id, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label`;
+const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
+const SUMMARY_COLUMNS = `id, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at`;
 
 export async function getThread(id: string): Promise<ChatThread | null> {
   await ensureTable();
@@ -352,6 +377,8 @@ export async function forkThread(
     createdAt: now,
     updatedAt: now,
     scope: source.scope,
+    pinnedAt: null,
+    archivedAt: null,
   };
 }
 
@@ -396,7 +423,7 @@ export async function listThreads(
   }
   args.push(limit, offset);
   const { rows } = await client.execute({
-    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -429,7 +456,7 @@ export async function searchThreads(
   }
   args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC LIMIT ?`,
+    sql: `SELECT ${SUMMARY_COLUMNS} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC LIMIT ?`,
     args,
   });
   return rows
@@ -459,6 +486,68 @@ export async function setThreadScope(
     ],
   });
   emitChatThreadChange(id);
+}
+
+export async function renameThread(
+  id: string,
+  title: string,
+  options: { ownerEmail?: string } = {},
+): Promise<boolean> {
+  const nextTitle = normalizeThreadTitle(title);
+  if (!nextTitle) return false;
+
+  return await withThreadDataLock(id, async () => {
+    const thread = await getThread(id);
+    if (!thread) return false;
+    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+      return false;
+    }
+
+    const repo = parseThreadData(thread.threadData);
+    repo._titleOverride = nextTitle;
+    await updateThreadData(
+      id,
+      JSON.stringify(repo),
+      nextTitle,
+      thread.preview,
+      thread.messageCount,
+    );
+    return true;
+  });
+}
+
+export async function setThreadPinned(
+  id: string,
+  pinned: boolean,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ?`,
+    args: [pinned ? Math.max(Date.now(), 1) : null, id],
+  });
+  if (result.rowsAffected > 0) {
+    emitChatThreadChange(id);
+    return true;
+  }
+  return false;
+}
+
+export async function setThreadArchived(
+  id: string,
+  archived: boolean,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ?`,
+    args: [archived ? Math.max(Date.now(), 1) : null, id],
+  });
+  if (result.rowsAffected > 0) {
+    emitChatThreadChange(id);
+    return true;
+  }
+  return false;
 }
 
 export interface UpdateThreadDataOptions {

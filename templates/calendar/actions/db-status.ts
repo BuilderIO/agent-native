@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Check database connection status",
@@ -11,20 +11,24 @@ export default defineAction({
     const isLocal = url.startsWith("file:");
 
     try {
-      const db = getDbExec();
-
-      await db.execute("SELECT 1");
-
-      const result = await db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '__%' ORDER BY name",
-      );
-      const tables = result.rows.map((r) => r.name as string);
+      const db = getDb();
+      await db
+        .select({ id: schema.bookingLinks.id })
+        .from(schema.bookingLinks)
+        .limit(1);
 
       return {
         status: "connected",
         mode: isLocal ? "local" : "remote",
         url: isLocal ? url : url.replace(/\/\/.*@/, "//***@"),
-        tables,
+        tables: [
+          "bookings",
+          "booking_links",
+          "booking_slug_redirects",
+          "booking_usernames",
+          "booking_username_changes",
+          "booking_link_shares",
+        ],
       };
     } catch (err: any) {
       return {

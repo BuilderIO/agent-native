@@ -28,6 +28,7 @@ on:
       - "packages/core/**"
       - "packages/scheduling/**"
       - "packages/pinpoint/**"
+      - "packages/embedding/**"
       - "packages/dispatch/**"
       - ".changeset/**"
       # Release workflow plumbing changes should exercise the npm release job.

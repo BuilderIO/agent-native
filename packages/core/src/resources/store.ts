@@ -7,6 +7,10 @@ import {
 } from "../db/client.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import crypto from "crypto";
 
 export const SHARED_OWNER = "__shared__";
@@ -59,6 +63,15 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
 
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
+  workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
+}
+
+export interface ResourceResolutionOptions {
+  workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
 }
 
 export type ResourceInheritanceScope = "workspace" | "shared" | "personal";
@@ -88,6 +101,9 @@ const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const SCRATCH_CLEANUP_INTERVAL_MS = 60 * 1000;
 const RESOURCE_META_SELECT =
   "id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata";
+const DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX = "dispatch-workspace-resource:";
+const DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE =
+  "dispatch-workspace-resource";
 
 const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
@@ -362,6 +378,215 @@ function scratchFilterSql(options?: ResourceListOptions): string {
   return options?.includeAgentScratch === true
     ? ""
     : " AND (visibility IS NULL OR visibility != 'agent_scratch')";
+}
+
+function normalizeWorkspaceAppId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const candidate = trimmed.replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(candidate)) return null;
+  return candidate;
+}
+
+function workspaceAppIdFromBasePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return normalizeWorkspaceAppId(value);
+}
+
+function currentWorkspaceAppId(explicit?: string | null): string | null {
+  return (
+    normalizeWorkspaceAppId(explicit) ??
+    normalizeWorkspaceAppId(process.env.AGENT_NATIVE_WORKSPACE_APP_ID) ??
+    normalizeWorkspaceAppId(process.env.APP_NAME) ??
+    normalizeWorkspaceAppId(process.env.AGENT_APP) ??
+    workspaceAppIdFromBasePath(process.env.APP_BASE_PATH) ??
+    workspaceAppIdFromBasePath(process.env.VITE_APP_BASE_PATH)
+  );
+}
+
+function requestScopedResourceIdentity(options?: ResourceResolutionOptions): {
+  userEmail: string | null;
+  orgId: string | null;
+} {
+  const userEmail = options?.userEmail ?? getRequestUserEmail() ?? null;
+  const orgId = options?.orgId ?? getRequestOrgId() ?? null;
+  return { userEmail, orgId };
+}
+
+function workspaceResourceMimeType(path: string): string {
+  return path.endsWith(".json") ? "application/json" : "text/markdown";
+}
+
+function syntheticWorkspaceResourceId(resourceId: string): string {
+  return `${DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX}${resourceId}`;
+}
+
+function physicalWorkspaceResourceId(id: string): string | null {
+  return id.startsWith(DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX)
+    ? id.slice(DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX.length)
+    : null;
+}
+
+function rowToGrantedWorkspaceResource(row: any): Resource {
+  const content = String(row.content ?? "");
+  const path = String(row.path ?? "");
+  return {
+    id: syntheticWorkspaceResourceId(String(row.id)),
+    path,
+    owner: WORKSPACE_OWNER,
+    content,
+    mimeType: workspaceResourceMimeType(path),
+    size: Buffer.byteLength(content, "utf8"),
+    createdAt: Number(row.created_at ?? Date.now()),
+    updatedAt: Number(row.updated_at ?? Date.now()),
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: JSON.stringify({
+      source: DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE,
+      resourceId: String(row.id),
+      grantId: row.grant_id ? String(row.grant_id) : null,
+      kind: row.kind ?? null,
+      name: row.name ?? null,
+      description: row.description ?? null,
+      scope: "selected",
+      appId: row.app_id ?? null,
+      updatedAt: Number(row.updated_at ?? Date.now()),
+    }),
+  };
+}
+
+function mergeResourceMetas(
+  primary: ResourceMeta[],
+  inherited: ResourceMeta[],
+): ResourceMeta[] {
+  const seen = new Set(primary.map((resource) => resource.path));
+  const merged = [...primary];
+  for (const resource of inherited) {
+    if (seen.has(resource.path)) continue;
+    seen.add(resource.path);
+    merged.push(resource);
+  }
+  return merged;
+}
+
+async function selectGrantedWorkspaceResourceRows(input: {
+  resourceId?: string;
+  path?: string;
+  pathPrefix?: string;
+  workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
+}): Promise<any[]> {
+  const appId = currentWorkspaceAppId(input.workspaceAppId);
+  const { userEmail, orgId } = requestScopedResourceIdentity(input);
+  if (!appId || (!userEmail && !orgId)) return [];
+
+  const conditions = ["wr.scope = ?", "wg.status = ?", "wg.app_id = ?"];
+  const args: unknown[] = ["selected", "active", appId];
+
+  if (input.resourceId) {
+    conditions.push("wr.id = ?");
+    args.push(input.resourceId);
+  }
+  if (input.path) {
+    conditions.push("wr.path = ?");
+    args.push(input.path);
+  }
+  if (input.pathPrefix) {
+    conditions.push("wr.path LIKE ?");
+    args.push(`${input.pathPrefix}%`);
+  }
+
+  if (orgId) {
+    conditions.push("wr.org_id = ?", "wg.org_id = ?");
+    args.push(orgId, orgId);
+  } else if (userEmail) {
+    conditions.push(
+      "wr.owner_email = ?",
+      "wr.org_id IS NULL",
+      "wg.owner_email = ?",
+      "wg.org_id IS NULL",
+    );
+    args.push(userEmail, userEmail);
+  }
+
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `
+      SELECT
+        wr.id,
+        wr.kind,
+        wr.name,
+        wr.description,
+        wr.path,
+        wr.content,
+        wr.created_at,
+        wr.updated_at,
+        wg.id AS grant_id,
+        wg.app_id AS app_id
+      FROM workspace_resources wr
+      INNER JOIN workspace_resource_grants wg ON wg.resource_id = wr.id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY wr.updated_at DESC
+    `,
+    args,
+  });
+  return rows;
+}
+
+async function grantedWorkspaceResources(input: {
+  pathPrefix?: string;
+  workspaceAppId?: string | null;
+  userEmail?: string | null;
+  orgId?: string | null;
+}): Promise<Resource[]> {
+  try {
+    const rows = await selectGrantedWorkspaceResourceRows(input);
+    return rows.map(rowToGrantedWorkspaceResource);
+  } catch {
+    // Dispatch workspace-resource tables are optional for standalone apps.
+    return [];
+  }
+}
+
+async function grantedWorkspaceResourceById(
+  id: string,
+  options?: ResourceResolutionOptions,
+): Promise<Resource | null> {
+  const resourceId = physicalWorkspaceResourceId(id);
+  if (!resourceId) return null;
+  try {
+    const rows = await selectGrantedWorkspaceResourceRows({
+      resourceId,
+      workspaceAppId: options?.workspaceAppId,
+      userEmail: options?.userEmail,
+      orgId: options?.orgId,
+    });
+    return rows[0] ? rowToGrantedWorkspaceResource(rows[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function grantedWorkspaceResourceByPath(
+  path: string,
+  options?: ResourceResolutionOptions,
+): Promise<Resource | null> {
+  try {
+    const rows = await selectGrantedWorkspaceResourceRows({
+      path,
+      workspaceAppId: options?.workspaceAppId,
+      userEmail: options?.userEmail,
+      orgId: options?.orgId,
+    });
+    return rows[0] ? rowToGrantedWorkspaceResource(rows[0]) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function cleanupExpiredAgentScratchResources(
@@ -697,7 +922,10 @@ function resourceToMeta(resource: Resource): ResourceMeta {
   return meta;
 }
 
-export async function resourceGet(id: string): Promise<Resource | null> {
+export async function resourceGet(
+  id: string,
+  options?: ResourceResolutionOptions,
+): Promise<Resource | null> {
   await ensureTable();
   const client = getDbExec();
   await cleanupExpiredAgentScratchResources(client);
@@ -705,13 +933,14 @@ export async function resourceGet(id: string): Promise<Resource | null> {
     sql: `SELECT * FROM resources WHERE id = ?`,
     args: [id],
   });
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return grantedWorkspaceResourceById(id, options);
   return rowToResource(rows[0]);
 }
 
 export async function resourceGetByPath(
   owner: string,
   path: string,
+  options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
   const client = getDbExec();
@@ -720,6 +949,9 @@ export async function resourceGetByPath(
     sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
+  if (rows.length === 0 && owner === WORKSPACE_OWNER) {
+    return grantedWorkspaceResourceByPath(path, options);
+  }
   if (rows.length === 0) return null;
   return rowToResource(rows[0]);
 }
@@ -893,14 +1125,29 @@ export async function resourceList(
       sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
       args: [owner, pathPrefix + "%"],
     });
-    return rows.map(rowToMeta);
+    const resources = rows.map(rowToMeta);
+    if (owner !== WORKSPACE_OWNER) return resources;
+    const granted = await grantedWorkspaceResources({
+      pathPrefix,
+      workspaceAppId: options?.workspaceAppId,
+      userEmail: options?.userEmail,
+      orgId: options?.orgId,
+    });
+    return mergeResourceMetas(resources, granted.map(resourceToMeta));
   }
 
   const { rows } = await client.execute({
     sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
     args: [owner],
   });
-  return rows.map(rowToMeta);
+  const resources = rows.map(rowToMeta);
+  if (owner !== WORKSPACE_OWNER) return resources;
+  const granted = await grantedWorkspaceResources({
+    workspaceAppId: options?.workspaceAppId,
+    userEmail: options?.userEmail,
+    orgId: options?.orgId,
+  });
+  return mergeResourceMetas(resources, granted.map(resourceToMeta));
 }
 
 export async function resourceListAccessible(
@@ -929,7 +1176,14 @@ export async function resourceListAccessible(
         pathPrefix + "%",
       ],
     });
-    return rows.map(rowToMeta);
+    const resources = rows.map(rowToMeta);
+    const granted = await grantedWorkspaceResources({
+      pathPrefix,
+      workspaceAppId: options?.workspaceAppId,
+      userEmail,
+      orgId: options?.orgId,
+    });
+    return mergeResourceMetas(resources, granted.map(resourceToMeta));
   }
 
   const { rows } = await client.execute({
@@ -940,16 +1194,26 @@ export async function resourceListAccessible(
           SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
     args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
   });
-  return rows.map(rowToMeta);
+  const resources = rows.map(rowToMeta);
+  const granted = await grantedWorkspaceResources({
+    workspaceAppId: options?.workspaceAppId,
+    userEmail,
+    orgId: options?.orgId,
+  });
+  return mergeResourceMetas(resources, granted.map(resourceToMeta));
 }
 
 export async function resourceEffectiveContext(
   userEmail: string,
   path: string,
+  options?: ResourceResolutionOptions,
 ): Promise<EffectiveResourceContext> {
   await ensureTable();
 
-  const workspace = await resourceGetByPath(WORKSPACE_OWNER, path);
+  const workspace = await resourceGetByPath(WORKSPACE_OWNER, path, {
+    ...options,
+    userEmail,
+  });
   const shared = await resourceGetByPath(SHARED_OWNER, path);
   const personal = await resourceGetByPath(userEmail, path);
   const effective = personal ?? shared ?? workspace ?? null;

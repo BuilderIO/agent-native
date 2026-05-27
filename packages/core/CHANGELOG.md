@@ -1,5 +1,50 @@
 # @agent-native/core
 
+## 0.24.1
+
+### Patch Changes
+
+- 7aa1703: fix builder connect 401 for unauthenticated users with a valid connect token
+
+## 0.24.0
+
+### Minor Changes
+
+- 9f3a798: Add extension history snapshots, diffs, and restore support.
+
+### Patch Changes
+
+- 9f3a798: Return 401 for unauthenticated private page routes while still rendering the sign-in page.
+- 9f3a798: Recover agent chat runs that time out while preparing extension action input.
+- 9f3a798: Keep chat recovery retries anchored to the original user request and give hosted timeout recovery more room to persist.
+- 9f3a798: Preserve generated chat titles when later thread saves update chat metadata.
+- 9f3a798: Keep lazy gateway wake pages active until app dev servers return HTTP responses.
+
+## 0.23.0
+
+### Minor Changes
+
+- 2ea399e: Add app-backed skill packaging and CLI support for hosted/local app skill installs.
+
+### Patch Changes
+
+- 2ea399e: Rename the Images template/package to Assets, preserve legacy aliases, and add DAM/video generation capabilities.
+- 2ea399e: Add chat-surface controls for hidden thread tabs and centered empty composers.
+- 2ea399e: Clarify deployment, scaffold, skill, and template guidance for persistent databases and provider-agnostic Drizzle code.
+- 2ea399e: Expose selected Dispatch workspace skills, resources, and MCP server definitions to granted app agents at runtime.
+
+## 0.22.45
+
+### Patch Changes
+
+- 4bed290: Harden collaborative editing against missed updates and concurrent Yjs persistence races.
+
+## 0.22.44
+
+### Patch Changes
+
+- 7ca6c99: Allow UI-submitted agent chat messages to include image data.
+
 ## 0.22.43
 
 ### Patch Changes

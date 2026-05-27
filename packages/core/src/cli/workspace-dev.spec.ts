@@ -48,6 +48,7 @@ describe("workspace dev startup", () => {
     const res = await fetch(`${url}/starter`, {
       headers: { accept: "text/html" },
     });
+    expect(res.headers.get("cache-control")).toContain("no-store");
     expect(await res.text()).toContain("Starting Starter");
     expect(fake.startedApps()).toEqual(["dispatch", "starter"]);
   });
@@ -65,6 +66,87 @@ describe("workspace dev startup", () => {
     await handle.ready;
 
     expect(fake.startedApps()).toEqual(["dispatch", "starter", "todo"]);
+  });
+
+  it("keeps the wake page while the app port accepts TCP but does not answer HTTP", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps[0];
+    const hangingServer = http.createServer(() => {
+      // Intentionally accept the request and never respond. This matches the
+      // Vite limbo window where the TCP port is open before HTML is ready.
+    });
+    await new Promise<void>((resolve, reject) => {
+      hangingServer.once("error", reject);
+      hangingServer.listen(app.port, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const first = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+      });
+      expect(await first.text()).toContain("Starting Dispatch");
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const second = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+        signal: AbortSignal.timeout(500),
+      });
+      expect(await second.text()).toContain("Starting Dispatch");
+      expect(app.ready).not.toBe(true);
+    } finally {
+      await new Promise<void>((resolve) =>
+        hangingServer.close(() => resolve()),
+      );
+    }
+  });
+
+  it("falls back to the wake page when a ready app stalls before response headers", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000",
+        WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS: "50",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps[0];
+    app.ready = true;
+    const hangingServer = http.createServer(() => {
+      // This simulates the real browser navigation getting handed to an
+      // upstream server that accepted the socket but never sent headers.
+    });
+    await new Promise<void>((resolve, reject) => {
+      hangingServer.once("error", reject);
+      hangingServer.listen(app.port, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const res = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+        signal: AbortSignal.timeout(1_000),
+      });
+      expect(res.headers.get("cache-control")).toContain("no-store");
+      expect(await res.text()).toContain("Starting Dispatch");
+      expect(app.ready).not.toBe(true);
+    } finally {
+      await new Promise<void>((resolve) =>
+        hangingServer.close(() => resolve()),
+      );
+    }
   });
 
   it("prewarms non-default apps in the background after the gateway is ready", async () => {
@@ -473,6 +555,7 @@ describe("workspace dev startup", () => {
     });
     const html = await res.text();
 
+    expect(res.headers.get("cache-control")).toContain("no-store");
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");

@@ -367,6 +367,8 @@ export interface AgentPanelProps extends Omit<
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active chat thread on mount. Default: true. */
+  restoreActiveThread?: boolean;
   /**
    * Bind the chat to a specific resource (deck, design, dashboard, ...).
    * When set, chats started inside the panel inherit this scope and tuck
@@ -380,6 +382,8 @@ export interface AgentPanelProps extends Omit<
   browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
+  /** Show the chat thread tab row when the panel header is hidden. Default: true. */
+  showTabBar?: boolean;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -490,9 +494,11 @@ function AgentPanelInner({
   onToggleFullscreen,
   devAppUrl,
   storageKey,
+  restoreActiveThread = true,
   scope,
   browserTabId,
   chatNotice,
+  showTabBar = true,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -1366,6 +1372,7 @@ function AgentPanelInner({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
+            showTabBar={showTabBar}
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
@@ -1376,6 +1383,7 @@ function AgentPanelInner({
             execMode={execMode}
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
             scope={scope}
             browserTabId={browserTabId}
           />

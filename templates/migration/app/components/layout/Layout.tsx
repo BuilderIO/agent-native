@@ -22,7 +22,7 @@ interface LayoutProps {
  * global Header so they don't double-stack a header bar.
  */
 function routeOwnsToolbar(pathname: string): boolean {
-  return false;
+  return pathname === "/extensions" || pathname.startsWith("/extensions/");
 }
 
 export function Layout({ children }: LayoutProps) {

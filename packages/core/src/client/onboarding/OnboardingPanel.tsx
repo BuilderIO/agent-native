@@ -273,7 +273,7 @@ function StepMethods({
         stepId={step.id}
         secondaryLabel={
           step.id === "image-generation"
-            ? "Add a Gemini API key"
+            ? "Add image/video keys"
             : "Add your own provider key"
         }
         onCompleted={onCompleted}

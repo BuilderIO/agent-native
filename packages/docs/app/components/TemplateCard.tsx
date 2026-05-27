@@ -115,6 +115,21 @@ export const templates = [
     description:
       "Full-page company chat over cited memory from approved Slack, Clips, Granola, GitHub, and transcript sources, with review gates, evals, and shared connection readiness built in.",
     color: "#8B5CF6",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800",
+  },
+  {
+    name: "Assets",
+    slug: "assets",
+    replaces:
+      "Replaces or augments DAMs, brand asset libraries, and AI media generators",
+    cliCommand: "npx @agent-native/core create my-assets-app --template assets",
+    demoUrl: "https://assets.agent-native.com",
+    description:
+      "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+    color: "#0F766E",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
   },
   {
     name: "Design",
@@ -154,7 +169,7 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = templates.filter(
-  (template) => !["brain", "video"].includes(template.slug),
+  (template) => template.slug !== "video",
 );
 
 function CliPopoverContent({ template }: { template: Template }) {

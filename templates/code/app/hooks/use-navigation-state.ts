@@ -10,6 +10,7 @@ import {
 export interface NavigationState {
   view: string;
   path?: string;
+  extensionId?: string;
 }
 
 export function useNavigationState() {
@@ -18,9 +19,11 @@ export function useNavigationState() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    const extensionId = extensionIdFromPath(location.pathname);
     const state: NavigationState = {
-      view: "code",
-      path: appPath(location.pathname),
+      view: location.pathname.startsWith("/extensions") ? "extensions" : "code",
+      path: appPath(`${location.pathname}${location.search}`),
+      extensionId,
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -29,7 +32,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
@@ -52,9 +55,18 @@ export function useNavigationState() {
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
-    navigate(routerPath(cmd.path || "/"));
+    navigate(routerPath(cmd.path || pathFromCommand(cmd)));
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function pathFromCommand(cmd: NavigationState): string {
+  if (cmd.view === "extensions") {
+    return cmd.extensionId
+      ? `/extensions/${encodeURIComponent(cmd.extensionId)}`
+      : "/extensions";
+  }
+  return "/";
 }
 
 function routerPath(path: string): string {
@@ -65,4 +77,9 @@ function routerPath(path: string): string {
     return path.slice(basePath.length) || "/";
   }
   return path;
+}
+
+function extensionIdFromPath(pathname: string): string | undefined {
+  const match = pathname.match(/^\/extensions\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }

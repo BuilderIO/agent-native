@@ -9,9 +9,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 
 const VisibilityEnum = z.enum(["private", "org", "public"]);
 
@@ -37,9 +38,6 @@ export default defineAction({
     ),
   }),
   run: async (args) => {
-    const exec = getDbExec();
-    const pg = isPostgres();
-
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
       ["admin"],
@@ -48,70 +46,52 @@ export default defineAction({
     // Ensure a settings row exists. Clips' own organization_settings table is
     // dialect-agnostic — schema.ts declares created_at/updated_at as TEXT with
     // an ISO default, so we use ISO strings on both PG and SQLite.
+    const db = getDb();
     const nowIso = new Date().toISOString();
-    if (pg) {
-      await exec.execute({
-        sql: `INSERT INTO organization_settings (organization_id, brand_color, default_visibility, created_at, updated_at) VALUES ($1, '#18181B', 'private', $2, $3) ON CONFLICT (organization_id) DO NOTHING`,
-        args: [organizationId, nowIso, nowIso],
-      });
-    } else {
-      await exec.execute({
-        sql: `INSERT OR IGNORE INTO organization_settings (organization_id, brand_color, default_visibility, created_at, updated_at) VALUES (?, '#18181B', 'private', ?, ?)`,
-        args: [organizationId, nowIso, nowIso],
-      });
-    }
+    await db
+      .insert(schema.organizationSettings)
+      .values({
+        organizationId,
+        brandColor: "#18181B",
+        defaultVisibility: "private",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      })
+      .onConflictDoNothing();
 
     // Build the UPDATE dynamically — only patch fields that were passed.
-    const setClauses: string[] = [];
-    const values: any[] = [];
-    let argIdx = 1;
+    const updates: Partial<typeof schema.organizationSettings.$inferInsert> =
+      {};
 
     if (typeof args.brandColor === "string") {
-      setClauses.push(pg ? `brand_color = $${argIdx++}` : `brand_color = ?`);
-      values.push(args.brandColor);
+      updates.brandColor = args.brandColor;
     }
     if (args.brandLogoUrl !== undefined) {
-      setClauses.push(
-        pg ? `brand_logo_url = $${argIdx++}` : `brand_logo_url = ?`,
-      );
-      values.push(args.brandLogoUrl ?? null);
+      updates.brandLogoUrl = args.brandLogoUrl ?? null;
     }
     if (typeof args.defaultVisibility === "string") {
-      setClauses.push(
-        pg ? `default_visibility = $${argIdx++}` : `default_visibility = ?`,
-      );
-      values.push(args.defaultVisibility);
+      updates.defaultVisibility = args.defaultVisibility;
     }
 
-    if (setClauses.length) {
-      setClauses.push(pg ? `updated_at = $${argIdx++}` : `updated_at = ?`);
-      values.push(nowIso);
-      values.push(organizationId);
-      const whereSql = pg
-        ? `WHERE organization_id = $${argIdx}`
-        : `WHERE organization_id = ?`;
-      await exec.execute({
-        sql: `UPDATE organization_settings SET ${setClauses.join(", ")} ${whereSql}`,
-        args: values,
-      });
+    if (Object.keys(updates).length) {
+      await db
+        .update(schema.organizationSettings)
+        .set({ ...updates, updatedAt: nowIso })
+        .where(eq(schema.organizationSettings.organizationId, organizationId));
     }
 
     // Return the current values.
-    const res = await exec.execute({
-      sql: pg
-        ? `SELECT organization_id, brand_color, brand_logo_url, default_visibility, updated_at FROM organization_settings WHERE organization_id = $1 LIMIT 1`
-        : `SELECT organization_id, brand_color, brand_logo_url, default_visibility, updated_at FROM organization_settings WHERE organization_id = ? LIMIT 1`,
-      args: [organizationId],
-    });
-    const row = (
-      res.rows as Array<{
-        organization_id: string;
-        brand_color: string;
-        brand_logo_url: string | null;
-        default_visibility: string;
-        updated_at: string | null;
-      }>
-    )[0];
+    const [row] = await db
+      .select({
+        organizationId: schema.organizationSettings.organizationId,
+        brandColor: schema.organizationSettings.brandColor,
+        brandLogoUrl: schema.organizationSettings.brandLogoUrl,
+        defaultVisibility: schema.organizationSettings.defaultVisibility,
+        updatedAt: schema.organizationSettings.updatedAt,
+      })
+      .from(schema.organizationSettings)
+      .where(eq(schema.organizationSettings.organizationId, organizationId))
+      .limit(1);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -119,10 +99,10 @@ export default defineAction({
 
     return {
       organizationId,
-      brandColor: row?.brand_color ?? "#18181B",
-      brandLogoUrl: row?.brand_logo_url ?? null,
-      defaultVisibility: row?.default_visibility ?? "private",
-      updatedAt: row?.updated_at ?? nowIso,
+      brandColor: row?.brandColor ?? "#18181B",
+      brandLogoUrl: row?.brandLogoUrl ?? null,
+      defaultVisibility: row?.defaultVisibility ?? "private",
+      updatedAt: row?.updatedAt ?? nowIso,
     };
   },
 });

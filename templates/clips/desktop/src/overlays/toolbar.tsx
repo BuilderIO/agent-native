@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  IconLoader2,
+  IconPlayerPauseFilled,
+  IconPlayerPlayFilled,
+} from "@tabler/icons-react";
 
 /**
  * Floating recording toolbar — vertical pill anchored to the LEFT edge of
@@ -140,24 +145,44 @@ export function Toolbar() {
         className="toolbar-v-stop"
         onClick={stop}
         disabled={stopping || !enabled}
-        aria-label="Stop recording"
-        title={enabled ? "Stop recording" : "Recording not started yet"}
+        aria-label={stopping ? "Stopping recording" : "Stop recording"}
+        title={
+          stopping
+            ? "Stopping..."
+            : enabled
+              ? "Stop recording"
+              : "Recording not started yet"
+        }
         data-no-drag
       >
-        <span className="toolbar-v-stop-square" />
+        {stopping ? (
+          <IconLoader2 className="toolbar-v-spinner" size={18} />
+        ) : (
+          <span className="toolbar-v-stop-square" />
+        )}
       </button>
       <div className="toolbar-v-time">{formatTime(elapsed)}</div>
       <button
         className="toolbar-v-pause"
         onClick={togglePause}
-        disabled={!enabled}
+        disabled={!enabled || stopping}
         aria-label={paused ? "Resume" : "Pause"}
         title={
-          enabled ? (paused ? "Resume" : "Pause") : "Recording not started yet"
+          stopping
+            ? "Stopping..."
+            : enabled
+              ? paused
+                ? "Resume"
+                : "Pause"
+              : "Recording not started yet"
         }
         data-no-drag
       >
-        {paused ? <PlayGlyph /> : <PauseGlyph />}
+        {paused ? (
+          <IconPlayerPlayFilled size={18} />
+        ) : (
+          <IconPlayerPauseFilled size={18} />
+        )}
       </button>
     </div>
   );
@@ -168,27 +193,4 @@ function formatTime(ms: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function PauseGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect x="7" y="5" width="3.5" height="14" rx="1.5" fill="currentColor" />
-      <rect
-        x="13.5"
-        y="5"
-        width="3.5"
-        height="14"
-        rx="1.5"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-function PlayGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M7 5l13 7-13 7z" fill="currentColor" />
-    </svg>
-  );
 }

@@ -89,6 +89,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Mail", to: "/docs/template-mail" as const },
       { label: "Clips", to: "/docs/template-clips" as const },
       { label: "Brain", to: "/docs/template-brain" as const },
+      { label: "Assets", to: "/docs/template-assets" as const },
       { label: "Design", to: "/docs/template-design" as const },
       { label: "Dispatch", to: "/docs/template-dispatch" as const },
       { label: "Forms", to: "/docs/template-forms" as const },

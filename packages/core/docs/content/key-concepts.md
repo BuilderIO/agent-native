@@ -96,10 +96,10 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Core actions for quick database access
+# Core actions for quick database inspection and one-off maintenance
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "INSERT INTO forms ..."
+pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
 # Surgical find/replace on a large text column — sends a diff, not the whole value
 pnpm action db-patch --table documents --column content \
   --where "id='doc-1'" --find "old heading" --replace "new heading"
@@ -227,7 +227,7 @@ There's no shared codebase to break. You own the app, and the agent evolves it f
 
 ## Database agnostic {#database-agnostic}
 
-The framework supports every Drizzle-supported database. Never write SQL that only works on one dialect.
+The framework supports portable Drizzle-backed SQL databases. Write app schemas with `@agent-native/core/db/schema` and app reads/writes with Drizzle's query builder so code can run across providers.
 
 - **SQLite** — local dev fallback when `DATABASE_URL` is unset
 - **Neon Postgres** — common in both dev and production
@@ -236,23 +236,21 @@ The framework supports every Drizzle-supported database. Never write SQL that on
 - **Cloudflare D1**
 - **Plain Postgres**
 
-Use the framework helpers for dialect-agnostic SQL:
+Use Drizzle's portable query DSL for normal app code:
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { and, desc, eq } from "drizzle-orm";
 
-// getDbExec() auto-converts ? params to $1 for Postgres
-const client = getDbExec();
-await client.execute({
-  sql: "SELECT * FROM forms WHERE owner_email = ?",
-  args: [email],
-});
-
-// Branch when syntax differs
-const upsert = isPostgres()
-  ? "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2"
-  : "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)";
+const forms = await db
+  .select()
+  .from(schema.forms)
+  .where(
+    and(eq(schema.forms.ownerEmail, email), eq(schema.forms.status, "open")),
+  )
+  .orderBy(desc(schema.forms.createdAt));
 ```
+
+Use raw SQL only for additive migrations, health checks, or one-off maintenance, and keep it parameterized and dialect-agnostic.
 
 ## Hosting agnostic {#hosting-agnostic}
 

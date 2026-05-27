@@ -19,7 +19,7 @@ Reach for Dispatch when any of these are true:
 - You want **one inbox for "the agent"** so users DM a single bot and the right specialist app picks up the work behind the scenes.
 - You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need and you want one vault instead of copying values into every `.env`.
 - You want a **runtime approval flow** in front of sensitive changes (saved destinations, policy edits) so non-admins can request and admins can sign off without a code deploy.
-- You want **shared skills, instructions, and agent profiles** that every app in the workspace inherits — change once, reach all.
+- You want **shared skills, instructions, agent profiles, and MCP servers** that apps in the workspace inherit — change once, reach all.
 
 If you're running a single template standalone, you don't need Dispatch — each template can wire its own messaging integrations directly. See [Messaging](/docs/messaging) for the standalone setup.
 
@@ -76,6 +76,7 @@ Use the canonical paths to control how agents consume them:
 - `skills/<slug>/SKILL.md` for on-demand skills available through `/` commands and the prompt skill index
 - `context/<slug>.md` for brand, persona, positioning, messaging, company facts, and other reference material the agent reads when relevant
 - `agents/<slug>.md` for reusable custom agent profiles
+- `mcp-servers/<slug>.json` for HTTP MCP servers that should add external tools to granted app agents
 
 Starter global resources usually look like:
 
@@ -88,6 +89,11 @@ skills/company-voice/SKILL.md
 ```
 
 Set these to **All apps** when every app should inherit the same company facts, brand rules, messaging, safety constraints, and customer-facing writing style. Use selected-app grants only for resources that are genuinely app-specific.
+
+MCP server resources use JSON and are intentionally HTTP-only. Store tokens in
+Dispatch Vault, grant or sync those keys to the target apps, and reference them
+from headers with `${keys.NAME}` so the raw credential never lives in the
+resource body.
 
 The **Resources** page highlights this starter pack in a Global context section so admins can quickly see which files exist, whether they are scoped to all apps, restore missing starter files without overwriting existing ones, and edit their contents. Expand any resource to preview its effective runtime stack for a selected app/user: workspace default, organization/app override, then personal override. Each app card also has a **Context** view that shows exactly what that app receives: inherited workspace resources, selected grants, and auto-loaded instructions. Use a resource row's **Stack** control to inspect which layer wins for that app.
 

@@ -59,6 +59,7 @@ export {
   mountMcpServersRoutes,
   buildMergedConfig,
   builtinMergedConfigKey,
+  startMcpConfigRefresh,
   type ClientBuiltinCapability,
 } from "./routes.js";
 

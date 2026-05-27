@@ -61,6 +61,7 @@ import {
   mountMcpServersRoutes,
   mountMcpHubRoutes,
   buildMergedConfig,
+  startMcpConfigRefresh,
   setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
@@ -95,6 +96,9 @@ import {
   getThread,
   listThreads,
   searchThreads,
+  renameThread,
+  setThreadArchived,
+  setThreadPinned,
   setThreadScope,
   updateThreadData,
   withThreadDataLock,
@@ -1181,7 +1185,8 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
- * Creates a unified chat-history ActionEntry that dispatches to search or open.
+ * Creates a unified chat-history ActionEntry that dispatches to search, open,
+ * rename, or lightweight organization actions.
  */
 async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
   try {
@@ -1237,14 +1242,14 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
       "chat-history": {
         tool: {
           description:
-            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, or 'open' to open a thread in the UI.",
+            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'rename'/'pin'/'unpin'/'archive' to organize history.",
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["search", "open"],
+                enum: ["search", "open", "rename", "pin", "unpin", "archive"],
               },
               query: {
                 type: "string",
@@ -1262,7 +1267,12 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               },
               id: {
                 type: "string",
-                description: "(open) The chat thread ID to open",
+                description:
+                  "(open, rename, pin, unpin, archive) The chat thread ID to manage",
+              },
+              title: {
+                type: "string",
+                description: "(rename) New chat title",
               },
             },
             required: ["action"],
@@ -1271,6 +1281,41 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
         run: async (args) => {
           if (args?.action === "open") {
             return openEntry.run(args);
+          }
+          if (
+            args?.action === "rename" ||
+            args?.action === "pin" ||
+            args?.action === "unpin" ||
+            args?.action === "archive"
+          ) {
+            const id = typeof args?.id === "string" ? args.id : "";
+            if (!id) return "Missing required id.";
+            const owner =
+              getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
+            if (!owner) return "No authenticated user is available.";
+            const thread = await getThread(id);
+            if (!thread || thread.ownerEmail !== owner) {
+              return `Chat thread "${id}" not found.`;
+            }
+            const title = thread.title || thread.preview || "(untitled)";
+            if (args.action === "rename") {
+              const nextTitle =
+                typeof args?.title === "string"
+                  ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
+                  : "";
+              if (!nextTitle) return "Missing required title.";
+              const renamed = await renameThread(id, nextTitle, {
+                ownerEmail: owner,
+              });
+              if (!renamed) return `Chat thread "${id}" could not be renamed.`;
+              return `Renamed chat "${title}" to "${nextTitle}".`;
+            }
+            if (args.action === "archive") {
+              await setThreadArchived(id, true);
+              return `Archived chat: ${title}`;
+            }
+            await setThreadPinned(id, args.action === "pin");
+            return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }
           return searchEntry.run(args);
         },
@@ -2051,7 +2096,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`set-browser-control\` for built-in Chrome DevTools/Playwright MCP, \`activate-browser\` for Builder-provisioned Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 
-For brand-consistent raster image generation, use the first-party Images agent via \`call-agent\` with agent "images" when another app needs generated heroes, diagrams, product shots, thumbnails, or design imagery. If this app has a native image-generation action, prefer that action because it may attach the image to the local document/deck/design.
+For brand-consistent generated media, use the first-party Assets agent via \`call-agent\` with agent "assets" when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery. If this app has a native generation action, prefer that action because it may attach the asset to the local document/deck/design.
 `;
 
 /**
@@ -2086,6 +2131,7 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 
@@ -2168,7 +2214,7 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
 - You need data that only another deployed app can provide
-- You need brand-consistent generated raster imagery and this app does not have a native image-generation action; call agent "images" and keep returned asset IDs and URLs verbatim
+- You need brand-consistent generated media and this app does not have a native generation action; call agent "assets" and keep returned asset IDs and URLs verbatim
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
@@ -2286,6 +2332,7 @@ Which routes are renderable as embeds is template-specific — the app's \`AGENT
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.
 
@@ -2358,7 +2405,7 @@ The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app'
 - The user explicitly asks you to communicate with a different app (e.g., "ask the mail agent to...")
 - You need data that only another deployed app can provide
 - You are coordinating across genuinely separate apps
-- You need brand-consistent generated raster imagery and this app does not have a native image-generation action. The first-party Images agent is agent "images"; ask it for heroes, diagrams, product shots, thumbnails, or design imagery, and keep returned asset IDs and URLs verbatim.
+- You need brand-consistent generated media and this app does not have a native generation action. The first-party Assets agent is agent "assets"; ask it for heroes, diagrams, product shots, thumbnails, videos, or design imagery, and keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` returns an error saying the agent is yourself — stop and use your own tools instead.
 If \`call-agent\` says a downstream agent accepted a subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.
@@ -2428,6 +2475,8 @@ If the current turn is in Plan mode, plan before anything gets written. This app
 ### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
 
 In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
+
+Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
@@ -2518,6 +2567,8 @@ If the turn is in Plan mode, plan before anything gets written — including ext
 ### Extensions (Mini-Apps) — Use \`create-extension\`
 
 In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+
+Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
 
@@ -3101,6 +3152,7 @@ export function createAgentChatPlugin(
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
       mountMcpServersRoutes(nitroApp, mcpManager);
+      startMcpConfigRefresh(mcpManager);
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -5201,9 +5253,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const skillsOwner = await getOwnerFromEvent(event).catch(
               () => undefined,
             );
+            let skillsOrgId: string | undefined;
+            if (options?.resolveOrgId) {
+              try {
+                skillsOrgId = (await options.resolveOrgId(event)) ?? undefined;
+              } catch {
+                skillsOrgId = undefined;
+              }
+            }
             if (skillsOwner) await ensurePersonalDefaults(skillsOwner);
             const resourceSkills = skillsOwner
-              ? await resourceListAccessible(skillsOwner, "skills/")
+              ? await resourceListAccessible(skillsOwner, "skills/", {
+                  userEmail: skillsOwner,
+                  orgId: skillsOrgId ?? null,
+                })
               : [
                   ...(await resourceList(SHARED_OWNER, "skills/")),
                   ...(await resourceList(WORKSPACE_OWNER, "skills/")),
@@ -5237,7 +5300,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               let description: string | undefined;
               let userInvocable: boolean | undefined;
               try {
-                const full = await resourceGet(r.id);
+                const full = await resourceGet(
+                  r.id,
+                  skillsOwner
+                    ? { userEmail: skillsOwner, orgId: skillsOrgId ?? null }
+                    : undefined,
+                );
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
                   if (fm.name) skillName = fm.name;
@@ -5955,6 +6023,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const body = await readBody(event);
                 let newThreadData = body.threadData || thread.threadData;
                 let newMessageCount = body.messageCount ?? thread.messageCount;
+                let nextTitle =
+                  typeof body.title === "string" ? body.title : thread.title;
+                const nextPreview =
+                  typeof body.preview === "string"
+                    ? body.preview
+                    : thread.preview;
+                const preserveTitleOverride = (repo: unknown) => {
+                  if (
+                    repo &&
+                    typeof repo === "object" &&
+                    typeof (repo as { _titleOverride?: unknown })
+                      ._titleOverride === "string" &&
+                    (repo as { _titleOverride: string })._titleOverride.trim()
+                  ) {
+                    const meta = extractThreadMeta(repo);
+                    if (meta.title) nextTitle = meta.title;
+                  }
+                };
                 // Merge the incoming full-thread blob over the current SQL
                 // copy. Periodic saves can be stale relative to server-side
                 // run completion, and threadRuntime.export() does not carry
@@ -5971,15 +6057,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (Array.isArray(merged.messages)) {
                       newMessageCount = merged.messages.length;
                     }
+                    preserveTitleOverride(merged);
                   } catch {
                     // Invalid JSON in either side — fall back to raw body blob.
+                  }
+                } else {
+                  try {
+                    preserveTitleOverride(JSON.parse(newThreadData));
+                  } catch {
+                    // Invalid JSON — keep the title supplied by the client.
                   }
                 }
                 await updateThreadData(
                   threadId,
                   newThreadData,
-                  body.title ?? thread.title,
-                  body.preview ?? thread.preview,
+                  nextTitle,
+                  nextPreview,
                   newMessageCount,
                 );
                 // Scope updates piggyback on the PUT — the client uses this
@@ -6009,6 +6102,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ? body.queuedMessages
                 : [];
               await setThreadQueuedMessages(threadId, queued);
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("rename")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              const title =
+                typeof body?.title === "string"
+                  ? body.title.replace(/\s+/g, " ").trim().slice(0, 160)
+                  : "";
+              if (!title) {
+                setResponseStatus(event, 400);
+                return { error: "Title is required" };
+              }
+              const renamed = await renameThread(threadId, title, {
+                ownerEmail: owner,
+              });
+              if (!renamed) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("pin")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              await setThreadPinned(threadId, body?.pinned !== false);
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("archive")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              await setThreadArchived(threadId, body?.archived !== false);
               return { ok: true };
             }
 

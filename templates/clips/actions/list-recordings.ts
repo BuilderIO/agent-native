@@ -9,10 +9,6 @@ import {
   isNotNull,
   sql,
 } from "drizzle-orm";
-
-function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
-}
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -21,6 +17,29 @@ import {
   getActiveOrganizationId,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
+function transcriptHasText(
+  fullText: string | null | undefined,
+  segmentsJson: string | null | undefined,
+): boolean {
+  if (fullText?.trim()) return true;
+  if (!segmentsJson) return false;
+  try {
+    const parsed = JSON.parse(segmentsJson);
+    return (
+      Array.isArray(parsed) &&
+      parsed.some(
+        (segment) => typeof segment?.text === "string" && segment.text.trim(),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
 
 export default defineAction({
   description:
@@ -141,14 +160,23 @@ export default defineAction({
           : [desc(schema.recordings.createdAt)];
 
     const rows = await db
-      .select()
+      .select({
+        recording: schema.recordings,
+        transcriptStatus: schema.recordingTranscripts.status,
+        transcriptFullText: schema.recordingTranscripts.fullText,
+        transcriptSegmentsJson: schema.recordingTranscripts.segmentsJson,
+      })
       .from(schema.recordings)
+      .leftJoin(
+        schema.recordingTranscripts,
+        eq(schema.recordingTranscripts.recordingId, schema.recordings.id),
+      )
       .where(and(...whereClauses))
       .orderBy(...orderBy)
       .limit(args.limit)
       .offset(args.offset);
 
-    const ids = rows.map((r) => r.id);
+    const ids = rows.map((r) => r.recording.id);
 
     // Gather tags for the result set in one query
     let tagsByRec: Record<string, string[]> = {};
@@ -184,34 +212,42 @@ export default defineAction({
       }
     }
 
-    const recordings = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      titleSource: r.titleSource,
-      sourceAppName: r.sourceAppName,
-      sourceWindowTitle: r.sourceWindowTitle,
-      description: r.description,
-      thumbnailUrl: r.thumbnailUrl,
-      animatedThumbnailUrl: r.animatedThumbnailUrl,
-      durationMs: r.durationMs,
-      status: r.status,
-      uploadProgress: r.uploadProgress,
-      failureReason: r.failureReason,
-      visibility: r.visibility,
-      ownerEmail: r.ownerEmail,
-      folderId: r.folderId,
-      spaceIds: parseSpaceIds(r.spaceIds),
-      tags: tagsByRec[r.id] ?? [],
-      viewCount: viewsByRec[r.id] ?? 0,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      archivedAt: r.archivedAt,
-      trashedAt: r.trashedAt,
-      hasAudio: Boolean(r.hasAudio),
-      hasCamera: Boolean(r.hasCamera),
-      width: r.width,
-      height: r.height,
-    }));
+    const recordings = rows.map((row) => {
+      const r = row.recording;
+      return {
+        id: r.id,
+        title: r.title,
+        titleSource: r.titleSource,
+        sourceAppName: r.sourceAppName,
+        sourceWindowTitle: r.sourceWindowTitle,
+        description: r.description,
+        thumbnailUrl: r.thumbnailUrl,
+        animatedThumbnailUrl: r.animatedThumbnailUrl,
+        durationMs: r.durationMs,
+        status: r.status,
+        uploadProgress: r.uploadProgress,
+        failureReason: r.failureReason,
+        visibility: r.visibility,
+        ownerEmail: r.ownerEmail,
+        folderId: r.folderId,
+        spaceIds: parseSpaceIds(r.spaceIds),
+        tags: tagsByRec[r.id] ?? [],
+        viewCount: viewsByRec[r.id] ?? 0,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        archivedAt: r.archivedAt,
+        trashedAt: r.trashedAt,
+        hasAudio: Boolean(r.hasAudio),
+        hasCamera: Boolean(r.hasCamera),
+        width: r.width,
+        height: r.height,
+        transcriptStatus: row.transcriptStatus ?? null,
+        transcriptHasText: transcriptHasText(
+          row.transcriptFullText,
+          row.transcriptSegmentsJson,
+        ),
+      };
+    });
 
     return { recordings };
   },

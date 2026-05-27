@@ -26,12 +26,14 @@ import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { useEffect, useRef, useMemo, useState } from "react";
-import { IconPhoto } from "@tabler/icons-react";
+import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
+import { VideoNode } from "./extensions/VideoNode";
+import { AudioNode } from "./extensions/AudioNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
   focusMostRecentEmptyToggleSummary,
@@ -46,9 +48,17 @@ import {
 } from "@shared/notion-markdown";
 import {
   getImageFiles,
+  getAudioFiles,
+  getVideoFiles,
+  hasAudioFiles,
   hasImageFiles,
+  hasVideoFiles,
+  audioUploadErrorMessage,
   imageUploadErrorMessage,
+  uploadAudioFile,
   uploadImageFile,
+  uploadVideoFile,
+  videoUploadErrorMessage,
 } from "./image-upload";
 
 /**
@@ -689,12 +699,15 @@ interface VisualEditorProps {
   onChange: (markdown: string) => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
+  /** Shared awareness instance for collaborative cursors/presence. */
+  awareness?: Awareness | null;
   /** Current user info for cursor labels. */
-  user?: { name: string; color: string };
+  user?: { name: string; color: string; email?: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  forceExternalContentSync?: boolean;
 }
 
 export function shouldSeedCollaborativeContent({
@@ -714,10 +727,67 @@ export function shouldSeedCollaborativeContent({
   return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
 }
 
+export function shouldApplyExternalContentSync({
+  collaborationActive,
+  hasLiveCollaborativeEdits,
+  docChanged,
+  content,
+  lastEmittedMarkdown,
+  currentMarkdown,
+  nextMarkdown,
+  editorFocused,
+  lastTypedAt,
+  now,
+  forceExternalContentSync = false,
+}: {
+  collaborationActive: boolean;
+  hasLiveCollaborativeEdits: boolean;
+  docChanged: boolean;
+  content: string;
+  lastEmittedMarkdown: string;
+  currentMarkdown: string;
+  nextMarkdown: string;
+  editorFocused: boolean;
+  lastTypedAt: number;
+  now: number;
+  forceExternalContentSync?: boolean;
+}): boolean {
+  if (currentMarkdown === nextMarkdown) return false;
+
+  // Own-save echo from SQL polling.
+  if (content === lastEmittedMarkdown) return false;
+
+  // Once Yjs has live edits, ordinary SQL refetches are only snapshots. Applying
+  // them with setContent() would turn a stale whole-document save into a Yjs
+  // replacement and can revert collaborators' newer CRDT updates.
+  if (
+    collaborationActive &&
+    hasLiveCollaborativeEdits &&
+    !docChanged &&
+    !forceExternalContentSync
+  ) {
+    return false;
+  }
+
+  const typedRecently = now - lastTypedAt < 2000;
+  if (
+    editorFocused &&
+    typedRecently &&
+    !docChanged &&
+    !forceExternalContentSync
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 interface VisualEditorExtensionOptions {
+  documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
-  user?: { name: string; color: string } | null;
+  user?: { name: string; color: string; email?: string } | null;
+  onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
 }
 
@@ -742,6 +812,89 @@ function hasAncestorType(
 
     return false;
   });
+}
+
+type MediaNodeType = "image" | "video" | "audio";
+
+function mediaNodeLabel(typeName: MediaNodeType) {
+  if (typeName === "image") return "Image";
+  if (typeName === "video") return "Video";
+  return "Audio";
+}
+
+function createMediaUploadId(kind: MediaNodeType) {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `${kind}-upload-${random}`;
+}
+
+interface PendingMediaUpload {
+  file: File;
+  uploadId: string;
+}
+
+function insertPendingMediaNodes(
+  view: EditorView,
+  typeName: MediaNodeType,
+  files: File[],
+  position: number,
+): PendingMediaUpload[] {
+  const nodeType = view.state.schema.nodes[typeName];
+  if (!nodeType) {
+    throw new Error(
+      `${mediaNodeLabel(typeName)} blocks are not available in this editor.`,
+    );
+  }
+
+  let insertPos = Math.min(position, view.state.doc.content.size);
+  let tr = view.state.tr;
+  const pendingUploads: PendingMediaUpload[] = [];
+
+  for (const file of files) {
+    const uploadId = createMediaUploadId(typeName);
+    const node = nodeType.create(
+      typeName === "image"
+        ? { src: null, alt: "", uploadId }
+        : { src: null, uploadId },
+    );
+    tr = tr.insert(insertPos, node);
+    insertPos = Math.min(insertPos + node.nodeSize, tr.doc.content.size);
+    pendingUploads.push({ file, uploadId });
+  }
+
+  view.dispatch(tr.scrollIntoView());
+  return pendingUploads;
+}
+
+function updatePendingMediaNode(
+  view: EditorView,
+  typeName: MediaNodeType,
+  uploadId: string,
+  attrs: Record<string, unknown>,
+) {
+  let found = false;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === typeName && node.attrs.uploadId === uploadId) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        ...attrs,
+        uploadId: null,
+      });
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found) {
+    view.dispatch(tr);
+  }
+  return found;
 }
 
 function getVisualEditorPlaceholder({
@@ -794,12 +947,20 @@ function getVisualEditorPlaceholder({
   return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
 }
 
-async function uploadAndInsertImageFiles(
+export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
 ): Promise<void> {
   if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "image", files, position);
+  } catch (error) {
+    toast.error(imageUploadErrorMessage(error));
+    return;
+  }
 
   const toastId = toast.loading(
     files.length === 1
@@ -807,38 +968,147 @@ async function uploadAndInsertImageFiles(
       : `Uploading ${files.length} images...`,
   );
 
-  try {
-    let insertPos = Math.min(position, view.state.doc.content.size);
-    const imageType = view.state.schema.nodes.image;
-    if (!imageType) {
-      throw new Error("Image blocks are not available in this editor.");
-    }
+  let failed = 0;
+  let firstError: unknown = null;
 
-    for (const file of files) {
-      const src = await uploadImageFile(file);
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadImageFile(pending.file);
       if (!view.dom.isConnected) return;
-
-      const node = imageType.create({ src, alt: file.name });
-      const tr = view.state.tr.insert(insertPos, node).scrollIntoView();
-      view.dispatch(tr);
-      insertPos = Math.min(
-        insertPos + node.nodeSize,
-        view.state.doc.content.size,
-      );
+      updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "image", pending.uploadId, {});
+      }
     }
+  }
 
+  if (failed === 0) {
     toast.success(files.length === 1 ? "Image added" : "Images added", {
       id: toastId,
     });
+  } else if (files.length === 1) {
+    toast.error(imageUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} image uploads failed. ${imageUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
+  }
+}
+
+export async function uploadAndInsertVideoFiles(
+  view: EditorView,
+  files: File[],
+  position: number,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "video", files, position);
   } catch (error) {
-    toast.error(imageUploadErrorMessage(error), { id: toastId });
+    toast.error(videoUploadErrorMessage(error));
+    return;
+  }
+
+  const toastId = toast.loading(
+    files.length === 1
+      ? "Uploading video..."
+      : `Uploading ${files.length} videos...`,
+  );
+
+  let failed = 0;
+  let firstError: unknown = null;
+
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadVideoFile(pending.file);
+      if (!view.dom.isConnected) return;
+      updatePendingMediaNode(view, "video", pending.uploadId, { src });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "video", pending.uploadId, {});
+      }
+    }
+  }
+
+  if (failed === 0) {
+    toast.success(files.length === 1 ? "Video added" : "Videos added", {
+      id: toastId,
+    });
+  } else if (files.length === 1) {
+    toast.error(videoUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} video uploads failed. ${videoUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
+  }
+}
+
+export async function uploadAndInsertAudioFiles(
+  view: EditorView,
+  files: File[],
+  position: number,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "audio", files, position);
+  } catch (error) {
+    toast.error(audioUploadErrorMessage(error));
+    return;
+  }
+
+  const toastId = toast.loading(
+    files.length === 1
+      ? "Uploading audio..."
+      : `Uploading ${files.length} audio files...`,
+  );
+
+  let failed = 0;
+  let firstError: unknown = null;
+
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadAudioFile(pending.file);
+      if (!view.dom.isConnected) return;
+      updatePendingMediaNode(view, "audio", pending.uploadId, { src });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "audio", pending.uploadId, {});
+      }
+    }
+  }
+
+  if (failed === 0) {
+    toast.success(files.length === 1 ? "Audio added" : "Audio files added", {
+      id: toastId,
+    });
+  } else if (files.length === 1) {
+    toast.error(audioUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} audio uploads failed. ${audioUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
   }
 }
 
 export function createVisualEditorExtensions({
+  documentId,
   ydoc,
   localAwareness,
   user,
+  onImageComment,
   onJoinTitle,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return [
@@ -875,6 +1145,18 @@ export function createVisualEditorExtensions({
     }),
     ImageNode.configure({
       HTMLAttributes: { class: "notion-image" },
+      documentId,
+      onImageComment,
+    }),
+    VideoNode.configure({
+      HTMLAttributes: { class: "notion-video" },
+      documentId,
+      onVideoComment: onImageComment,
+    }),
+    AudioNode.configure({
+      HTMLAttributes: { class: "notion-audio" },
+      documentId,
+      onAudioComment: onImageComment,
     }),
     CustomTable.configure({
       resizable: false,
@@ -916,12 +1198,14 @@ export function VisualEditor({
   content,
   onChange,
   ydoc,
+  awareness,
   user,
   editable = true,
   onComment,
   onJoinTitle,
+  forceExternalContentSync = false,
 }: VisualEditorProps) {
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -934,40 +1218,55 @@ export function VisualEditor({
   // agent edit can still apply when the user is idle but happens to have
   // the editor focused — without yanking in-progress typing.
   const lastTypedAtRef = useRef<number>(0);
+  const hasLiveCollaborativeEditsRef = useRef(false);
 
-  // Create Awareness instance locally (same module as CollaborationCursor uses)
-  const localAwareness = useMemo(() => {
+  // Reuse the synced Awareness instance when provided; fall back for tests or
+  // non-template embedders that only pass a Y.Doc.
+  const fallbackAwareness = useMemo(() => {
+    if (awareness) return null;
     if (!ydoc) return null;
     const a = new Awareness(ydoc);
     if (user) {
       a.setLocalStateField("user", user);
     }
     return a;
-  }, [ydoc]);
+  }, [awareness, ydoc]);
+  const localAwareness = awareness ?? fallbackAwareness;
 
   // Update user info when it changes
   useEffect(() => {
     if (localAwareness && user) {
       localAwareness.setLocalStateField("user", user);
     }
-  }, [localAwareness, user?.name, user?.color]);
+  }, [localAwareness, user?.name, user?.email, user?.color]);
 
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      localAwareness?.destroy();
+      fallbackAwareness?.destroy();
     };
-  }, [localAwareness]);
+  }, [fallbackAwareness]);
 
   const extensions = useMemo(
     () =>
       createVisualEditorExtensions({
+        documentId,
         ydoc,
         localAwareness,
         user,
+        onImageComment: onComment,
         onJoinTitle,
       }),
-    [ydoc, localAwareness, user?.name, user?.color, onJoinTitle],
+    [
+      documentId,
+      ydoc,
+      localAwareness,
+      user?.name,
+      user?.email,
+      user?.color,
+      onComment,
+      onJoinTitle,
+    ],
   );
 
   const editor = useEditor({
@@ -978,42 +1277,88 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
-        setIsDraggingImage(false);
+        setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
 
-        const files = getImageFiles(event.dataTransfer.files);
-        if (files.length === 0) return false;
+        const imageFiles = getImageFiles(event.dataTransfer.files);
+        const videoFiles = getVideoFiles(event.dataTransfer.files);
+        const audioFiles = getAudioFiles(event.dataTransfer.files);
+        if (
+          imageFiles.length === 0 &&
+          videoFiles.length === 0 &&
+          audioFiles.length === 0
+        ) {
+          return false;
+        }
 
         event.preventDefault();
         const coords = view.posAtCoords({
           left: event.clientX,
           top: event.clientY,
         });
-        void uploadAndInsertImageFiles(
-          view,
-          files,
-          coords?.pos ?? view.state.selection.from,
-        );
+        const position = coords?.pos ?? view.state.selection.from;
+        if (imageFiles.length > 0) {
+          void uploadAndInsertImageFiles(view, imageFiles, position);
+        }
+        if (videoFiles.length > 0) {
+          void uploadAndInsertVideoFiles(view, videoFiles, position);
+        }
+        if (audioFiles.length > 0) {
+          void uploadAndInsertAudioFiles(view, audioFiles, position);
+        }
         return true;
       },
       handlePaste(view, event) {
         if (!view.editable || !event.clipboardData) return false;
 
-        const files = getImageFiles(event.clipboardData.files);
-        if (files.length === 0) return false;
+        const imageFiles = getImageFiles(event.clipboardData.files);
+        const videoFiles = getVideoFiles(event.clipboardData.files);
+        const audioFiles = getAudioFiles(event.clipboardData.files);
+        if (
+          imageFiles.length === 0 &&
+          videoFiles.length === 0 &&
+          audioFiles.length === 0
+        ) {
+          return false;
+        }
 
         event.preventDefault();
-        void uploadAndInsertImageFiles(view, files, view.state.selection.from);
+        if (imageFiles.length > 0) {
+          void uploadAndInsertImageFiles(
+            view,
+            imageFiles,
+            view.state.selection.from,
+          );
+        }
+        if (videoFiles.length > 0) {
+          void uploadAndInsertVideoFiles(
+            view,
+            videoFiles,
+            view.state.selection.from,
+          );
+        }
+        if (audioFiles.length > 0) {
+          void uploadAndInsertAudioFiles(
+            view,
+            audioFiles,
+            view.state.selection.from,
+          );
+        }
         return true;
       },
       handleDOMEvents: {
         dragover(view, event) {
-          if (!view.editable || !hasImageFiles(event.dataTransfer)) {
+          if (
+            !view.editable ||
+            (!hasImageFiles(event.dataTransfer) &&
+              !hasVideoFiles(event.dataTransfer) &&
+              !hasAudioFiles(event.dataTransfer))
+          ) {
             return false;
           }
           event.preventDefault();
           event.dataTransfer!.dropEffect = "copy";
-          setIsDraggingImage(true);
+          setIsDraggingMedia(true);
           return true;
         },
         dragleave(view, event) {
@@ -1023,7 +1368,7 @@ export function VisualEditor({
             !(event.relatedTarget instanceof Node) ||
             !wrapper.contains(event.relatedTarget)
           ) {
-            setIsDraggingImage(false);
+            setIsDraggingMedia(false);
           }
           return false;
         },
@@ -1032,6 +1377,7 @@ export function VisualEditor({
     editable,
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
+      if (ydoc) hasLiveCollaborativeEditsRef.current = true;
       lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
@@ -1080,11 +1426,8 @@ export function VisualEditor({
   }, [editor, ydoc, content, documentId]);
 
   // Sync content from outside (e.g. Notion pull, update-document action).
-  // When ydoc is bound, applying content through the editor via setContent
-  // propagates through TipTap's Collaboration extension to Y.XmlFragment,
-  // which then flows to the server and other clients via the collab update
-  // channel. We detect echoes of our own saves via lastEmittedRef to avoid
-  // clobbering user edits in progress.
+  // In collab mode this is only safe before live Yjs edits have started:
+  // after that, SQL content is a lagging snapshot and Yjs owns the document.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
@@ -1094,19 +1437,23 @@ export function VisualEditor({
       (editor.storage as any).markdown.getMarkdown(),
     );
     const normalizedNext = serializeEditorToNfm(nextEditorContent);
-    if (currentMd === normalizedNext) return;
-
-    // If the incoming content matches what we just emitted, it's our own
-    // save echoing back via the poll — skip to avoid a needless re-render.
-    if (content === lastEmittedRef.current) return;
-
-    // Skip sync while the user is actively typing (unless the doc switched)
-    // so we don't yank their in-progress edits. We only block if the user
-    // has TYPED in the last 2s — having focus alone isn't enough, otherwise
-    // a Notion pull that happens while the user has the editor focused but
-    // idle would leave them stuck on the pre-pull content.
-    const typedRecently = Date.now() - lastTypedAtRef.current < 2000;
-    if (editor.isFocused && typedRecently && !docChanged) return;
+    if (
+      !shouldApplyExternalContentSync({
+        collaborationActive: !!ydoc,
+        hasLiveCollaborativeEdits: hasLiveCollaborativeEditsRef.current,
+        docChanged,
+        content,
+        lastEmittedMarkdown: lastEmittedRef.current,
+        currentMarkdown: currentMd,
+        nextMarkdown: normalizedNext,
+        editorFocused: editor.isFocused,
+        lastTypedAt: lastTypedAtRef.current,
+        now: Date.now(),
+        forceExternalContentSync,
+      })
+    ) {
+      return;
+    }
 
     // Defer to a microtask so we don't trigger flushSync during a React
     // render — TipTap's setContent dispatches PM transactions that may
@@ -1126,11 +1473,15 @@ export function VisualEditor({
         .setContent(nextEditorContent)
         .run();
       isSettingContent.current = false;
+      if (forceExternalContentSync) {
+        hasLiveCollaborativeEditsRef.current = false;
+        lastEmittedRef.current = normalizedNext;
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [content, editor, documentId, ydoc]);
+  }, [content, editor, documentId, forceExternalContentSync, ydoc]);
 
   if (!editor) {
     return (
@@ -1145,7 +1496,7 @@ export function VisualEditor({
 
   return (
     <div
-      className={`visual-editor-wrapper${isDraggingImage ? " visual-editor-wrapper--dragging" : ""}`}
+      className={`visual-editor-wrapper${isDraggingMedia ? " visual-editor-wrapper--dragging" : ""}`}
     >
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
@@ -1155,11 +1506,13 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable ? <TableHoverControls editor={editor} /> : null}
-      {editable && isDraggingImage ? (
+      {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
             <IconPhoto size={16} />
-            <span>Drop image</span>
+            <IconVideo size={16} />
+            <IconMusic size={16} />
+            <span>Drop media</span>
           </div>
         </div>
       ) : null}

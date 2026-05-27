@@ -4,7 +4,12 @@
  * Mounted under /_agent-native/collab/ by the collab plugin.
  */
 
-import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  getRouterParam,
+  getQuery,
+} from "h3";
 import type { H3Event } from "h3";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
@@ -23,7 +28,23 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const state = await manager.getState(docId);
+  const query = getQuery(event);
+  const encodedStateVector =
+    typeof query.stateVector === "string" ? query.stateVector : null;
+  let state: Uint8Array;
+  if (encodedStateVector) {
+    try {
+      state = await manager.getIncUpdate(
+        docId,
+        base64ToUint8Array(encodedStateVector),
+      );
+    } catch {
+      setResponseStatus(event, 400);
+      return { error: "stateVector must be base64-encoded" };
+    }
+  } else {
+    state = await manager.getState(docId);
+  }
   return {
     docId,
     state: uint8ArrayToBase64(state),

@@ -6,6 +6,7 @@ import {
 } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
+  type AgentActivityTrailEntry,
   type ContentPart,
   readSSEStream,
 } from "./sse-event-processor.js";
@@ -209,6 +210,7 @@ function decodeTextDataUrl(dataUrl: string): string | null {
 }
 
 function extractAttachmentsFromMessage(message: {
+  content?: readonly { type: string; image?: string }[];
   attachments?: readonly AssistantUiAttachment[];
 }): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
@@ -246,6 +248,16 @@ function extractAttachmentsFromMessage(message: {
           text: truncateOutboundAttachment(unwrapAttachmentEnvelope(part.text)),
         });
       }
+    }
+  }
+  for (const part of message.content ?? []) {
+    if (part.type === "image" && typeof part.image === "string") {
+      attachments.push({
+        type: "image",
+        name: "image",
+        contentType: /^data:([^;,]+)/.exec(part.image)?.[1],
+        data: part.image,
+      });
     }
   }
   return attachments;
@@ -298,6 +310,54 @@ function messageTextForHistory(message: {
     MAX_HISTORY_MESSAGE_CHARS,
     "Message",
   );
+}
+
+type AdapterMessage = {
+  role: string;
+  content: readonly { type: string; text?: string }[];
+  attachments?: readonly AssistantUiAttachment[];
+  metadata?: unknown;
+};
+
+const RECOVERY_USER_MESSAGE_PREFIXES = [
+  "Continue from where you left off",
+  "Continue from where you stopped",
+  "Retry the previous request from a clean approach",
+];
+
+function recoveryActionFromMessage(
+  message: unknown,
+): "continue" | "retry" | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const action = meta?.custom?.agentNativeRecoveryAction;
+  return action === "continue" || action === "retry" ? action : null;
+}
+
+function isRecoveryUserMessage(message: AdapterMessage): boolean {
+  if (recoveryActionFromMessage(message)) return true;
+  const text = messageTextFromContentRaw(message.content).trim();
+  return RECOVERY_USER_MESSAGE_PREFIXES.some((prefix) =>
+    text.startsWith(prefix),
+  );
+}
+
+function latestUserMessage(
+  messages: readonly AdapterMessage[],
+  options?: { skipRecovery?: boolean; beforeIndex?: number },
+): AdapterMessage | undefined {
+  const start =
+    typeof options?.beforeIndex === "number"
+      ? Math.min(options.beforeIndex, messages.length)
+      : messages.length;
+  for (let i = start - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    if (options?.skipRecovery && isRecoveryUserMessage(message)) continue;
+    return message;
+  }
+  return undefined;
 }
 
 function isToolCallContentPart(
@@ -527,6 +587,16 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
   );
 }
 
+function lastActivityTool(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const tool = trail[i]?.tool?.trim();
+    if (tool) return tool;
+  }
+  return undefined;
+}
+
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
     part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
@@ -534,6 +604,7 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
 }
 
 function autoContinueMessage(signal: AgentAutoContinueSignal): string {
+  const tool = lastActivityTool(signal.activityTrail);
   const reason =
     signal.reason === "loop_limit"
       ? "The previous run reached an internal step budget."
@@ -544,7 +615,11 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
           : signal.reason === "stream_ended"
             ? "The previous stream ended before the agent sent a final completion signal."
             : "The previous run reached an internal execution budget.";
-  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
+  const actionInputNote =
+    signal.reason === "run_timeout" && tool
+      ? `\n\nThe previous run timed out while preparing the \`${tool}\` action input before the action could run. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
+      : "";
+  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}${actionInputNote}`;
 }
 
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
@@ -809,13 +884,29 @@ export function createAgentChatAdapter(options?: {
   return {
     async *run({ messages, abortSignal, runConfig }) {
       // Extract latest user message and build history from prior messages
-      let lastUserMsg: (typeof messages)[number] | undefined;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === "user") {
-          lastUserMsg = messages[i];
-          break;
+      const adapterMessages = messages as readonly AdapterMessage[];
+      const latestUserIndex = (() => {
+        for (let i = adapterMessages.length - 1; i >= 0; i--) {
+          if (adapterMessages[i].role === "user") return i;
         }
-      }
+        return -1;
+      })();
+      const latestUserMsg =
+        latestUserIndex >= 0 ? adapterMessages[latestUserIndex] : undefined;
+      const latestUserIsRecovery = latestUserMsg
+        ? isRecoveryUserMessage(latestUserMsg)
+        : false;
+      const lastUserMsg =
+        latestUserIsRecovery && latestUserIndex >= 0
+          ? (latestUserMessage(adapterMessages, {
+              skipRecovery: true,
+              beforeIndex: latestUserIndex,
+            }) ?? latestUserMsg)
+          : latestUserMsg;
+      const recoveryMessageText =
+        latestUserIsRecovery && latestUserMsg
+          ? messageTextFromContentRaw(latestUserMsg.content)
+          : "";
       const rawMessageText =
         lastUserMsg?.content
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -866,8 +957,8 @@ export function createAgentChatAdapter(options?: {
           : "Use the attached context.";
 
       const priorMessages = limitPriorMessagesForRequest(
-        messages.slice(0, -1) as any,
-      ); // exclude latest user message and cap resend size
+        messages.slice(0, latestUserIndex >= 0 ? latestUserIndex : -1) as any,
+      ); // exclude latest user/recovery message and cap resend size
       const history = priorMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -894,7 +985,9 @@ export function createAgentChatAdapter(options?: {
       const toolCallCounter = { value: 0 };
       let runId: string | null = null;
       let lastSeq = -1;
-      let currentMessageText = normalizeMentions(userMessageText);
+      let currentMessageText = normalizeMentions(
+        recoveryMessageText.trim() || userMessageText,
+      );
       let currentHistory: AdapterHistoryMessage[] = history;
       let currentStructuredHistory: AgentChatStructuredMessage[] =
         structuredHistory;
@@ -1222,7 +1315,14 @@ export function createAgentChatAdapter(options?: {
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
-            if (!madeVisibleProgress && signal.reason === "run_timeout") {
+            const madeActivityProgress =
+              signal.activityTrail.length > 0 ||
+              Boolean(lastActivityTool(signal.activityTrail));
+            if (
+              !madeVisibleProgress &&
+              signal.reason === "run_timeout" &&
+              !madeActivityProgress
+            ) {
               return { ok: false, resetVisibleContent: false };
             }
             if (!madeVisibleProgress) {

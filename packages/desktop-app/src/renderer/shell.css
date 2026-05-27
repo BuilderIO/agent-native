@@ -1503,6 +1503,180 @@ body {
   color: #ccc;
 }
 
+.settings-disclosure--nested {
+  margin-top: -4px;
+  margin-bottom: 10px;
+  color: #777;
+}
+
+.settings-shortcut-section {
+  display: grid;
+  gap: 10px;
+  margin-top: -4px;
+}
+
+.settings-shortcut-form {
+  display: grid;
+  grid-template-columns:
+    minmax(128px, 1.15fr) minmax(96px, 0.9fr) minmax(82px, 0.7fr)
+    auto auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.settings-shortcut-recorder-wrap {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.settings-shortcut-recorder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #d4d4d4;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 560;
+  padding: 0 10px;
+  text-align: left;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.settings-shortcut-recorder:hover,
+.settings-shortcut-recorder--recording {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.09);
+  color: #f5f5f5;
+}
+
+.settings-shortcut-recorder span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-shortcut-error,
+.settings-shortcut-message {
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.settings-shortcut-form select,
+.settings-shortcut-form input[type="text"] {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: #111;
+  color: #d4d4d4;
+  font-size: 12px;
+  outline: none;
+  padding: 0 9px;
+}
+
+.settings-shortcut-form select:focus,
+.settings-shortcut-form input[type="text"]:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.settings-shortcut-form .settings-mode-toggle {
+  height: 34px;
+}
+
+.settings-shortcut-form .settings-mode-btn {
+  padding: 0 8px;
+}
+
+.settings-shortcut-save,
+.settings-shortcut-cancel {
+  width: auto;
+  height: 34px;
+  margin-bottom: 0;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.settings-shortcut-list {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.settings-shortcut-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-shortcut-keys {
+  color: #e5e5e5;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-shortcut-target {
+  color: #777;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-shortcut-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #fca5a5;
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.settings-shortcut-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.settings-shortcut-status {
+  min-width: 46px;
+  color: #666;
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.settings-shortcut-status--ok {
+  color: #22c55e;
+}
+
+.settings-shortcut-empty {
+  padding: 8px 0 2px;
+  color: #666;
+  font-size: 11px;
+}
+
 /* Toggle switch */
 .settings-toggle {
   position: relative;

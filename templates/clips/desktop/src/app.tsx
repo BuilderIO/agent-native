@@ -16,6 +16,7 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  discardBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
@@ -37,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
   IconArrowLeft,
+  IconFolderOpen,
   IconPencil,
   IconInfoCircle,
   IconRefresh,
@@ -56,6 +58,7 @@ interface PendingNativeUpload {
   kind: "native";
   recordingId: string;
   serverUrl: string;
+  folderPath?: string;
   durationMs: number;
   width?: number | null;
   height?: number | null;
@@ -127,6 +130,34 @@ const MACOS_CAPTURE_PERMISSION_MESSAGE =
   "Grant the required macOS permissions below, then try again. If you just changed access, restart Clips before retrying.";
 const MACOS_SPEECH_PERMISSION_MESSAGE =
   "Grant Speech Recognition and Microphone access, then try again. If you just changed access, restart Clips before retrying.";
+
+function normalizedMediaDeviceId(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
+  const id = normalizedMediaDeviceId(value).toLowerCase();
+  return id === "default" || id === "communications";
+}
+
+function concreteMediaDeviceId(value: string | null | undefined): string {
+  const id = normalizedMediaDeviceId(value);
+  return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
+function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
+  return !!concreteMediaDeviceId(device.deviceId);
+}
+
+function isBuiltInMicDevice(device: MediaDeviceInfo): boolean {
+  const label = device.label.toLowerCase();
+  return (
+    label.includes("macbook") ||
+    label.includes("built-in") ||
+    label.includes("built in") ||
+    label.includes("internal microphone")
+  );
+}
 
 function isHardCapturePermissionError(message: string): boolean {
   return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
@@ -202,6 +233,18 @@ function originForUrl(value: string, base?: string): string | null {
 
 function originForServer(serverUrl: string): string {
   return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
+}
+
+function normalizeServerUrl(serverUrl: string): string {
+  return serverUrl.trim().replace(/\/+$/, "");
+}
+
+function serverUrlForPendingUpload(
+  upload: PendingDesktopUpload,
+  currentServerUrl: string,
+): string {
+  const normalizedCurrent = normalizeServerUrl(currentServerUrl);
+  return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -532,6 +575,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+    null,
+  );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
@@ -565,10 +611,13 @@ export function App() {
     null,
   );
   const isRecording = recorder !== null;
+  const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
   const selectedMicLabel = useMemo(
     () =>
-      micId ? (mics.find((mic) => mic.deviceId === micId)?.label ?? "") : "",
-    [micId, mics],
+      selectedMicId
+        ? (mics.find((mic) => mic.deviceId === selectedMicId)?.label ?? "")
+        : "",
+    [selectedMicId, mics],
   );
   const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
@@ -591,7 +640,7 @@ export function App() {
       shortcut: voiceShortcut,
       mode: voiceMode,
       provider: voiceProvider,
-      micDeviceId: micId || null,
+      micDeviceId: selectedMicId || null,
       micDeviceLabel: selectedMicLabel || null,
       instructions: voiceInstructions,
     });
@@ -601,7 +650,7 @@ export function App() {
     voiceDictationEnabled,
     voiceMode,
     voiceProvider,
-    micId,
+    selectedMicId,
     selectedMicLabel,
     voiceInstructions,
   ]);
@@ -968,7 +1017,7 @@ export function App() {
           await invoke("meeting_audio_start", {
             meetingId: resolvedMeetingId,
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         } catch (err) {
@@ -979,7 +1028,7 @@ export function App() {
           session.audioMode = "mic-only";
           await invoke("native_speech_start", {
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         }
@@ -1014,7 +1063,13 @@ export function App() {
         }).catch(() => {});
       }
     },
-    [callClipsAction, flushMeetingTranscript, stopMeetingTranscription],
+    [
+      callClipsAction,
+      flushMeetingTranscript,
+      selectedMicId,
+      selectedMicLabel,
+      stopMeetingTranscription,
+    ],
   );
 
   useEffect(() => {
@@ -1178,15 +1233,22 @@ export function App() {
 
   // ---- device enumeration -------------------------------------------------
   // WebKit only returns full device labels after getUserMedia() has granted
-  // access once. So we do a one-shot mic + camera probe when the popover
-  // first loads (if permissions are already granted, this is silent; if
-  // not, the OS prompts once and we get the full list on the next render).
+  // access once. Enumerating itself is safe; the unlock helper below is careful
+  // to never touch the OS default input just to populate labels.
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
       const list = await navigator.mediaDevices.enumerateDevices();
-      setCameras(list.filter((d) => d.kind === "videoinput"));
-      setMics(list.filter((d) => d.kind === "audioinput"));
+      setCameras(
+        list.filter(
+          (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
+        ),
+      );
+      setMics(
+        list.filter(
+          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
+        ),
+      );
     } catch {
       // ignore
     }
@@ -1200,18 +1262,18 @@ export function App() {
     // WebViews in the same process). Camera-label text is low-value
     // anyway; most machines have one.
     //
-    // Do not probe `audio: true` here. On macOS that opens the system
-    // default input, which can shove Bluetooth headphones into hands-free
-    // mode just from opening the Clips popover. If the user has picked a
-    // specific mic, use that exact device; otherwise leave labels locked
-    // until a real user action needs microphone access.
+    // Do not probe `audio: true` or WebKit's pseudo `default` device here.
+    // On macOS that opens the system default input, which can shove
+    // Bluetooth headphones into hands-free mode just from opening the Clips
+    // popover. If the user has picked a concrete mic, use that exact device;
+    // otherwise leave labels locked until a real user action needs access.
     try {
-      if (!micId) {
+      if (!selectedMicId) {
         await loadDevices();
         return;
       }
       const s = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: micId } },
+        audio: { deviceId: { exact: selectedMicId } },
         video: false,
       });
       s.getTracks().forEach((t) => t.stop());
@@ -1219,7 +1281,7 @@ export function App() {
       // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
-  }, [loadDevices, micId]);
+  }, [loadDevices, selectedMicId]);
 
   // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
@@ -1307,11 +1369,9 @@ export function App() {
     };
   }, []);
 
-  // Defer device-label unlocking until the popover is first shown. The
-  // getUserMedia({audio}) call triggers a macOS permission dialog — if it
-  // fires on mount (before the popover is visible), the OS dialog appears
-  // with no visible app context and can interfere with the tray icon and
-  // subsequent popover shows.
+  // Defer device-label unlocking until the popover is first shown. Even the
+  // selected-device probe can trigger a macOS permission dialog, so keep it
+  // attached to visible UI instead of firing on hidden webview mount.
   const deviceLabelsUnlocked = useRef(false);
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
@@ -1321,6 +1381,12 @@ export function App() {
       unlockDeviceLabels();
     }
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
+
+  useEffect(() => {
+    if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
+    const builtIn = mics.find(isBuiltInMicDevice);
+    setMicId(builtIn?.deviceId ?? "");
+  }, [micId, mics]);
 
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -1745,8 +1811,8 @@ export function App() {
   }
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId) return;
-    const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
+    if (retryingUploadId || discardingUploadId) return;
+    const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
     try {
@@ -1761,6 +1827,7 @@ export function App() {
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
+          serverUrl: targetServerUrl,
           authToken,
         });
       }
@@ -1779,6 +1846,46 @@ export function App() {
     } finally {
       setRetryingUploadId(null);
     }
+  }
+
+  async function discardPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || discardingUploadId) return;
+    setRecError(null);
+    setDiscardingUploadId(upload.recordingId);
+    setPendingUploads((uploads) =>
+      uploads.filter((item) => item.recordingId !== upload.recordingId),
+    );
+    try {
+      if (upload.kind === "native") {
+        await invoke("native_fullscreen_recording_discard_upload", {
+          recordingId: upload.recordingId,
+        });
+      } else {
+        await discardBrowserRecordingBackup(upload.recordingId);
+      }
+      await loadPendingUploads();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] discard saved upload failed:", err);
+      setRecError(message);
+      await loadPendingUploads();
+    } finally {
+      setDiscardingUploadId(null);
+    }
+  }
+
+  function openPendingUploadFolder(upload: PendingDesktopUpload) {
+    if (upload.kind !== "native" || !upload.folderPath) {
+      setRecError("This saved upload is stored in the browser backup cache.");
+      return;
+    }
+    invoke("open_local_recording_folder", {
+      path: upload.folderPath,
+    }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] open pending upload folder failed:", err);
+      setRecError(message);
+    });
   }
 
   async function startRecording() {
@@ -1881,7 +1988,7 @@ export function App() {
         mode,
         source,
         cameraId,
-        micId,
+        micId: selectedMicId || undefined,
         micLabel: selectedMicLabel || undefined,
         authToken: loadDesktopAuthToken(serverUrl),
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
@@ -2222,7 +2329,10 @@ export function App() {
         <PendingUploadBanner
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
+          discardingUploadId={discardingUploadId}
           onRetry={retryPendingUpload}
+          onDiscard={discardPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
         />
       ) : null}
 
@@ -2264,7 +2374,7 @@ export function App() {
         <DeviceRow
           kind="mic"
           devices={mics}
-          selectedId={micId}
+          selectedId={selectedMicId}
           onSelect={setMicId}
           on={micOn}
           onToggle={setMicOn}
@@ -2566,16 +2676,23 @@ function PermissionRecoveryBanner({
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  discardingUploadId,
   onRetry,
+  onDiscard,
+  onOpenFolder,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  discardingUploadId: string | null;
   onRetry: (upload: PendingDesktopUpload) => void;
+  onDiscard: (upload: PendingDesktopUpload) => void;
+  onOpenFolder: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2600,15 +2717,39 @@ function PendingUploadBanner({
           {errorText ? ` · ${errorText}` : ""}
         </div>
       </div>
-      <button
-        type="button"
-        className="pending-upload-retry"
-        disabled={!!retryingUploadId}
-        onClick={() => onRetry(latest)}
-      >
-        <IconRefresh size={14} stroke={2} />
-        {retrying ? "Retrying" : "Retry"}
-      </button>
+      <div className="pending-upload-actions">
+        {canOpenFolder ? (
+          <button
+            type="button"
+            className="pending-upload-folder"
+            disabled={discardingUploadId === latest.recordingId}
+            onClick={() => onOpenFolder(latest)}
+            aria-label="Open saved local clip folder"
+            title="Open saved local clip folder"
+          >
+            <IconFolderOpen size={14} stroke={2} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="pending-upload-retry"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onRetry(latest)}
+        >
+          <IconRefresh size={14} stroke={2} />
+          {retrying ? "Retrying" : "Retry"}
+        </button>
+        <button
+          type="button"
+          className="pending-upload-discard"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onDiscard(latest)}
+          aria-label="Discard saved local clip"
+          title="Discard saved local clip"
+        >
+          <IconTrash size={14} stroke={2} />
+        </button>
+      </div>
     </div>
   );
 }

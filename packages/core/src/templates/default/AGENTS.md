@@ -6,11 +6,18 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Core Principles
 
-1. **Shared SQL database** -- All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
+1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
 3. **Actions for agent operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
+
+### Database Code
+
+- Define tables with `@agent-native/core/db/schema` helpers (`table`, `text`, `integer`, `real`, `now`, sharing helpers), never `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`.
+- Use Drizzle's query builder (`db.select`, `db.insert`, `db.update`, `db.delete`) plus portable operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads and writes.
+- Keep raw SQL out of normal actions, handlers, and stores. Use it only for additive migrations, health checks, or last-resort maintenance, and keep it parameterized and dialect-agnostic.
+- Do not write SQLite-only or Postgres-only syntax in product code. The same app should run on SQLite, Postgres, libSQL/Turso, D1, and other supported Drizzle backends.
 
 ### Authentication
 
@@ -77,12 +84,13 @@ You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at t
 | `hello`       | `[--name <name>]`                                                              | Example script                                                                          |
 | `db-schema`   |                                                                                | Show all tables, columns, types                                                         |
 | `db-query`    | `--sql "SELECT ..."`                                                           | Run a SELECT query                                                                      |
-| `db-exec`     | `--sql "INSERT ..."`                                                           | Run INSERT/UPDATE/DELETE (use for short/multi-column writes)                            |
+| `db-exec`     | `--sql "UPDATE ..."`                                                           | Last-resort ad-hoc maintenance; prefer domain actions and Drizzle code for product work |
 | `db-patch`    | `--table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` | Surgical search/replace on a large text column — sends a diff instead of the full value |
 
-**Pick the right SQL tool:**
+**For one-off maintenance, pick the right SQL tool:**
 
-- Use `db-exec UPDATE` for short columns, multi-column writes, or computed updates.
+- Use domain actions first. They validate input, enforce access, and refresh the UI.
+- Use `db-exec UPDATE` only when no domain action exists and you need a small ad-hoc change.
 - Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
 - If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
 

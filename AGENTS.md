@@ -27,7 +27,7 @@ Do not mark advisory-only answers green. If the user asked "what should we do?" 
 
 ## The Six Rules
 
-1. **Data lives in SQL** — via Drizzle ORM. Any SQL database (SQLite/Postgres/D1/Turso/Supabase/Neon). See `portability` skill.
+1. **Data lives in SQL** — via Drizzle ORM. Use the framework schema helpers and Drizzle query builder so app code stays provider-agnostic; raw SQL is only for additive migrations, health checks, or one-off maintenance. Local SQLite is only the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL`. Do not imply Turso is required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. See `portability` and `storing-data` skills.
 2. **All AI goes through the agent chat** — the UI never calls an LLM directly. Use `sendToAgentChat()`. See `delegate-to-agent`.
 3. **Actions are the single source of truth** — define once in `actions/`; the agent calls them as tools, the frontend calls them as HTTP endpoints at `/_agent-native/actions/:name`. See `actions`.
 4. **Polling keeps the UI in sync** — `useDbSync()` polls `/_agent-native/poll` every 2s and invalidates React Query caches. Works on all serverless/edge hosts. See `real-time-sync`.
@@ -164,7 +164,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
   for a new UI.
 - **Template UX stays clean, minimal, and intuitive** — this is a high priority across all templates. Treat every important screen as a focused working surface, not a place to accumulate fixes as extra visible controls. When acting on feedback, especially broad prompts like "fix what you agree with," judge each suggestion through visual hierarchy, user intent, and progressive disclosure before changing the UI. Prefer clarifying primary actions, reducing competing elements, tightening layout, and moving secondary or rare actions into menus, sheets, tabs, or advanced sections. Do not solve feedback by adding more buttons, toolbars, badges, panels, helper text, filters, or always-visible options to important screens unless that added surface is genuinely the clearest path for the main workflow. If a fix would make a core screen busier, look for a cleaner interaction model or ask before adding clutter.
 - **Progressive disclosure by default** — UIs should reveal complexity gradually, not dump every option on screen at once. Lead with the primary action and most-used info; hide the rest behind reveals. Concrete patterns: shadcn `Collapsible` / `Accordion` for grouped settings, `Popover` for secondary actions (share, filters, color pickers, "more options"), `DropdownMenu` overflow (`⋯`) for tertiary toolbar items, `Sheet` / side drawer for full-detail editing of a row, `HoverCard` or expand-on-click for card details, "Show advanced" toggles for optional form fields, tabs to split a long surface into focused sections. Anti-patterns we keep regressing into: a settings page that dumps 20 fields in one flat column, a form that shows every optional field upfront, a toolbar where every button has equal visual weight, a card that prints every metadata field instead of summary + expandable details, a dialog the size of the screen because the form has 15 fields, an empty state that scaffolds the full UI instead of one clear CTA. Rule of thumb: if a first-time user wouldn't need it in the first 5 seconds, collapse it. When in doubt, default to hiding — it's much cheaper to expose later than to declutter a busy screen.
-- **Public template list is a strict allow-list — never widen it without flipping `hidden:false` first.** The single source of truth is `packages/shared-app-config/templates.ts` (entries with `hidden: false`). Today the public allow-list is exactly: **calendar, content, slides, videos, clips, analytics, mail, dispatch, forms, design, brain** — plus `starter` for the CLI only. The featured/default set is narrower: **calendar, content, slides, clips, analytics, mail, dispatch, forms, design, brain** — plus `starter` for the CLI/default-app fallback. Videos is scaffoldable by explicit slug, but it is not featured on the homepage, `/templates`, docs sidebar, CLI picker, or desktop/mobile default tabs. Hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) MUST NOT appear on the homepage, in the docs sidebar, in docs pages, or in the CLI catalog. Surfaces that hardcode their own list — `packages/docs/app/components/TemplateCard.tsx`, `packages/docs/app/components/docsNavItems.ts`, docs pages `packages/core/docs/content/template-*.md`, and the CLI duplicate `packages/core/src/cli/templates-meta.ts` — must only reference allow-listed slugs. To make a hidden template public: flip `hidden: false` in `packages/shared-app-config/templates.ts` AND `packages/core/src/cli/templates-meta.ts`, then add it to the surfaces above. To hide one: flip `hidden: true` in both files; the guard will then point you at every surface that still mentions it. `scripts/guard-template-list.mjs` (CI + `pnpm prep`) enforces this — adding a slug that isn't in the allow-list will fail the build. _This guard exists because agents kept re-adding the hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, images, macros) to the homepage and sidebar during overnight sweeps. Do not disable it._
+- **Public template list is a strict allow-list — never widen it without flipping `hidden:false` first.** The single source of truth is `packages/shared-app-config/templates.ts` (entries with `hidden: false`). Today the public allow-list is exactly: **calendar, content, slides, videos, clips, analytics, mail, dispatch, forms, design, brain, assets** — plus `starter` for the CLI only. The featured/default set is narrower: **calendar, content, slides, clips, analytics, mail, dispatch, forms, design, brain, assets** — plus `starter` for the CLI/default-app fallback. Videos is scaffoldable by explicit slug, but it is not featured on the homepage, `/templates`, docs sidebar, CLI picker, or desktop/mobile default tabs. Hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, macros) MUST NOT appear on the homepage, in the docs sidebar, in docs pages, or in the CLI catalog. Surfaces that hardcode their own list — `packages/docs/app/components/TemplateCard.tsx`, `packages/docs/app/components/docsNavItems.ts`, docs pages `packages/core/docs/content/template-*.md`, and the CLI duplicate `packages/core/src/cli/templates-meta.ts` — must only reference allow-listed slugs. To make a hidden template public: flip `hidden: false` in `packages/shared-app-config/templates.ts` AND `packages/core/src/cli/templates-meta.ts`, then add it to the surfaces above. To hide one: flip `hidden: true` in both files; the guard will then point you at every surface that still mentions it. `scripts/guard-template-list.mjs` (CI + `pnpm prep`) enforces this — adding a slug that isn't in the allow-list will fail the build. _This guard exists because agents kept re-adding the hidden templates (calls, meeting-notes, voice, scheduling, issues, recruiting, macros) to the homepage and sidebar during overnight sweeps. Do not disable it._
 - **No breaking database changes — ever.** Hosted templates share their prod DB across every deploy context (preview, branch, prod). Any destructive SQL that runs in any build will overwrite live user data. Symptoms we've already hit in production: users losing accounts, dashboards silently emptied, sessions invalidated. Hard rules:
   - **Schema edits must be strictly additive.** Add new columns/tables, never rename or drop. If a column is wrong, add the replacement alongside it, dual-write from the application, migrate readers, and only retire the old column once every deploy that reads it is gone. Same for tables.
   - **Never rename an existing table or column** in a single step — not via Drizzle, not via raw SQL, not via `drizzle-kit push`. A rename looks like drop+create to the diff tool and wipes the table.
@@ -185,7 +185,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 Extensions are mini sandboxed Alpine.js apps that run inside iframes. The agent can create, edit, and manage them at runtime without modifying the app's source code. See the `extensions` skill for full patterns.
 
-> **Extensions vs. LLM tools.** This codebase uses the word "tool" in two distinct senses. _Extensions_ (this primitive) are user-facing sandboxed mini-apps. _LLM tools_ are the function-calling primitives the agent invokes — `tool: { description, parameters }` on an `ActionEntry`, MCP tools (`mcp__<server-id>__*`), and entries in the agent's tool registry. Both exist in this codebase; never confuse them. Physical SQL tables (`tools`, `tool_data`, `tool_shares`, `tool_id`, `tool_consents`, `tool_slots`, `tool_slot_installs`) keep their original names — only the user-facing primitive concept and the Drizzle export names (`extensions`, `extensionData`, `extensionShares`) use the new term.
+> **Extensions vs. LLM tools.** This codebase uses the word "tool" in two distinct senses. _Extensions_ (this primitive) are user-facing sandboxed mini-apps. _LLM tools_ are the function-calling primitives the agent invokes — `tool: { description, parameters }` on an `ActionEntry`, MCP tools (`mcp__<server-id>__*`), and entries in the agent's tool registry. Both exist in this codebase; never confuse them. Physical SQL tables (`tools`, `tool_data`, `tool_shares`, `tool_history`, `tool_id`, `tool_consents`, `tool_slots`, `tool_slot_installs`) keep their original names — only the user-facing primitive concept and the Drizzle export names (`extensions`, `extensionData`, `extensionShares`) use the new term.
 
 **IMPORTANT:** When a user asks to "create an extension" or "make a ... extension" (or the older "create a tool" / "make a tool" phrasing), use the `create-extension` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes.
 
@@ -211,11 +211,12 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 
 **`extensionData` is a built-in per-extension key-value store with user/org scoping.** When a user asks to "add persistence", "save data", or "remember state" in an extension, use `extensionData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by extension ID. All methods accept an optional `{ scope }` option: `'user'` (default, private), `'org'` (shared with org), or `'all'` (list/get only — returns both).
 
-**NEVER suggest Builder, source code changes, or new files for extension modifications.** All extension changes go through `update-extension-content` (to edit the Alpine.js HTML) or `extensionData` (to persist data).
+**NEVER suggest Builder, source code changes, or new files for extension modifications.** All extension changes go through `update-extension` (to edit the Alpine.js HTML or metadata) or `extensionData` (to persist data).
 
 ### How it works
 
 - Extensions are stored in the `tools` SQL table (Drizzle export `extensions`) and rendered via `GET /_agent-native/extensions/:id/render` inside a sandboxed iframe.
+- Extension snapshots are stored in `tool_history`; use history actions or the viewer History popover to inspect diffs and restore older content.
 - `extensionFetch()` proxies API calls through `POST /_agent-native/extensions/proxy`, which injects encrypted secrets (`${keys.NAME}` pattern) and enforces SSRF protections.
 - Extensions inherit the main app's Tailwind v4 theme automatically.
 - Sharing uses the standard framework model (`ownableColumns()` + `createSharesTable()`): private by default, shareable with org or specific users. The shares table is `tool_shares` in SQL (Drizzle export `extensionShares`).
@@ -223,23 +224,29 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 
 ### Agent actions for extensions
 
-| Action             | What it does                                                              |
-| ------------------ | ------------------------------------------------------------------------- |
-| `create-extension` | Create a new extension (name, description, Alpine.js HTML content)        |
-| `update-extension` | Update an extension — use `patches` array for find/replace diffs          |
-| `navigate`         | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
+| Action                              | What it does                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `create-extension`                  | Create a new extension (name, description, Alpine.js HTML content)        |
+| `update-extension`                  | Update an extension — use `patches`/`edits` for targeted HTML changes     |
+| `list-extension-history`            | List saved history versions for an extension                              |
+| `get-extension-history-version`     | Inspect one saved version with a previous-version diff                    |
+| `restore-extension-history-version` | Restore name, description, icon, and HTML content from a saved version    |
+| `navigate`                          | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
 
 ### Routes
 
-| Method | Path                                   | Purpose                                           |
-| ------ | -------------------------------------- | ------------------------------------------------- |
-| GET    | `/_agent-native/extensions`            | List extensions (filtered by ownership + sharing) |
-| POST   | `/_agent-native/extensions`            | Create an extension                               |
-| GET    | `/_agent-native/extensions/:id`        | Get an extension                                  |
-| PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)           |
-| DELETE | `/_agent-native/extensions/:id`        | Delete an extension                               |
-| GET    | `/_agent-native/extensions/:id/render` | Render HTML for iframe                            |
-| POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection         |
+| Method | Path                                                     | Purpose                                           |
+| ------ | -------------------------------------------------------- | ------------------------------------------------- |
+| GET    | `/_agent-native/extensions`                              | List extensions (filtered by ownership + sharing) |
+| POST   | `/_agent-native/extensions`                              | Create an extension                               |
+| GET    | `/_agent-native/extensions/:id`                          | Get an extension                                  |
+| PUT    | `/_agent-native/extensions/:id`                          | Update (supports `patches` for diffing)           |
+| DELETE | `/_agent-native/extensions/:id`                          | Delete an extension                               |
+| GET    | `/_agent-native/extensions/:id/render`                   | Render HTML for iframe                            |
+| GET    | `/_agent-native/extensions/:id/history`                  | List saved extension versions                     |
+| GET    | `/_agent-native/extensions/:id/history/:version`         | Get one version and diff                          |
+| POST   | `/_agent-native/extensions/:id/history/:version/restore` | Restore a version                                 |
+| POST   | `/_agent-native/extensions/proxy`                        | Authenticated proxy with secret injection         |
 
 ### Secrets for extensions
 

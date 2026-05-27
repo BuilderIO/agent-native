@@ -3,6 +3,7 @@ import { isInBuilderFrame, sendToAgentChat } from "@agent-native/core/client";
 export function submitOverviewPrompt(
   message: string,
   selectedModel?: string | null,
+  options?: { openSidebar?: boolean },
 ): string | null {
   const trimmed = message.trim();
   if (!trimmed) return null;
@@ -20,5 +21,6 @@ export function submitOverviewPrompt(
     submit: true,
     newTab: true,
     model: selectedModel || undefined,
+    ...(options?.openSidebar === false ? { openSidebar: false } : {}),
   });
 }
