@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Link, NavLink, useNavigate } from "react-router";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import {
   IconArchive,
   IconDots,
@@ -213,6 +213,8 @@ function BrainChatsSection() {
 }
 
 export function Sidebar() {
+  const location = useLocation();
+  const isAskRoute = location.pathname === "/";
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       "flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors",
@@ -262,7 +264,9 @@ export function Sidebar() {
                   <Icon className="size-4 shrink-0" />
                   <span className="truncate">{item.label}</span>
                 </NavLink>
-                {item.view === "ask" ? <BrainChatsSection /> : null}
+                {item.view === "ask" && isAskRoute ? (
+                  <BrainChatsSection />
+                ) : null}
               </div>
             );
           })}

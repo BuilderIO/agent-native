@@ -438,13 +438,14 @@ export function NavContent({
 
   const renderNavItem = (item: DispatchNavItem) => {
     const Icon = item.icon;
+    const itemMatchesLocalPath = navItemMatchesPath(item, localPathname);
     return (
       <li key={item.id}>
         <NavLink
           to={dispatchNavLinkTarget(item.to)}
           onClick={onNavigate}
           className={({ isActive }) => {
-            const active = isActive || navItemMatchesPath(item, localPathname);
+            const active = isActive || itemMatchesLocalPath;
             return cn(
               "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
               active
@@ -460,7 +461,7 @@ export function NavContent({
           )}
           <span className="truncate">{item.label}</span>
         </NavLink>
-        {item.id === "chat" ? (
+        {item.id === "chat" && itemMatchesLocalPath ? (
           <DispatchChatsSection onNavigate={onNavigate} />
         ) : null}
       </li>
