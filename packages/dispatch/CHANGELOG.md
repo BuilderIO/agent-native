@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.18
+
+### Patch Changes
+
+- 2ea399e: Expose selected Dispatch workspace skills, resources, and MCP server definitions to granted app agents at runtime.
+
 ## 0.8.17
 
 ### Patch Changes

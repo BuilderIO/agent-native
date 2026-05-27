@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.23.0
+
+### Minor Changes
+
+- 2ea399e: Add app-backed skill packaging and CLI support for hosted/local app skill installs.
+
+### Patch Changes
+
+- 2ea399e: Rename the Images template/package to Assets, preserve legacy aliases, and add DAM/video generation capabilities.
+- 2ea399e: Add chat-surface controls for hidden thread tabs and centered empty composers.
+- 2ea399e: Clarify deployment, scaffold, skill, and template guidance for persistent databases and provider-agnostic Drizzle code.
+- 2ea399e: Expose selected Dispatch workspace skills, resources, and MCP server definitions to granted app agents at runtime.
+
 ## 0.22.45
 
 ### Patch Changes
