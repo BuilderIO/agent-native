@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -1087,8 +1087,85 @@ function AssetGrid({
   onEmptyClick: () => void;
 }) {
   const deleteAsset = useActionMutation("delete-asset");
+  const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
+  const selectedCount = selectedAssets.length;
+  const allSelected = assets.length > 0 && selectedCount === assets.length;
+  const deleting = deleteAsset.isPending || deleteAssets.isPending;
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const visibleIds = new Set(assets.map((asset) => asset.id));
+      const next = new Set(
+        [...current].filter((assetId) => visibleIds.has(assetId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [assets]);
+
+  function toggleAsset(assetId: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(assetId);
+      } else {
+        next.delete(assetId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAll(checked: boolean) {
+    setSelectedIds(
+      checked ? new Set(assets.map((asset) => asset.id)) : new Set(),
+    );
+  }
+
+  function confirmDelete(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
+  }
+
+  function handleDeleteConfirmed() {
+    if (!confirmDeleteIds.length || deleting) return;
+    if (confirmDeleteIds.length === 1) {
+      const [id] = confirmDeleteIds;
+      deleteAsset.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            setConfirmDeleteIds([]);
+            setSelectedIds((current) => {
+              const next = new Set(current);
+              next.delete(id);
+              return next;
+            });
+          },
+        },
+      );
+      return;
+    }
+    deleteAssets.mutate(
+      { ids: confirmDeleteIds },
+      {
+        onSuccess: () => {
+          const deletedIds = new Set(confirmDeleteIds);
+          setConfirmDeleteIds([]);
+          setSelectedIds((current) => {
+            const next = new Set(current);
+            for (const id of deletedIds) next.delete(id);
+            return next;
+          });
+          toast.success(
+            `Deleted ${deletedIds.size} asset${deletedIds.size === 1 ? "" : "s"}.`,
+          );
+        },
+      },
+    );
+  }
 
   if (!assets.length) {
     return (
@@ -1108,31 +1185,30 @@ function AssetGrid({
   return (
     <>
       <AlertDialog
-        open={confirmDeleteId !== null}
+        open={confirmDeleteIds.length > 0}
         onOpenChange={(open) => {
-          if (!open) setConfirmDeleteId(null);
+          if (!open) setConfirmDeleteIds([]);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirmDeleteIds.length > 1
+                ? `Delete ${confirmDeleteIds.length} assets?`
+                : "Delete asset?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the asset from the library. Existing exports that
-              already use this URL may stop rendering.
+              {confirmDeleteIds.length > 1
+                ? "This removes the selected assets from the library. Existing exports that already use these URLs may stop rendering."
+                : "This removes the asset from the library. Existing exports that already use this URL may stop rendering."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={!confirmDeleteId || deleteAsset.isPending}
-              onClick={() => {
-                if (!confirmDeleteId) return;
-                deleteAsset.mutate(
-                  { id: confirmDeleteId },
-                  { onSuccess: () => setConfirmDeleteId(null) },
-                );
-              }}
+              disabled={!confirmDeleteIds.length || deleting}
+              onClick={handleDeleteConfirmed}
             >
               Delete
             </AlertDialogAction>
@@ -1140,12 +1216,69 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
+      <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <label className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={(checked) => toggleAll(checked === true)}
+            aria-label="Select all assets in this view"
+          />
+          <span className="truncate">
+            {selectedCount > 0
+              ? `${selectedCount} selected`
+              : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+          </span>
+        </label>
+        {selectedCount > 0 ? (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() =>
+                confirmDelete(selectedAssets.map((asset) => asset.id))
+              }
+              disabled={deleting}
+            >
+              <IconTrash className="h-4 w-4" />
+              Delete
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {assets.map((asset) => (
           <div
             key={asset.id}
-            className="group relative overflow-hidden rounded-lg border border-border bg-card"
+            className={[
+              "group relative overflow-hidden rounded-lg border bg-card transition",
+              selectedIds.has(asset.id)
+                ? "border-primary ring-2 ring-primary/25"
+                : "border-border",
+            ].join(" ")}
           >
+            <div className="absolute left-2 top-2 z-10">
+              <Checkbox
+                checked={selectedIds.has(asset.id)}
+                onCheckedChange={(checked) =>
+                  toggleAsset(asset.id, checked === true)
+                }
+                aria-label={`Select ${asset.title || asset.metadata?.category || "asset"}`}
+                className={[
+                  "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+                  selectedIds.has(asset.id) ? "sm:opacity-100" : "",
+                ].join(" ")}
+              />
+            </div>
             <div className="absolute right-2 top-2 z-10">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1194,7 +1327,7 @@ function AssetGrid({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                    onSelect={() => setConfirmDeleteId(asset.id)}
+                    onSelect={() => confirmDelete([asset.id])}
                   >
                     <IconTrash className="mr-2 h-4 w-4 shrink-0" />
                     Delete

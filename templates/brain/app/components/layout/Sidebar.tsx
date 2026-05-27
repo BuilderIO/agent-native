@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import {
   IconArchive,
   IconDots,
+  IconEdit,
   IconPin,
   IconPlus,
   IconSettings,
@@ -22,6 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -71,11 +73,16 @@ function BrainChatsSection() {
     switchThread,
     pinThread,
     archiveThread,
+    renameThread,
     refreshThreads,
   } = useChatThreads(undefined, undefined, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
   });
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
@@ -105,6 +112,14 @@ function BrainChatsSection() {
     };
   }, [refreshThreads]);
 
+  useEffect(() => {
+    if (!renamingThreadId) return;
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [renamingThreadId]);
+
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
     navigate("/");
@@ -127,6 +142,35 @@ function BrainChatsSection() {
     if (threadId === activeThreadId) {
       await handleNewChat();
     }
+  }
+
+  function startRenameThread(thread: ChatThreadSummary) {
+    committingRenameRef.current = false;
+    setRenameDraft(threadTitle(thread));
+    setRenamingThreadId(thread.id);
+  }
+
+  function cancelRenameThread() {
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+  }
+
+  async function commitRenameThread() {
+    if (committingRenameRef.current) return;
+    const threadId = renamingThreadId;
+    const title = renameDraft.trim();
+    if (!threadId) return;
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+    if (title) await renameThread(threadId, title);
+    committingRenameRef.current = false;
+  }
+
+  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void commitRenameThread();
   }
 
   return (
@@ -152,6 +196,7 @@ function BrainChatsSection() {
       <div className="grid gap-0.5">
         {visibleThreads.map((thread) => {
           const isActive = thread.id === activeThreadId;
+          const isRenaming = thread.id === renamingThreadId;
           return (
             <div
               key={thread.id}
@@ -162,48 +207,83 @@ function BrainChatsSection() {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
               )}
             >
-              <button
-                type="button"
-                onClick={() => openThread(thread.id)}
-                className="flex h-full min-w-0 flex-1 items-center px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {threadTitle(thread)}
-                </span>
-              </button>
-              <div className="relative flex size-7 shrink-0 items-center justify-end pr-1">
-                <span className="text-[11px] text-sidebar-foreground/50 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-                  {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
-                </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`Chat options for ${threadTitle(thread)}`}
-                      className="absolute right-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                    >
-                      <IconDots className="size-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="right" sideOffset={6}>
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        void pinThread(thread.id, !thread.pinnedAt)
+              {isRenaming ? (
+                <form
+                  onSubmit={handleRenameSubmit}
+                  className="flex h-full min-w-0 flex-1 items-center px-1.5"
+                >
+                  <Input
+                    ref={renameInputRef}
+                    value={renameDraft}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onBlur={() => void commitRenameThread()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelRenameThread();
                       }
-                    >
-                      <IconPin className="size-4" />
-                      {thread.pinnedAt ? "Unpin chat" : "Pin chat"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => void handleArchiveThread(thread.id)}
-                    >
-                      <IconArchive className="size-4" />
-                      Archive chat
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                    }}
+                    maxLength={160}
+                    aria-label={`Rename ${threadTitle(thread)}`}
+                    className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
+                  />
+                </form>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openThread(thread.id)}
+                    className="flex h-full min-w-0 flex-1 items-center px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {threadTitle(thread)}
+                    </span>
+                  </button>
+                  <div className="relative flex size-7 shrink-0 items-center justify-end pr-1">
+                    <span className="text-[11px] text-sidebar-foreground/50 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                      {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`Chat options for ${threadTitle(thread)}`}
+                          className="absolute right-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                        >
+                          <IconDots className="size-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        side="right"
+                        sideOffset={6}
+                      >
+                        <DropdownMenuItem
+                          onSelect={() => startRenameThread(thread)}
+                        >
+                          <IconEdit className="size-4" />
+                          Rename chat
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void pinThread(thread.id, !thread.pinnedAt)
+                          }
+                        >
+                          <IconPin className="size-4" />
+                          {thread.pinnedAt ? "Unpin chat" : "Pin chat"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => void handleArchiveThread(thread.id)}
+                        >
+                          <IconArchive className="size-4" />
+                          Archive chat
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </>
+              )}
             </div>
           );
         })}

@@ -2128,7 +2128,7 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
-- \`chat-history\` (actions: "pin", "unpin", "archive") — Organize a known chat thread by ID
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 
@@ -2329,7 +2329,7 @@ Which routes are renderable as embeds is template-specific — the app's \`AGENT
 You can search and restore previous chat conversations using \`chat-history\`:
 - \`chat-history\` (action: "search") — Search or list past chat threads by keyword
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
-- \`chat-history\` (actions: "pin", "unpin", "archive") — Organize a known chat thread by ID
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.
 
