@@ -608,13 +608,9 @@ export default function App() {
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
     if (activeSidebarAppId && window.electronAPI?.setActiveApp) {
-      window.electronAPI.setActiveApp(
-        activeSidebarAppId === CODE_AGENTS_SURFACE_ID || activeTabId
-          ? activeSidebarAppId
-          : "",
-      );
+      window.electronAPI.setActiveApp(activeSidebarAppId);
     }
-  }, [activeSidebarAppId, activeTabId]);
+  }, [activeSidebarAppId]);
 
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onCloseTab) return;

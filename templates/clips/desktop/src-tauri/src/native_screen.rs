@@ -707,16 +707,13 @@ fn start_segment_backend(
                 );
             }
         }
-        let (backend, w, h) = start_screencapture_backend_at(
-            segment_path,
-            include_audio,
-            target_display_id,
-        )
-        .map_err(|fallback_err| {
-            format!(
+        let (backend, w, h) =
+            start_screencapture_backend_at(segment_path, include_audio, target_display_id)
+                .map_err(|fallback_err| {
+                    format!(
                 "ScreenCaptureKit resume failed; screencapture fallback failed ({fallback_err})"
             )
-        })?;
+                })?;
         Ok((backend, w, h))
     }
     #[cfg(not(target_os = "macos"))]
@@ -766,7 +763,7 @@ fn start_screencapturekit_backend_at(
     let mut config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)
-        .with_fps(30)
+        .with_fps(60)
         .with_queue_depth(8)
         .with_shows_cursor(true)
         .with_captures_audio(false)
@@ -807,7 +804,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 30fps, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {

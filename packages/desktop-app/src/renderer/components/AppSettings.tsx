@@ -250,8 +250,7 @@ interface ShortcutDraft {
 }
 
 function defaultShortcutDraft(apps: AppConfig[]): ShortcutDraft {
-  const firstEnabledApp =
-    apps.find((app) => app.enabled !== false) ?? apps[0] ?? null;
+  const firstEnabledApp = apps.find((app) => app.enabled !== false) ?? null;
   return {
     accelerator: "",
     app: firstEnabledApp?.id ?? "",
@@ -522,6 +521,10 @@ export default function AppSettings({
   );
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
+  const shortcutTargetApps = useMemo(
+    () => apps.filter((app) => app.enabled !== false),
+    [apps],
+  );
 
   // Load frame settings
   useEffect(() => {
@@ -565,7 +568,10 @@ export default function AppSettings({
 
   useEffect(() => {
     setShortcutDraft((current) => {
-      if (current.app && apps.some((app) => app.id === current.app)) {
+      if (
+        current.app &&
+        apps.some((app) => app.id === current.app && app.enabled !== false)
+      ) {
         return current;
       }
       return { ...current, app: defaultShortcutDraft(apps).app };
@@ -773,7 +779,8 @@ export default function AppSettings({
     shortcutDraft.accelerator,
   );
   const shortcutDraftValid =
-    Boolean(normalizedShortcut.accelerator) && Boolean(shortcutDraft.app);
+    Boolean(normalizedShortcut.accelerator) &&
+    shortcutTargetApps.some((app) => app.id === shortcutDraft.app);
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -1057,7 +1064,12 @@ export default function AppSettings({
                       }
                       aria-label="Shortcut target app"
                     >
-                      {apps.map((app) => (
+                      {shortcutTargetApps.length === 0 ? (
+                        <option value="" disabled>
+                          No enabled apps
+                        </option>
+                      ) : null}
+                      {shortcutTargetApps.map((app) => (
                         <option key={app.id} value={app.id}>
                           {app.name}
                         </option>

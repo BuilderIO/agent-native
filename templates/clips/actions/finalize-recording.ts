@@ -75,6 +75,9 @@ function chunkIndexFromKey(key: string): number {
 
 const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload and finish saving this clip.";
+const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+const RECORDING_TOO_LARGE_REASON =
+  "Recording is too large to process. Clips now compresses before upload; please update the app and try again, or record a shorter clip / lower-resolution screen.";
 
 function stateNumber(
   value: Record<string, unknown> | null | undefined,
@@ -313,6 +316,9 @@ export default defineAction({
         parts.push(bytes);
       }
       const assembled = concatBytes(parts);
+      if (assembled.byteLength > MAX_RECORDING_UPLOAD_BYTES) {
+        await failChunkAssembly(RECORDING_TOO_LARGE_REASON);
+      }
       // `parts` is no longer needed — dropping the array reference lets V8
       // GC the Uint8Array slices while uploadFile is in flight. Each entry
       // can be megabytes and we can be holding a gigabyte total for long

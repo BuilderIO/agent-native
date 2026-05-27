@@ -84,6 +84,20 @@ const NON_SHIFT_MODIFIERS = new Set([
   "Control",
   "Alt",
 ]);
+const RESERVED_COMMAND_KEYS = new Set(["H", "M", "Q", "W", "Tab"]);
+
+function reservedShortcutError(
+  modifiers: Set<string>,
+  key: string,
+): string | undefined {
+  if (
+    !RESERVED_COMMAND_KEYS.has(key) ||
+    ![...modifiers].some((modifier) => NON_SHIFT_MODIFIERS.has(modifier))
+  ) {
+    return undefined;
+  }
+  return "Choose a shortcut that does not override quit, hide, minimize, close-window, or app-switching keys.";
+}
 
 function normalizeShortcutKey(part: string): string {
   const lower = part.toLowerCase();
@@ -122,6 +136,8 @@ export function normalizeDesktopShortcutAccelerator(rawAccelerator: string): {
   if (![...modifiers].some((modifier) => NON_SHIFT_MODIFIERS.has(modifier))) {
     return { error: "Use Command, Control, or Option with the key." };
   }
+  const reservedError = reservedShortcutError(modifiers, key);
+  if (reservedError) return { error: reservedError };
 
   const orderedModifiers = MODIFIER_ORDER.filter((modifier) =>
     modifiers.has(modifier),

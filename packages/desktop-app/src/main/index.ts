@@ -426,7 +426,9 @@ function getInjectionTargetForAppId(
   appId: string | null | undefined,
 ): OAuthInjectionTarget | null {
   if (!appId) return null;
-  const appConfig = loadAppsForAuthContext().find((app) => app.id === appId);
+  const appConfig = loadAppsForAuthContext().find(
+    (app) => app.id === appId && app.enabled !== false,
+  );
   if (!appConfig) return null;
   return {
     appId: appConfig.id,
@@ -538,6 +540,7 @@ function inferCodeAgentGoalIdFromRunId(
 async function handleDeepLink(url: string) {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return;
     if (parsed.host === "oauth-complete") {
       const token = parsed.searchParams.get("token");
       if (token) {
@@ -603,8 +606,6 @@ async function handleDeepLink(url: string) {
           app: targetApp,
           path: buildAppOpenRoutePath(parsed),
         });
-      } else {
-        focusMainWindow();
       }
     } else if (parsed.host === "shortcuts" && parsed.pathname === "/upsert") {
       await handleShortcutUpsertDeepLink(parsed);
@@ -621,23 +622,20 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
   const behavior =
     parsed.searchParams.get("behavior") === "show" ? "show" : "toggle";
   const apps = loadAppsForAuthContext();
-  const appConfig = apps.find((candidate) => candidate.id === targetApp);
-  const win = focusMainWindow();
+  const appConfig = apps.find(
+    (candidate) => candidate.id === targetApp && candidate.enabled !== false,
+  );
   const normalized = normalizeDesktopShortcutAccelerator(accelerator);
-  if (!normalized.accelerator) {
-    const errorOptions: Electron.MessageBoxOptions = {
-      type: "error",
-      message: "Shortcut was not added",
-      detail: normalized.error ?? "Invalid shortcut.",
-    };
-    if (win) {
-      await dialog.showMessageBox(win, errorOptions);
-    } else {
-      await dialog.showMessageBox(errorOptions);
-    }
+  if (!targetApp || !appConfig || !normalized.accelerator) {
+    console.warn("[main] rejected invalid shortcut deep link", {
+      targetApp,
+      hasApp: Boolean(appConfig),
+      error: normalized.error,
+    });
     return;
   }
-  const appLabel = appConfig?.name ?? targetApp;
+  const win = focusMainWindow();
+  const appLabel = appConfig.name;
   const messageOptions: Electron.MessageBoxOptions = {
     type: "question",
     buttons: ["Add Shortcut", "Cancel"],
@@ -1301,6 +1299,52 @@ let remoteConnectorNextRestartAt: string | undefined;
 let remoteConnectorError: string | undefined;
 let appIsQuitting = false;
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
+const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
+  "clipboard-read",
+  "display-capture",
+  "fullscreen",
+  "media",
+  "notifications",
+]);
+
+function isAllowedWebviewPermission(permission: string): boolean {
+  return ALLOWED_WEBVIEW_PERMISSIONS.has(permission);
+}
+
+function originFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedPermissionRequest(
+  contents: Electron.WebContents | null | undefined,
+  targetAppId: string | null,
+  requestingOrigin?: string,
+  details?: unknown,
+): boolean {
+  if (!targetAppId) return false;
+  const appConfig = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === targetAppId && candidate.enabled !== false,
+  );
+  const trustedOrigin = appConfig ? getAppOrigin(appConfig) : null;
+  if (!trustedOrigin) return false;
+
+  const detailUrl = isObject(details)
+    ? firstStringValue(details.requestingUrl, details.embeddingOrigin)
+    : undefined;
+  const requestOrigin =
+    originFromUrl(requestingOrigin) ??
+    originFromUrl(detailUrl) ??
+    originFromUrl(contents?.getURL());
+  if (requestOrigin !== trustedOrigin) return false;
+
+  const contentsOrigin = originFromUrl(contents?.getURL());
+  return !contentsOrigin || contentsOrigin === trustedOrigin;
+}
 
 function remoteDeviceConfigPath(): string {
   return path.resolve(
@@ -1339,27 +1383,55 @@ function readRemoteDeviceConfig(): {
   }
 }
 
+function writeJsonFileAtomic(
+  filePath: string,
+  value: unknown,
+  options?: { mode?: number },
+): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    const writeOptions =
+      options?.mode === undefined
+        ? "utf-8"
+        : { encoding: "utf-8" as const, mode: options.mode };
+    fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), writeOptions);
+    fs.renameSync(tempPath, filePath);
+    if (options?.mode !== undefined) {
+      try {
+        fs.chmodSync(filePath, options.mode);
+      } catch {
+        // Best effort: this is still inside the user's local config directory.
+      }
+    }
+  } catch (err) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Ignore cleanup failures for a temp file in the config directory.
+    }
+    throw err;
+  }
+}
+
 function writeRemoteDeviceConfig(config: {
   token: string;
   relayUrl: string;
   deviceId?: string;
   deviceName?: string;
 }): void {
-  const configPath = remoteDeviceConfigPath();
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(
-    configPath,
-    JSON.stringify(
-      {
-        token: config.token,
-        relayUrl: config.relayUrl,
-        deviceId: config.deviceId,
-        deviceName: config.deviceName,
-      },
-      null,
-      2,
-    ),
-    { encoding: "utf-8", mode: 0o600 },
+  writeJsonFileAtomic(
+    remoteDeviceConfigPath(),
+    {
+      token: config.token,
+      relayUrl: config.relayUrl,
+      deviceId: config.deviceId,
+      deviceName: config.deviceName,
+    },
+    { mode: 0o600 },
   );
 }
 
@@ -4038,9 +4110,7 @@ function writeCodeAgentProjectsState(state: {
   selectedPath?: string;
   projects: CodeAgentProjectFolder[];
 }) {
-  const filePath = codeAgentProjectsFile();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(state, null, 2)}\n`);
+  writeJsonFileAtomic(codeAgentProjectsFile(), state);
 }
 
 function upsertCodeAgentProject(
@@ -6524,22 +6594,35 @@ function refreshApplicationMenu() {
   installApplicationMenu();
 }
 
-function configurePermissionHandlers(sess: Electron.Session) {
+function configurePermissionHandlers(
+  sess: Electron.Session,
+  targetAppId: string | null,
+) {
   if (permissionConfiguredSessions.has(sess)) return;
   permissionConfiguredSessions.add(sess);
 
-  sess.setPermissionCheckHandler((_webContents, permission) => {
-    if (permission === "fileSystem") return false;
-    return true;
-  });
+  sess.setPermissionCheckHandler(
+    (contents, permission, requestingOrigin, details) => {
+      return (
+        isAllowedWebviewPermission(permission) &&
+        isTrustedPermissionRequest(
+          contents,
+          targetAppId,
+          requestingOrigin,
+          details,
+        )
+      );
+    },
+  );
 
-  sess.setPermissionRequestHandler((_webContents, permission, callback) => {
-    if (permission === "fileSystem") {
-      callback(false);
-      return;
-    }
-    callback(true);
-  });
+  sess.setPermissionRequestHandler(
+    (contents, permission, callback, details) => {
+      callback(
+        isAllowedWebviewPermission(permission) &&
+          isTrustedPermissionRequest(contents, targetAppId, undefined, details),
+      );
+    },
+  );
 }
 
 app.whenReady().then(() => {
@@ -6559,7 +6642,7 @@ app.whenReady().then(() => {
   ) {
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
-    configurePermissionHandlers(sess);
+    configurePermissionHandlers(sess, targetAppId);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -6645,6 +6728,7 @@ app.whenReady().then(() => {
   installApplicationMenu();
 
   reconcileInterruptedCodeAgentRuns("startup");
+  registerDesktopShortcutBindings();
 
   const win = createWindow();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;

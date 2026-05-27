@@ -183,6 +183,40 @@ function getShortcutStorePath(): string {
   return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
 }
 
+function writeJsonFileAtomic(
+  filePath: string,
+  value: unknown,
+  options?: { mode?: number },
+): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    const writeOptions =
+      options?.mode === undefined
+        ? "utf-8"
+        : { encoding: "utf-8" as const, mode: options.mode };
+    fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), writeOptions);
+    fs.renameSync(tempPath, filePath);
+    if (options?.mode !== undefined) {
+      try {
+        fs.chmodSync(filePath, options.mode);
+      } catch {
+        // Best effort: the file still lives inside Electron's userData directory.
+      }
+    }
+  } catch (err) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Ignore cleanup failures for a temp file in userData.
+    }
+    throw err;
+  }
+}
+
 function defaultCodeAgentProviderStore(): CodeAgentProviderStore {
   return { version: 1, credentials: {} };
 }
@@ -205,16 +239,7 @@ function loadCodeAgentProviderStore(): CodeAgentProviderStore {
 }
 
 function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
-  const storePath = getCodeAgentProviderStorePath();
-  fs.writeFileSync(storePath, JSON.stringify(store, null, 2), {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
-  try {
-    fs.chmodSync(storePath, 0o600);
-  } catch {
-    // Best effort: the file still lives inside Electron's userData directory.
-  }
+  writeJsonFileAtomic(getCodeAgentProviderStorePath(), store, { mode: 0o600 });
 }
 
 function defaultShortcutStore(): ShortcutStore {
@@ -271,11 +296,7 @@ function loadShortcutStore(): ShortcutStore {
 }
 
 function saveShortcutStore(store: ShortcutStore): void {
-  fs.writeFileSync(
-    getShortcutStorePath(),
-    JSON.stringify(store, null, 2),
-    "utf-8",
-  );
+  writeJsonFileAtomic(getShortcutStorePath(), store);
 }
 
 function canUseSafeStorage(): boolean {
@@ -471,11 +492,7 @@ export function saveFrameSettings(
 ): FrameSettings {
   const current = loadFrameSettings();
   const updated = { ...current, ...settings };
-  fs.writeFileSync(
-    getFrameStorePath(),
-    JSON.stringify(updated, null, 2),
-    "utf-8",
-  );
+  writeJsonFileAtomic(getFrameStorePath(), updated);
   return updated;
 }
 
@@ -493,11 +510,7 @@ export function saveRemoteConnectorSettings(
 ): RemoteConnectorSettings {
   const current = loadRemoteConnectorSettings();
   const updated = { ...current, ...settings };
-  fs.writeFileSync(
-    getRemoteConnectorStorePath(),
-    JSON.stringify(updated, null, 2),
-    "utf-8",
-  );
+  writeJsonFileAtomic(getRemoteConnectorStorePath(), updated);
   return updated;
 }
 
@@ -524,6 +537,17 @@ export function upsertDesktopShortcutBinding(
     : -1;
   const existing =
     existingIndex >= 0 ? store.bindings[existingIndex] : undefined;
+  const duplicate = store.bindings.find(
+    (binding) =>
+      binding.id !== existing?.id &&
+      binding.accelerator === normalized.accelerator,
+  );
+  if (duplicate) {
+    return {
+      ok: false,
+      error: "Another binding already uses this shortcut.",
+    };
+  }
   const binding: DesktopShortcutBinding = {
     id: existing?.id ?? request.id ?? randomUUID(),
     accelerator: normalized.accelerator,
@@ -638,7 +662,7 @@ export function loadApps(): AppConfig[] {
 }
 
 export function saveApps(apps: AppConfig[]): void {
-  fs.writeFileSync(getStorePath(), JSON.stringify(apps, null, 2), "utf-8");
+  writeJsonFileAtomic(getStorePath(), apps);
 }
 
 export function addApp(newApp: AppConfig): AppConfig[] {
