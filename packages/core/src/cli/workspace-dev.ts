@@ -73,6 +73,12 @@ const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store, no-cache, max-age=0, must-revalidate",
+  pragma: "no-cache",
+  expires: "0",
+};
 
 function normalizeOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -946,7 +952,7 @@ export async function runWorkspaceDev(
 
     if (!app.ready && wantsHtml(req)) {
       ensureReadinessProbe(app);
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
       if (req.method === "HEAD") {
         res.end();
         return;

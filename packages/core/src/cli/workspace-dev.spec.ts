@@ -48,6 +48,7 @@ describe("workspace dev startup", () => {
     const res = await fetch(`${url}/starter`, {
       headers: { accept: "text/html" },
     });
+    expect(res.headers.get("cache-control")).toContain("no-store");
     expect(await res.text()).toContain("Starting Starter");
     expect(fake.startedApps()).toEqual(["dispatch", "starter"]);
   });
@@ -473,6 +474,7 @@ describe("workspace dev startup", () => {
     });
     const html = await res.text();
 
+    expect(res.headers.get("cache-control")).toContain("no-store");
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");
