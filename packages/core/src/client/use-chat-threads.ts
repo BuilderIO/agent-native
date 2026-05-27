@@ -183,6 +183,39 @@ export function useChatThreads(
     new Map(),
   );
   const userRenamedThreadIdsRef = useRef<Set<string>>(new Set());
+  const userRenamedClearTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  const clearUserRenamedThread = useCallback((threadId: string) => {
+    const timer = userRenamedClearTimersRef.current.get(threadId);
+    if (timer) {
+      clearTimeout(timer);
+      userRenamedClearTimersRef.current.delete(threadId);
+    }
+    userRenamedThreadIdsRef.current.delete(threadId);
+  }, []);
+
+  const markUserRenamedThread = useCallback((threadId: string) => {
+    userRenamedThreadIdsRef.current.add(threadId);
+    const existingTimer = userRenamedClearTimersRef.current.get(threadId);
+    if (existingTimer) clearTimeout(existingTimer);
+    const timer = setTimeout(() => {
+      userRenamedClearTimersRef.current.delete(threadId);
+      userRenamedThreadIdsRef.current.delete(threadId);
+    }, 30_000);
+    userRenamedClearTimersRef.current.set(threadId, timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of userRenamedClearTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      userRenamedClearTimersRef.current.clear();
+      userRenamedThreadIdsRef.current.clear();
+    };
+  }, []);
 
   // Latest scope as a ref so `createThread` (a useCallback that we don't
   // want to depend on scope identity) reads the current value at call
@@ -298,6 +331,8 @@ export function useChatThreads(
           const next = { ...server };
           if (local.updatedAt > server.updatedAt) {
             next.updatedAt = local.updatedAt;
+            next.pinnedAt = local.pinnedAt ?? null;
+            next.archivedAt = local.archivedAt ?? null;
           }
           if (local.messageCount > server.messageCount) {
             next.messageCount = local.messageCount;
@@ -478,10 +513,30 @@ export function useChatThreads(
   );
 
   const pinThread = useCallback(
-    async (threadId: string, pinned: boolean): Promise<void> => {
-      const pinnedAt = pinned ? Date.now() : null;
+    async (threadId: string, pinned: boolean): Promise<boolean> => {
+      const previousPinnedAt =
+        threadsRef.current.find((t) => t.id === threadId)?.pinnedAt ?? null;
+      const previousUpdatedAt =
+        threadsRef.current.find((t) => t.id === threadId)?.updatedAt ?? null;
+      const now = Date.now();
+      const pinnedAt = pinned ? now : null;
+      const rollback = () => {
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  pinnedAt: previousPinnedAt,
+                  updatedAt: previousUpdatedAt ?? t.updatedAt,
+                }
+              : t,
+          ),
+        );
+      };
       setThreads((prev) =>
-        prev.map((t) => (t.id === threadId ? { ...t, pinnedAt } : t)),
+        prev.map((t) =>
+          t.id === threadId ? { ...t, pinnedAt, updatedAt: now } : t,
+        ),
       );
       try {
         const res = await fetch(
@@ -493,26 +548,50 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
+          rollback();
           await fetchThreads();
-          return;
+          return false;
         }
         emitThreadsUpdated();
+        return true;
       } catch {
+        rollback();
         await fetchThreads();
+        return false;
       }
     },
     [apiUrl, fetchThreads],
   );
 
   const archiveThread = useCallback(
-    async (threadId: string): Promise<void> => {
+    async (threadId: string): Promise<boolean> => {
+      const previousArchivedAt =
+        threadsRef.current.find((t) => t.id === threadId)?.archivedAt ?? null;
+      const previousUpdatedAt =
+        threadsRef.current.find((t) => t.id === threadId)?.updatedAt ?? null;
+      const previousActiveThreadId = activeThreadIdRef.current;
       const archivedAt = Date.now();
+      const rollback = () => {
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  archivedAt: previousArchivedAt,
+                  updatedAt: previousUpdatedAt ?? t.updatedAt,
+                }
+              : t,
+          ),
+        );
+        if (previousActiveThreadId === threadId) {
+          setActiveThreadId(threadId);
+        }
+      };
       setThreads((prev) =>
-        prev.map((t) => (t.id === threadId ? { ...t, archivedAt } : t)),
+        prev.map((t) =>
+          t.id === threadId ? { ...t, archivedAt, updatedAt: archivedAt } : t,
+        ),
       );
-      if (threadId === activeThreadIdRef.current) {
-        setActiveThreadId(null);
-      }
       try {
         const res = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(threadId)}/archive`,
@@ -523,12 +602,19 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
+          rollback();
           await fetchThreads();
-          return;
+          return false;
+        }
+        if (threadId === activeThreadIdRef.current) {
+          setActiveThreadId(null);
         }
         emitThreadsUpdated();
+        return true;
       } catch {
+        rollback();
         await fetchThreads();
+        return false;
       }
     },
     [apiUrl, fetchThreads],
@@ -542,7 +628,7 @@ export function useChatThreads(
       const previousTitle = threadsRef.current.find(
         (t) => t.id === threadId,
       )?.title;
-      userRenamedThreadIdsRef.current.add(threadId);
+      markUserRenamedThread(threadId);
       setThreads((prev) =>
         prev.map((t) => (t.id === threadId ? { ...t, title: nextTitle } : t)),
       );
@@ -557,7 +643,7 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
-          userRenamedThreadIdsRef.current.delete(threadId);
+          clearUserRenamedThread(threadId);
           if (previousTitle !== undefined) {
             setThreads((prev) =>
               prev.map((t) =>
@@ -571,7 +657,7 @@ export function useChatThreads(
         emitThreadsUpdated();
         return true;
       } catch {
-        userRenamedThreadIdsRef.current.delete(threadId);
+        clearUserRenamedThread(threadId);
         if (previousTitle !== undefined) {
           setThreads((prev) =>
             prev.map((t) =>
@@ -583,7 +669,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads],
+    [apiUrl, clearUserRenamedThread, fetchThreads, markUserRenamedThread],
   );
 
   const isNewThread = useCallback(
@@ -603,6 +689,7 @@ export function useChatThreads(
         });
         emitThreadsUpdated();
       } catch {}
+      clearUserRenamedThread(id);
       optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => {
         const next = prev.filter((t) => t.id !== id);

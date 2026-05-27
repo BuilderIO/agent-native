@@ -102,17 +102,23 @@ describe("chat thread store", () => {
         return { rows: [], rowsAffected: 1 };
       }
       if (/UPDATE chat_threads SET pinned_at/i.test(sql)) {
-        if (!row || row.id !== args[1]) {
+        if (!row || row.id !== args[2]) {
           return { rows: [], rowsAffected: 0 };
         }
-        row = { ...row, pinned_at: args[0] };
+        if (args[3] && row.owner_email !== args[3]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, pinned_at: args[0], updated_at: args[1] };
         return { rows: [], rowsAffected: 1 };
       }
       if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
-        if (!row || row.id !== args[1]) {
+        if (!row || row.id !== args[2]) {
           return { rows: [], rowsAffected: 0 };
         }
-        row = { ...row, archived_at: args[0] };
+        if (args[3] && row.owner_email !== args[3]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, archived_at: args[0], updated_at: args[1] };
         return { rows: [], rowsAffected: 1 };
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -185,15 +191,33 @@ describe("chat thread store", () => {
   it("pins and archives threads as lightweight metadata", async () => {
     await setThreadPinned("thread-1", true);
     expect(row!.pinned_at).toEqual(expect.any(Number));
-    expect(row!.updated_at).toBe(1);
+    expect(row!.updated_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBeGreaterThanOrEqual(1);
 
     await setThreadPinned("thread-1", false);
     expect(row!.pinned_at).toBeNull();
 
     await setThreadArchived("thread-1", true);
     expect(row!.archived_at).toEqual(expect.any(Number));
-    expect(row!.updated_at).toBe(1);
+    expect(row!.updated_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBeGreaterThanOrEqual(1);
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses to pin or archive a thread for a different owner", async () => {
+    const pinned = await setThreadPinned("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+    const archived = await setThreadArchived("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+
+    expect(pinned).toBe(false);
+    expect(archived).toBe(false);
+    expect(row!.pinned_at).toBeUndefined();
+    expect(row!.archived_at).toBeUndefined();
+    expect(row!.updated_at).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("renames threads with a durable title override", async () => {
