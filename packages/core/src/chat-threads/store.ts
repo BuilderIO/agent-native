@@ -491,6 +491,7 @@ export async function setThreadScope(
 export async function renameThread(
   id: string,
   title: string,
+  options: { ownerEmail?: string } = {},
 ): Promise<boolean> {
   const nextTitle = normalizeThreadTitle(title);
   if (!nextTitle) return false;
@@ -498,6 +499,9 @@ export async function renameThread(
   return await withThreadDataLock(id, async () => {
     const thread = await getThread(id);
     if (!thread) return false;
+    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
+      return false;
+    }
 
     const repo = parseThreadData(thread.threadData);
     repo._titleOverride = nextTitle;

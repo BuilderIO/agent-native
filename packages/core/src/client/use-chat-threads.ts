@@ -108,7 +108,9 @@ function nextThreadTitle(
   incomingTitle: string,
   incomingPreview: string,
   source: ThreadTitleSource = "extracted",
+  options: { preserveUserTitle?: boolean } = {},
 ): string {
+  if (options.preserveUserTitle && currentTitle) return currentTitle;
   if (source === "generated") return incomingTitle;
   if (!currentTitle) return incomingTitle;
   if (!incomingTitle) return currentTitle;
@@ -180,6 +182,7 @@ export function useChatThreads(
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
+  const userRenamedThreadIdsRef = useRef<Set<string>>(new Set());
 
   // Latest scope as a ref so `createThread` (a useCallback that we don't
   // want to depend on scope identity) reads the current value at call
@@ -536,7 +539,10 @@ export function useChatThreads(
       const nextTitle = title.replace(/\s+/g, " ").trim().slice(0, 160);
       if (!nextTitle) return false;
 
-      const previous = threadsRef.current;
+      const previousTitle = threadsRef.current.find(
+        (t) => t.id === threadId,
+      )?.title;
+      userRenamedThreadIdsRef.current.add(threadId);
       setThreads((prev) =>
         prev.map((t) => (t.id === threadId ? { ...t, title: nextTitle } : t)),
       );
@@ -551,14 +557,28 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
-          setThreads(previous);
+          userRenamedThreadIdsRef.current.delete(threadId);
+          if (previousTitle !== undefined) {
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === threadId ? { ...t, title: previousTitle } : t,
+              ),
+            );
+          }
           await fetchThreads();
           return false;
         }
         emitThreadsUpdated();
         return true;
       } catch {
-        setThreads(previous);
+        userRenamedThreadIdsRef.current.delete(threadId);
+        if (previousTitle !== undefined) {
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === threadId ? { ...t, title: previousTitle } : t,
+            ),
+          );
+        }
         await fetchThreads();
         return false;
       }
@@ -622,11 +642,13 @@ export function useChatThreads(
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
         const localScope = localThread?.scope ?? null;
+        const preserveUserTitle = userRenamedThreadIdsRef.current.has(id);
         const title = nextThreadTitle(
           localThread?.title,
           data.title,
           data.preview,
           titleSource,
+          { preserveUserTitle },
         );
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "PUT",
@@ -654,6 +676,10 @@ export function useChatThreads(
                       data.title,
                       data.preview,
                       titleSource,
+                      {
+                        preserveUserTitle:
+                          userRenamedThreadIdsRef.current.has(id),
+                      },
                     ),
                     preview: data.preview,
                     ...(data.messageCount != null && {
@@ -695,6 +721,7 @@ export function useChatThreads(
         const data = await res.json();
         const title = data.title;
         if (!title) return null;
+        if (userRenamedThreadIdsRef.current.has(threadId)) return null;
         // Update the title in local state
         setThreads((prev) =>
           prev.map((t) => (t.id === threadId ? { ...t, title } : t)),

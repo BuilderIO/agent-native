@@ -1304,7 +1304,10 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
                   ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
                   : "";
               if (!nextTitle) return "Missing required title.";
-              await renameThread(id, nextTitle);
+              const renamed = await renameThread(id, nextTitle, {
+                ownerEmail: owner,
+              });
+              if (!renamed) return `Chat thread "${id}" could not be renamed.`;
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
@@ -6020,6 +6023,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const body = await readBody(event);
                 let newThreadData = body.threadData || thread.threadData;
                 let newMessageCount = body.messageCount ?? thread.messageCount;
+                let nextTitle =
+                  typeof body.title === "string" ? body.title : thread.title;
+                const nextPreview =
+                  typeof body.preview === "string"
+                    ? body.preview
+                    : thread.preview;
+                const preserveTitleOverride = (repo: unknown) => {
+                  if (
+                    repo &&
+                    typeof repo === "object" &&
+                    typeof (repo as { _titleOverride?: unknown })
+                      ._titleOverride === "string" &&
+                    (repo as { _titleOverride: string })._titleOverride.trim()
+                  ) {
+                    const meta = extractThreadMeta(repo);
+                    if (meta.title) nextTitle = meta.title;
+                  }
+                };
                 // Merge the incoming full-thread blob over the current SQL
                 // copy. Periodic saves can be stale relative to server-side
                 // run completion, and threadRuntime.export() does not carry
@@ -6036,15 +6057,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (Array.isArray(merged.messages)) {
                       newMessageCount = merged.messages.length;
                     }
+                    preserveTitleOverride(merged);
                   } catch {
                     // Invalid JSON in either side — fall back to raw body blob.
+                  }
+                } else {
+                  try {
+                    preserveTitleOverride(JSON.parse(newThreadData));
+                  } catch {
+                    // Invalid JSON — keep the title supplied by the client.
                   }
                 }
                 await updateThreadData(
                   threadId,
                   newThreadData,
-                  body.title ?? thread.title,
-                  body.preview ?? thread.preview,
+                  nextTitle,
+                  nextPreview,
                   newMessageCount,
                 );
                 // Scope updates piggyback on the PUT — the client uses this
@@ -6092,7 +6120,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
-              await renameThread(threadId, title);
+              const renamed = await renameThread(threadId, title, {
+                ownerEmail: owner,
+              });
+              if (!renamed) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               return { ok: true };
             }
 

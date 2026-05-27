@@ -14,6 +14,7 @@
 import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { captureError } from "./capture-error.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -142,6 +143,10 @@ export function getH3App(nitroApp: any): H3AppShim {
           "[agent-native] Failed to auto-mount default plugins:",
           (err as Error).message,
         );
+        captureError(err, {
+          route: "default-plugin-bootstrap",
+          tags: { phase: "default-plugin-bootstrap" },
+        });
       },
     );
 
@@ -636,6 +641,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             `[agent-native] Failed to auto-mount default plugin ${stem}:`,
             (e as Error).message,
           );
+          captureError(e, {
+            route: "default-plugin-bootstrap",
+            tags: { phase: "default-plugin-bootstrap", plugin: stem },
+          });
         }
       }
     }

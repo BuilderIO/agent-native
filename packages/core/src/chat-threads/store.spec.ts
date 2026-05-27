@@ -204,6 +204,17 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("refuses to rename a thread for a different owner", async () => {
+    const renamed = await renameThread("thread-1", "Other title", {
+      ownerEmail: "other@example.com",
+    });
+
+    expect(renamed).toBe(false);
+    expect(row!.title).toBe("Thread");
+    expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
   it("forks from a client snapshot when the source thread is not persisted yet", async () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {

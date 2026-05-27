@@ -7,6 +7,7 @@ import {
   IconPin,
   IconPlus,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 import {
   appPath,
   FeedbackButton,
@@ -62,6 +63,14 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
   const bPinned = b.pinnedAt ?? 0;
   if (aPinned || bPinned) return bPinned - aPinned;
   return threadUpdatedAt(b) - threadUpdatedAt(a);
+}
+
+function persistedActiveThreadId() {
+  try {
+    return localStorage.getItem("agent-chat-active-thread");
+  } catch {
+    return null;
+  }
 }
 
 function BrainChatsSection() {
@@ -138,8 +147,10 @@ function BrainChatsSection() {
   }
 
   async function handleArchiveThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedActiveThreadId();
     await archiveThread(threadId);
-    if (threadId === activeThreadId) {
+    if (wasActive) {
       await handleNewChat();
     }
   }
@@ -164,7 +175,10 @@ function BrainChatsSection() {
     committingRenameRef.current = true;
     setRenamingThreadId(null);
     setRenameDraft("");
-    if (title) await renameThread(threadId, title);
+    if (title) {
+      const renamed = await renameThread(threadId, title);
+      if (!renamed) toast.error("Could not rename chat.");
+    }
     committingRenameRef.current = false;
   }
 
