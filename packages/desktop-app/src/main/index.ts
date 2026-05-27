@@ -74,7 +74,6 @@ import {
 import {
   formatDesktopShortcutAccelerator,
   normalizeDesktopShortcutAccelerator,
-  shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
   type DesktopShortcutRegistration,
 } from "@shared/desktop-shortcuts";
@@ -480,6 +479,7 @@ function focusMainWindow(): BrowserWindow | null {
       : BrowserWindow.getAllWindows()[0];
   if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
+    if (process.platform === "darwin") app.show();
     win.show();
     win.focus();
     return win;
@@ -1106,7 +1106,6 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
 
   sendOpenRequestToRenderer({
     app: binding.app,
-    path: shortcutOpenPathForBinding(binding),
   });
 }
 
