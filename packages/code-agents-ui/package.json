@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/code-agents-ui",
-  "version": "0.1.74",
+  "version": "0.1.75",
   "type": "module",
   "description": "Reusable React UI for Agent-Native Code surfaces.",
   "license": "MIT",

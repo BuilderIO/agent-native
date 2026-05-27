@@ -1,5 +1,11 @@
 # @agent-native/code-agents-ui
 
+## 0.1.75
+
+### Patch Changes
+
+- daeb0a9: Publish reusable Agent-Native workspace packages publicly with provenance metadata.
+
 ## 0.1.74
 
 ### Patch Changes
