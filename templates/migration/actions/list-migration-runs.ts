@@ -63,6 +63,7 @@ export default defineAction({
         target: run.target,
         phase: run.phase,
         approved: run.approved,
+        hasPlanInputs: Boolean(run.planInputsJson),
         taskCount: countMap.get(run.id) ?? 0,
         passedTaskCount: passedMap.get(run.id) ?? 0,
         coveredTaskCount: coveredMap.get(run.id) ?? 0,

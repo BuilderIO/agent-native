@@ -25,6 +25,7 @@ export interface Tab {
   title: string;
   urlOpenNonce?: number;
   urlPath?: string;
+  urlOpenSoft?: boolean;
 }
 
 let nextTabId = 1;
@@ -296,6 +297,7 @@ export default function App() {
       const urlPath = safeDesktopOpenPath(request.path);
       if (!urlPath) return true;
       const urlOpenNonce = Date.now();
+      const urlOpenSoft = request.softOpen === true;
 
       setAppTabs((prev) => {
         const appState = prev[appId];
@@ -313,7 +315,9 @@ export default function App() {
           ...prev,
           [appId]: {
             tabs: tabs.map((tab) =>
-              tab.id === activeTabId ? { ...tab, urlOpenNonce, urlPath } : tab,
+              tab.id === activeTabId
+                ? { ...tab, urlOpenNonce, urlPath, urlOpenSoft }
+                : tab,
             ),
             activeTabId,
           },
@@ -794,6 +798,7 @@ export default function App() {
                 isActive={isActive}
                 urlOpenNonce={tab.urlOpenNonce}
                 urlPath={tab.urlPath}
+                urlOpenSoft={tab.urlOpenSoft}
                 refreshKey={isActive ? refreshKey : 0}
                 onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
                 onAppsChanged={handleAppsChanged}

@@ -25,11 +25,15 @@ on:
     paths:
       # changesets-managed npm packages — any source change reaches here
       # via the Version Packages PR merge bumping their package.json.
+      - "packages/code-agents-ui/**"
       - "packages/core/**"
-      - "packages/scheduling/**"
-      - "packages/pinpoint/**"
-      - "packages/embedding/**"
       - "packages/dispatch/**"
+      - "packages/embedding/**"
+      - "packages/frame/**"
+      - "packages/migrate/**"
+      - "packages/pinpoint/**"
+      - "packages/scheduling/**"
+      - "packages/shared-app-config/**"
       - ".changeset/**"
       # Release workflow plumbing changes should exercise the npm release job.
       - ".github/workflows/auto-publish.yml"

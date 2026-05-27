@@ -4,7 +4,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { planMigration, type ProjectIR } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
-import { getRunRow, replaceTasks, rowToRun } from "./_utils.js";
+import {
+  getRunRow,
+  parsePlanInputsJson,
+  replaceTasks,
+  rowToRun,
+} from "./_utils.js";
 
 export default defineAction({
   description:
@@ -22,7 +27,9 @@ export default defineAction({
     }
     const run = rowToRun(row);
     const ir = JSON.parse(row.irJson) as ProjectIR;
-    const result = await planMigration(run, ir);
+    const result = await planMigration(run, ir, {
+      planInputs: parsePlanInputsJson(row.planInputsJson),
+    });
     await replaceTasks(id, result.tasks);
     const db = getDb();
     await db

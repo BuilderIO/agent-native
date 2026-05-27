@@ -4,7 +4,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { ProjectIR } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
-import { assessmentSourceMetadata, getRunRow, loadTasks } from "./_utils.js";
+import {
+  assessmentSourceMetadata,
+  getRunRow,
+  loadTasks,
+  parsePlanInputsJson,
+} from "./_utils.js";
 
 export default defineAction({
   description:
@@ -32,6 +37,7 @@ export default defineAction({
           inputKind: row.inputKind,
           inputDescription: row.inputDescription,
           outputRoot: row.outputRoot,
+          planInputs: parsePlanInputsJson(row.planInputsJson),
           assessmentPath: row.assessmentPath,
           planPath: row.planPath,
           reportPath: row.reportPath,

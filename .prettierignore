@@ -7,5 +7,6 @@ pnpm-lock.yaml
 **/routeTree.gen.ts
 **/.react-router
 **/src-tauri/target
+templates/migration/data
 # Generated file — formatting flips between runs
 packages/docs/app/components/searchIndex.ts

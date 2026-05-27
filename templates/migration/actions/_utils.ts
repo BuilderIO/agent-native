@@ -3,11 +3,13 @@ import path from "path";
 import { eq } from "drizzle-orm";
 import { resolveAccess } from "@agent-native/core/sharing";
 import type {
+  MigrationPlanInputs,
   MigrationRun,
   MigrationTask,
   ProjectIR,
   VerifierResult,
 } from "@agent-native/migrate";
+import { normalizeMigrationPlanInputs } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 
 export function artifactRoot() {
@@ -51,6 +53,22 @@ export function rowToRun(
     artifactDir: row.artifactDir,
     ir: row.irJson ? (JSON.parse(row.irJson) as ProjectIR) : undefined,
   };
+}
+
+export function parsePlanInputsJson(
+  value: string | null | undefined,
+): MigrationPlanInputs | null {
+  if (!value) return null;
+  try {
+    return normalizeMigrationPlanInputs(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+export function serializePlanInputs(value: unknown): string | null {
+  const normalized = normalizeMigrationPlanInputs(value);
+  return normalized ? JSON.stringify(normalized, null, 2) : null;
 }
 
 export interface AssessmentSourceMetadata {

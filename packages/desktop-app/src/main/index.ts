@@ -1137,9 +1137,12 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
     return;
   }
 
+  const targetView = binding.view?.trim();
   sendOpenRequestToRenderer({
     app: binding.app,
-    path: shortcutOpenPathForBinding(binding),
+    ...(targetView
+      ? { path: shortcutOpenPathForBinding(binding), softOpen: true }
+      : {}),
   });
 }
 

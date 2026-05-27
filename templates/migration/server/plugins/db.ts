@@ -94,6 +94,10 @@ export default runMigrations(
       version: 7,
       sql: `ALTER TABLE migration_runs ADD COLUMN input_description TEXT NOT NULL DEFAULT ''`,
     },
+    {
+      version: 8,
+      sql: `ALTER TABLE migration_runs ADD COLUMN plan_inputs_json TEXT`,
+    },
   ],
   { table: "migration_migrations" },
 );

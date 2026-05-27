@@ -2,6 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Link } from "react-router";
 import { trackEvent } from "@agent-native/core/client";
+import { TemplateDocsLink } from "./template-docs";
 
 export { trackEvent };
 
@@ -304,19 +305,11 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
-        <Link
-          prefetch="render"
-          to={`/templates/${template.slug}`}
-          onClick={() =>
-            trackEvent("click view docs", {
-              template: template.slug,
-              location: "card",
-            })
-          }
+        <TemplateDocsLink
+          template={template}
+          location="card"
           className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-        >
-          View Docs
-        </Link>
+        />
       </div>
     </div>
   );

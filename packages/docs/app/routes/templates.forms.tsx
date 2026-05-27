@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -162,6 +163,7 @@ export default function FormsTemplate() {
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
               </a>
+              <TemplateDocsLink template={template} location="landing_page" />
               <CliCopy />
             </div>
           </div>

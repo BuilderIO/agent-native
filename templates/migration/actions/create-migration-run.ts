@@ -4,10 +4,16 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
-import { artifactRoot, assertSafeOutputRoot, normalizePath } from "./_utils.js";
+import {
+  artifactRoot,
+  assertSafeOutputRoot,
+  normalizePath,
+  serializePlanInputs,
+} from "./_utils.js";
 import {
   createMigrationRun,
   inferMigrationInputKind,
+  parseMigrationPlanInputsText,
 } from "@agent-native/migrate";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -29,6 +35,16 @@ export default defineAction({
       .optional()
       .describe("Generated agent-native app path"),
     target: z.string().optional().default("agent-native"),
+    planInputs: z
+      .unknown()
+      .optional()
+      .describe(
+        "Optional custom migration profile JSON for AEM, Builder, headless, jQuery, and verification planning.",
+      ),
+    planInputsText: z
+      .string()
+      .optional()
+      .describe("Raw JSON or notes to infer a migration profile from."),
   }),
   run: async (args) => {
     const inputKind =
@@ -43,6 +59,15 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("No authenticated user");
     const orgId = getRequestOrgId();
+    const planInputsJson =
+      args.planInputsText !== undefined
+        ? serializePlanInputs(
+            parseMigrationPlanInputsText(
+              args.planInputsText,
+              "Workbench plan inputs",
+            ),
+          )
+        : serializePlanInputs(args.planInputs);
 
     const run = await createMigrationRun({
       sourceRoot,
@@ -65,6 +90,7 @@ export default defineAction({
       phase: run.phase,
       approved: run.approved,
       artifactDir: run.artifactDir,
+      planInputsJson,
       createdAt: now,
       updatedAt: now,
       ownerEmail,
