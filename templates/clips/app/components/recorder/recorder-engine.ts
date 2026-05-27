@@ -266,15 +266,6 @@ export function pickMimeType(): string {
   return "";
 }
 
-function canStreamMediaRecorderChunks(mimeType: string): boolean {
-  // WebM chunks emitted by MediaRecorder are safe to concatenate. Browser MP4
-  // chunks are not reliably self-contained; in Safari/WebKit we have seen
-  // ftyp+mdat-only assemblies with no top-level moov atom, which storage will
-  // accept but browsers cannot play. Keep MP4/QuickTime as one final recorder
-  // blob and upload that blob in bounded slices after stop().
-  return /^video\/webm(?:;|$)/i.test(mimeType);
-}
-
 function isRetryableChunkUploadStatus(status: number): boolean {
   return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
 }
@@ -340,11 +331,9 @@ export class RecorderEngine {
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
   /**
-   * Local mirror of every chunk we sent to the server, in record order.
-   * We hold these to enable the post-stop "compress and re-upload" path
-   * for clips larger than COMPRESS_THRESHOLD_BYTES — without this buffer
-   * we'd have to ask the server for the chunks back, which neither the
-   * `/api/uploads/:id/chunk` endpoint nor `application_state` support.
+   * Local mirror of every recorder chunk, in record order. We upload after stop
+   * so the server never stores the uncompressed source before compression has a
+   * chance to run.
    *
    * Memory cost: one Blob per 2s slice. A 10-min 1080p screen capture is
    * ~600 MB worst case (heavy motion); typical screen capture is much
