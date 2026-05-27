@@ -114,6 +114,8 @@ export default function LibraryPage() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [optimisticallyDeletedAssetIds, setOptimisticallyDeletedAssetIds] =
+    useState<Set<string>>(() => new Set());
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -123,7 +125,10 @@ export default function LibraryPage() {
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
-  const assets = (data?.assets ?? []) as any[];
+  const serverAssets = (data?.assets ?? []) as any[];
+  const assets = serverAssets.filter(
+    (asset) => !optimisticallyDeletedAssetIds.has(asset.id),
+  );
   const visibleAssets = assets.filter((asset) => {
     if (activeFolderId !== "all") {
       if (activeFolderId === null && asset.folderId) return false;
@@ -165,6 +170,16 @@ export default function LibraryPage() {
 
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
+
+  useEffect(() => {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const serverAssetIds = new Set(serverAssets.map((asset) => asset.id));
+      const next = new Set(
+        [...current].filter((assetId) => serverAssetIds.has(assetId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [serverAssets]);
 
   useEffect(() => {
     const selectableAssets =
@@ -545,6 +560,7 @@ export default function LibraryPage() {
             <AssetGrid
               assets={references}
               folders={folders}
+              pendingUploads={pendingVisibleUploads}
               emptyTitle="Upload reference assets"
               emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
               onEmptyClick={() => fileInputRef.current?.click()}
@@ -1110,7 +1126,39 @@ function FolderChip({
   );
 }
 
+function PendingUploadCard({ upload }: { upload: PendingUpload }) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div className="overflow-hidden rounded-lg border border-dashed border-border bg-card">
+      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Spinner className="h-5 w-5" />
+          <span className="text-xs font-medium">
+            {isChecking ? "Checking upload" : "Uploading"}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-2 p-3">
+        <div className="flex items-center gap-2 truncate text-xs font-medium">
+          {upload.mediaType === "video" ? (
+            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{upload.name}</span>
+        </div>
+        <Badge variant="outline">
+          {isChecking ? "verifying" : "uploading"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 function AssetPreview({ asset }: { asset: any }) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+
   if (asset.mediaType === "video" || asset.mimeType?.startsWith("video/")) {
     return (
       <div className="relative h-full w-full bg-muted">
@@ -1127,11 +1175,36 @@ function AssetPreview({ asset }: { asset: any }) {
       </div>
     );
   }
+  const sources = [asset.thumbnailUrl, asset.previewUrl].filter(
+    (source, index, all): source is string =>
+      typeof source === "string" &&
+      source.length > 0 &&
+      all.indexOf(source) === index,
+  );
+  const src = sources[sourceIndex];
+  if (unavailable || !src) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
+        <IconPhoto className="h-6 w-6" />
+        <span className="px-3 text-center text-xs font-medium">
+          Preview unavailable
+        </span>
+      </div>
+    );
+  }
   return (
     <img
-      src={asset.thumbnailUrl}
+      src={src}
       alt={asset.altText || asset.title || ""}
       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      onError={() => {
+        const nextIndex = sourceIndex + 1;
+        if (nextIndex < sources.length) {
+          setSourceIndex(nextIndex);
+        } else {
+          setUnavailable(true);
+        }
+      }}
     />
   );
 }
@@ -1207,6 +1280,7 @@ function CreateFolderDialog({
 function AssetGrid({
   assets,
   folders,
+  pendingUploads = [],
   emptyTitle,
   emptyBody,
   onEmptyClick,
@@ -1215,6 +1289,7 @@ function AssetGrid({
 }: {
   assets: any[];
   folders: any[];
+  pendingUploads?: PendingUpload[];
   emptyTitle: string;
   emptyBody: string;
   onEmptyClick: () => void;
@@ -1297,7 +1372,7 @@ function AssetGrid({
     );
   }
 
-  if (!assets.length) {
+  if (!assets.length && !pendingUploads.length) {
     return (
       <button
         onClick={onEmptyClick}
@@ -1349,46 +1424,51 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          <Checkbox
-            checked={allSelected}
-            onCheckedChange={(checked) => toggleAll(checked === true)}
-            aria-label="Select all assets in this view"
-          />
-          <span className="truncate">
-            {selectedCount > 0
-              ? `${selectedCount} selected`
-              : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
-          </span>
-        </div>
-        {selectedCount > 0 ? (
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onSelectedIdsChange(new Set())}
-            >
-              Clear
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() =>
-                confirmDelete(selectedAssets.map((asset) => asset.id))
-              }
-              disabled={deleting}
-            >
-              <IconTrash className="h-4 w-4" />
-              Delete
-            </Button>
+      {assets.length > 0 ? (
+        <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(checked) => toggleAll(checked === true)}
+              aria-label="Select all assets in this view"
+            />
+            <span className="truncate">
+              {selectedCount > 0
+                ? `${selectedCount} selected`
+                : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+            </span>
           </div>
-        ) : null}
-      </div>
+          {selectedCount > 0 ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onSelectedIdsChange(new Set())}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() =>
+                  confirmDelete(selectedAssets.map((asset) => asset.id))
+                }
+                disabled={deleting}
+              >
+                <IconTrash className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {pendingUploads.map((upload) => (
+          <PendingUploadCard key={upload.id} upload={upload} />
+        ))}
         {assets.map((asset) => (
           <div
             key={asset.id}
