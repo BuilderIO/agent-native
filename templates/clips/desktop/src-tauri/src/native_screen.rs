@@ -1417,6 +1417,7 @@ fn tray_display_id(app: &AppHandle) -> Option<u32> {
     ids.into_iter().next()
 }
 
+#[cfg(target_os = "macos")]
 fn start_screencapturekit_recording(
     app: &AppHandle,
     safe_id: &str,
