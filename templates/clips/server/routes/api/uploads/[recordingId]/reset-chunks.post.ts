@@ -40,6 +40,8 @@ import {
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 
+const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+
 interface CompressionMeta {
   originalBytes?: number;
   compressedBytes?: number;
@@ -117,6 +119,8 @@ export default defineEventHandler(async (event: H3Event) => {
       status: "uploading",
       progress: 0,
       chunksReceived: 0,
+      bytesReceived: 0,
+      maxBytes: MAX_RECORDING_UPLOAD_BYTES,
       updatedAt: now,
     });
 

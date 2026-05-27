@@ -17,8 +17,8 @@ import {
   readAppState,
   writeAppState,
   deleteAppState,
-  listAppState,
 } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { captureRouteError } from "@agent-native/core/server";
@@ -55,6 +55,22 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
     offset += p.byteLength;
   }
   return out;
+}
+
+async function listRecordingChunkKeys(
+  ownerEmail: string,
+  recordingId: string,
+): Promise<string[]> {
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ?`,
+    args: [ownerEmail, `recording-chunks-${recordingId}-%`],
+  });
+  return rows.map((row) => String(row.key));
+}
+
+function chunkIndexFromKey(key: string): number {
+  return Number(key.split("-").pop() || 0);
 }
 
 const STORAGE_SETUP_REQUIRED_REASON =
@@ -137,9 +153,7 @@ export default defineAction({
       if (!existing) {
         console.warn("[finalize] recording not found", { id, ownerEmail });
         // Still purge chunks for this id — it's orphaned.
-        chunkKeysToPurge = (await listAppState(`recording-chunks-${id}-`)).map(
-          (e) => e.key,
-        );
+        chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
 
@@ -224,24 +238,22 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      // Pull all chunk entries for this recording in index order.
-      const chunkEntries = await listAppState(`recording-chunks-${id}-`);
-      chunkEntries.sort((a, b) => {
-        const ai = Number(a.key.split("-").pop() || 0);
-        const bi = Number(b.key.split("-").pop() || 0);
-        return ai - bi;
-      });
+      // Pull chunk keys first, then fetch values one at a time. A single
+      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
+      // timeout before we even start assembling the recording.
+      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      chunkKeys.sort((a, b) => chunkIndexFromKey(a) - chunkIndexFromKey(b));
       debugLog("[finalize] chunks found", {
         id,
-        count: chunkEntries.length,
+        count: chunkKeys.length,
       });
       // Commit to deleting these keys in the finally below. We collect
       // the keys NOW (not after success) because a throw in uploadFile
       // or the drizzle update would otherwise bypass the delete and
       // orphan the chunks.
-      chunkKeysToPurge = chunkEntries.map((e) => e.key);
+      chunkKeysToPurge = chunkKeys;
 
-      if (chunkEntries.length === 0) {
+      if (chunkKeys.length === 0) {
         await db
           .update(schema.recordings)
           .set({
@@ -259,9 +271,9 @@ export default defineAction({
       }
 
       const parts: Uint8Array[] = [];
-      for (const entry of chunkEntries) {
-        const b64 =
-          typeof entry.value?.data === "string" ? entry.value.data : null;
+      for (const key of chunkKeys) {
+        const entry = await readAppState(key);
+        const b64 = typeof entry?.data === "string" ? entry.data : null;
         if (b64) parts.push(b64ToBytes(b64));
       }
       const assembled = concatBytes(parts);
@@ -377,8 +389,8 @@ export default defineAction({
           status: "waiting_storage",
           failureReason: STORAGE_SETUP_REQUIRED_REASON,
           progress: 100,
-          chunksReceived: chunkEntries.length,
-          totalChunks: chunkEntries.length,
+          chunksReceived: chunkKeys.length,
+          totalChunks: chunkKeys.length,
           mimeType,
           durationMs: finalDurationMs,
           width: finalWidth,

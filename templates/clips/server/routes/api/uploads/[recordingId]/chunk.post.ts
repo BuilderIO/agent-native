@@ -28,8 +28,15 @@ import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
+
+const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+const RECORDING_TOO_LARGE_REASON =
+  "Recording is too large to process. Clips now compresses before upload; please update the app and try again, or record a shorter clip / lower-resolution screen.";
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",
@@ -57,6 +64,14 @@ function toBase64(bytes: Uint8Array): string {
     bin += String.fromCharCode(bytes[i]);
   }
   return btoa(bin);
+}
+
+function stateNumber(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): number | undefined {
+  const raw = value?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -162,6 +177,15 @@ export default defineEventHandler(async (event: H3Event) => {
     // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
 
+    const uploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    );
+    const uploadState =
+      uploadStateRaw && typeof uploadStateRaw === "object"
+        ? uploadStateRaw
+        : null;
+    let bytesReceived = stateNumber(uploadState, "bytesReceived") ?? 0;
+
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
     if (bytes.byteLength > 0) {
@@ -169,6 +193,37 @@ export default defineEventHandler(async (event: H3Event) => {
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
       const chunkKey = `recording-chunks-${recordingId}-${paddedIndex}`;
+      const previousChunk = await readAppState(chunkKey);
+      const previousBytes = stateNumber(previousChunk, "bytes") ?? 0;
+      const nextBytes =
+        Math.max(0, bytesReceived - previousBytes) + bytes.byteLength;
+
+      if (nextBytes > MAX_RECORDING_UPLOAD_BYTES) {
+        const now = new Date().toISOString();
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureReason: RECORDING_TOO_LARGE_REASON,
+            updatedAt: now,
+          })
+          .where(eq(schema.recordings.id, recordingId));
+        await writeAppState(`recording-upload-${recordingId}`, {
+          recordingId,
+          status: "failed",
+          failureReason: RECORDING_TOO_LARGE_REASON,
+          bytesReceived: nextBytes,
+          maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+          updatedAt: now,
+        });
+        setResponseStatus(event, 413);
+        return {
+          ok: false,
+          error: RECORDING_TOO_LARGE_REASON,
+          bytesReceived: nextBytes,
+          maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        };
+      }
 
       await writeAppState(chunkKey, {
         recordingId,
@@ -178,6 +233,7 @@ export default defineEventHandler(async (event: H3Event) => {
         data: toBase64(bytes),
         createdAt: new Date().toISOString(),
       });
+      bytesReceived = nextBytes;
     }
 
     // Update upload progress (best-effort). If total is unknown we treat it as
@@ -190,6 +246,8 @@ export default defineEventHandler(async (event: H3Event) => {
         progress,
         chunksReceived: index + 1,
         totalChunks: total,
+        bytesReceived,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
@@ -201,6 +259,16 @@ export default defineEventHandler(async (event: H3Event) => {
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, recordingId));
+    } else if (bytes.byteLength > 0) {
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "uploading",
+        chunksReceived: index + 1,
+        bytesReceived,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        mimeType,
+        updatedAt: new Date().toISOString(),
+      });
     }
 
     // Final chunk — kick off finalize. We await so the client gets a single
