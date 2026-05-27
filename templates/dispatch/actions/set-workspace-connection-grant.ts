@@ -15,7 +15,13 @@ const httpBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
-const DEFAULT_KNOWN_APP_IDS = ["dispatch", "brain", "analytics", "mail"];
+const DEFAULT_KNOWN_APP_IDS = [
+  "dispatch",
+  "brain",
+  "assets",
+  "analytics",
+  "mail",
+];
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(

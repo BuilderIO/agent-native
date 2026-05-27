@@ -12,6 +12,7 @@ const DEFAULT_APPS = [
   "slides",
   "videos",
   "clips",
+  "brain",
   "analytics",
   "dispatch",
   "forms",

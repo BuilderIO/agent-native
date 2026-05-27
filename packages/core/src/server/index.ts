@@ -156,6 +156,8 @@ export {
   listThreads,
   updateThreadData,
   deleteThread,
+  setThreadArchived,
+  setThreadPinned,
   setThreadScope,
   type ChatThread,
   type ChatThreadScope,

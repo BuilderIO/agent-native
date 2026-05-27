@@ -15,6 +15,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   uploadFile,
   getActiveFileUploadProvider,
@@ -32,6 +33,7 @@ export interface StoredObject {
 const LOCAL_ROOT = path.join(process.cwd(), "data", "assets-objects");
 const LEGACY_LOCAL_ROOT = path.join(process.cwd(), "data", "images-objects");
 const LOCAL_PREFIX = "local:";
+const LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function isUrlKey(key: string): boolean {
   return key.startsWith("http://") || key.startsWith("https://");
@@ -41,12 +43,37 @@ function isLocalKey(key: string): boolean {
   return key.startsWith(LOCAL_PREFIX);
 }
 
+function isPublicPathKey(key: string): boolean {
+  return (
+    key.startsWith("/library-presets/") || key.startsWith("library-presets/")
+  );
+}
+
 function localKeyToPath(key: string): string {
   return path.join(LOCAL_ROOT, key.slice(LOCAL_PREFIX.length));
 }
 
 function legacyLocalKeyToPath(key: string): string {
   return path.join(LEGACY_LOCAL_ROOT, key.slice(LOCAL_PREFIX.length));
+}
+
+async function readPublicPathKey(key: string): Promise<Buffer> {
+  const relativePath = key.replace(/^\/+/, "");
+  const candidates = [
+    path.join(process.cwd(), "public", relativePath),
+    path.join(process.cwd(), "dist", relativePath),
+    path.join(process.cwd(), "templates", "assets", "public", relativePath),
+    path.resolve(LIB_DIR, "..", "..", "public", relativePath),
+    path.resolve(LIB_DIR, "..", "..", "dist", relativePath),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate);
+    } catch {
+      // Try the next dev/build layout.
+    }
+  }
+  throw new Error(`getObject: public asset not found (${key})`);
 }
 
 /**
@@ -112,6 +139,9 @@ export async function putObject(input: {
 /** Read raw bytes from a stored object. Handles URL keys, local-fs keys, and
  *  legacy bare S3-style keys (deprecated — kept so old dev DBs still read). */
 export async function getObject(key: string): Promise<Buffer> {
+  if (isPublicPathKey(key)) {
+    return readPublicPathKey(key);
+  }
   if (isUrlKey(key)) {
     const res = await fetch(key);
     if (!res.ok) {

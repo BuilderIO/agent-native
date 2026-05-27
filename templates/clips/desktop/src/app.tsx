@@ -131,6 +131,34 @@ const MACOS_CAPTURE_PERMISSION_MESSAGE =
 const MACOS_SPEECH_PERMISSION_MESSAGE =
   "Grant Speech Recognition and Microphone access, then try again. If you just changed access, restart Clips before retrying.";
 
+function normalizedMediaDeviceId(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
+  const id = normalizedMediaDeviceId(value).toLowerCase();
+  return id === "default" || id === "communications";
+}
+
+function concreteMediaDeviceId(value: string | null | undefined): string {
+  const id = normalizedMediaDeviceId(value);
+  return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
+function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
+  return !!concreteMediaDeviceId(device.deviceId);
+}
+
+function isBuiltInMicDevice(device: MediaDeviceInfo): boolean {
+  const label = device.label.toLowerCase();
+  return (
+    label.includes("macbook") ||
+    label.includes("built-in") ||
+    label.includes("built in") ||
+    label.includes("internal microphone")
+  );
+}
+
 function isHardCapturePermissionError(message: string): boolean {
   return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
     message,
@@ -583,10 +611,13 @@ export function App() {
     null,
   );
   const isRecording = recorder !== null;
+  const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
   const selectedMicLabel = useMemo(
     () =>
-      micId ? (mics.find((mic) => mic.deviceId === micId)?.label ?? "") : "",
-    [micId, mics],
+      selectedMicId
+        ? (mics.find((mic) => mic.deviceId === selectedMicId)?.label ?? "")
+        : "",
+    [selectedMicId, mics],
   );
   const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
@@ -609,7 +640,7 @@ export function App() {
       shortcut: voiceShortcut,
       mode: voiceMode,
       provider: voiceProvider,
-      micDeviceId: micId || null,
+      micDeviceId: selectedMicId || null,
       micDeviceLabel: selectedMicLabel || null,
       instructions: voiceInstructions,
     });
@@ -619,7 +650,7 @@ export function App() {
     voiceDictationEnabled,
     voiceMode,
     voiceProvider,
-    micId,
+    selectedMicId,
     selectedMicLabel,
     voiceInstructions,
   ]);
@@ -986,7 +1017,7 @@ export function App() {
           await invoke("meeting_audio_start", {
             meetingId: resolvedMeetingId,
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         } catch (err) {
@@ -997,7 +1028,7 @@ export function App() {
           session.audioMode = "mic-only";
           await invoke("native_speech_start", {
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         }
@@ -1032,7 +1063,13 @@ export function App() {
         }).catch(() => {});
       }
     },
-    [callClipsAction, flushMeetingTranscript, stopMeetingTranscription],
+    [
+      callClipsAction,
+      flushMeetingTranscript,
+      selectedMicId,
+      selectedMicLabel,
+      stopMeetingTranscription,
+    ],
   );
 
   useEffect(() => {
@@ -1196,15 +1233,22 @@ export function App() {
 
   // ---- device enumeration -------------------------------------------------
   // WebKit only returns full device labels after getUserMedia() has granted
-  // access once. So we do a one-shot mic + camera probe when the popover
-  // first loads (if permissions are already granted, this is silent; if
-  // not, the OS prompts once and we get the full list on the next render).
+  // access once. Enumerating itself is safe; the unlock helper below is careful
+  // to never touch the OS default input just to populate labels.
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
       const list = await navigator.mediaDevices.enumerateDevices();
-      setCameras(list.filter((d) => d.kind === "videoinput"));
-      setMics(list.filter((d) => d.kind === "audioinput"));
+      setCameras(
+        list.filter(
+          (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
+        ),
+      );
+      setMics(
+        list.filter(
+          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
+        ),
+      );
     } catch {
       // ignore
     }
@@ -1218,18 +1262,18 @@ export function App() {
     // WebViews in the same process). Camera-label text is low-value
     // anyway; most machines have one.
     //
-    // Do not probe `audio: true` here. On macOS that opens the system
-    // default input, which can shove Bluetooth headphones into hands-free
-    // mode just from opening the Clips popover. If the user has picked a
-    // specific mic, use that exact device; otherwise leave labels locked
-    // until a real user action needs microphone access.
+    // Do not probe `audio: true` or WebKit's pseudo `default` device here.
+    // On macOS that opens the system default input, which can shove
+    // Bluetooth headphones into hands-free mode just from opening the Clips
+    // popover. If the user has picked a concrete mic, use that exact device;
+    // otherwise leave labels locked until a real user action needs access.
     try {
-      if (!micId) {
+      if (!selectedMicId) {
         await loadDevices();
         return;
       }
       const s = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: micId } },
+        audio: { deviceId: { exact: selectedMicId } },
         video: false,
       });
       s.getTracks().forEach((t) => t.stop());
@@ -1237,7 +1281,7 @@ export function App() {
       // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
-  }, [loadDevices, micId]);
+  }, [loadDevices, selectedMicId]);
 
   // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
@@ -1325,11 +1369,9 @@ export function App() {
     };
   }, []);
 
-  // Defer device-label unlocking until the popover is first shown. The
-  // getUserMedia({audio}) call triggers a macOS permission dialog — if it
-  // fires on mount (before the popover is visible), the OS dialog appears
-  // with no visible app context and can interfere with the tray icon and
-  // subsequent popover shows.
+  // Defer device-label unlocking until the popover is first shown. Even the
+  // selected-device probe can trigger a macOS permission dialog, so keep it
+  // attached to visible UI instead of firing on hidden webview mount.
   const deviceLabelsUnlocked = useRef(false);
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
@@ -1339,6 +1381,12 @@ export function App() {
       unlockDeviceLabels();
     }
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
+
+  useEffect(() => {
+    if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
+    const builtIn = mics.find(isBuiltInMicDevice);
+    setMicId(builtIn?.deviceId ?? "");
+  }, [micId, mics]);
 
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -1940,7 +1988,7 @@ export function App() {
         mode,
         source,
         cameraId,
-        micId,
+        micId: selectedMicId || undefined,
         micLabel: selectedMicLabel || undefined,
         authToken: loadDesktopAuthToken(serverUrl),
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
@@ -2326,7 +2374,7 @@ export function App() {
         <DeviceRow
           kind="mic"
           devices={mics}
-          selectedId={micId}
+          selectedId={selectedMicId}
           onSelect={setMicId}
           on={micOn}
           onToggle={setMicOn}

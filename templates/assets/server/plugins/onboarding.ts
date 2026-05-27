@@ -40,9 +40,9 @@ export default async (nitroApp: any): Promise<void> => {
     id: "image-generation",
     order: 14,
     required: true,
-    title: "Asset generation",
+    title: "Image and video generation",
     description:
-      "Use Builder-managed image generation and add Gemini for video generation or image fallback.",
+      "Connect Builder for managed image generation, or add OpenAI/Gemini keys manually. Gemini is required for video generation.",
     methods: [
       {
         id: "builder",
@@ -62,7 +62,7 @@ export default async (nitroApp: any): Promise<void> => {
         kind: "form",
         label: "Gemini API key",
         description:
-          "Required for video generation and useful as an image-generation fallback.",
+          "Powers video generation and can also generate image fallbacks.",
         payload: {
           writeScope: "workspace",
           fields: [
@@ -70,6 +70,24 @@ export default async (nitroApp: any): Promise<void> => {
               key: "GEMINI_API_KEY",
               label: "GEMINI_API_KEY",
               placeholder: "AIza...",
+              secret: true,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai-key",
+        kind: "form",
+        label: "OpenAI API key",
+        description:
+          "Optional manual fallback for image generation when Builder is not connected.",
+        payload: {
+          writeScope: "workspace",
+          fields: [
+            {
+              key: "OPENAI_API_KEY",
+              label: "OPENAI_API_KEY",
+              placeholder: "sk-...",
               secret: true,
             },
           ],
@@ -84,7 +102,11 @@ export default async (nitroApp: any): Promise<void> => {
           // Fall through to the manual key fallback.
         }
       }
-      return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+      const [gemini, openai] = await Promise.all([
+        resolveSecret("GEMINI_API_KEY").catch(() => null),
+        resolveSecret("OPENAI_API_KEY").catch(() => null),
+      ]);
+      return !!(gemini || openai);
     },
   });
 

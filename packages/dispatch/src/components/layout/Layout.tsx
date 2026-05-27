@@ -1,8 +1,10 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
+  type FormEvent,
   type ReactNode,
 } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
@@ -25,6 +27,8 @@ import {
   IconBrandTelegram,
   IconKey,
   IconChevronDown,
+  IconDots,
+  IconEdit,
   IconLayersSubtract,
   IconMessageQuestion,
   IconMessages,
@@ -38,6 +42,13 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -290,6 +301,14 @@ function threadTitle(thread: ChatThreadSummary) {
   return thread.title || thread.preview || "New chat";
 }
 
+function threadUpdatedAt(thread: ChatThreadSummary) {
+  return Number.isFinite(thread.updatedAt)
+    ? thread.updatedAt
+    : Number.isFinite(thread.createdAt)
+      ? thread.createdAt
+      : 0;
+}
+
 function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
   const {
@@ -297,8 +316,13 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     activeThreadId,
     createThread,
     switchThread,
+    renameThread,
     refreshThreads,
   } = useChatThreads(undefined, undefined, undefined, { autoCreate: false });
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
@@ -306,7 +330,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
         .filter(
           (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
         )
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
         .slice(0, 8),
     [activeThreadId, threads],
   );
@@ -330,6 +354,14 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     };
   }, [refreshThreads]);
 
+  useEffect(() => {
+    if (!renamingThreadId) return;
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [renamingThreadId]);
+
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
     navigate(dispatchNavLinkTarget("/chat"));
@@ -346,6 +378,35 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   async function handleNewChat() {
     const threadId = await createThread();
     if (threadId) openThread(threadId, { isNew: true });
+  }
+
+  function startRenameThread(thread: ChatThreadSummary) {
+    committingRenameRef.current = false;
+    setRenameDraft(threadTitle(thread));
+    setRenamingThreadId(thread.id);
+  }
+
+  function cancelRenameThread() {
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+  }
+
+  async function commitRenameThread() {
+    if (committingRenameRef.current) return;
+    const threadId = renamingThreadId;
+    const title = renameDraft.trim();
+    if (!threadId) return;
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+    if (title) await renameThread(threadId, title);
+    committingRenameRef.current = false;
+  }
+
+  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void commitRenameThread();
   }
 
   return (
@@ -372,25 +433,82 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
         {visibleThreads.length > 0 ? (
           visibleThreads.map((thread) => {
             const isActive = thread.id === activeThreadId;
+            const isRenaming = thread.id === renamingThreadId;
             return (
-              <button
+              <div
                 key={thread.id}
-                type="button"
-                onClick={() => openThread(thread.id)}
                 className={cn(
-                  "flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+                  "group flex h-8 min-w-0 items-center rounded-md text-sm transition-colors",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
                 )}
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {threadTitle(thread)}
-                </span>
-                <span className="shrink-0 text-[11px] text-sidebar-foreground/50">
-                  {isActive ? "" : formatThreadAge(thread.updatedAt)}
-                </span>
-              </button>
+                {isRenaming ? (
+                  <form
+                    onSubmit={handleRenameSubmit}
+                    className="flex h-full min-w-0 flex-1 items-center px-1.5"
+                  >
+                    <Input
+                      ref={renameInputRef}
+                      value={renameDraft}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onBlur={() => void commitRenameThread()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenameThread();
+                        }
+                      }}
+                      maxLength={160}
+                      aria-label={`Rename ${threadTitle(thread)}`}
+                      className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
+                    />
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openThread(thread.id)}
+                      className="flex h-full min-w-0 flex-1 cursor-pointer items-center px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {threadTitle(thread)}
+                      </span>
+                    </button>
+                    <div className="relative flex size-7 shrink-0 items-center justify-end pr-1">
+                      <span className="text-[11px] text-sidebar-foreground/50 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                        {isActive
+                          ? ""
+                          : formatThreadAge(threadUpdatedAt(thread))}
+                      </span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`Chat options for ${threadTitle(thread)}`}
+                            className="absolute right-1 flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <IconDots className="size-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          side="right"
+                          sideOffset={6}
+                        >
+                          <DropdownMenuItem
+                            onSelect={() => startRenameThread(thread)}
+                          >
+                            <IconEdit className="size-4" />
+                            Rename chat
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </>
+                )}
+              </div>
             );
           })
         ) : (
@@ -438,13 +556,14 @@ export function NavContent({
 
   const renderNavItem = (item: DispatchNavItem) => {
     const Icon = item.icon;
+    const itemMatchesLocalPath = navItemMatchesPath(item, localPathname);
     return (
       <li key={item.id}>
         <NavLink
           to={dispatchNavLinkTarget(item.to)}
           onClick={onNavigate}
           className={({ isActive }) => {
-            const active = isActive || navItemMatchesPath(item, localPathname);
+            const active = isActive || itemMatchesLocalPath;
             return cn(
               "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
               active
@@ -460,7 +579,7 @@ export function NavContent({
           )}
           <span className="truncate">{item.label}</span>
         </NavLink>
-        {item.id === "chat" ? (
+        {item.id === "chat" && itemMatchesLocalPath ? (
           <DispatchChatsSection onNavigate={onNavigate} />
         ) : null}
       </li>

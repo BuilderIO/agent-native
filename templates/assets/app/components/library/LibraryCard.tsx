@@ -13,6 +13,7 @@ import {
   getLibraryCustomInstructions,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import { assetMediaUrl } from "@/lib/asset-urls";
 
 export function LibraryCard({
   library,
@@ -21,6 +22,7 @@ export function LibraryCard({
   onClick,
   onEdit,
   compact = false,
+  showInstructions = !compact,
 }: {
   library: ImageLibrarySummary;
   to?: string;
@@ -28,40 +30,53 @@ export function LibraryCard({
   onClick?: () => void;
   onEdit?: () => void;
   compact?: boolean;
+  showInstructions?: boolean;
 }) {
   const instructions = getLibraryCustomInstructions(library);
+  const coverThumbnailUrl = assetMediaUrl(library.coverAsset?.thumbnailUrl);
   const className = cn(
-    "group flex h-full min-h-32 flex-col overflow-hidden rounded-lg border bg-card text-left text-card-foreground transition hover:border-foreground/30",
+    "group flex h-full w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-card text-left text-card-foreground transition hover:border-foreground/30",
+    compact ? "min-h-0" : "min-h-32",
     selected && "border-foreground/40 ring-2 ring-ring/20",
   );
 
   const body = (
     <>
       <div
-        className={cn("bg-muted", compact ? "aspect-[16/8]" : "aspect-[16/9]")}
-      >
-        {library.coverAsset?.thumbnailUrl ? (
-          <img
-            src={library.coverAsset.thumbnailUrl}
-            alt=""
-            className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
-          </div>
+        className={cn(
+          "relative flex items-center justify-center overflow-hidden bg-muted",
+          compact ? "aspect-[16/8]" : "aspect-[16/9]",
         )}
+      >
+        <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
+        {coverThumbnailUrl ? (
+          <img
+            src={coverThumbnailUrl}
+            alt=""
+            onError={(event) => {
+              event.currentTarget.hidden = true;
+            }}
+            className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-[1.02]"
+          />
+        ) : null}
       </div>
-      <div className="flex flex-1 flex-col gap-3 p-4">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          compact ? "gap-2 p-3" : "gap-3 p-4",
+        )}
+      >
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-foreground">
             {library.title}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {library.description || "No description yet"}
-          </p>
+          {!compact ? (
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+              {library.description || "No description yet"}
+            </p>
+          ) : null}
         </div>
-        {instructions ? (
+        {showInstructions && instructions ? (
           <div className="rounded-md border bg-muted/30 px-3 py-2">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Instructions
@@ -71,7 +86,7 @@ export function LibraryCard({
             </p>
           </div>
         ) : null}
-        <div className="mt-auto flex items-center gap-2">
+        <div className="mt-auto flex flex-wrap items-center gap-2">
           <Badge variant="secondary">{library.referenceCount ?? 0} refs</Badge>
           <Badge variant="outline">{library.generatedCount ?? 0} assets</Badge>
           {(library as any).videoCount ? (
@@ -110,7 +125,7 @@ export function LibraryCard({
 
   if (to) {
     return (
-      <div className="relative h-full">
+      <div className="relative h-full w-full min-w-0">
         <Link to={to} className={className}>
           {body}
         </Link>
@@ -120,7 +135,7 @@ export function LibraryCard({
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full w-full min-w-0">
       <button type="button" onClick={onClick} className={className}>
         {body}
       </button>

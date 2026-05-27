@@ -16,6 +16,7 @@ export const assetLibraries = table("image_libraries", {
   settings: text("settings").notNull().default("{}"),
   canonicalLogoAssetId: text("canonical_logo_asset_id"),
   coverAssetId: text("cover_asset_id"),
+  archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

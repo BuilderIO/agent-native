@@ -1,5 +1,11 @@
-import { Link, useParams } from "react-router";
-import { useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -12,6 +18,7 @@ import {
 } from "@agent-native/core/client";
 import {
   IconDotsVertical,
+  IconArchive,
   IconFolder,
   IconFolderPlus,
   IconMessageCircle,
@@ -73,7 +80,9 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Spinner } from "@/components/ui/spinner";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
+import { assetMediaUrl } from "@/lib/asset-urls";
 import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   IMAGE_CATEGORIES,
@@ -88,9 +97,11 @@ import {
 
 export default function LibraryPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const libraryId = id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
+  const archiveLibrary = useActionMutation("archive-library");
   const saveGenerated = useActionMutation("save-generated-image");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
@@ -100,8 +111,16 @@ export default function LibraryPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [editOpen, setEditOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
+  const [activeTab, setActiveTab] = useState<LibraryTab>("references");
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [optimisticallyDeletedAssetIds, setOptimisticallyDeletedAssetIds] =
+    useState<Set<string>>(() => new Set());
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -111,7 +130,10 @@ export default function LibraryPage() {
 
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
-  const assets = (data?.assets ?? []) as any[];
+  const serverAssets = (data?.assets ?? []) as any[];
+  const assets = serverAssets.filter(
+    (asset) => !optimisticallyDeletedAssetIds.has(asset.id),
+  );
   const visibleAssets = assets.filter((asset) => {
     if (activeFolderId !== "all") {
       if (activeFolderId === null && asset.folderId) return false;
@@ -144,21 +166,124 @@ export default function LibraryPage() {
   const candidates = generated.filter((asset) => asset.status === "candidate");
   const unfiledCount = assets.filter((asset) => !asset.folderId).length;
   const customInstructions = getLibraryCustomInstructions(library);
+  const pendingVisibleUploads = pendingUploads.filter((upload) => {
+    if (mediaFilter !== "all" && upload.mediaType !== mediaFilter) return false;
+    if (activeFolderId === "all") return true;
+    if (activeFolderId === null) return !upload.folderId;
+    return upload.folderId === activeFolderId;
+  });
 
   const pendingVariants =
     variants?.libraryId === libraryId ? (variants.slots ?? []) : [];
 
+  function markAssetsOptimisticallyDeleted(ids: string[]) {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function restoreOptimisticallyDeletedAssets(ids: string[]) {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    setOptimisticallyDeletedAssetIds((current) => {
+      const serverAssetIds = new Set(serverAssets.map((asset) => asset.id));
+      const next = new Set(
+        [...current].filter((assetId) => serverAssetIds.has(assetId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [serverAssets]);
+
+  useEffect(() => {
+    const selectableAssets =
+      activeTab === "references"
+        ? references
+        : activeTab === "generated"
+          ? [...candidates, ...saved]
+          : [];
+    const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
+    setSelectedAssetIds((current) => {
+      const next = new Set(
+        [...current].filter((assetId) => selectableIds.has(assetId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [activeTab, references, candidates, saved]);
+
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-request-source": "assets-ui",
+      },
+      body: JSON.stringify({
+        view: "library",
+        libraryId,
+        activeTab,
+        folderId: activeFolderId,
+        mediaFilter,
+        search,
+        selectedAssetIds: [...selectedAssetIds],
+      }),
+    }).catch(() => {});
+  }, [
+    activeFolderId,
+    activeTab,
+    libraryId,
+    mediaFilter,
+    search,
+    selectedAssetIds,
+  ]);
+
+  function refreshLibrary() {
+    return queryClient
+      .invalidateQueries({ queryKey: ["action", "get-library"] })
+      .then(() =>
+        queryClient.refetchQueries({
+          queryKey: ["action", "get-library"],
+          type: "active",
+        }),
+      );
+  }
+
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length) return;
+    const selectedFiles = Array.from(files);
+    const selectedFolderId =
+      activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
+    const pending: PendingUpload[] = selectedFiles.map((file, index) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      name: file.name,
+      mediaType: file.type.startsWith("video/") ? "video" : "image",
+      folderId: selectedFolderId,
+      status: "uploading" as const,
+    }));
+    setPendingUploads(pending);
     setUploading(true);
+    let keepPending = false;
+    const toastId = toast.loading(
+      `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
+      {
+        description: "Processing previews and saving them to the library.",
+      },
+    );
     try {
       const form = new FormData();
       form.append("libraryId", libraryId);
       form.append("category", category);
-      if (activeFolderId && activeFolderId !== "all") {
-        form.append("folderId", activeFolderId);
+      if (selectedFolderId) {
+        form.append("folderId", selectedFolderId);
       }
-      for (const file of files) form.append("files", file);
+      for (const file of selectedFiles) form.append("files", file);
       const response = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -172,15 +297,53 @@ export default function LibraryPage() {
       const result = (await response.json().catch(() => null)) as {
         count?: number;
       } | null;
-      const count = result?.count ?? files.length;
-      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`);
-      await queryClient.invalidateQueries({
-        queryKey: ["action", "get-library", { id: libraryId }],
+      const count = result?.count ?? selectedFiles.length;
+      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`, {
+        id: toastId,
       });
+      await refreshLibrary();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      const message = e instanceof Error ? e.message : "Upload failed";
+      const indeterminate =
+        /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
+          message,
+        );
+      if (indeterminate) {
+        keepPending = true;
+        setPendingUploads(
+          pending.map((upload) => ({ ...upload, status: "checking" })),
+        );
+        toast.warning("Upload is taking longer than expected.", {
+          id: toastId,
+          description:
+            "The server may still finish saving these assets. We will keep checking this library.",
+        });
+        void refreshLibrary();
+        window.setTimeout(() => void refreshLibrary(), 4_000);
+        window.setTimeout(() => {
+          void refreshLibrary();
+          setPendingUploads([]);
+        }, 12_000);
+      } else {
+        toast.error(message, { id: toastId });
+      }
     } finally {
       setUploading(false);
+      if (!keepPending) setPendingUploads([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function archiveCurrentLibrary() {
+    if (!library || archiveLibrary.isPending) return;
+    try {
+      await archiveLibrary.mutateAsync({ id: library.id });
+      toast.success("Library archived.");
+      navigate("/libraries");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not archive library.",
+      );
     }
   }
 
@@ -270,8 +433,12 @@ export default function LibraryPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >
-              <IconUpload className="h-4 w-4" />
-              Upload
+              {uploading ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <IconUpload className="h-4 w-4" />
+              )}
+              {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
             </Button>
             <Button
               variant="outline"
@@ -287,6 +454,29 @@ export default function LibraryPage() {
               onSubmit={generate}
               hasLogo={!!library.canonicalLogoAssetId}
             />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Library actions"
+                  disabled={archiveLibrary.isPending}
+                >
+                  <IconDotsVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setArchiveOpen(true);
+                  }}
+                >
+                  <IconArchive className="mr-2 h-4 w-4 shrink-0" />
+                  Archive library
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -305,6 +495,28 @@ export default function LibraryPage() {
         open={editOpen}
         onOpenChange={setEditOpen}
       />
+      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive this library?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the library from the main Libraries list. Its assets
+              and generation history stay stored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiveLibrary.isPending}
+              onClick={() => {
+                void archiveCurrentLibrary();
+              }}
+            >
+              {archiveLibrary.isPending ? "Archiving..." : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {folderOpen ? (
         <CreateFolderDialog
           open={folderOpen}
@@ -416,7 +628,11 @@ export default function LibraryPage() {
           </section>
         )}
 
-        <Tabs defaultValue="references" className="space-y-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as LibraryTab)}
+          className="space-y-4"
+        >
           <TabsList>
             <TabsTrigger value="references">References</TabsTrigger>
             <TabsTrigger value="generated">Generated</TabsTrigger>
@@ -428,9 +644,14 @@ export default function LibraryPage() {
             <AssetGrid
               assets={references}
               folders={folders}
+              pendingUploads={pendingVisibleUploads}
               emptyTitle="Upload reference assets"
               emptyBody="Add images, clips, product shots, logos, and style references so the agent can match your brand."
               onEmptyClick={() => fileInputRef.current?.click()}
+              selectedIds={selectedAssetIds}
+              onSelectedIdsChange={setSelectedAssetIds}
+              onOptimisticDelete={markAssetsOptimisticallyDeleted}
+              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
             />
           </TabsContent>
 
@@ -441,6 +662,10 @@ export default function LibraryPage() {
               emptyTitle="Generate your first assets"
               emptyBody="Use the chat-driven generate flow to create image or video candidates, then save the ones that work."
               onEmptyClick={() => setGenerateOpen(true)}
+              selectedIds={selectedAssetIds}
+              onSelectedIdsChange={setSelectedAssetIds}
+              onOptimisticDelete={markAssetsOptimisticallyDeleted}
+              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
             />
           </TabsContent>
 
@@ -560,6 +785,16 @@ type GenerateOptions = {
   category: string;
   includeLogo: boolean;
 };
+
+type PendingUpload = {
+  id: string;
+  name: string;
+  mediaType: "image" | "video";
+  folderId: string | null;
+  status: "uploading" | "checking";
+};
+
+type LibraryTab = "references" | "generated" | "runs" | "settings";
 
 function RunCard({
   run,
@@ -979,12 +1214,44 @@ function FolderChip({
   );
 }
 
+function PendingUploadCard({ upload }: { upload: PendingUpload }) {
+  const isChecking = upload.status === "checking";
+  return (
+    <div className="overflow-hidden rounded-lg border border-dashed border-border bg-card">
+      <div className="flex aspect-[4/3] items-center justify-center bg-muted/30">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Spinner className="h-5 w-5" />
+          <span className="text-xs font-medium">
+            {isChecking ? "Checking upload" : "Uploading"}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-2 p-3">
+        <div className="flex items-center gap-2 truncate text-xs font-medium">
+          {upload.mediaType === "video" ? (
+            <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{upload.name}</span>
+        </div>
+        <Badge variant="outline">
+          {isChecking ? "verifying" : "uploading"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 function AssetPreview({ asset }: { asset: any }) {
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+
   if (asset.mediaType === "video" || asset.mimeType?.startsWith("video/")) {
     return (
       <div className="relative h-full w-full bg-muted">
         <video
-          src={asset.previewUrl}
+          src={assetMediaUrl(asset.previewUrl)}
           muted
           playsInline
           preload="metadata"
@@ -996,11 +1263,39 @@ function AssetPreview({ asset }: { asset: any }) {
       </div>
     );
   }
+  const sources = [
+    assetMediaUrl(asset.thumbnailUrl),
+    assetMediaUrl(asset.previewUrl),
+  ].filter(
+    (source, index, all): source is string =>
+      typeof source === "string" &&
+      source.length > 0 &&
+      all.indexOf(source) === index,
+  );
+  const src = sources[sourceIndex];
+  if (unavailable || !src) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
+        <IconPhoto className="h-6 w-6" />
+        <span className="px-3 text-center text-xs font-medium">
+          Preview unavailable
+        </span>
+      </div>
+    );
+  }
   return (
     <img
-      src={asset.thumbnailUrl}
+      src={src}
       alt={asset.altText || asset.title || ""}
       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+      onError={() => {
+        const nextIndex = sourceIndex + 1;
+        if (nextIndex < sources.length) {
+          setSourceIndex(nextIndex);
+        } else {
+          setUnavailable(true);
+        }
+      }}
     />
   );
 }
@@ -1076,21 +1371,136 @@ function CreateFolderDialog({
 function AssetGrid({
   assets,
   folders,
+  pendingUploads = [],
   emptyTitle,
   emptyBody,
   onEmptyClick,
+  selectedIds,
+  onSelectedIdsChange,
+  onOptimisticDelete,
+  onRestoreOptimisticDelete,
 }: {
   assets: any[];
   folders: any[];
+  pendingUploads?: PendingUpload[];
   emptyTitle: string;
   emptyBody: string;
   onEmptyClick: () => void;
+  selectedIds: Set<string>;
+  onSelectedIdsChange: Dispatch<SetStateAction<Set<string>>>;
+  onOptimisticDelete?: (ids: string[]) => void;
+  onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const deleteAsset = useActionMutation("delete-asset");
+  const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
+  const selectedCount = selectedAssets.length;
+  const allSelected = assets.length > 0 && selectedCount === assets.length;
+  const pendingDeleteCount = deletingIds.size;
+  const deleting =
+    deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
 
-  if (!assets.length) {
+  function toggleAsset(assetId: string, checked: boolean) {
+    onSelectedIdsChange((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(assetId);
+      } else {
+        next.delete(assetId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAll(checked: boolean) {
+    onSelectedIdsChange(
+      checked ? new Set(assets.map((asset) => asset.id)) : new Set(),
+    );
+  }
+
+  function confirmDelete(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
+  }
+
+  function markDeleting(ids: string[]) {
+    setDeletingIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    onSelectedIdsChange((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    onOptimisticDelete?.(ids);
+  }
+
+  function finishDeleting(ids: string[]) {
+    setDeletingIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function restoreAfterDeleteError(ids: string[]) {
+    finishDeleting(ids);
+    onRestoreOptimisticDelete?.(ids);
+    onSelectedIdsChange((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function handleDeleteConfirmed() {
+    if (!confirmDeleteIds.length || deleting) return;
+    if (confirmDeleteIds.length === 1) {
+      const [id] = confirmDeleteIds;
+      const ids = [id];
+      markDeleting(ids);
+      setConfirmDeleteIds([]);
+      deleteAsset.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            finishDeleting(ids);
+            toast.success("Deleted asset.");
+          },
+          onError: (error) => {
+            restoreAfterDeleteError(ids);
+            toast.error(error.message || "Could not delete asset.");
+          },
+        },
+      );
+      return;
+    }
+    const ids = [...confirmDeleteIds];
+    markDeleting(ids);
+    setConfirmDeleteIds([]);
+    deleteAssets.mutate(
+      { ids },
+      {
+        onSuccess: (result: any) => {
+          finishDeleting(ids);
+          const deletedIds = new Set(ids);
+          const count = Number(result?.deletedCount ?? deletedIds.size);
+          toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
+        },
+        onError: (error) => {
+          restoreAfterDeleteError(ids);
+          toast.error(error.message || "Could not delete selected assets.");
+        },
+      },
+    );
+  }
+
+  if (!assets.length && !pendingUploads.length && pendingDeleteCount === 0) {
     return (
       <button
         onClick={onEmptyClick}
@@ -1108,30 +1518,32 @@ function AssetGrid({
   return (
     <>
       <AlertDialog
-        open={confirmDeleteId !== null}
+        open={confirmDeleteIds.length > 0}
         onOpenChange={(open) => {
-          if (!open) setConfirmDeleteId(null);
+          if (!open) setConfirmDeleteIds([]);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirmDeleteIds.length > 1
+                ? `Delete ${confirmDeleteIds.length} assets?`
+                : "Delete asset?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the asset from the library. Existing exports that
-              already use this URL may stop rendering.
+              {confirmDeleteIds.length > 1
+                ? "This removes the selected assets from the library. Existing exports that already use these URLs may stop rendering."
+                : "This removes the asset from the library. Existing exports that already use this URL may stop rendering."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={!confirmDeleteId || deleteAsset.isPending}
-              onClick={() => {
-                if (!confirmDeleteId) return;
-                deleteAsset.mutate(
-                  { id: confirmDeleteId },
-                  { onSuccess: () => setConfirmDeleteId(null) },
-                );
+              disabled={!confirmDeleteIds.length || deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                handleDeleteConfirmed();
               }}
             >
               Delete
@@ -1140,92 +1552,177 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {assets.map((asset) => (
-          <div
-            key={asset.id}
-            className="group relative overflow-hidden rounded-lg border border-border bg-card"
-          >
-            <div className="absolute right-2 top-2 z-10">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-                    aria-label="Asset actions"
-                  >
-                    <IconDotsVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem asChild>
-                    <Link to={`/asset/${asset.id}`}>View details</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                      Move to
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          updateAsset.mutate({ id: asset.id, folderId: null })
-                        }
-                      >
-                        Unfiled
-                      </DropdownMenuItem>
-                      {folders.map((folder) => (
+      {assets.length > 0 || pendingDeleteCount > 0 ? (
+        <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+          {pendingDeleteCount > 0 ? (
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Spinner className="h-4 w-4" />
+              <span className="truncate">
+                Deleting {pendingDeleteCount} asset
+                {pendingDeleteCount === 1 ? "" : "s"}...
+              </span>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={(checked) => toggleAll(checked === true)}
+                aria-label="Select all assets in this view"
+              />
+              <span className="truncate">
+                {selectedCount > 0
+                  ? `${selectedCount} selected`
+                  : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+              </span>
+            </div>
+          )}
+          {selectedCount > 0 && pendingDeleteCount === 0 ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onSelectedIdsChange(new Set())}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() =>
+                  confirmDelete(selectedAssets.map((asset) => asset.id))
+                }
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <IconTrash className="h-4 w-4" />
+                )}
+                Delete
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {assets.length || pendingUploads.length ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          {pendingUploads.map((upload) => (
+            <PendingUploadCard key={upload.id} upload={upload} />
+          ))}
+          {assets.map((asset) => (
+            <div
+              key={asset.id}
+              className={[
+                "group relative overflow-hidden rounded-lg border bg-card transition",
+                selectedIds.has(asset.id)
+                  ? "border-primary ring-2 ring-primary/25"
+                  : "border-border",
+              ].join(" ")}
+            >
+              <div className="absolute left-2 top-2 z-10">
+                <Checkbox
+                  checked={selectedIds.has(asset.id)}
+                  onCheckedChange={(checked) =>
+                    toggleAsset(asset.id, checked === true)
+                  }
+                  aria-label={`Select ${asset.title || asset.metadata?.category || "asset"}`}
+                  className={[
+                    "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+                    selectedIds.has(asset.id) ? "sm:opacity-100" : "",
+                  ].join(" ")}
+                />
+              </div>
+              <div className="absolute right-2 top-2 z-10">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+                      aria-label="Asset actions"
+                    >
+                      <IconDotsVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link to={`/asset/${asset.id}`}>View details</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                        Move to
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
                         <DropdownMenuItem
-                          key={folder.id}
                           onSelect={() =>
-                            updateAsset.mutate({
-                              id: asset.id,
-                              folderId: folder.id,
-                            })
+                            updateAsset.mutate({ id: asset.id, folderId: null })
                           }
                         >
-                          {folder.title}
+                          Unfiled
                         </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                    onSelect={() => setConfirmDeleteId(asset.id)}
-                  >
-                    <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                        {folders.map((folder) => (
+                          <DropdownMenuItem
+                            key={folder.id}
+                            onSelect={() =>
+                              updateAsset.mutate({
+                                id: asset.id,
+                                folderId: folder.id,
+                              })
+                            }
+                          >
+                            {folder.title}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      onSelect={() => confirmDelete([asset.id])}
+                    >
+                      <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <Link to={`/asset/${asset.id}`} className="block outline-none">
+                <div className="aspect-[4/3] bg-muted">
+                  <AssetPreview asset={asset} />
+                </div>
+                <div className="space-y-2 p-3">
+                  <div className="flex items-center gap-2 truncate text-xs font-medium">
+                    {asset.mediaType === "video" ? (
+                      <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    {asset.title || asset.metadata?.category || asset.status}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{asset.status}</Badge>
+                    {asset.metadata?.category && (
+                      <Badge variant="outline">{asset.metadata.category}</Badge>
+                    )}
+                  </div>
+                </div>
+              </Link>
             </div>
-            <Link to={`/asset/${asset.id}`} className="block outline-none">
-              <div className="aspect-[4/3] bg-muted">
-                <AssetPreview asset={asset} />
-              </div>
-              <div className="space-y-2 p-3">
-                <div className="flex items-center gap-2 truncate text-xs font-medium">
-                  {asset.mediaType === "video" ? (
-                    <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  {asset.title || asset.metadata?.category || asset.status}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{asset.status}</Badge>
-                  {asset.metadata?.category && (
-                    <Badge variant="outline">{asset.metadata.category}</Badge>
-                  )}
-                </div>
-              </div>
-            </Link>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+          <Spinner className="h-8 w-8 text-muted-foreground" />
+          <span className="mt-4 text-base font-semibold">
+            Deleting selected assets...
+          </span>
+        </div>
+      )}
     </>
   );
 }

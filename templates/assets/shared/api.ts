@@ -91,6 +91,7 @@ export interface ImageLibrarySummary {
   canonicalLogoAssetId?: string | null;
   coverAssetId?: string | null;
   visibility?: string;
+  archivedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

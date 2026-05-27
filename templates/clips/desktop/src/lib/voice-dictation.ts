@@ -118,6 +118,20 @@ interface VoiceSession {
   cleanupProvider?: ServerVoiceProvider | null;
 }
 
+function normalizedMediaDeviceId(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
+  const id = normalizedMediaDeviceId(value).toLowerCase();
+  return id === "default" || id === "communications";
+}
+
+function concreteMediaDeviceId(value: string | null | undefined): string {
+  const id = normalizedMediaDeviceId(value);
+  return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
 // Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
 // only declares this under non-prefixed `SpeechRecognition` in newer
 // versions; on older targets it's missing entirely.
@@ -181,7 +195,9 @@ async function pickBuiltInMicId(): Promise<string | null> {
     // Device labels are only populated AFTER permission has been granted
     // at least once. Caller falls back to default when label is empty.
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const inputs = devices.filter((d) => d.kind === "audioinput");
+    const inputs = devices.filter(
+      (d) => d.kind === "audioinput" && concreteMediaDeviceId(d.deviceId),
+    );
     const isBuiltIn = (label: string) => {
       const l = label.toLowerCase();
       return (
@@ -197,66 +213,6 @@ async function pickBuiltInMicId(): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-// Warm-up audio stream — opened once at install time and kept alive for the
-// life of the popover webview so subsequent dictation presses don't pay
-// the getUserMedia/audio-session-switch cost (which is what was cutting
-// off the first ~300ms of speech and pausing/glitching playing audio).
-let warmStream: MediaStream | null = null;
-let warmStreamDeviceId: string | null = null;
-let warmStreamPromise: Promise<MediaStream | null> | null = null;
-
-async function prewarmMicStream(): Promise<MediaStream | null> {
-  if (
-    warmStream &&
-    warmStream.getAudioTracks().some((t) => t.readyState === "live")
-  ) {
-    return warmStream;
-  }
-  if (warmStreamPromise) return warmStreamPromise;
-  warmStreamPromise = (async () => {
-    if (!navigator.mediaDevices?.getUserMedia) return null;
-    try {
-      const builtInId = await pickBuiltInMicId();
-      const constraints: MediaStreamConstraints = builtInId
-        ? { audio: { deviceId: { exact: builtInId } } }
-        : { audio: true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      // If we couldn't get the built-in mic by label (no permission yet),
-      // re-enumerate now that the OS prompt has resolved and switch the
-      // track to built-in if a different device leaked through.
-      if (!builtInId) {
-        const id = await pickBuiltInMicId();
-        if (id) {
-          const track = stream.getAudioTracks()[0];
-          if (track && track.getSettings().deviceId !== id) {
-            try {
-              await track.applyConstraints({ deviceId: { exact: id } });
-            } catch {
-              // applyConstraints may not switch hardware; keep current track.
-            }
-          }
-          warmStreamDeviceId = id;
-        }
-      } else {
-        warmStreamDeviceId = builtInId;
-      }
-      // Disable the track until a session actually wants it. With the
-      // track disabled the mic indicator goes off, no audio is captured,
-      // but the audio session stays open — flipping `enabled = true`
-      // resumes capture instantly with no system audio glitch.
-      stream.getAudioTracks().forEach((t) => (t.enabled = false));
-      warmStream = stream;
-      return stream;
-    } catch (err) {
-      console.warn("[voice-dictation] prewarm getUserMedia failed:", err);
-      return null;
-    } finally {
-      warmStreamPromise = null;
-    }
-  })();
-  return warmStreamPromise;
 }
 
 function setFlowState(state: FlowState): void {
@@ -453,7 +409,7 @@ export function installDesktopVoiceDictation(
   let shortcut = options.shortcut;
   let mode = options.mode;
   let provider = options.provider;
-  let micDeviceId = options.micDeviceId ?? "";
+  let micDeviceId = concreteMediaDeviceId(options.micDeviceId);
   let micDeviceLabel = options.micDeviceLabel ?? "";
   let instructions = options.instructions ?? "";
   let startInFlight = false;
@@ -540,7 +496,19 @@ export function installDesktopVoiceDictation(
         providerPref: ServerVoiceProvider;
       }
   > => {
-    if (provider === "browser") return { kind: "browser" };
+    if (provider === "browser") {
+      // Web Speech captures the OS default input and exposes no device
+      // selector. If the user picked a concrete mic on macOS, use the native
+      // path so the selection is honored instead of silently opening default.
+      if (
+        concreteMediaDeviceId(micDeviceId) &&
+        typeof navigator !== "undefined" &&
+        /Mac/i.test(navigator.platform)
+      ) {
+        return { kind: "native" };
+      }
+      return { kind: "browser" };
+    }
     if (provider === "macos-native") return { kind: "native" };
     if (provider !== "auto") {
       const cleanupProvider =
@@ -704,9 +672,10 @@ export function installDesktopVoiceDictation(
   };
 
   const selectedMicConstraints = (): MediaStreamConstraints | null => {
-    return micDeviceId
+    const deviceId = concreteMediaDeviceId(micDeviceId);
+    return deviceId
       ? {
-          audio: { deviceId: { exact: micDeviceId } },
+          audio: { deviceId: { exact: deviceId } },
           video: false,
         }
       : null;
@@ -724,7 +693,7 @@ export function installDesktopVoiceDictation(
 
   const nativeSpeechArgs = () => ({
     locale: navigator.language || "en-US",
-    micDeviceId: micDeviceId || null,
+    micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
     micDeviceLabel: micDeviceLabel || null,
   });
 

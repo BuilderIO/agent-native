@@ -6,7 +6,6 @@ import {
 } from "@agent-native/code-agents-ui";
 import type { CodeAgentsOpenRequest } from "@agent-native/code-agents-ui/types";
 import { agentNativePath } from "@agent-native/core/client";
-import { useNavigationState } from "@/hooks/use-navigation-state";
 
 export function meta() {
   return [
@@ -20,7 +19,6 @@ export function meta() {
 }
 
 export default function CodeAgentsPage() {
-  useNavigationState();
   const [searchParams] = useSearchParams();
   const openRequest = useMemo<CodeAgentsOpenRequest | undefined>(() => {
     const runId = searchParams.get("run") ?? undefined;

@@ -53,6 +53,8 @@ export async function createAssetFromBuffer(input: {
   durationSeconds?: number | null;
   generationRunId?: string | null;
   sourceUrl?: string | null;
+  objectKey?: string | null;
+  thumbnailObjectKey?: string | null;
   metadata?: Record<string, unknown>;
   category?: ImageCategory;
   db?: Pick<ReturnType<typeof getDb>, "insert">;
@@ -69,7 +71,9 @@ export async function createAssetFromBuffer(input: {
           sizeBytes: input.buffer.byteLength,
         };
   const thumb =
-    mediaType === "image" ? await makeThumbnail(input.buffer) : null;
+    mediaType === "image" && input.thumbnailObjectKey === undefined
+      ? await makeThumbnail(input.buffer)
+      : null;
   const ext = extFromMime(input.mimeType);
   const originalFilename = `libraries/${input.libraryId}/assets/${id}/original.${ext}`;
   const thumbnailFilename = thumb
@@ -77,29 +81,37 @@ export async function createAssetFromBuffer(input: {
     : null;
   // putObject returns the *opaque* storage key — a URL when a provider
   // accepted the upload, or `local:<path>` when the dev-only local-fs
-  // fallback ran. Persist the returned key (not the filename hint) so
-  // getObject can dispatch on the real storage shape on read-back.
+  // fallback ran. Preset references can also pass a stable public asset path.
+  // Persist the returned/provided key (not the filename hint) so getObject can
+  // dispatch on the real storage shape on read-back.
   // Storing the bare filename here is what caused thumb.webp 500s when
   // BUILDER_PRIVATE_KEY was set — bytes lived at the provider URL but the
   // DB still pointed at a non-existent local file.
-  const { key: objectKey } = await putObject({
-    key: originalFilename,
-    body: input.buffer,
-    contentType: input.mimeType,
-  });
-  const thumbnailObjectKey = thumb
-    ? (
-        await putObject({
-          key: thumbnailFilename!,
-          body: thumb.buffer,
-          contentType: thumb.mimeType,
-        })
-      ).key
-    : null;
-  const colors =
+  const [originalObject, thumbnailObject, colors] = await Promise.all([
+    input.objectKey
+      ? Promise.resolve({ key: input.objectKey })
+      : putObject({
+          key: originalFilename,
+          body: input.buffer,
+          contentType: input.mimeType,
+        }),
+    input.thumbnailObjectKey !== undefined
+      ? Promise.resolve(
+          input.thumbnailObjectKey ? { key: input.thumbnailObjectKey } : null,
+        )
+      : thumb
+        ? putObject({
+            key: thumbnailFilename!,
+            body: thumb.buffer,
+            contentType: thumb.mimeType,
+          })
+        : Promise.resolve(null),
     mediaType === "image"
-      ? await extractDominantColors(input.buffer).catch(() => [])
-      : [];
+      ? extractDominantColors(input.buffer).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+  const objectKey = originalObject.key;
+  const thumbnailObjectKey = thumbnailObject?.key ?? null;
   const now = nowIso();
   const row = {
     id,

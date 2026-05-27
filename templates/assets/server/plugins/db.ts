@@ -199,6 +199,11 @@ export default runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS image_assets_library_media_idx
             ON image_assets (library_id, media_type)`,
     },
+    {
+      version: 24,
+      sql: `ALTER TABLE image_libraries
+            ADD COLUMN IF NOT EXISTS archived_at TEXT`,
+    },
   ],
   // Preserve the legacy migration table name so existing Images deployments do
   // not rerun historical additive migrations after the app slug becomes Assets.

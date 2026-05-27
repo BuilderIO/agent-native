@@ -23,6 +23,7 @@ const httpBoolean = z.preprocess((value) => {
 const SUGGESTED_GRANT_APPS = [
   { id: "dispatch", label: "Dispatch" },
   { id: "brain", label: "Brain" },
+  { id: "assets", label: "Assets" },
   { id: "analytics", label: "Analytics" },
   { id: "mail", label: "Mail" },
 ] as const;

@@ -257,8 +257,8 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8100,
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
-    hidden: true,
     defaultAgent: true,
+    core: true,
   },
   {
     name: "calls",

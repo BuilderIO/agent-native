@@ -5,7 +5,9 @@ import { z } from "zod";
 import {
   isBuilderImageGenerationEnabled,
   isGeminiImageGenerationConfigured,
+  isOpenAIImageGenerationConfigured,
 } from "../server/lib/generation.js";
+import { isObjectStorageConfigured } from "../server/lib/storage.js";
 
 /**
  * Surface the server-side `BUILDER_IMAGE_GENERATION_ENABLED` env flag so
@@ -25,18 +27,31 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const builderEnabled = isBuilderImageGenerationEnabled();
-    const [builderConnected, geminiConfigured, lastIssue] = await Promise.all([
+    const [
+      builderConnected,
+      geminiConfigured,
+      openaiConfigured,
+      objectStorageConfigured,
+      lastIssue,
+    ] = await Promise.all([
       resolveHasBuilderPrivateKey().catch(() => false),
       isGeminiImageGenerationConfigured().catch(() => false),
+      isOpenAIImageGenerationConfigured().catch(() => false),
+      isObjectStorageConfigured().catch(() => false),
       readAppState("image-generation-setup").catch(() => null),
     ]);
 
-    const configured = (builderEnabled && builderConnected) || geminiConfigured;
+    const configured =
+      (builderEnabled && builderConnected) ||
+      geminiConfigured ||
+      openaiConfigured;
 
     return {
       builderEnabled,
       builderConnected,
       geminiConfigured,
+      openaiConfigured,
+      objectStorageConfigured,
       configured,
       lastIssue: configured ? null : lastIssue,
     };

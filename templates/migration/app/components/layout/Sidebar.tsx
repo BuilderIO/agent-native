@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router";
 import { IconArrowRight, IconDatabase, IconRoute } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 
@@ -65,9 +66,18 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="border-t border-border px-3 py-2 space-y-2">
-        <FeedbackButton />
-        <OrgSwitcher />
+      <div className="mt-auto shrink-0">
+        <div className="border-t border-border px-2 py-1">
+          <ExtensionsSidebarSection />
+        </div>
+
+        <div className="border-t border-border px-3 py-2">
+          <OrgSwitcher />
+        </div>
+
+        <div className="border-t border-border px-3 py-2">
+          <FeedbackButton />
+        </div>
       </div>
     </aside>
   );

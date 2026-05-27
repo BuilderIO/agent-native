@@ -10,6 +10,7 @@ import { z } from "zod";
 
 const KNOWN_IMPACT_APPS = [
   { id: "brain", label: "Brain" },
+  { id: "assets", label: "Assets" },
   { id: "analytics", label: "Analytics" },
   { id: "mail", label: "Mail" },
   { id: "dispatch", label: "Dispatch" },

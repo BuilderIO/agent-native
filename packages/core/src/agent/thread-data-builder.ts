@@ -964,6 +964,11 @@ export function upsertAssistantMessage(
   return nextRepo;
 }
 
+export function normalizeThreadTitle(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
 /**
  * Extract title and preview from a thread runtime export.
  * Isomorphic — works on both server and client.
@@ -972,9 +977,10 @@ export function extractThreadMeta(repo: any): {
   title: string;
   preview: string;
 } {
+  const titleOverride = normalizeThreadTitle(repo?._titleOverride);
   const msgs = repo?.messages;
   if (!Array.isArray(msgs) || msgs.length === 0)
-    return { title: "", preview: "" };
+    return { title: titleOverride, preview: "" };
 
   let title = "";
   let preview = "";
@@ -995,5 +1001,5 @@ export function extractThreadMeta(repo: any): {
       preview = textParts.trim().slice(0, 120);
     }
   }
-  return { title, preview };
+  return { title: titleOverride || title, preview };
 }

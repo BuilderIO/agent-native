@@ -7,6 +7,7 @@ export default function AskRoute() {
         mode="page"
         className="brain-chat-panel"
         defaultMode="chat"
+        restoreActiveThread={false}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}

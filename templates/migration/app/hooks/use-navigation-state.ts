@@ -11,6 +11,7 @@ export interface NavigationState {
   view: string;
   path?: string;
   runId?: string;
+  extensionId?: string;
 }
 
 export function useNavigationState() {
@@ -23,10 +24,14 @@ export function useNavigationState() {
     const params = new URLSearchParams(location.search);
     const runId = params.get("run") ?? undefined;
     const path = `${location.pathname}${location.search}`;
+    const extensionId = extensionIdFromPath(location.pathname);
     const state: NavigationState = {
-      view: "workbench",
+      view: location.pathname.startsWith("/extensions")
+        ? "extensions"
+        : "workbench",
       path: appPath(path),
       runId,
+      extensionId,
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -66,12 +71,19 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = routerPath(
-      cmd.path || (cmd.runId ? `/?run=${encodeURIComponent(cmd.runId)}` : "/"),
-    );
+    const path = routerPath(cmd.path || pathFromCommand(cmd));
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
+}
+
+function pathFromCommand(cmd: NavigationState): string {
+  if (cmd.view === "extensions") {
+    return cmd.extensionId
+      ? `/extensions/${encodeURIComponent(cmd.extensionId)}`
+      : "/extensions";
+  }
+  return cmd.runId ? `/?run=${encodeURIComponent(cmd.runId)}` : "/";
 }
 
 function routerPath(path: string): string {
@@ -82,4 +94,9 @@ function routerPath(path: string): string {
     return path.slice(basePath.length) || "/";
   }
   return path;
+}
+
+function extensionIdFromPath(pathname: string): string | undefined {
+  const match = pathname.match(/^\/extensions\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }

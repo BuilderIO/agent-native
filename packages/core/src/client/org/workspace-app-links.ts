@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { coreTemplates } from "../../cli/templates-meta.js";
+import { coreTemplates, getTemplate } from "../../cli/templates-meta.js";
 
 export interface OrgSwitcherAppLink {
   id: string;
   name: string;
   href: string;
   description?: string;
+  icon?: string;
   isDispatch: boolean;
   status?: "ready" | "pending";
 }
@@ -131,6 +132,10 @@ function appEntryToLink(
     typeof record.isDispatch === "boolean"
       ? record.isDispatch
       : id === DISPATCH_ID;
+  const icon =
+    typeof record.icon === "string" && record.icon.trim()
+      ? record.icon.trim()
+      : getTemplate(id)?.icon;
 
   return {
     id,
@@ -143,6 +148,7 @@ function appEntryToLink(
       typeof record.description === "string" && record.description.trim()
         ? record.description.trim()
         : undefined,
+    ...(icon ? { icon } : {}),
     isDispatch,
     status: record.status === "pending" ? "pending" : "ready",
   };
@@ -211,6 +217,7 @@ export function defaultOrgAppLinks(): OrgSwitcherAppLink[] {
             ? appendPath(template.prodUrl!, "overview")
             : template.prodUrl!,
         description: template.hint,
+        icon: template.icon,
         isDispatch: template.name === DISPATCH_ID,
         status: "ready" as const,
       })),
@@ -267,6 +274,7 @@ function initialWorkspaceLinks(env: RuntimeEnv): OrgSwitcherAppLink[] {
         name: "Dispatch",
         href: appendPath(workspaceHref("/dispatch", null, env), "overview"),
         description: "Workspace hub",
+        icon: getTemplate(DISPATCH_ID)?.icon,
         isDispatch: true,
         status: "ready",
       },

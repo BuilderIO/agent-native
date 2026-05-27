@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client";
 import { IconBox, IconBrush, IconLayersIntersect } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ export function LibraryPresetGrid({
         const Icon = PRESET_ICONS[index % PRESET_ICONS.length];
         const colors = preset.styleBrief.palette ?? [];
         const loading = creatingId === preset.id;
+        const references = preset.referenceImages ?? [];
         return (
           <article
             key={preset.id}
@@ -44,6 +46,9 @@ export function LibraryPresetGrid({
                         {tag}
                       </Badge>
                     ))}
+                    {references.length ? (
+                      <Badge variant="outline">{references.length} refs</Badge>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -61,6 +66,20 @@ export function LibraryPresetGrid({
             <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
               {preset.description}
             </p>
+
+            {references.length ? (
+              <div className="mt-3 grid grid-cols-3 gap-1 overflow-hidden rounded-md border border-border bg-muted p-1">
+                {references.slice(0, 3).map((reference) => (
+                  <img
+                    key={reference.id}
+                    src={appPath(reference.path)}
+                    alt={reference.title}
+                    className="aspect-[4/3] w-full rounded-sm object-cover"
+                    loading="lazy"
+                  />
+                ))}
+              </div>
+            ) : null}
 
             {!compact && preset.samplePrompts[0] ? (
               <p className="mt-3 line-clamp-1 text-xs text-muted-foreground">

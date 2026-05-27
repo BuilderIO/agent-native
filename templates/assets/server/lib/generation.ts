@@ -75,6 +75,31 @@ export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
   return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
 }
 
+async function getOpenAIImageApiKey(): Promise<string> {
+  const key = await resolveSecret("OPENAI_API_KEY");
+  if (!key) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "OPENAI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://platform.openai.com/api-keys",
+      message:
+        "Image generation is not configured. Open Settings and connect Builder.io, or add an OpenAI or Gemini API key manually.",
+    });
+  }
+  return key;
+}
+
+export async function isOpenAIImageGenerationConfigured(): Promise<boolean> {
+  return !!(await resolveSecret("OPENAI_API_KEY").catch(() => null));
+}
+
+async function isManualImageGenerationConfigured(): Promise<boolean> {
+  return (
+    (await isGeminiImageGenerationConfigured()) ||
+    (await isOpenAIImageGenerationConfigured())
+  );
+}
+
 export function isImageGenerationSetupError(err: unknown): boolean {
   if (err instanceof FeatureNotConfiguredError) return true;
   const message = err instanceof Error ? err.message : "";
@@ -271,15 +296,15 @@ export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
   if (!isBuilderImageGenerationEnabled()) {
-    if (await isGeminiImageGenerationConfigured()) {
-      return generateWithGemini(input);
+    if (await isManualImageGenerationConfigured()) {
+      return generateWithManualImageProvider(input);
     }
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: "GEMINI_API_KEY or OPENAI_API_KEY",
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "Builder-managed image generation is disabled for this deployment. Open Settings, expand the Asset generation setup step, and paste a Gemini API key — or re-enable Builder-managed generation.",
+        "Builder-managed image generation is disabled for this deployment. Open Settings and add a Gemini or OpenAI API key manually, or re-enable Builder-managed generation.",
     });
   }
 
@@ -289,8 +314,8 @@ export async function generateWithManagedImageProvider(
     const shouldFallback =
       err instanceof BuilderImageGenerationError &&
       [401, 402, 403, 429, 503, 504].includes(err.status ?? 0);
-    if (shouldFallback && (await isGeminiImageGenerationConfigured())) {
-      return generateWithGemini(input);
+    if (shouldFallback && (await isManualImageGenerationConfigured())) {
+      return generateWithManualImageProvider(input);
     }
     if (shouldFallback && err instanceof BuilderImageGenerationError) {
       throw createBuilderImageGenerationFallbackError(err);
@@ -321,18 +346,18 @@ function builderImageGenerationFallbackMessage(
   const detail = err.detail ? `: ${err.detail}` : ".";
   switch (err.status) {
     case 401:
-      return "Image generation needs Builder.io connected or reconnected. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and paste a Gemini API key as the manual fallback.";
+      return "Image generation needs Builder.io connected or reconnected. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.";
     case 402:
-      return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add a Gemini API key as the manual fallback.`;
+      return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 403:
-      return `Builder.io is connected, but this Builder space does not have access to managed image generation${detail} Ask a space admin to enable access, reconnect to a different Builder space, or add a Gemini API key as the manual fallback.`;
+      return `Builder.io is connected, but this Builder space does not have access to managed image generation${detail} Ask a space admin to enable access, reconnect to a different Builder space, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 429:
-      return `Builder-managed image generation is rate limited right now${detail} Retry shortly, or add a Gemini API key as the manual fallback.`;
+      return `Builder-managed image generation is rate limited right now${detail} Retry shortly, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 503:
     case 504:
-      return `Builder-managed image generation is temporarily unavailable${detail} Retry shortly, or add a Gemini API key as the manual fallback.`;
+      return `Builder-managed image generation is temporarily unavailable${detail} Retry shortly, or add an OpenAI or Gemini API key as the manual fallback.`;
     default:
-      return `Builder-managed image generation failed${detail} Add a Gemini API key as the manual fallback if the Builder-managed provider keeps failing.`;
+      return `Builder-managed image generation failed${detail} Add an OpenAI or Gemini API key as the manual fallback if the Builder-managed provider keeps failing.`;
   }
 }
 
@@ -417,6 +442,81 @@ export async function generateWithGemini(
     : new Error("Gemini image generation failed.");
 }
 
+async function generateWithManualImageProvider(
+  input: GenerateProviderInput,
+): Promise<GenerateProviderOutput> {
+  if (await isGeminiImageGenerationConfigured()) {
+    return generateWithGemini(input);
+  }
+  return generateWithOpenAI(input);
+}
+
+export async function generateWithOpenAI(
+  input: GenerateProviderInput,
+): Promise<GenerateProviderOutput> {
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${await getOpenAIImageApiKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-image-2",
+      prompt: buildOpenAIImagePrompt(input),
+      n: 1,
+      size: toOpenAIImageSize(input.aspectRatio),
+      quality: "medium",
+      output_format: "png",
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as {
+    data?: Array<{ b64_json?: string; url?: string }>;
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    const detail = body.error?.message || `OpenAI returned ${response.status}`;
+    throw new Error(`OpenAI image generation failed: ${detail}`);
+  }
+
+  const output = body.data?.[0];
+  if (output?.b64_json) {
+    return {
+      image: Buffer.from(output.b64_json, "base64"),
+      mimeType: "image/png",
+      model: "gpt-image-2",
+      provider: "openai",
+    };
+  }
+  if (output?.url) {
+    const imageResponse = await fetch(output.url, {
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!imageResponse.ok) {
+      throw new Error(
+        `Could not download OpenAI-generated image (${imageResponse.status}).`,
+      );
+    }
+    return {
+      image: Buffer.from(await imageResponse.arrayBuffer()),
+      mimeType:
+        imageResponse.headers.get("content-type")?.split(";")[0] || "image/png",
+      model: "gpt-image-2",
+      provider: "openai",
+      sourceUrl: output.url,
+    };
+  }
+  throw new Error("OpenAI returned no image data.");
+}
+
+function buildOpenAIImagePrompt(input: GenerateProviderInput): string {
+  if (!input.references.length) return input.compiledPrompt;
+  return `${input.compiledPrompt}
+
+Reference note: this manual OpenAI fallback cannot attach the library reference images directly. Use the written style brief and prompt constraints as the source of truth.`;
+}
+
 function toBuilderAspectRatio(aspectRatio: AspectRatio) {
   const supported = new Set([
     "1:1",
@@ -434,6 +534,32 @@ function toBuilderAspectRatio(aspectRatio: AspectRatio) {
   if (aspectRatio === "1:4" || aspectRatio === "1:8") return "9:16";
   if (aspectRatio === "4:1" || aspectRatio === "8:1") return "21:9";
   return "1:1";
+}
+
+function toOpenAIImageSize(
+  aspectRatio: AspectRatio,
+): "1024x1024" | "1536x1024" | "1024x1536" | "auto" {
+  if (aspectRatio === "1:1") return "1024x1024";
+  if (
+    aspectRatio === "9:16" ||
+    aspectRatio === "2:3" ||
+    aspectRatio === "3:4" ||
+    aspectRatio === "1:4" ||
+    aspectRatio === "1:8"
+  ) {
+    return "1024x1536";
+  }
+  if (
+    aspectRatio === "16:9" ||
+    aspectRatio === "3:2" ||
+    aspectRatio === "4:3" ||
+    aspectRatio === "4:1" ||
+    aspectRatio === "8:1" ||
+    aspectRatio === "21:9"
+  ) {
+    return "1536x1024";
+  }
+  return "auto";
 }
 
 function toBuilderImageSize(size: ImageSize) {
