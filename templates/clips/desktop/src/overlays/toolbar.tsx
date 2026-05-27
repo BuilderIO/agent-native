@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
 } from "@tabler/icons-react";
@@ -144,20 +145,36 @@ export function Toolbar() {
         className="toolbar-v-stop"
         onClick={stop}
         disabled={stopping || !enabled}
-        aria-label="Stop recording"
-        title={enabled ? "Stop recording" : "Recording not started yet"}
+        aria-label={stopping ? "Stopping recording" : "Stop recording"}
+        title={
+          stopping
+            ? "Stopping..."
+            : enabled
+              ? "Stop recording"
+              : "Recording not started yet"
+        }
         data-no-drag
       >
-        <span className="toolbar-v-stop-square" />
+        {stopping ? (
+          <IconLoader2 className="toolbar-v-spinner" size={18} />
+        ) : (
+          <span className="toolbar-v-stop-square" />
+        )}
       </button>
       <div className="toolbar-v-time">{formatTime(elapsed)}</div>
       <button
         className="toolbar-v-pause"
         onClick={togglePause}
-        disabled={!enabled}
+        disabled={!enabled || stopping}
         aria-label={paused ? "Resume" : "Pause"}
         title={
-          enabled ? (paused ? "Resume" : "Pause") : "Recording not started yet"
+          stopping
+            ? "Stopping..."
+            : enabled
+              ? paused
+                ? "Resume"
+                : "Pause"
+              : "Recording not started yet"
         }
         data-no-drag
       >
