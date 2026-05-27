@@ -38,6 +38,7 @@ const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS = ["assets"];
 
 function hasFlag(name: string): boolean {
   return argv.includes(name);
@@ -127,10 +128,25 @@ function compareApps(
 
 const allApps = readTemplateApps();
 const appById = new Map(allApps.map((app) => [app.id, app]));
+const includeDesktop = hasFlag("--desktop");
+const includeElectron = hasFlag("--electron");
+
+function includeDesktopLazyDefaults(selected: TemplateApp[]): TemplateApp[] {
+  if (!includeDesktop) return selected;
+  const selectedIds = new Set(selected.map((app) => app.id));
+  const additions = DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS.map((id) =>
+    appById.get(id),
+  ).filter(
+    (app): app is TemplateApp => Boolean(app) && !selectedIds.has(app.id),
+  );
+  return additions.length ? [...selected, ...additions] : selected;
+}
+
 const requestedApps = (() => {
   if (hasFlag("--all")) return allApps;
   const appsArg = flagValue("--apps");
-  if (!appsArg) return allApps.filter((app) => app.core);
+  if (!appsArg)
+    return includeDesktopLazyDefaults(allApps.filter((app) => app.core));
   const ids = appsArg
     .split(",")
     .map((app) => app.trim())
@@ -151,8 +167,6 @@ if (requestedApps.length === 0) {
 
 const apps = requestedApps.sort(compareApps);
 const selectedById = new Map(apps.map((app) => [app.id, app]));
-const includeDesktop = hasFlag("--desktop");
-const includeElectron = hasFlag("--electron");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const prewarmEnabled = (() => {
