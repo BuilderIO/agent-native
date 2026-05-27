@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import {
   type Dispatch,
   type SetStateAction,
@@ -18,6 +18,7 @@ import {
 } from "@agent-native/core/client";
 import {
   IconDotsVertical,
+  IconArchive,
   IconFolder,
   IconFolderPlus,
   IconMessageCircle,
@@ -96,9 +97,11 @@ import {
 
 export default function LibraryPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const libraryId = id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
+  const archiveLibrary = useActionMutation("archive-library");
   const saveGenerated = useActionMutation("save-generated-image");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
@@ -110,6 +113,7 @@ export default function LibraryPage() {
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [editOpen, setEditOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
   const [activeTab, setActiveTab] = useState<LibraryTab>("references");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
@@ -330,6 +334,19 @@ export default function LibraryPage() {
     }
   }
 
+  async function archiveCurrentLibrary() {
+    if (!library || archiveLibrary.isPending) return;
+    try {
+      await archiveLibrary.mutateAsync({ id: library.id });
+      toast.success("Library archived.");
+      navigate("/libraries");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not archive library.",
+      );
+    }
+  }
+
   function generate(prompt: string, options: GenerateOptions) {
     const context = [
       "## Assets library context",
@@ -437,6 +454,29 @@ export default function LibraryPage() {
               onSubmit={generate}
               hasLogo={!!library.canonicalLogoAssetId}
             />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Library actions"
+                  disabled={archiveLibrary.isPending}
+                >
+                  <IconDotsVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setArchiveOpen(true);
+                  }}
+                >
+                  <IconArchive className="mr-2 h-4 w-4 shrink-0" />
+                  Archive library
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -455,6 +495,28 @@ export default function LibraryPage() {
         open={editOpen}
         onOpenChange={setEditOpen}
       />
+      <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive this library?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the library from the main Libraries list. Its assets
+              and generation history stay stored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiveLibrary.isPending}
+              onClick={() => {
+                void archiveCurrentLibrary();
+              }}
+            >
+              {archiveLibrary.isPending ? "Archiving..." : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {folderOpen ? (
         <CreateFolderDialog
           open={folderOpen}
