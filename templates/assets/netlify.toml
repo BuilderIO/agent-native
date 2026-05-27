@@ -8,12 +8,6 @@
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
 
-[[redirects]]
-  from = "https://images.agent-native.com/*"
-  to = "https://assets.agent-native.com/:splat"
-  status = 301
-  force = true
-
 # Image generation calls run a full Gemini round-trip plus Sharp post-processing.
 # Each `generate-image` call is ~6-12s; A2A delegation may chain several. Match
 # slides' generous timeout so multi-image runs don't get killed mid-flight.
