@@ -13,6 +13,7 @@ import {
   getLibraryCustomInstructions,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import { assetMediaUrl } from "@/lib/asset-urls";
 
 export function LibraryCard({
   library,
@@ -32,6 +33,7 @@ export function LibraryCard({
   showInstructions?: boolean;
 }) {
   const instructions = getLibraryCustomInstructions(library);
+  const coverThumbnailUrl = assetMediaUrl(library.coverAsset?.thumbnailUrl);
   const className = cn(
     "group flex h-full w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-card text-left text-card-foreground transition hover:border-foreground/30",
     compact ? "min-h-0" : "min-h-32",
@@ -47,9 +49,9 @@ export function LibraryCard({
         )}
       >
         <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
-        {library.coverAsset?.thumbnailUrl ? (
+        {coverThumbnailUrl ? (
           <img
-            src={library.coverAsset.thumbnailUrl}
+            src={coverThumbnailUrl}
             alt=""
             onError={(event) => {
               event.currentTarget.hidden = true;
