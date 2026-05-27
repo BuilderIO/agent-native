@@ -89,6 +89,7 @@ assertSameMembers(
     .map((template) => template.name),
   [
     "analytics",
+    "assets",
     "brain",
     "calendar",
     "clips",
