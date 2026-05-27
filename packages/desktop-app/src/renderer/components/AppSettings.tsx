@@ -532,6 +532,32 @@ export default function AppSettings({
     void refreshProviderSettings();
   }, [refreshProviderSettings]);
 
+  const refreshShortcutSettings = useCallback(async () => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.loadBindings) return;
+    try {
+      const settings = await api.loadBindings();
+      setShortcutSettings(settings);
+      setShortcutMessage(null);
+    } catch (err) {
+      setShortcutMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showShortcutSettings) return;
+    void refreshShortcutSettings();
+  }, [refreshShortcutSettings, showShortcutSettings]);
+
+  useEffect(() => {
+    setShortcutDraft((current) => {
+      if (current.app && apps.some((app) => app.id === current.app)) {
+        return current;
+      }
+      return { ...current, app: defaultShortcutDraft(apps).app };
+    });
+  }, [apps]);
+
   const refreshRemoteStatus = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
     if (!api?.getRemoteConnectorStatus) return;
@@ -595,6 +621,54 @@ export default function AppSettings({
       setRemotePairing(false);
     }
   }, [remotePairUrl]);
+
+  const shortcutRegistrations = useMemo(() => {
+    const map = new Map<string, DesktopShortcutRegistration>();
+    for (const registration of shortcutSettings?.registrations ?? []) {
+      map.set(registration.id, registration);
+    }
+    return map;
+  }, [shortcutSettings]);
+
+  const handleShortcutSave = useCallback(async () => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.upsertBinding) return;
+    setShortcutSaving(true);
+    setShortcutMessage(null);
+    try {
+      const result = await api.upsertBinding(
+        shortcutRequestFromDraft(shortcutDraft),
+      );
+      setShortcutSettings(result.settings);
+      if (result.ok) {
+        setShortcutDraft(defaultShortcutDraft(apps));
+      }
+      setShortcutMessage(result.error ?? null);
+    } catch (err) {
+      setShortcutMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShortcutSaving(false);
+    }
+  }, [apps, shortcutDraft]);
+
+  const handleShortcutRemove = useCallback(async (id: string) => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.removeBinding) return;
+    const result = await api.removeBinding(id);
+    setShortcutSettings(result.settings);
+    setShortcutMessage(result.error ?? null);
+  }, []);
+
+  const handleShortcutToggle = useCallback(
+    async (binding: DesktopShortcutBinding, enabled: boolean) => {
+      const api = window.electronAPI?.shortcuts;
+      if (!api?.upsertBinding) return;
+      const result = await api.upsertBinding({ ...binding, enabled });
+      setShortcutSettings(result.settings);
+      setShortcutMessage(result.error ?? null);
+    },
+    [],
+  );
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
