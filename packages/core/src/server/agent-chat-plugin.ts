@@ -96,6 +96,7 @@ import {
   getThread,
   listThreads,
   searchThreads,
+  renameThread,
   setThreadArchived,
   setThreadPinned,
   setThreadScope,
@@ -1185,7 +1186,7 @@ async function createResourceScriptEntries(): Promise<
 
 /**
  * Creates a unified chat-history ActionEntry that dispatches to search, open,
- * or lightweight organization actions.
+ * rename, or lightweight organization actions.
  */
 async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
   try {
@@ -1241,14 +1242,14 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
       "chat-history": {
         tool: {
           description:
-            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'pin'/'unpin'/'archive' to organize history.",
+            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'rename'/'pin'/'unpin'/'archive' to organize history.",
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["search", "open", "pin", "unpin", "archive"],
+                enum: ["search", "open", "rename", "pin", "unpin", "archive"],
               },
               query: {
                 type: "string",
@@ -1267,7 +1268,11 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               id: {
                 type: "string",
                 description:
-                  "(open, pin, unpin, archive) The chat thread ID to manage",
+                  "(open, rename, pin, unpin, archive) The chat thread ID to manage",
+              },
+              title: {
+                type: "string",
+                description: "(rename) New chat title",
               },
             },
             required: ["action"],
@@ -1278,6 +1283,7 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
             return openEntry.run(args);
           }
           if (
+            args?.action === "rename" ||
             args?.action === "pin" ||
             args?.action === "unpin" ||
             args?.action === "archive"
@@ -1292,6 +1298,15 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               return `Chat thread "${id}" not found.`;
             }
             const title = thread.title || thread.preview || "(untitled)";
+            if (args.action === "rename") {
+              const nextTitle =
+                typeof args?.title === "string"
+                  ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
+                  : "";
+              if (!nextTitle) return "Missing required title.";
+              await renameThread(id, nextTitle);
+              return `Renamed chat "${title}" to "${nextTitle}".`;
+            }
             if (args.action === "archive") {
               await setThreadArchived(id, true);
               return `Archived chat: ${title}`;
@@ -6059,6 +6074,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ? body.queuedMessages
                 : [];
               await setThreadQueuedMessages(threadId, queued);
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("rename")) {
+              const thread = await getThread(threadId);
+              if (!thread || thread.ownerEmail !== owner) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event).catch(() => ({}));
+              const title =
+                typeof body?.title === "string"
+                  ? body.title.replace(/\s+/g, " ").trim().slice(0, 160)
+                  : "";
+              if (!title) {
+                setResponseStatus(event, 400);
+                return { error: "Title is required" };
+              }
+              await renameThread(threadId, title);
               return { ok: true };
             }
 

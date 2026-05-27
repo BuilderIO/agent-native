@@ -2,6 +2,7 @@ import { getDbExec, intType } from "../db/client.js";
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
 import { emitChatThreadChange } from "./emitter.js";
 
@@ -485,6 +486,30 @@ export async function setThreadScope(
     ],
   });
   emitChatThreadChange(id);
+}
+
+export async function renameThread(
+  id: string,
+  title: string,
+): Promise<boolean> {
+  const nextTitle = normalizeThreadTitle(title);
+  if (!nextTitle) return false;
+
+  return await withThreadDataLock(id, async () => {
+    const thread = await getThread(id);
+    if (!thread) return false;
+
+    const repo = parseThreadData(thread.threadData);
+    repo._titleOverride = nextTitle;
+    await updateThreadData(
+      id,
+      JSON.stringify(repo),
+      nextTitle,
+      thread.preview,
+      thread.messageCount,
+    );
+    return true;
+  });
 }
 
 export async function setThreadPinned(

@@ -531,6 +531,41 @@ export function useChatThreads(
     [apiUrl, fetchThreads],
   );
 
+  const renameThread = useCallback(
+    async (threadId: string, title: string): Promise<boolean> => {
+      const nextTitle = title.replace(/\s+/g, " ").trim().slice(0, 160);
+      if (!nextTitle) return false;
+
+      const previous = threadsRef.current;
+      setThreads((prev) =>
+        prev.map((t) => (t.id === threadId ? { ...t, title: nextTitle } : t)),
+      );
+
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}/rename`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: nextTitle }),
+          },
+        );
+        if (!res.ok) {
+          setThreads(previous);
+          await fetchThreads();
+          return false;
+        }
+        emitThreadsUpdated();
+        return true;
+      } catch {
+        setThreads(previous);
+        await fetchThreads();
+        return false;
+      }
+    },
+    [apiUrl, fetchThreads],
+  );
+
   const isNewThread = useCallback(
     (id: string) => newlyCreatedRef.current.has(id),
     [],
@@ -802,6 +837,7 @@ export function useChatThreads(
     detachThread,
     pinThread,
     archiveThread,
+    renameThread,
     forkThread,
     saveThreadData,
     generateTitle,
