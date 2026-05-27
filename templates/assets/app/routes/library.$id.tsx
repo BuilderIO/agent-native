@@ -1324,10 +1324,13 @@ function AssetGrid({
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
   const selectedAssets = assets.filter((asset) => selectedIds.has(asset.id));
   const selectedCount = selectedAssets.length;
   const allSelected = assets.length > 0 && selectedCount === assets.length;
-  const deleting = deleteAsset.isPending || deleteAssets.isPending;
+  const pendingDeleteCount = deletingIds.size;
+  const deleting =
+    deleteAsset.isPending || deleteAssets.isPending || pendingDeleteCount > 0;
 
   function toggleAsset(assetId: string, checked: boolean) {
     onSelectedIdsChange((current) => {
@@ -1352,24 +1355,54 @@ function AssetGrid({
     if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
   }
 
+  function markDeleting(ids: string[]) {
+    setDeletingIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    onSelectedIdsChange((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    onOptimisticDelete?.(ids);
+  }
+
+  function finishDeleting(ids: string[]) {
+    setDeletingIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function restoreAfterDeleteError(ids: string[]) {
+    finishDeleting(ids);
+    onRestoreOptimisticDelete?.(ids);
+    onSelectedIdsChange((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
   function handleDeleteConfirmed() {
     if (!confirmDeleteIds.length || deleting) return;
     if (confirmDeleteIds.length === 1) {
       const [id] = confirmDeleteIds;
-      onOptimisticDelete?.([id]);
+      const ids = [id];
+      markDeleting(ids);
       setConfirmDeleteIds([]);
       deleteAsset.mutate(
         { id },
         {
           onSuccess: () => {
-            onSelectedIdsChange((current) => {
-              const next = new Set(current);
-              next.delete(id);
-              return next;
-            });
+            finishDeleting(ids);
+            toast.success("Deleted asset.");
           },
           onError: (error) => {
-            onRestoreOptimisticDelete?.([id]);
+            restoreAfterDeleteError(ids);
             toast.error(error.message || "Could not delete asset.");
           },
         },
@@ -1377,31 +1410,26 @@ function AssetGrid({
       return;
     }
     const ids = [...confirmDeleteIds];
-    onOptimisticDelete?.(ids);
+    markDeleting(ids);
     setConfirmDeleteIds([]);
     deleteAssets.mutate(
       { ids },
       {
-        onSuccess: () => {
+        onSuccess: (result: any) => {
+          finishDeleting(ids);
           const deletedIds = new Set(ids);
-          onSelectedIdsChange((current) => {
-            const next = new Set(current);
-            for (const id of deletedIds) next.delete(id);
-            return next;
-          });
-          toast.success(
-            `Deleted ${deletedIds.size} asset${deletedIds.size === 1 ? "" : "s"}.`,
-          );
+          const count = Number(result?.deletedCount ?? deletedIds.size);
+          toast.success(`Deleted ${count} asset${count === 1 ? "" : "s"}.`);
         },
         onError: (error) => {
-          onRestoreOptimisticDelete?.(ids);
+          restoreAfterDeleteError(ids);
           toast.error(error.message || "Could not delete selected assets.");
         },
       },
     );
   }
 
-  if (!assets.length && !pendingUploads.length) {
+  if (!assets.length && !pendingUploads.length && pendingDeleteCount === 0) {
     return (
       <button
         onClick={onEmptyClick}
@@ -1453,21 +1481,31 @@ function AssetGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      {assets.length > 0 ? (
+      {assets.length > 0 || pendingDeleteCount > 0 ? (
         <div className="mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-            <Checkbox
-              checked={allSelected}
-              onCheckedChange={(checked) => toggleAll(checked === true)}
-              aria-label="Select all assets in this view"
-            />
-            <span className="truncate">
-              {selectedCount > 0
-                ? `${selectedCount} selected`
-                : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
-            </span>
-          </div>
-          {selectedCount > 0 ? (
+          {pendingDeleteCount > 0 ? (
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Spinner className="h-4 w-4" />
+              <span className="truncate">
+                Deleting {pendingDeleteCount} asset
+                {pendingDeleteCount === 1 ? "" : "s"}...
+              </span>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={(checked) => toggleAll(checked === true)}
+                aria-label="Select all assets in this view"
+              />
+              <span className="truncate">
+                {selectedCount > 0
+                  ? `${selectedCount} selected`
+                  : `${assets.length} asset${assets.length === 1 ? "" : "s"}`}
+              </span>
+            </div>
+          )}
+          {selectedCount > 0 && pendingDeleteCount === 0 ? (
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -1486,7 +1524,11 @@ function AssetGrid({
                 }
                 disabled={deleting}
               >
-                <IconTrash className="h-4 w-4" />
+                {deleting ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <IconTrash className="h-4 w-4" />
+                )}
                 Delete
               </Button>
             </div>
@@ -1494,113 +1536,122 @@ function AssetGrid({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {pendingUploads.map((upload) => (
-          <PendingUploadCard key={upload.id} upload={upload} />
-        ))}
-        {assets.map((asset) => (
-          <div
-            key={asset.id}
-            className={[
-              "group relative overflow-hidden rounded-lg border bg-card transition",
-              selectedIds.has(asset.id)
-                ? "border-primary ring-2 ring-primary/25"
-                : "border-border",
-            ].join(" ")}
-          >
-            <div className="absolute left-2 top-2 z-10">
-              <Checkbox
-                checked={selectedIds.has(asset.id)}
-                onCheckedChange={(checked) =>
-                  toggleAsset(asset.id, checked === true)
-                }
-                aria-label={`Select ${asset.title || asset.metadata?.category || "asset"}`}
-                className={[
-                  "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
-                  selectedIds.has(asset.id) ? "sm:opacity-100" : "",
-                ].join(" ")}
-              />
-            </div>
-            <div className="absolute right-2 top-2 z-10">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-                    aria-label="Asset actions"
-                  >
-                    <IconDotsVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem asChild>
-                    <Link to={`/asset/${asset.id}`}>View details</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                      Move to
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          updateAsset.mutate({ id: asset.id, folderId: null })
-                        }
-                      >
-                        Unfiled
-                      </DropdownMenuItem>
-                      {folders.map((folder) => (
+      {assets.length || pendingUploads.length ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          {pendingUploads.map((upload) => (
+            <PendingUploadCard key={upload.id} upload={upload} />
+          ))}
+          {assets.map((asset) => (
+            <div
+              key={asset.id}
+              className={[
+                "group relative overflow-hidden rounded-lg border bg-card transition",
+                selectedIds.has(asset.id)
+                  ? "border-primary ring-2 ring-primary/25"
+                  : "border-border",
+              ].join(" ")}
+            >
+              <div className="absolute left-2 top-2 z-10">
+                <Checkbox
+                  checked={selectedIds.has(asset.id)}
+                  onCheckedChange={(checked) =>
+                    toggleAsset(asset.id, checked === true)
+                  }
+                  aria-label={`Select ${asset.title || asset.metadata?.category || "asset"}`}
+                  className={[
+                    "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+                    selectedIds.has(asset.id) ? "sm:opacity-100" : "",
+                  ].join(" ")}
+                />
+              </div>
+              <div className="absolute right-2 top-2 z-10">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+                      aria-label="Asset actions"
+                    >
+                      <IconDotsVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link to={`/asset/${asset.id}`}>View details</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                        Move to
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
                         <DropdownMenuItem
-                          key={folder.id}
                           onSelect={() =>
-                            updateAsset.mutate({
-                              id: asset.id,
-                              folderId: folder.id,
-                            })
+                            updateAsset.mutate({ id: asset.id, folderId: null })
                           }
                         >
-                          {folder.title}
+                          Unfiled
                         </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                    onSelect={() => confirmDelete([asset.id])}
-                  >
-                    <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                        {folders.map((folder) => (
+                          <DropdownMenuItem
+                            key={folder.id}
+                            onSelect={() =>
+                              updateAsset.mutate({
+                                id: asset.id,
+                                folderId: folder.id,
+                              })
+                            }
+                          >
+                            {folder.title}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      onSelect={() => confirmDelete([asset.id])}
+                    >
+                      <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <Link to={`/asset/${asset.id}`} className="block outline-none">
+                <div className="aspect-[4/3] bg-muted">
+                  <AssetPreview asset={asset} />
+                </div>
+                <div className="space-y-2 p-3">
+                  <div className="flex items-center gap-2 truncate text-xs font-medium">
+                    {asset.mediaType === "video" ? (
+                      <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    {asset.title || asset.metadata?.category || asset.status}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{asset.status}</Badge>
+                    {asset.metadata?.category && (
+                      <Badge variant="outline">{asset.metadata.category}</Badge>
+                    )}
+                  </div>
+                </div>
+              </Link>
             </div>
-            <Link to={`/asset/${asset.id}`} className="block outline-none">
-              <div className="aspect-[4/3] bg-muted">
-                <AssetPreview asset={asset} />
-              </div>
-              <div className="space-y-2 p-3">
-                <div className="flex items-center gap-2 truncate text-xs font-medium">
-                  {asset.mediaType === "video" ? (
-                    <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  {asset.title || asset.metadata?.category || asset.status}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{asset.status}</Badge>
-                  {asset.metadata?.category && (
-                    <Badge variant="outline">{asset.metadata.category}</Badge>
-                  )}
-                </div>
-              </div>
-            </Link>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+          <Spinner className="h-8 w-8 text-muted-foreground" />
+          <span className="mt-4 text-base font-semibold">
+            Deleting selected assets...
+          </span>
+        </div>
+      )}
     </>
   );
 }

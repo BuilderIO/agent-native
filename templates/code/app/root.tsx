@@ -1,14 +1,23 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import {
+  AgentSidebar,
   ClientOnly,
   DefaultSpinner,
   appPath,
   getThemeInitScript,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import codeAgentsStyles from "@agent-native/code-agents-ui/styles.css?url";
@@ -60,6 +69,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AppShell() {
+  useNavigationState();
+  const location = useLocation();
+  const isExtensionsRoute =
+    location.pathname === "/extensions" ||
+    location.pathname.startsWith("/extensions/");
+
+  if (!isExtensionsRoute) return <Outlet />;
+
+  return (
+    <AgentSidebar
+      position="right"
+      emptyStateText="Ask the agent to build or edit an extension."
+      suggestions={[
+        "Create an extension for my coding checklist",
+        "Build a dashboard for recent sessions",
+        "Summarize what this extension does",
+      ]}
+    >
+      <Outlet />
+    </AgentSidebar>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
@@ -71,7 +104,7 @@ export default function Root() {
         disableTransitionOnChange
       >
         <QueryClientProvider client={queryClient}>
-          <Outlet />
+          <AppShell />
         </QueryClientProvider>
       </ThemeProvider>
     </ClientOnly>
