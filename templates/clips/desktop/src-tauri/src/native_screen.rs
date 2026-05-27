@@ -28,8 +28,8 @@ const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
-const TRANSCODE_THRESHOLD_BYTES: u64 = 80 * 1024 * 1024;
-const TARGET_UPLOAD_BYTES: u64 = 95 * 1024 * 1024;
+const TRANSCODE_THRESHOLD_BYTES: u64 = 45 * 1024 * 1024;
+const TARGET_UPLOAD_BYTES: u64 = 45 * 1024 * 1024;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
@@ -765,7 +765,7 @@ fn start_screencapturekit_backend_at(
     let mut config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)
-        .with_fps(60)
+        .with_fps(30)
         .with_queue_depth(8)
         .with_shows_cursor(true)
         .with_captures_audio(false)
@@ -806,7 +806,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 30fps, microphone={include_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
