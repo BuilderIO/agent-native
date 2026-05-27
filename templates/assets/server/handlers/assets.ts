@@ -8,6 +8,7 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import pLimit from "p-limit";
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -47,6 +48,8 @@ const VIDEO_MIME_TYPES = new Set([
   "video/quicktime",
   "video/webm",
 ]);
+
+const UPLOAD_CONCURRENCY = 3;
 
 /**
  * Decode a multipart text field as UTF-8.
@@ -178,7 +181,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
       setResponseStatus(event, 413);
       return { error: "Too many files (max 20)" };
     }
-    const assets = [];
+    const preparedFiles = [];
     for (const part of files) {
       const mimeType = cleanMime(part.type, part.filename);
       const mediaType = mediaTypeFromMime(mimeType);
@@ -200,15 +203,10 @@ export const uploadAssets = defineEventHandler(async (event) =>
             "Only PNG, JPEG, WebP, AVIF, MP4, MOV, M4V, and WebM assets are supported.",
         };
       }
-      const asset = await createAssetFromBuffer({
-        libraryId,
-        collectionId,
-        folderId,
+      preparedFiles.push({
         buffer: Buffer.from(part.data),
         mimeType,
         mediaType,
-        role: roleFromCategory(category),
-        status: "reference",
         title:
           title ||
           part.filename ||
@@ -218,10 +216,30 @@ export const uploadAssets = defineEventHandler(async (event) =>
           originalName: part.filename,
           uploadId: nanoid(),
         },
-        category,
       });
-      assets.push(asset);
     }
+
+    const limit = pLimit(UPLOAD_CONCURRENCY);
+    const assets = await Promise.all(
+      preparedFiles.map((file) =>
+        limit(() =>
+          createAssetFromBuffer({
+            libraryId,
+            collectionId,
+            folderId,
+            buffer: file.buffer,
+            mimeType: file.mimeType,
+            mediaType: file.mediaType,
+            role: roleFromCategory(category),
+            status: "reference",
+            title: file.title,
+            altText: file.altText,
+            metadata: file.metadata,
+            category,
+          }),
+        ),
+      ),
+    );
     return { count: assets.length, assets };
   }),
 );

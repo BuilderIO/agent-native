@@ -3,12 +3,34 @@ import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("extractThreadMeta", () => {
+  it("prefers a manual title override while keeping the message preview", () => {
+    const meta = extractThreadMeta({
+      _titleOverride: "  Renamed   chat ",
+      messages: [
+        {
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "what should we ship next?" }],
+          },
+        },
+      ],
+    });
+
+    expect(meta).toEqual({
+      title: "Renamed chat",
+      preview: "what should we ship next?",
+    });
+  });
+});
 
 describe("buildAssistantMessage", () => {
   it("does not persist partial output from internal continuation boundaries", () => {

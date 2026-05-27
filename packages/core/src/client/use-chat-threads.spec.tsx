@@ -520,4 +520,53 @@ describe("useChatThreads", () => {
       messageCount: 2,
     });
   });
+
+  it("renames a thread optimistically", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Old title",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1/rename" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "rename-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.renameThread("thread-1", "  New   title ");
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({
+      title: "New title",
+    });
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.title,
+    ).toBe("New title");
+  });
 });

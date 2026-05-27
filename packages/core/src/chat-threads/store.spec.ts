@@ -14,6 +14,7 @@ vi.mock("./emitter.js", () => ({
 
 import {
   forkThread,
+  renameThread,
   setThreadArchived,
   setThreadPinned,
   setThreadQueuedMessages,
@@ -193,6 +194,14 @@ describe("chat thread store", () => {
     expect(row!.archived_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("renames threads with a durable title override", async () => {
+    await renameThread("thread-1", "  Better   title  ");
+
+    expect(row!.title).toBe("Better title");
+    expect(JSON.parse(row!.thread_data)._titleOverride).toBe("Better title");
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
   it("forks from a client snapshot when the source thread is not persisted yet", async () => {

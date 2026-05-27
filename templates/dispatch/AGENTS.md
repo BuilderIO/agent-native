@@ -232,6 +232,7 @@ serialization, so apps do not need to duplicate app-grant logic.
 
 - `list-dispatch-overview`: high-level counts, recent audit, approvals, vault health
 - `list-dispatch-usage-metrics`: workspace-level LLM usage, spend or Builder.io credit spend, users, app access, and recent activity
+- Core `chat-history`: search/open prior Dispatch chats and rename a known chat thread with action `rename` plus `id` and `title`.
 - `list-agent-thread-sources`: list read-only thread debug database sources available to Dispatch. Cross-template prod DB sources are discovered from app-prefixed env vars such as `MAIL_DATABASE_URL` or `AGENT_NATIVE_THREAD_DEBUG_DATABASES`.
 - `search-agent-threads`: search agent chat threads by title, preview, or persisted `thread_data`; non-admins are limited to their own current Dispatch DB threads.
 - `get-agent-thread-debug`: inspect one thread by ID, including messages, raw `thread_data`, latest `_debug`, retained run events, traces, feedback, evals, and checkpoints when available.

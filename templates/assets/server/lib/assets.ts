@@ -82,24 +82,25 @@ export async function createAssetFromBuffer(input: {
   // Storing the bare filename here is what caused thumb.webp 500s when
   // BUILDER_PRIVATE_KEY was set — bytes lived at the provider URL but the
   // DB still pointed at a non-existent local file.
-  const { key: objectKey } = await putObject({
-    key: originalFilename,
-    body: input.buffer,
-    contentType: input.mimeType,
-  });
-  const thumbnailObjectKey = thumb
-    ? (
-        await putObject({
+  const [originalObject, thumbnailObject, colors] = await Promise.all([
+    putObject({
+      key: originalFilename,
+      body: input.buffer,
+      contentType: input.mimeType,
+    }),
+    thumb
+      ? putObject({
           key: thumbnailFilename!,
           body: thumb.buffer,
           contentType: thumb.mimeType,
         })
-      ).key
-    : null;
-  const colors =
+      : Promise.resolve(null),
     mediaType === "image"
-      ? await extractDominantColors(input.buffer).catch(() => [])
-      : [];
+      ? extractDominantColors(input.buffer).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+  const objectKey = originalObject.key;
+  const thumbnailObjectKey = thumbnailObject?.key ?? null;
   const now = nowIso();
   const row = {
     id,

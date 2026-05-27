@@ -1,16 +1,26 @@
 import { Link, useNavigate } from "react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   PromptComposer,
   appBasePath,
+  appPath,
   sendToAgentChat,
   useActionMutation,
   useActionQuery,
+  useBuilderConnectFlow,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   IconAlertCircle,
   IconArrowUpRight,
+  IconCheck,
+  IconCloudUpload,
+  IconExternalLink,
+  IconKey,
+  IconLoader2,
+  IconMovie,
+  IconPhoto,
   IconPhotoPlus,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -67,6 +77,8 @@ type ImageGenerationConfig = {
   builderEnabled?: boolean;
   builderConnected?: boolean;
   geminiConfigured?: boolean;
+  openaiConfigured?: boolean;
+  objectStorageConfigured?: boolean;
   configured?: boolean;
   lastIssue?: {
     message?: unknown;
@@ -104,38 +116,153 @@ export default function CreatePage() {
 }
 
 function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
+  const queryClient = useQueryClient();
+  const flow = useBuilderConnectFlow({
+    trackingSource: "assets_create_setup_notice",
+    trackingFlow: "image_generation",
+    onConnected: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["action", "get-image-generation-config"],
+      });
+    },
+  });
   const issueMessage =
     typeof config.lastIssue?.message === "string"
       ? config.lastIssue.message
       : null;
-  const needsSetup = config.configured === false;
-  if (!needsSetup && !issueMessage) return null;
-
-  const title = issueMessage
-    ? "Asset generation needs attention"
-    : "Set up asset generation";
-  const body = issueMessage
-    ? issueMessage
-    : config.builderEnabled === false
-      ? "Builder-managed generation is disabled for this deployment. Add a Gemini API key in Settings to generate assets."
-      : "Connect Builder.io or add a Gemini API key in Settings before generating assets.";
+  const imageReady =
+    config.configured === true ||
+    !!config.openaiConfigured ||
+    !!config.geminiConfigured;
+  const videoReady = !!config.geminiConfigured;
+  const storageReady = !!config.objectStorageConfigured;
+  const needsSetup = !imageReady || !storageReady || !!issueMessage;
+  if (!needsSetup) return null;
+  const settingsHref = appPath("/settings#asset-generation-setup");
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left">
-      <div className="flex min-w-0 gap-3">
-        <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-            {body}
-          </p>
+    <div className="rounded-lg border border-border bg-card/60 px-4 py-4 text-left shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <IconPhoto className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-foreground">
+              Connect image generation and object storage
+            </div>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+              Connect Builder.io for managed image generation, or add keys
+              manually for OpenAI/Gemini image generation, Gemini video
+              generation, and S3-compatible object storage.
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {config.builderEnabled !== false ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => flow.start()}
+              disabled={flow.connecting}
+            >
+              {flow.connecting ? (
+                <>
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  Waiting...
+                </>
+              ) : (
+                <>
+                  Connect Builder.io
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                </>
+              )}
+            </Button>
+          ) : null}
+          <Button asChild variant="outline" size="sm">
+            <a href={settingsHref}>
+              Add keys manually
+              <IconArrowUpRight className="h-3.5 w-3.5" />
+            </a>
+          </Button>
         </div>
       </div>
-      <Button asChild variant="outline" size="sm" className="shrink-0">
-        <Link to="/settings">Settings</Link>
-      </Button>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <SetupStatusPill
+          icon={<IconKey className="h-3.5 w-3.5" />}
+          title="Image generation"
+          detail={
+            imageReady
+              ? "Builder or BYOK ready"
+              : "Builder, OpenAI, or Gemini"
+          }
+          ready={imageReady}
+        />
+        <SetupStatusPill
+          icon={<IconMovie className="h-3.5 w-3.5" />}
+          title="Video generation"
+          detail={videoReady ? "Gemini ready" : "Gemini API key"}
+          ready={videoReady}
+        />
+        <SetupStatusPill
+          icon={<IconCloudUpload className="h-3.5 w-3.5" />}
+          title="Object storage"
+          detail={storageReady ? "Storage ready" : "Builder or S3-compatible"}
+          ready={storageReady}
+        />
+      </div>
+
+      {issueMessage || flow.error ? (
+        <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <IconAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p className="line-clamp-3 leading-relaxed">
+            {flow.error ?? issueMessage}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function SetupStatusPill({
+  icon,
+  title,
+  detail,
+  ready,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  ready: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+      <div
+        className={
+          ready
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-muted-foreground"
+        }
+      >
+        {ready ? <IconCheck className="h-3.5 w-3.5" /> : icon}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium text-foreground">
+          {title}
+        </div>
+        <div className="truncate text-[11px] text-muted-foreground">
+          {detail}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function openSettingsPage() {
+  if (typeof window !== "undefined") {
+    window.location.assign(appPath("/settings#asset-generation-setup"));
+  }
 }
 
 function loadCustomRatios(): string[] {
@@ -337,7 +464,7 @@ function HomeGeneratePanel({
 
     if (generationConfig?.configured === false) {
       toast.error("Set up asset generation before starting a new run.");
-      navigate("/settings");
+      openSettingsPage();
       return;
     }
 
