@@ -1329,9 +1329,9 @@ export class RecorderEngine {
     // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
 
-    // The server chunk handler caps each body at ~6 MB, so keep slices under
-    // that cap. This mirrors the local-file upload path in record.tsx.
-    const UPLOAD_SLICE_BYTES = 5 * 1024 * 1024;
+    // Keep binary uploads comfortably under Netlify's effective function
+    // payload limit. This mirrors the local-file upload path in record.tsx.
+    const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
     let lastResult: Record<string, unknown> | undefined;
