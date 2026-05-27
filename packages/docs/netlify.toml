@@ -1,6 +1,22 @@
 [build]
   command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
   publish = "packages/docs/dist"
+  functions = "packages/docs/.netlify/functions-internal"
+
+# Framework runtime routes must hit the Nitro server function. Without this,
+# the public docs pages can deploy while the agent sidebar/session/sync routes
+# fall through to Netlify's static 404 handler.
+[[redirects]]
+  from = "/_agent-native/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/.well-known/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = true
 
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
