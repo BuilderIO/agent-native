@@ -755,6 +755,11 @@ export default function AppSettings({
 
   const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
   const remoteCopy = remoteStatusCopy(remoteStatus);
+  const normalizedShortcut = normalizeDesktopShortcutAccelerator(
+    shortcutDraft.accelerator,
+  );
+  const shortcutDraftValid =
+    Boolean(normalizedShortcut.accelerator) && Boolean(shortcutDraft.app);
 
   return (
     <div className="settings-overlay" onClick={onClose}>
