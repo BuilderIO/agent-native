@@ -136,14 +136,14 @@ conversion/integration workflow.
 
 ### Notion Integration
 
-| Action                  | Args                                    | Purpose                                   |
-| ----------------------- | --------------------------------------- | ----------------------------------------- |
-| `connect-notion-status` |                                         | Check Notion connection                   |
-| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                   |
-| `list-notion-links`     |                                         | List linked documents                     |
-| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
-| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
-| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
+| Action                  | Args                                    | Purpose                                                                                               |
+| ----------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `connect-notion-status` |                                         | Check Notion connection                                                                               |
+| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                                                                               |
+| `list-notion-links`     |                                         | List linked documents                                                                                 |
+| `pull-notion-page`      | `--documentId <id>`                     | Explicitly pull current Notion content into the local document, overwriting the local title/body/icon |
+| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                                                                                |
+| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional)                                                             |
 
 ### Comments
 
@@ -252,7 +252,7 @@ Public documents are reachable at `/p/<id>` once visibility is `public`. Anyone 
 | "Show me the document list"    | `list-documents`                                                               |
 | "Open document X"              | `navigate --documentId=<id>`                                                   |
 | "Go to the list view"          | `navigate --path=/`                                                            |
-| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...`                   |
+| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...` (Notion wins)     |
 | "Push to Notion"               | `view-screen` to get ID, `push-notion-page --documentId ...`                   |
 
 After any create, update, or delete operation, the scripts automatically trigger a UI refresh.

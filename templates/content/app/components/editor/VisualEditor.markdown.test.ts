@@ -465,6 +465,24 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
+  it("applies explicit external sync over live collaborative edits", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: true,
+        docChanged: false,
+        content: "Pulled from Notion",
+        lastEmittedMarkdown: "Local editor state",
+        currentMarkdown: "Local editor state",
+        nextMarkdown: "Pulled from Notion",
+        editorFocused: true,
+        lastTypedAt: 9_500,
+        now: 10_000,
+        forceExternalContentSync: true,
+      }),
+    ).toBe(true);
+  });
+
   it("still applies external content before collaborative edits begin", () => {
     expect(
       shouldApplyExternalContentSync({

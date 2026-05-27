@@ -688,15 +688,16 @@ export async function validateEvidence(
     const sourceUrl = safeCitationUrl(
       item.sourceUrl ?? item.url ?? metadata.sourceUrl,
     );
-    validated.push({
+    const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
       note: item.note,
-      sourceUrl,
       timestampMs: item.timestampMs,
-    });
+    };
+    if (sourceUrl) result.sourceUrl = sourceUrl;
+    validated.push(result);
   }
   return validated;
 }

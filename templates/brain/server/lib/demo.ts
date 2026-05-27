@@ -1469,7 +1469,7 @@ export async function runBrainDemoEval(
       connectorSearchText.includes(
         "connectors amplify weak knowledge retrieval",
       ) &&
-      !!topConnectorSearch.citation?.sourceUrl,
+      !!topConnectorSearch.citation?.quote,
     topConnectorSearch
       ? `Top result is ${topConnectorSearch.type}:${topConnectorSearch.title}.`
       : "Connector eval-gate rationale search returned no results.",

@@ -130,11 +130,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const canEdit = document.canEdit ?? true;
   const notionSyncedToCurrentDocument = Boolean(
     syncStatus?.lastSyncedAt &&
-      syncStatus.lastPushedLocalUpdatedAt === document.updatedAt,
+    syncStatus.lastPushedLocalUpdatedAt === document.updatedAt,
   );
-  const forceExternalContentSync =
-    notionSyncedToCurrentDocument &&
-    (document.title !== localTitle || document.content !== localContent);
+  const forceExternalContentSync = notionSyncedToCurrentDocument;
 
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
