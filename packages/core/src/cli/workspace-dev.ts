@@ -71,6 +71,7 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
+const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
 const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
@@ -617,6 +618,10 @@ export async function runWorkspaceDev(
   const proxyReadyTimeoutMs = Number(
     env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
   );
+  const proxyResponseTimeoutMs = Number(
+    env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+      DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
+  );
   let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
   const apps = discoverApps(appsDir, appPortStart);
@@ -1014,8 +1019,19 @@ export async function runWorkspaceDev(
       return;
     }
 
+    const serveStartingPage = () => {
+      res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(renderStartingApp(app));
+    };
+
     const dispatch = () => {
       const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
+      let settled = false;
+      let responseTimer: NodeJS.Timeout;
       const proxyReq = http.request(
         {
           hostname: "127.0.0.1",
@@ -1025,13 +1041,42 @@ export async function runWorkspaceDev(
           headers,
         },
         (proxyRes) => {
+          if (settled) {
+            proxyRes.resume();
+            return;
+          }
+          settled = true;
+          clearTimeout(responseTimer);
           app.ready = true;
           res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
           proxyRes.pipe(res);
         },
       );
+      responseTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        app.ready = false;
+        proxyReq.destroy();
+        ensureReadinessProbe(app);
+        if (res.headersSent) {
+          res.end();
+          return;
+        }
+        if (wantsHtml(req)) {
+          serveStartingPage();
+          return;
+        }
+        res.writeHead(504, { "content-type": "text/plain" });
+        res.end(
+          `App "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+        );
+      }, proxyResponseTimeoutMs);
+      responseTimer.unref();
 
       proxyReq.on("error", (err) => {
+        clearTimeout(responseTimer);
+        if (settled) return;
+        settled = true;
         if (res.headersSent) {
           res.end();
           return;

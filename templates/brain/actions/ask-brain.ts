@@ -3,6 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import {
   readBrainAgentGuidance,
+  safeCitationUrl,
   searchKnowledgeRows,
   serializeKnowledge,
 } from "../server/lib/brain.js";
@@ -197,7 +198,7 @@ export default defineAction({
         sourceName: evidence.captureTitle,
         excerpt: evidence.quote,
         confidence: item.confidence / 100,
-        url: evidence.sourceUrl ?? evidence.url ?? null,
+        url: safeCitationUrl(evidence.sourceUrl ?? evidence.url),
         deepLink: knowledgeDeepLink(item.id),
       })),
     );
@@ -207,7 +208,7 @@ export default defineAction({
       title: item.title,
       sourceName: item.source?.title ?? item.title,
       excerpt: item.snippet,
-      url: item.sourceUrl,
+      url: safeCitationUrl(item.sourceUrl),
       deepLink: captureDeepLink(item.id),
     }));
     const answerParts = [];

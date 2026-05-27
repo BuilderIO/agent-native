@@ -109,6 +109,46 @@ describe("workspace dev startup", () => {
     }
   });
 
+  it("falls back to the wake page when a ready app stalls before response headers", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000",
+        WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS: "50",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps[0];
+    app.ready = true;
+    const hangingServer = http.createServer(() => {
+      // This simulates the real browser navigation getting handed to an
+      // upstream server that accepted the socket but never sent headers.
+    });
+    await new Promise<void>((resolve, reject) => {
+      hangingServer.once("error", reject);
+      hangingServer.listen(app.port, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const res = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+        signal: AbortSignal.timeout(1_000),
+      });
+      expect(res.headers.get("cache-control")).toContain("no-store");
+      expect(await res.text()).toContain("Starting Dispatch");
+      expect(app.ready).not.toBe(true);
+    } finally {
+      await new Promise<void>((resolve) =>
+        hangingServer.close(() => resolve()),
+      );
+    }
+  });
+
   it("prewarms non-default apps in the background after the gateway is ready", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter", "todo"]);
     const fake = fakeSpawn();

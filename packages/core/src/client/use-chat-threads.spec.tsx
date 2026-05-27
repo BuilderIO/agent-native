@@ -399,4 +399,78 @@ describe("useChatThreads", () => {
       scope: sourceThread.scope,
     });
   });
+
+  it("keeps generated titles when later thread saves update the preview", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Using the Brain demo data for this example",
+      preview: "Using the Brain demo data for this example",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "title-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "Brain Demo Setup",
+        preview: "Using the Brain demo data for this example",
+        titleSource: "generated",
+      });
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: JSON.stringify({ messages: [] }),
+        title: "Using the Brain demo data for this example",
+        preview: "What should the demo answer cite?",
+        messageCount: 2,
+      });
+    });
+
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/chat/threads/thread-1" && init?.method === "PUT",
+    );
+    expect(JSON.parse(saveCalls[0]![1]!.body as string).title).toBe(
+      "Brain Demo Setup",
+    );
+    expect(JSON.parse(saveCalls[1]![1]!.body as string).title).toBe(
+      "Brain Demo Setup",
+    );
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      title: "Brain Demo Setup",
+      preview: "What should the demo answer cite?",
+      messageCount: 2,
+    });
+  });
 });

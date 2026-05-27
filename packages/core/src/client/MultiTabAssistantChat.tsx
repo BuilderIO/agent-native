@@ -1652,6 +1652,7 @@ export function MultiTabAssistantChat({
             threadData: "",
             title,
             preview: message.slice(0, 120),
+            titleSource: "generated",
           });
         }
       });

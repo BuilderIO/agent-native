@@ -35,8 +35,15 @@ const threadToRun = new Map<string, string>();
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
-/** Default run chunk budget for hosted/serverless deploys. */
-export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 55_000;
+/**
+ * Default run chunk budget for hosted/serverless deploys.
+ *
+ * Netlify's synchronous Functions limit is currently 60s, so keep enough
+ * headroom for abort propagation, thread_data persistence, terminal event
+ * writes, and reconnect bookkeeping before the platform hard-kills the
+ * invocation.
+ */
+export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 45_000;
 
 /** Default SQL retention for completed/errored run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;

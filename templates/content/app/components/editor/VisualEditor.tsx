@@ -565,6 +565,7 @@ interface VisualEditorProps {
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  forceExternalContentSync?: boolean;
 }
 
 export function shouldSeedCollaborativeContent({
@@ -595,6 +596,7 @@ export function shouldApplyExternalContentSync({
   editorFocused,
   lastTypedAt,
   now,
+  forceExternalContentSync = false,
 }: {
   collaborationActive: boolean;
   hasLiveCollaborativeEdits: boolean;
@@ -606,6 +608,7 @@ export function shouldApplyExternalContentSync({
   editorFocused: boolean;
   lastTypedAt: number;
   now: number;
+  forceExternalContentSync?: boolean;
 }): boolean {
   if (currentMarkdown === nextMarkdown) return false;
 
@@ -615,12 +618,24 @@ export function shouldApplyExternalContentSync({
   // Once Yjs has live edits, ordinary SQL refetches are only snapshots. Applying
   // them with setContent() would turn a stale whole-document save into a Yjs
   // replacement and can revert collaborators' newer CRDT updates.
-  if (collaborationActive && hasLiveCollaborativeEdits && !docChanged) {
+  if (
+    collaborationActive &&
+    hasLiveCollaborativeEdits &&
+    !docChanged &&
+    !forceExternalContentSync
+  ) {
     return false;
   }
 
   const typedRecently = now - lastTypedAt < 2000;
-  if (editorFocused && typedRecently && !docChanged) return false;
+  if (
+    editorFocused &&
+    typedRecently &&
+    !docChanged &&
+    !forceExternalContentSync
+  ) {
+    return false;
+  }
 
   return true;
 }
@@ -1045,6 +1060,7 @@ export function VisualEditor({
   editable = true,
   onComment,
   onJoinTitle,
+  forceExternalContentSync = false,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
@@ -1290,6 +1306,7 @@ export function VisualEditor({
         editorFocused: editor.isFocused,
         lastTypedAt: lastTypedAtRef.current,
         now: Date.now(),
+        forceExternalContentSync,
       })
     ) {
       return;
@@ -1313,11 +1330,15 @@ export function VisualEditor({
         .setContent(nextEditorContent)
         .run();
       isSettingContent.current = false;
+      if (forceExternalContentSync) {
+        hasLiveCollaborativeEditsRef.current = false;
+        lastEmittedRef.current = normalizedNext;
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [content, editor, documentId, ydoc]);
+  }, [content, editor, documentId, forceExternalContentSync, ydoc]);
 
   if (!editor) {
     return (

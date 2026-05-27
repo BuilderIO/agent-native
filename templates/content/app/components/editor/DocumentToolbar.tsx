@@ -4,6 +4,7 @@ import {
   IconArrowBarUp,
   IconAlertTriangle,
   IconDownload,
+  IconDotsVertical,
   IconExternalLink,
   IconFileTypeHtml,
   IconFileTypePdf,
@@ -27,6 +28,10 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -480,18 +485,6 @@ export function DocumentToolbar({
           variant="compact"
         />
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setHistoryOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-            >
-              <IconHistory size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Version history</TooltipContent>
-        </Tooltip>
-
         <VersionHistoryPanel
           documentId={documentId}
           open={historyOpen}
@@ -504,44 +497,58 @@ export function DocumentToolbar({
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
-                  disabled={exportDocument.isPending}
-                  aria-label="Export page"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  aria-label="More page actions"
                 >
-                  {exportDocument.isPending ? (
-                    <IconLoader2 size={16} className="animate-spin" />
-                  ) : (
-                    <IconDownload size={16} />
-                  )}
+                  <IconDotsVertical size={16} />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Export page</TooltipContent>
+            <TooltipContent>More page actions</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuGroup>
               <DropdownMenuItem
-                disabled={exportDocument.isPending}
-                onSelect={() => void handleExport("pdf")}
+                onSelect={() => setHistoryOpen(true)}
               >
-                <IconFileTypePdf className="mr-2 h-4 w-4" />
-                PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={exportDocument.isPending}
-                onSelect={() => void handleExport("markdown")}
-              >
-                <IconMarkdown className="mr-2 h-4 w-4" />
-                Markdown
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={exportDocument.isPending}
-                onSelect={() => void handleExport("html")}
-              >
-                <IconFileTypeHtml className="mr-2 h-4 w-4" />
-                HTML
+                <IconHistory className="mr-2 h-4 w-4" />
+                Version history
               </DropdownMenuItem>
             </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
+                {exportDocument.isPending ? (
+                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconDownload className="mr-2 h-4 w-4" />
+                )}
+                Export
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("pdf")}
+                >
+                  <IconFileTypePdf className="mr-2 h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("markdown")}
+                >
+                  <IconMarkdown className="mr-2 h-4 w-4" />
+                  Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("html")}
+                >
+                  <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                  HTML
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
 

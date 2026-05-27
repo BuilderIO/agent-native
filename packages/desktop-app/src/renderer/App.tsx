@@ -12,6 +12,7 @@ import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import { getTabDisplayTitle } from "./lib/tab-title.js";
 import {
   CODE_AGENTS_SURFACE_ID,
   MIGRATION_APP_ID,
@@ -32,7 +33,7 @@ function createTab(app: AppDefinition | AppConfig): Tab {
   return {
     id: `tab-${nextTabId++}`,
     appId: app.id,
-    title: app.name,
+    title: getTabDisplayTitle(undefined, app.name),
   };
 }
 
@@ -362,6 +363,18 @@ export default function App() {
         const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
+          const app = enabledApps.find((a) => a.id === activeSidebarAppId);
+          if (app) {
+            const replacementTab = createTab(app);
+            return {
+              ...prev,
+              [activeSidebarAppId]: {
+                tabs: [replacementTab],
+                activeTabId: replacementTab.id,
+              },
+            };
+          }
+
           return {
             ...prev,
             [activeSidebarAppId]: { tabs: [], activeTabId: "" },
@@ -380,31 +393,35 @@ export default function App() {
         };
       });
     },
-    [activeSidebarAppId, appTabs],
+    [activeSidebarAppId, appTabs, enabledApps],
   );
 
-  const handleTabTitleChange = useCallback((tabId: string, title: string) => {
-    const nextTitle = title.trim();
-    if (!nextTitle) return;
+  const handleTabTitleChange = useCallback(
+    (tabId: string, title: string) => {
+      setAppTabs((prev) => {
+        const appId = findTabAppId(prev, tabId);
+        if (!appId) return prev;
+        const appState = prev[appId];
+        const tab = appState.tabs.find((t) => t.id === tabId);
+        if (!tab) return prev;
 
-    setAppTabs((prev) => {
-      const appId = findTabAppId(prev, tabId);
-      if (!appId) return prev;
-      const appState = prev[appId];
-      const tab = appState.tabs.find((t) => t.id === tabId);
-      if (!tab || tab.title === nextTitle) return prev;
+        const app = enabledApps.find((candidate) => candidate.id === appId);
+        const nextTitle = getTabDisplayTitle(title, app?.name ?? tab.title);
+        if (tab.title === nextTitle) return prev;
 
-      return {
-        ...prev,
-        [appId]: {
-          ...appState,
-          tabs: appState.tabs.map((t) =>
-            t.id === tabId ? { ...t, title: nextTitle } : t,
-          ),
-        },
-      };
-    });
-  }, []);
+        return {
+          ...prev,
+          [appId]: {
+            ...appState,
+            tabs: appState.tabs.map((t) =>
+              t.id === tabId ? { ...t, title: nextTitle } : t,
+            ),
+          },
+        };
+      });
+    },
+    [enabledApps],
+  );
 
   const handleReopenTab = useCallback(() => {
     const entry = closedTabsRef.current.pop();
@@ -735,6 +752,9 @@ export default function App() {
         <TabBar
           tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
+          appName={
+            enabledApps.find((app) => app.id === activeSidebarAppId)?.name ?? ""
+          }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
           onNewTab={handleNewTab}

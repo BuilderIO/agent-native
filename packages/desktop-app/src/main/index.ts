@@ -5192,7 +5192,31 @@ function canOpenExternalUrl(url: string): boolean {
 
 function openExternalUrl(url: string) {
   if (!canOpenExternalUrl(url)) return;
-  shell.openExternal(url).catch(() => {});
+  if (process.platform !== "darwin" || !/^https?:/i.test(url)) {
+    shell.openExternal(url).catch(() => {});
+    return;
+  }
+
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    shell.openExternal(url).catch(() => {});
+  };
+
+  try {
+    const child = spawn("open", ["-a", "Google Chrome", url], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.once("error", fallback);
+    child.once("close", (code) => {
+      if (code !== 0) fallback();
+    });
+    child.unref();
+  } catch {
+    fallback();
+  }
 }
 
 function handleDesktopProtocolUrl(url: string): boolean {
@@ -6126,6 +6150,55 @@ function openOAuthFromWebviewNavigation(
   }
 }
 
+function normalizedNavigationHost(hostname: string): string {
+  return isLoopbackHost(hostname.toLowerCase()) ? "loopback" : hostname;
+}
+
+function defaultPortForProtocol(protocol: string): string {
+  if (protocol === "http:") return "80";
+  if (protocol === "https:") return "443";
+  return "";
+}
+
+function navigationPort(url: URL): string {
+  return url.port || defaultPortForProtocol(url.protocol);
+}
+
+function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
+  if (current.origin === next.origin) return true;
+  if (current.protocol !== next.protocol) return false;
+  return (
+    normalizedNavigationHost(current.hostname) ===
+      normalizedNavigationHost(next.hostname) &&
+    navigationPort(current) === navigationPort(next)
+  );
+}
+
+function shouldOpenWebviewNavigationExternally(
+  url: string,
+  sourceContents: Electron.WebContents,
+): boolean {
+  if (!canOpenExternalUrl(url)) return false;
+  let next: URL;
+  try {
+    next = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (next.protocol !== "http:" && next.protocol !== "https:") return true;
+
+  try {
+    const current = new URL(sourceContents.getURL());
+    if (current.protocol !== "http:" && current.protocol !== "https:") {
+      return false;
+    }
+    return !isSameWebviewAppOrigin(current, next);
+  } catch {
+    return false;
+  }
+}
+
 function handleWindowOpenForContents(
   contents: Electron.WebContents,
   url: string,
@@ -6163,25 +6236,38 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   if (webviewOAuthNavigationHandlers.has(contents)) return;
   webviewOAuthNavigationHandlers.add(contents);
 
-  const handleNavigation = (event: Electron.Event, url: string) => {
+  const handleNavigation = (
+    event: Electron.Event,
+    url: string,
+    options: { isMainFrame: boolean },
+  ) => {
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
     }
-    if (!openOAuthFromWebviewNavigation(url, contents)) return;
-    event.preventDefault();
+    if (openOAuthFromWebviewNavigation(url, contents)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      options.isMainFrame &&
+      shouldOpenWebviewNavigationExternally(url, contents)
+    ) {
+      event.preventDefault();
+      openExternalUrl(url);
+    }
   };
 
   contents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) return;
-    handleNavigation(event, event.url);
+    handleNavigation(event, event.url, { isMainFrame: false });
   });
 
   // Belt-and-suspenders for existing deployed app bundles that may still
   // fall back to assigning window.location when Electron reports a manually
   // handled popup as null. Keep Builder/Google OAuth out of the app webview.
   contents.on("will-navigate", (event) => {
-    handleNavigation(event, event.url);
+    handleNavigation(event, event.url, { isMainFrame: true });
   });
 }
 

@@ -36,6 +36,8 @@ export interface ChatThreadSnapshot {
   messageCount: number;
 }
 
+type ThreadTitleSource = "generated" | "extracted";
+
 interface ForkSnapshotWithScope extends ChatThreadSnapshot {
   scope: ChatThreadScope | null;
 }
@@ -86,6 +88,21 @@ function threadCanStayVisibleInScope(
 ): boolean {
   if (!threadScope) return true;
   return scopesMatch(threadScope, currentScope);
+}
+
+function nextThreadTitle(
+  currentTitle: string | undefined,
+  incomingTitle: string,
+  incomingPreview: string,
+  source: ThreadTitleSource = "extracted",
+): string {
+  if (source === "generated") return incomingTitle;
+  if (!currentTitle) return incomingTitle;
+  if (!incomingTitle) return currentTitle;
+  if (currentTitle !== incomingTitle && currentTitle !== incomingPreview) {
+    return currentTitle;
+  }
+  return incomingTitle;
 }
 
 export function useChatThreads(
@@ -469,15 +486,27 @@ export function useChatThreads(
         title: string;
         preview: string;
         messageCount?: number;
+        titleSource?: ThreadTitleSource;
       },
     ) => {
       try {
-        const localScope =
-          threadsRef.current.find((t) => t.id === id)?.scope ?? null;
+        const { titleSource, ...threadDataPayload } = data;
+        const localThread = threadsRef.current.find((t) => t.id === id);
+        const localScope = localThread?.scope ?? null;
+        const title = nextThreadTitle(
+          localThread?.title,
+          data.title,
+          data.preview,
+          titleSource,
+        );
         await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...data, scope: localScope }),
+          body: JSON.stringify({
+            ...threadDataPayload,
+            title,
+            scope: localScope,
+          }),
         });
         emitThreadsUpdated();
         // Update local thread list metadata. If the thread isn't in our
@@ -491,7 +520,12 @@ export function useChatThreads(
               t.id === id
                 ? {
                     ...t,
-                    title: data.title,
+                    title: nextThreadTitle(
+                      t.title,
+                      data.title,
+                      data.preview,
+                      titleSource,
+                    ),
                     preview: data.preview,
                     ...(data.messageCount != null && {
                       messageCount: data.messageCount,
@@ -505,7 +539,7 @@ export function useChatThreads(
           return [
             {
               id,
-              title: data.title,
+              title,
               preview: data.preview,
               messageCount: data.messageCount ?? 0,
               createdAt: now,

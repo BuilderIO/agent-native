@@ -274,6 +274,7 @@ async function getImageFileDataURL(file: File): Promise<string> {
 
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
+type AgentRecoveryAction = "continue" | "retry";
 
 function imageContentTypeFromDataUrl(dataUrl: string): string {
   const match = /^data:([^;,]+)/.exec(dataUrl);
@@ -311,16 +312,31 @@ function createAgentImageAttachments(
 function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
+  recoveryAction?: AgentRecoveryAction,
 ) {
-  const custom: { references?: Reference[]; requestMode?: AgentRequestMode } =
-    {};
+  const custom: {
+    references?: Reference[];
+    requestMode?: AgentRequestMode;
+  } = {};
   if (references && references.length > 0) {
     custom.references = references;
   }
   if (requestMode) {
     custom.requestMode = requestMode;
   }
-  return Object.keys(custom).length > 0 ? { runConfig: { custom } } : {};
+  const options: {
+    runConfig?: { custom: typeof custom };
+    metadata?: { custom: { agentNativeRecoveryAction: AgentRecoveryAction } };
+  } = {};
+  if (Object.keys(custom).length > 0) {
+    options.runConfig = { custom };
+  }
+  if (recoveryAction) {
+    options.metadata = {
+      custom: { agentNativeRecoveryAction: recoveryAction },
+    };
+  }
+  return options;
 }
 
 function escapeQueuedAttachmentAttribute(value: string): string {
@@ -2758,6 +2774,43 @@ function getMessageText(message: unknown): string {
   return typeof content === "string" ? content.trim() : "";
 }
 
+const RECOVERY_USER_MESSAGE_PREFIXES = [
+  "Continue from where you left off",
+  "Continue from where you stopped",
+  "Retry the previous request from a clean approach",
+];
+
+function getRecoveryActionMetadata(
+  message: unknown,
+): AgentRecoveryAction | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const action = meta?.custom?.agentNativeRecoveryAction;
+  return action === "continue" || action === "retry" ? action : null;
+}
+
+function isRecoveryUserMessage(message: unknown): boolean {
+  if (getRecoveryActionMetadata(message)) return true;
+  const text = getMessageText(message);
+  return RECOVERY_USER_MESSAGE_PREFIXES.some((prefix) =>
+    text.startsWith(prefix),
+  );
+}
+
+export function latestNonRecoveryUserMessageText(
+  messages: readonly unknown[],
+): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as { role?: unknown };
+    if (message?.role !== "user") continue;
+    if (isRecoveryUserMessage(message)) continue;
+    const text = getMessageText(message);
+    if (text) return text;
+  }
+  return "";
+}
+
 function RunErrorRecoveryCard({
   info,
   onContinue,
@@ -3596,6 +3649,7 @@ const AssistantChatInner = forwardRef<
       attachments?: QueuedAttachment[];
       references?: Reference[];
       requestMode?: AgentRequestMode;
+      recoveryAction?: AgentRecoveryAction;
     }>
   >([]);
   // Tracks the JSON of the last queue we successfully persisted so the
@@ -4433,7 +4487,11 @@ const AssistantChatInner = forwardRef<
             ...(messageAttachments.length > 0
               ? { attachments: messageAttachments }
               : {}),
-            ...createUserMessageRunConfig(next.references, next.requestMode),
+            ...createUserMessageRunConfig(
+              next.references,
+              next.requestMode,
+              next.recoveryAction,
+            ),
           } as Parameters<typeof threadRuntime.append>[0]);
         })();
       }, 100);
@@ -4542,6 +4600,7 @@ const AssistantChatInner = forwardRef<
       attachments?: ReadonlyArray<unknown>,
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
+      recoveryAction?: AgentRecoveryAction,
     ) => {
       materializeFrozenReconnectContent();
       setShowContinue(false);
@@ -4591,6 +4650,7 @@ const AssistantChatInner = forwardRef<
               messageAttachments.length > 0 ? messageAttachments : undefined,
             references,
             requestMode: effectiveRequestMode,
+            recoveryAction,
           },
         ]);
       } else {
@@ -4600,7 +4660,11 @@ const AssistantChatInner = forwardRef<
           ...(messageAttachments.length > 0
             ? { attachments: messageAttachments }
             : {}),
-          ...createUserMessageRunConfig(references, effectiveRequestMode),
+          ...createUserMessageRunConfig(
+            references,
+            effectiveRequestMode,
+            recoveryAction,
+          ),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
@@ -4705,12 +4769,10 @@ const AssistantChatInner = forwardRef<
     if (!last || last.role !== "assistant") return null;
     return getRunErrorMetadata(last);
   }, [messages]);
-  const lastUserText = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "user") return getMessageText(messages[i]);
-    }
-    return "";
-  }, [messages]);
+  const lastUserText = useMemo(
+    () => latestNonRecoveryUserMessageText(messages),
+    [messages],
+  );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
@@ -4965,7 +5027,15 @@ const AssistantChatInner = forwardRef<
                       onContinue={() => {
                         setShowContinue(false);
                         setLoopLimitInfo(null);
-                        addToQueue("Continue from where you left off.");
+                        addToQueue(
+                          "Continue from where you left off.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "continue",
+                        );
                       }}
                     />
                   )}
@@ -4976,6 +5046,12 @@ const AssistantChatInner = forwardRef<
                         setRunErrorInfo(null);
                         addToQueue(
                           "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "continue",
                         );
                       }}
                       onRetry={() => {
@@ -4984,6 +5060,12 @@ const AssistantChatInner = forwardRef<
                           lastUserText
                             ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
                             : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "retry",
                         );
                       }}
                       onFork={onForkChat}

@@ -12,6 +12,7 @@ import { DocumentToolbar } from "./DocumentToolbar";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
+import { useDocumentSyncStatus } from "@/hooks/use-notion";
 import {
   useCollaborativeDoc,
   generateTabId,
@@ -111,6 +112,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
+  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -126,6 +128,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
   const canEdit = document.canEdit ?? true;
+  const notionSyncedToCurrentDocument = Boolean(
+    syncStatus?.lastSyncedAt &&
+      syncStatus.lastPushedLocalUpdatedAt === document.updatedAt,
+  );
+  const forceExternalContentSync =
+    notionSyncedToCurrentDocument &&
+    (document.title !== localTitle || document.content !== localContent);
 
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
@@ -195,12 +204,35 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     const serverTitle = document.title;
     const lastSaved = lastSavedRef.current;
     if (serverTitle !== lastSaved.title) {
-      if (localTitle === lastSaved.title) {
+      if (localTitle === lastSaved.title || forceExternalContentSync) {
         setLocalTitle(serverTitle);
         lastSavedRef.current = { ...lastSavedRef.current, title: serverTitle };
       }
     }
-  }, [document, localTitle]);
+  }, [document, forceExternalContentSync, localTitle]);
+
+  // Pick up external body changes. Explicit Notion pulls are allowed to
+  // overwrite local editor state even when this tab previously edited the Yjs
+  // document; clear any pending save so the pre-pull body cannot be written
+  // back over the fresh Notion content.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    const serverContent = document.content;
+    const lastSaved = lastSavedRef.current;
+    if (serverContent !== lastSaved.content) {
+      if (localContent === lastSaved.content || forceExternalContentSync) {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        setLocalContent(serverContent);
+        lastSavedRef.current = {
+          ...lastSavedRef.current,
+          content: serverContent,
+        };
+      }
+    }
+  }, [document, forceExternalContentSync, localContent]);
 
   // When polling/SSE refetches confirm that the server now matches the local
   // editor state, acknowledge it as saved. This keeps later agent/action
@@ -512,6 +544,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}
               onJoinTitle={joinFirstBodyBlockToTitle}
+              forceExternalContentSync={forceExternalContentSync}
             />
           </div>
         </div>

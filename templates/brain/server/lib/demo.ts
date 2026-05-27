@@ -6,6 +6,7 @@ import {
   createSource,
   nowIso,
   parseJson,
+  sanitizeEvidenceCitationUrls,
   serializeCapture,
   serializeKnowledge,
   serializeProposal,
@@ -1212,7 +1213,9 @@ interface EvalCheck {
 }
 
 function knowledgeEvidence(row: typeof schema.brainKnowledge.$inferSelect) {
-  return parseJson<BrainEvidence[]>(row.evidenceJson, []);
+  return sanitizeEvidenceCitationUrls(
+    parseJson<BrainEvidence[]>(row.evidenceJson, []),
+  );
 }
 
 function check(
