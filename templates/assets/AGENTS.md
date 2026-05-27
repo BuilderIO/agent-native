@@ -16,9 +16,10 @@ agent-native apps over A2A.
   `create-library` / `update-library` when the user wants persistent guidance
   beyond the structured style brief.
 - Use `list-library-presets` and `create-library-from-preset` when the user
-  wants a ready-made visual style library. Presets are textual, brand-safe
-  guidance; they intentionally do not bundle copyrighted screenshots or exact
-  studio/brand looks.
+  wants a ready-made visual style library. Presets include brand-safe local
+  reference images with attribution metadata plus textual guidance; they
+  intentionally do not bundle copyrighted screenshots or exact studio/brand
+  looks.
 - For multiple images, prefer `generate-image-batch` with stable slot IDs.
 - For videos, call `generate-video`, then call `refresh-generation-run` until
   the run is `completed` and returns a video asset.
