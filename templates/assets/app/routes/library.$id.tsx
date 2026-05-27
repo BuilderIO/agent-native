@@ -379,8 +379,12 @@ export default function LibraryPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >
-              <IconUpload className="h-4 w-4" />
-              Upload
+              {uploading ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <IconUpload className="h-4 w-4" />
+              )}
+              {uploading ? `Uploading ${pendingUploads.length}` : "Upload"}
             </Button>
             <Button
               variant="outline"
@@ -676,6 +680,14 @@ type GenerateOptions = {
   model: string;
   category: string;
   includeLogo: boolean;
+};
+
+type PendingUpload = {
+  id: string;
+  name: string;
+  mediaType: "image" | "video";
+  folderId: string | null;
+  status: "uploading" | "checking";
 };
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
