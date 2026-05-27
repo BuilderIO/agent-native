@@ -266,6 +266,14 @@ export function pickMimeType(): string {
   return "";
 }
 
+function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
+  // WebM chunks emitted by MediaRecorder are safe to concatenate locally before
+  // compression/upload. Browser MP4 chunks are not reliably self-contained; in
+  // Safari/WebKit we have seen ftyp+mdat-only assemblies with no top-level moov
+  // atom, so MP4/QuickTime stays as one final recorder blob after stop().
+  return /^video\/webm(?:;|$)/i.test(mimeType);
+}
+
 function isRetryableChunkUploadStatus(status: number): boolean {
   return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
 }
@@ -640,6 +648,9 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
     this.streamChunksDuringRecording = false;
+    const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
+      this.mimeType,
+    );
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -665,7 +676,7 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
-    if (this.streamChunksDuringRecording) {
+    if (useTimeslicedLocalChunks) {
       this.recorder.start(this.opts.chunkIntervalMs);
     } else {
       this.recorder.start();

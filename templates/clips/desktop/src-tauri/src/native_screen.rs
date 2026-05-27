@@ -30,6 +30,7 @@ const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 45 * 1024 * 1024;
 const TARGET_UPLOAD_BYTES: u64 = 45 * 1024 * 1024;
+const SERVER_STAGING_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
@@ -2069,6 +2070,14 @@ fn prepare_recording_file(
                     );
                     continue;
                 }
+                if compressed_bytes > SERVER_STAGING_LIMIT_BYTES {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    eprintln!(
+                        "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
+                        preset, compressed_bytes
+                    );
+                    continue;
+                }
                 if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
                     let _ = std::fs::remove_file(&compressed_path);
                     eprintln!(
@@ -2093,6 +2102,13 @@ fn prepare_recording_file(
                 eprintln!("[clips-tray] avconvert transcode failed with {preset}: {err}");
             }
         }
+    }
+    if source_bytes > SERVER_STAGING_LIMIT_BYTES {
+        return Err(format!(
+            "Native recording is too large to upload after compression attempts ({} MB, limit is {} MB). Try a shorter recording or lower-resolution screen.",
+            source_bytes / (1024 * 1024),
+            SERVER_STAGING_LIMIT_BYTES / (1024 * 1024)
+        ));
     }
     eprintln!("[clips-tray] avconvert could not reduce recording; uploading original MOV");
     Ok(original)
