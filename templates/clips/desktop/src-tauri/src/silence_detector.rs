@@ -192,7 +192,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
     }
 
     let generation_at_start = {
-        let g = state.inner.lock().unwrap();
+        let g = state.inner.lock().unwrap_or_else(|p| p.into_inner());
         g.generation
     };
     let inner_for_supervisor = state.inner.clone();

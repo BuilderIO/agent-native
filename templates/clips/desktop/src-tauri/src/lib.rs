@@ -39,6 +39,17 @@ pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Log panics to stderr and a crash file before the process aborts.
+    // Without this, `panic = "abort"` in the release profile kills the process
+    // silently — no stack trace, no message, nothing in Console.app.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        eprintln!("[clips-tray] PANIC: {msg}");
+        let mut path = std::env::temp_dir();
+        path.push("clips-crash.log");
+        let _ = std::fs::write(&path, format!("[clips-tray] PANIC: {msg}\n"));
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // Second launch just focuses the popover of the already-running

@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import type { ErrorInfo } from "react";
 import { App } from "./app";
 import { Countdown } from "./overlays/countdown";
 import { Toolbar } from "./overlays/toolbar";
@@ -12,6 +13,63 @@ import { FlowBar } from "./overlays/flow-bar";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import "./styles.css";
+
+/**
+ * Catches unhandled JS exceptions and promise rejections — surfaces them in
+ * the console so they're visible in Tauri's stderr even when devtools aren't
+ * open. Without this, renderer crashes are completely silent in production.
+ */
+function installGlobalErrorHandlers(): void {
+  window.onerror = (message, source, lineno, colno, error) => {
+    console.error(
+      `[clips] uncaught error: ${message} (${source}:${lineno}:${colno})`,
+      error,
+    );
+    return false;
+  };
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[clips] unhandled promise rejection:", event.reason);
+  });
+}
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[clips] React error boundary caught:", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 16, color: "#ef4444", fontSize: 12 }}>
+          <p>Something went wrong.</p>
+          <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+            {this.state.error.message}
+          </pre>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            style={{ marginTop: 8 }}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * One bundle, one HTML, many views. We pick which component to mount based
@@ -149,6 +207,7 @@ const rootEl = document.getElementById("root");
 if (rootEl) {
   const route = currentRoute();
   installRouteAttributes(route);
+  installGlobalErrorHandlers();
   installBeforeUnloadCleanup();
   installHeapDebugLog();
   // NOTE: intentionally NOT wrapping in React.StrictMode. StrictMode
@@ -158,5 +217,7 @@ if (rootEl) {
   // camera bubble re-created itself ~30 times a second. Tauri windows
   // are real OS resources — not an environment where double-mount is
   // harmless.
-  ReactDOM.createRoot(rootEl).render(pickRoute(route));
+  ReactDOM.createRoot(rootEl).render(
+    <ErrorBoundary>{pickRoute(route)}</ErrorBoundary>,
+  );
 }
