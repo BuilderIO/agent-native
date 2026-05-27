@@ -604,20 +604,22 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
   const appConfig = apps.find((candidate) => candidate.id === targetApp);
   const win = focusMainWindow();
   const appLabel = appConfig?.name ?? targetApp;
-  const detail = [
-    `Shortcut: ${formatDesktopShortcutAccelerator(accelerator, process.platform)}`,
-    `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
-    `Behavior: ${behavior === "show" ? "show and switch" : "toggle visibility"}`,
-  ].join("\n");
-
-  const result = await dialog.showMessageBox(win ?? undefined, {
+  const messageOptions: Electron.MessageBoxOptions = {
     type: "question",
     buttons: ["Add Shortcut", "Cancel"],
     defaultId: 0,
     cancelId: 1,
     message: "Add Agent Native app shortcut?",
-    detail,
-  });
+    detail: [
+      `Shortcut: ${formatDesktopShortcutAccelerator(accelerator, process.platform)}`,
+      `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
+      `Behavior: ${behavior === "show" ? "show and switch" : "toggle visibility"}`,
+    ].join("\n"),
+  };
+  const result = win
+    ? await dialog.showMessageBox(win, messageOptions)
+    : await dialog.showMessageBox(messageOptions);
+
   if (result.response !== 0) return;
 
   const update = AppStore.upsertDesktopShortcutBinding({
@@ -628,11 +630,16 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     enabled: true,
   });
   if (!update.ok) {
-    await dialog.showMessageBox(win ?? undefined, {
+    const errorOptions: Electron.MessageBoxOptions = {
       type: "error",
       message: "Shortcut was not added",
       detail: update.error,
-    });
+    };
+    if (win) {
+      await dialog.showMessageBox(win, errorOptions);
+    } else {
+      await dialog.showMessageBox(errorOptions);
+    }
     return;
   }
   registerDesktopShortcutBindings();
