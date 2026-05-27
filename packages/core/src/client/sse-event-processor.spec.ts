@@ -175,6 +175,39 @@ describe("SSE event processor no-progress recovery", () => {
     expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
     expect(onUpdate).toHaveBeenCalledWith([{ type: "text", text: "partial" }]);
   });
+
+  it("carries activity trail on auto-continuation signals", async () => {
+    const err = await (async () => {
+      try {
+        for await (const _ of readSSEStream(
+          eventStream([
+            {
+              type: "activity",
+              label: "Preparing create-extension action",
+              tool: "create-extension",
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ]),
+          [],
+          { value: 0 },
+          undefined,
+        )) {
+          // no-op
+        }
+      } catch (caught) {
+        return caught;
+      }
+    })();
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("run_timeout");
+    expect((err as AgentAutoContinueSignal).activityTrail).toEqual([
+      {
+        label: "Preparing create-extension action",
+        tool: "create-extension",
+      },
+    ]);
+  });
 });
 
 describe("SSE event processor error classification", () => {

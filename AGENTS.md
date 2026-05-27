@@ -235,18 +235,18 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 
 ### Routes
 
-| Method | Path                                   | Purpose                                           |
-| ------ | -------------------------------------- | ------------------------------------------------- |
-| GET    | `/_agent-native/extensions`            | List extensions (filtered by ownership + sharing) |
-| POST   | `/_agent-native/extensions`            | Create an extension                               |
-| GET    | `/_agent-native/extensions/:id`        | Get an extension                                  |
-| PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)           |
-| DELETE | `/_agent-native/extensions/:id`        | Delete an extension                               |
-| GET    | `/_agent-native/extensions/:id/render` | Render HTML for iframe                            |
-| GET    | `/_agent-native/extensions/:id/history` | List saved extension versions                     |
-| GET    | `/_agent-native/extensions/:id/history/:version` | Get one version and diff             |
-| POST   | `/_agent-native/extensions/:id/history/:version/restore` | Restore a version             |
-| POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection         |
+| Method | Path                                                     | Purpose                                           |
+| ------ | -------------------------------------------------------- | ------------------------------------------------- |
+| GET    | `/_agent-native/extensions`                              | List extensions (filtered by ownership + sharing) |
+| POST   | `/_agent-native/extensions`                              | Create an extension                               |
+| GET    | `/_agent-native/extensions/:id`                          | Get an extension                                  |
+| PUT    | `/_agent-native/extensions/:id`                          | Update (supports `patches` for diffing)           |
+| DELETE | `/_agent-native/extensions/:id`                          | Delete an extension                               |
+| GET    | `/_agent-native/extensions/:id/render`                   | Render HTML for iframe                            |
+| GET    | `/_agent-native/extensions/:id/history`                  | List saved extension versions                     |
+| GET    | `/_agent-native/extensions/:id/history/:version`         | Get one version and diff                          |
+| POST   | `/_agent-native/extensions/:id/history/:version/restore` | Restore a version                                 |
+| POST   | `/_agent-native/extensions/proxy`                        | Authenticated proxy with secret injection         |
 
 ### Secrets for extensions
 

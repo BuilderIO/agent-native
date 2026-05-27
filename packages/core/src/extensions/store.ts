@@ -462,7 +462,7 @@ function extensionHistoryEntryFromRaw(
     ...(includeContent ? { content } : {}),
     icon: row.icon ?? null,
     actorEmail: row.actor_email ?? row.actorEmail ?? null,
-    ownerEmail: row.owner_email ?? row.ownerEmail ?? "local@localhost",
+    ownerEmail: row.owner_email ?? row.ownerEmail ?? "",
     orgId: row.org_id ?? row.orgId ?? null,
     visibility,
     createdAt: row.created_at ?? row.createdAt ?? new Date(0).toISOString(),

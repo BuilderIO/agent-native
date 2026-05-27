@@ -274,7 +274,7 @@ async function getImageFileDataURL(file: File): Promise<string> {
 
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
-type AgentRecoveryAction = "continue" | "retry";
+export type AgentRecoveryAction = "continue" | "retry";
 
 function imageContentTypeFromDataUrl(dataUrl: string): string {
   const match = /^data:([^;,]+)/.exec(dataUrl);
@@ -3267,6 +3267,12 @@ function PlanModeCallout({
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
   sendMessage(text: string, images?: string[]): void;
+  /** Programmatically send a recovery prompt without replacing the original request. */
+  sendRecoveryMessage(
+    text: string,
+    recoveryAction: AgentRecoveryAction,
+    images?: string[],
+  ): void;
   /** Queue a message to send after the current run finishes */
   queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
@@ -4677,6 +4683,21 @@ const AssistantChatInner = forwardRef<
     () => ({
       sendMessage(text: string, images?: string[]) {
         addToQueue(text, images);
+      },
+      sendRecoveryMessage(
+        text: string,
+        recoveryAction: AgentRecoveryAction,
+        images?: string[],
+      ) {
+        addToQueue(
+          text,
+          images,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          recoveryAction,
+        );
       },
       queueMessage(text: string, images?: string[]) {
         addToQueue(text, images);

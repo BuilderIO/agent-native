@@ -415,7 +415,10 @@ function ExtensionHistoryPopover({
   const history = historyQuery.data?.history ?? [];
   useEffect(() => {
     if (!open || history.length === 0) return;
-    if (!selectedVersion || !history.some((h) => h.version === selectedVersion)) {
+    if (
+      !selectedVersion ||
+      !history.some((h) => h.version === selectedVersion)
+    ) {
       setSelectedVersion(history[0].version);
     }
   }, [history, open, selectedVersion]);
