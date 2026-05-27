@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.24.0
+
+### Minor Changes
+
+- 9f3a798: Add extension history snapshots, diffs, and restore support.
+
+### Patch Changes
+
+- 9f3a798: Return 401 for unauthenticated private page routes while still rendering the sign-in page.
+- 9f3a798: Recover agent chat runs that time out while preparing extension action input.
+- 9f3a798: Keep chat recovery retries anchored to the original user request and give hosted timeout recovery more room to persist.
+- 9f3a798: Preserve generated chat titles when later thread saves update chat metadata.
+- 9f3a798: Keep lazy gateway wake pages active until app dev servers return HTTP responses.
+
 ## 0.23.0
 
 ### Minor Changes
