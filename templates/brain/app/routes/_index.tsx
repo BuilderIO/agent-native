@@ -11,11 +11,17 @@ export default function AskRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Brain about company memory."
+        emptyStateText="Ask Brain about company knowledge."
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask Brain about company memory..."
+        composerPlaceholder="Ask about company knowledge..."
+        composerSlot={
+          <div className="brain-chat-intro">
+            <h1>What do you want to know?</h1>
+            <p>Brain answers from cited company knowledge.</p>
+          </div>
+        }
       />
     </div>
   );

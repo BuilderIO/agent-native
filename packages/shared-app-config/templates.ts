@@ -124,7 +124,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "brain",
     label: "Brain",
-    hint: "Cited company memory from Slack, meetings, transcripts, and decisions",
+    hint: "Cited company knowledge from Slack, meetings, transcripts, and decisions",
     icon: "Brain",
     color: "#8B5CF6",
     colorRgb: "139 92 246",

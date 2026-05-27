@@ -98,6 +98,35 @@
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
+.brain-chat-intro {
+  display: none;
+}
+
+.brain-chat-panel [data-agent-empty-state="centered"] .brain-chat-intro {
+  display: grid;
+  width: min(760px, calc(100vw - 3rem));
+  max-width: 760px;
+  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  text-align: center;
+}
+
+.brain-chat-intro h1 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: clamp(1.75rem, 2.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.brain-chat-intro p {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
 .brain-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
@@ -141,6 +170,15 @@
   .brain-chat-panel [data-agent-empty-state="centered"] {
     padding: 1rem;
     padding-bottom: 5rem;
+  }
+
+  .brain-chat-panel [data-agent-empty-state="centered"] .brain-chat-intro {
+    width: 100%;
+    margin-bottom: 0.875rem;
+  }
+
+  .brain-chat-intro h1 {
+    font-size: 1.75rem;
   }
 
   .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {

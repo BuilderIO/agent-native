@@ -284,8 +284,8 @@ export default function KnowledgeRoute() {
             }
             detail={
               hasActiveFilters
-                ? "Clear the search or filters to broaden the memory set."
-                : "Connect a source or approve review proposals to build company memory."
+                ? "Clear the search or filters to broaden the knowledge set."
+                : "Connect a source or approve review proposals to build company knowledge."
             }
           />
         )}
@@ -304,7 +304,7 @@ export default function KnowledgeRoute() {
         {knowledgeQuery.isError ? (
           <EmptyActionState
             title="Waiting on search-knowledge"
-            detail="Brain could not load reviewed company memory yet."
+            detail="Brain could not load reviewed company knowledge yet."
           />
         ) : null}
 

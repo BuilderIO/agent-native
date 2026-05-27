@@ -183,9 +183,6 @@ export function Sidebar() {
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
               Brain
             </p>
-            <p className="truncate text-xs text-sidebar-foreground/70">
-              Company memory
-            </p>
           </div>
         </Link>
       </div>
