@@ -240,10 +240,17 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: (result: any) =>
-      toast.success(
-        result?.updated ? "Title updated" : "Title generation queued",
-      ),
+    onSuccess: (result: any) => {
+      if (result?.updated) {
+        toast.success("Title updated");
+      } else if (result?.skipped) {
+        toast.message("Transcript is not ready yet", {
+          description: "Try again after transcription finishes.",
+        });
+      } else {
+        toast.success("Title generation queued");
+      }
+    },
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {

@@ -27,6 +27,8 @@ export interface RecordingSummary {
   hasCamera: boolean;
   width: number;
   height: number;
+  transcriptStatus?: "pending" | "streaming" | "ready" | "failed" | null;
+  transcriptHasText?: boolean;
 }
 
 export interface ListRecordingsArgs {
@@ -42,11 +44,21 @@ export interface ListRecordingsArgs {
 
 function isAwaitingAutoTitle(recording: RecordingSummary): boolean {
   const title = (recording.title ?? "").trim();
-  return (
+  const titleIsReplaceable =
     title === "" ||
     title === "Untitled recording" ||
     recording.titleSource === "default" ||
-    recording.titleSource === "context"
+    recording.titleSource === "context";
+  if (!titleIsReplaceable) return false;
+
+  if (recording.transcriptStatus === "failed") return false;
+  if (recording.transcriptStatus === "ready") {
+    return recording.transcriptHasText === true;
+  }
+
+  return (
+    recording.transcriptStatus === "pending" ||
+    recording.transcriptStatus === "streaming"
   );
 }
 

@@ -101,7 +101,10 @@ export function useAutoTitleBridge(): void {
 
   const readyRecordings = recordings.filter((r) => r.status === "ready");
   const readyRecordingsKey = readyRecordings
-    .map((r) => `${r.id}:${r.titleSource ?? ""}:${r.title}:${r.updatedAt}`)
+    .map(
+      (r) =>
+        `${r.id}:${r.titleSource ?? ""}:${r.title}:${r.updatedAt}:${r.transcriptStatus ?? ""}:${r.transcriptHasText ? "1" : "0"}`,
+    )
     .join("|");
 
   useEffect(() => {
@@ -149,6 +152,13 @@ export function useAutoTitleBridge(): void {
             // ample time to write its own clips-ai-request entry. For freshly-
             // finalized clips the server request may still be en route; if we
             // dispatch now we'd block that richer transcript-backed delegation.
+            if (
+              rec.transcriptStatus !== "ready" ||
+              rec.transcriptHasText !== true
+            ) {
+              continue;
+            }
+
             const ageMs = Date.now() - new Date(rec.createdAt).getTime();
             const TWO_MINUTES_MS = 2 * 60 * 1000;
             if (ageMs < TWO_MINUTES_MS) continue;
