@@ -41,6 +41,7 @@ const MODIFIER_ALIASES: Record<string, string> = {
   command: "Command",
   commandorcontrol: "CommandOrControl",
   commandorctrl: "CommandOrControl",
+  cmdorctrl: "CommandOrControl",
   control: "Control",
   ctrl: "Control",
   meta: "Command",

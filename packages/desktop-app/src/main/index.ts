@@ -73,6 +73,7 @@ import {
 } from "@shared/ipc-channels";
 import {
   formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
   type DesktopShortcutRegistration,
@@ -603,6 +604,20 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
   const apps = loadAppsForAuthContext();
   const appConfig = apps.find((candidate) => candidate.id === targetApp);
   const win = focusMainWindow();
+  const normalized = normalizeDesktopShortcutAccelerator(accelerator);
+  if (!normalized.accelerator) {
+    const errorOptions: Electron.MessageBoxOptions = {
+      type: "error",
+      message: "Shortcut was not added",
+      detail: normalized.error ?? "Invalid shortcut.",
+    };
+    if (win) {
+      await dialog.showMessageBox(win, errorOptions);
+    } else {
+      await dialog.showMessageBox(errorOptions);
+    }
+    return;
+  }
   const appLabel = appConfig?.name ?? targetApp;
   const messageOptions: Electron.MessageBoxOptions = {
     type: "question",
@@ -611,7 +626,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     cancelId: 1,
     message: "Add Agent Native app shortcut?",
     detail: [
-      `Shortcut: ${formatDesktopShortcutAccelerator(accelerator, process.platform)}`,
+      `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
       `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
       `Behavior: ${behavior === "show" ? "show and switch" : "toggle visibility"}`,
     ].join("\n"),
@@ -623,7 +638,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
   if (result.response !== 0) return;
 
   const update = AppStore.upsertDesktopShortcutBinding({
-    accelerator,
+    accelerator: normalized.accelerator,
     app: targetApp,
     view,
     behavior,
