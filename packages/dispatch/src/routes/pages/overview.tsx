@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   PromptComposer,
   useActionQuery,
   useChatModels,
   agentNativePath,
+  isInBuilderFrame,
 } from "@agent-native/core/client";
 import {
   IconActivity,
@@ -75,9 +76,26 @@ const HOME_CHAT_SUGGESTIONS = [
 
 function HomeChatPanel() {
   const { selectedModel } = useChatModels();
+  const navigate = useNavigate();
 
   const send = (message: string) => {
-    submitOverviewPrompt(message, selectedModel);
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    if (isInBuilderFrame()) {
+      submitOverviewPrompt(trimmed, selectedModel);
+      return;
+    }
+
+    navigate("/chat", {
+      state: {
+        dispatchPrompt: {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          message: trimmed,
+          selectedModel,
+        },
+      },
+    });
   };
 
   return (
@@ -90,9 +108,7 @@ function HomeChatPanel() {
           <PromptComposer
             placeholder="Message agent…"
             onSubmit={(text) => {
-              const trimmed = text.trim();
-              if (!trimmed) return;
-              send(trimmed);
+              send(text);
             }}
           />
           <div className="flex flex-wrap justify-center gap-2">

@@ -1652,6 +1652,7 @@ export function MultiTabAssistantChat({
             threadData: "",
             title,
             preview: message.slice(0, 120),
+            titleSource: "generated",
           });
         }
       });
@@ -2050,8 +2051,9 @@ export function MultiTabAssistantChat({
                   apiUrl={apiUrl}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
-                    handle?.sendMessage(
+                    handle?.sendRecoveryMessage(
                       "Continue from where you left off and finish my last request. Do not repeat completed work.",
+                      "continue",
                     );
                   }}
                 />

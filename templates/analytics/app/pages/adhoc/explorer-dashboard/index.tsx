@@ -32,7 +32,6 @@ import {
   IconPencil,
   IconExternalLink,
   IconArchive,
-  IconArchiveOff,
   IconDots,
 } from "@tabler/icons-react";
 import {
@@ -267,37 +266,36 @@ export default function ExplorerDashboardPage() {
     });
   }, [dashboardId]);
 
-  const handleArchiveToggle = useCallback(
-    async (action: "archive" | "restore") => {
-      if (!dashboardId || !canEdit) return;
-      const path =
-        action === "archive"
-          ? `/api/explorer-dashboards/${dashboardId}/archive`
-          : `/api/explorer-dashboards/${dashboardId}/unarchive`;
-      try {
-        const res = await fetchWithAuth(path, { method: "POST" });
-        if (!res.ok) throw new Error(`${action} failed (${res.status})`);
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-sidebar"],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-palette"],
-        });
-        if (action === "archive") {
-          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-          navigate("/adhoc/explorer");
-        } else {
-          setArchivedAt(null);
-          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
-        );
-      }
-    },
-    [dashboardId, canEdit, queryClient, navigate, dashboard?.name],
-  );
+  const handleArchive = useCallback(async () => {
+    if (!dashboardId || !canEdit) return;
+    if (archivedAt) return;
+    try {
+      const res = await fetchWithAuth(
+        `/api/explorer-dashboards/${dashboardId}/archive`,
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error(`Archive failed (${res.status})`);
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-sidebar"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-palette"],
+      });
+      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+      navigate("/adhoc/explorer");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't archive dashboard",
+      );
+    }
+  }, [
+    dashboardId,
+    canEdit,
+    archivedAt,
+    queryClient,
+    navigate,
+    dashboard?.name,
+  ]);
 
   const persist = useCallback(
     (updated: ExplorerDashboardData) => {
@@ -483,21 +481,6 @@ export default function ExplorerDashboardPage() {
               Add Chart
             </Button>
           ) : null}
-          {archivedAt && canEdit ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleArchiveToggle("restore")}
-                >
-                  <IconArchiveOff className="h-4 w-4 mr-1.5" />
-                  Restore
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>This dashboard is archived</TooltipContent>
-            </Tooltip>
-          ) : null}
           {canEdit || canManage ? (
             <DropdownMenu>
               <Tooltip>
@@ -516,30 +499,20 @@ export default function ExplorerDashboardPage() {
                 <TooltipContent>More actions</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="w-44">
-                {canEdit ? (
-                  archivedAt ? (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void handleArchiveToggle("restore");
-                      }}
-                    >
-                      <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                      Restore
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void handleArchiveToggle("archive");
-                      }}
-                    >
-                      <IconArchive className="mr-2 h-3.5 w-3.5" />
-                      Archive
-                    </DropdownMenuItem>
-                  )
+                {canEdit && !archivedAt ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleArchive();
+                    }}
+                  >
+                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </DropdownMenuItem>
                 ) : null}
-                {canEdit && canManage ? <DropdownMenuSeparator /> : null}
+                {canEdit && !archivedAt && canManage ? (
+                  <DropdownMenuSeparator />
+                ) : null}
                 {canManage ? (
                   <DropdownMenuItem
                     onSelect={(event) => {

@@ -66,12 +66,12 @@ const sourcePolicyOptions = [
   {
     value: "strict",
     label: "Strict",
-    description: "Answer from approved memory and citations only.",
+    description: "Answer from approved knowledge and citations only.",
   },
   {
     value: "balanced",
     label: "Balanced",
-    description: "Prefer approved memory, then identify source gaps.",
+    description: "Prefer approved knowledge, then identify source gaps.",
   },
   {
     value: "exploratory",
@@ -126,7 +126,7 @@ export default function SettingsRoute() {
       <PageHeader
         eyebrow="Customize"
         title="Customize Brain"
-        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into memory."
+        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into knowledge."
         actions={
           <Button
             size="sm"
@@ -183,7 +183,7 @@ export default function SettingsRoute() {
               </CardTitle>
               <CardDescription>
                 The default voice and source posture for answers and distilled
-                memory proposals.
+                knowledge proposals.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
@@ -289,7 +289,7 @@ export default function SettingsRoute() {
               <div className="grid gap-4">
                 <SettingSwitch
                   label="Require approval for company knowledge"
-                  description="Queue company-wide memory candidates for human review before publishing."
+                  description="Queue company-wide knowledge candidates for human review before publishing."
                   checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
                   onChange={(checked) =>
                     update("requireApprovalForCompanyKnowledge", checked)

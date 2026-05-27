@@ -1547,8 +1547,12 @@ function createAuthGuardFn(): (
     }
 
     return new Response(loginHtml, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      status: 401,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
     });
   };
 }

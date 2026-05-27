@@ -130,12 +130,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "personal-asides-exclusion",
-    title: "Slack personal asides stay out of company memory",
+    title: "Slack personal asides stay out of company knowledge",
     summary:
       "Personal asides from Slack imports should remain ignored raw material, not published knowledge.",
-    body: "Slack imports should exclude personal asides from company memory. Short personal scheduling notes, private logistics, and similar non-work material can remain ignored raw captures, but they should not become published knowledge.",
+    body: "Slack imports should exclude personal asides from company knowledge. Short personal scheduling notes, private logistics, and similar non-work material can remain ignored raw captures, but they should not become published knowledge.",
     quote:
-      "Exclude personal asides from company memory; keep them ignored as raw captures, not published knowledge.",
+      "Exclude personal asides from company knowledge; keep them ignored as raw captures, not published knowledge.",
     captureTitle: "#brain-pilot personal-content exclusion",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778863200000700",
@@ -184,8 +184,8 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
     id: "connector-eval-gate-product-rationale",
     title: "More Brain connectors wait on retrieval eval gates",
     summary:
-      "The product decision is to pause new Brain connectors until retrieval evals cover core memory quality because connectors amplify weak retrieval.",
-    body: "The Brain pilot product decision is to pause additional connectors until retrieval evals cover product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak memory retrieval if quality is thin.",
+      "The product decision is to pause new Brain connectors until retrieval evals cover core knowledge quality because connectors amplify weak retrieval.",
+    body: "The Brain pilot product decision is to pause additional connectors until retrieval evals cover product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak knowledge retrieval if quality is thin.",
     quote:
       "Pause additional connectors until retrieval evals cover product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, not-found behavior, and privacy redaction.",
     captureTitle: "#brain-pilot connector eval gate decision",
@@ -195,12 +195,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "import-review-policy",
-    title: "Brain imports stay review-gated before company memory",
+    title: "Brain imports stay review-gated before company knowledge",
     summary:
       "Raw imports can enter Brain as captures, but company-tier knowledge stays reviewed, cited, or explicitly proposed; low-confidence policy items stay in proposals.",
-    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay in proposals instead of search-visible knowledge.",
+    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay in proposals instead of search-visible knowledge.",
     quote:
-      "Raw imports may enter as captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable memory.",
+      "Raw imports may enter as captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge.",
     captureTitle: "#brain-pilot import review policy",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778884800001300",
@@ -324,7 +324,7 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     id: "personal-asides-exclusion",
     kind: "answer",
     question: "What should happen to personal asides in Slack imports?",
-    expectedTitle: "Slack personal asides stay out of company memory",
+    expectedTitle: "Slack personal asides stay out of company knowledge",
     requiredTerms: [
       "personal asides",
       "ignored as raw captures",
@@ -355,7 +355,7 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
       "server-side deep merge",
     ],
     notes:
-      "Covers the durable #dev-fusion memory for project-settings revert root cause and fix.",
+      "Covers the durable #dev-fusion knowledge for project-settings revert root cause and fix.",
   },
   {
     id: "dev-fusion-tanstack-compromise",
@@ -371,7 +371,7 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
       "PR #673",
     ],
     notes:
-      "Covers the durable #dev-fusion memory for TanStack compromise review and follow-up hardening.",
+      "Covers the durable #dev-fusion knowledge for TanStack compromise review and follow-up hardening.",
   },
   {
     id: "connector-eval-gate-product-rationale",
@@ -391,7 +391,7 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     id: "import-review-policy",
     kind: "answer",
     question: "What process policy keeps Brain imports review gated?",
-    expectedTitle: "Brain imports stay review-gated before company memory",
+    expectedTitle: "Brain imports stay review-gated before company knowledge",
     requiredTerms: [
       "captures",
       "company-tier knowledge",

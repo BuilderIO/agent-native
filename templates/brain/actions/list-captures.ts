@@ -6,6 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   latestDistillationQueuesForCaptures,
   parseJson,
+  sourceUrlFromMetadataRecord,
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
@@ -24,14 +25,6 @@ const booleanFlagSchema = z
     return value;
   }, z.boolean())
   .default(false);
-
-function sourceUrlFromMetadata(metadata: Record<string, unknown>) {
-  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = metadata[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return null;
-}
 
 function contentPreview(content: string, maxLength: number) {
   const text = redactSensitiveText(content).replace(/\s+/g, " ").trim();
@@ -143,7 +136,7 @@ export default defineAction({
             kind: row.kind,
             status: row.status,
             capturedAt: row.capturedAt,
-            sourceUrl: sourceUrlFromMetadata(metadata),
+            sourceUrl: sourceUrlFromMetadataRecord(metadata),
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,
             ),

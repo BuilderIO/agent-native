@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generateWithManagedImageProvider } from "./generation.js";
+import {
+  compilePrompt,
+  generateWithManagedImageProvider,
+} from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
 const resolveBuilderAuthHeaderMock = vi.hoisted(() => vi.fn());
@@ -170,5 +173,26 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("compilePrompt", () => {
+  it("uses text-only style guidance cleanly when a preset library has no references", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Soft Travel 3D",
+      styleBrief: {
+        description: "Rounded tactile 3D miniatures.",
+      },
+      customInstructions: "Keep the result brand-safe.",
+      prompt: "A spa service icon",
+      referenceCount: 0,
+      includeLogo: false,
+      category: "hero",
+    });
+
+    expect(prompt).toContain("No reference images are attached");
+    expect(prompt).not.toContain("Use the 0 attached reference images");
+    expect(prompt).toContain("Rounded tactile 3D miniatures.");
+    expect(prompt).toContain("Keep the result brand-safe.");
   });
 });

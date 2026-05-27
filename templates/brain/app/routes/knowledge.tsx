@@ -213,7 +213,7 @@ export default function KnowledgeRoute() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Memory</TableHead>
+                  <TableHead>Knowledge</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Company context</TableHead>
@@ -284,8 +284,8 @@ export default function KnowledgeRoute() {
             }
             detail={
               hasActiveFilters
-                ? "Clear the search or filters to broaden the memory set."
-                : "Connect a source or approve review proposals to build company memory."
+                ? "Clear the search or filters to broaden the knowledge set."
+                : "Connect a source or approve review proposals to build company knowledge."
             }
           />
         )}
@@ -304,7 +304,7 @@ export default function KnowledgeRoute() {
         {knowledgeQuery.isError ? (
           <EmptyActionState
             title="Waiting on search-knowledge"
-            detail="Brain could not load reviewed company memory yet."
+            detail="Brain could not load reviewed company knowledge yet."
           />
         ) : null}
 
@@ -363,7 +363,7 @@ function CanonicalControl({
       title={
         isPublished
           ? row.publishedResourcePath || "Published to company context"
-          : "Publish this memory to context/company-brain"
+          : "Publish this knowledge to context/company-brain"
       }
     >
       {isPublished ? (

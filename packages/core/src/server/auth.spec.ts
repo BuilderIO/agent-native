@@ -403,6 +403,7 @@ describe("server/auth", () => {
 
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
 
       const html = await (result as Response).text();
       expect(html).toContain("This app is private");
@@ -485,6 +486,7 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/admin/users" }),
       );
       expect(adminResult).toBeInstanceOf(Response);
+      expect((adminResult as Response).status).toBe(401);
 
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
@@ -524,6 +526,7 @@ describe("server/auth", () => {
         createMockEvent({ path: "/docs/admin" }),
       );
       expect(privateResult).toBeInstanceOf(Response);
+      expect((privateResult as Response).status).toBe(401);
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -787,6 +790,13 @@ describe("server/auth", () => {
       );
 
       expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
+      expect((result as Response).headers.get("Cache-Control")).toBe(
+        "no-store",
+      );
+      expect((result as Response).headers.get("X-Robots-Tag")).toBe(
+        "noindex, nofollow",
+      );
       const html = await (result as Response).text();
       expect(html).toContain("Agent-Native Dispatch");
       expect(html).toContain('class="marketing-panel"');

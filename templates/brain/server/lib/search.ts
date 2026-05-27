@@ -3,7 +3,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { getDb, schema } from "../db/index.js";
-import { parseJson } from "./brain.js";
+import { parseJson, safeCitationUrl } from "./brain.js";
 import type { BrainEvidence } from "../../shared/types.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
@@ -366,8 +366,8 @@ export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = metadata[key];
-    if (typeof value === "string" && value.trim()) return value;
+    const value = safeCitationUrl(metadata[key]);
+    if (value) return value;
   }
   return null;
 }
@@ -438,7 +438,7 @@ async function searchKnowledgeResults(
   return rows.map((row) => {
     const source = sources.get(row.sourceId ?? "");
     const citation = firstCitation(row.evidenceJson);
-    const sourceUrl = citation?.sourceUrl ?? citation?.url ?? null;
+    const sourceUrl = safeCitationUrl(citation?.sourceUrl ?? citation?.url);
     const summary = cleanText(row.summary) || buildSnippet(row.body, terms);
     const score =
       scoreSearchText(

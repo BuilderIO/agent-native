@@ -603,7 +603,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("caps configured gateway timeouts below the 60s serverless function limit", async () => {
+  it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
@@ -618,13 +618,13 @@ describe("createBuilderEngine", () => {
 
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
-    await vi.advanceTimersByTimeAsync(55_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("55s");
+    expect(stop?.error).toContain("45s");
   });
 
   it("maps mid-stream rate_limited into a retryable error stop", async () => {

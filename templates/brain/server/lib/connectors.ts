@@ -1272,11 +1272,9 @@ export function normalizeGranolaNote(note: GranolaNote) {
         : undefined) ??
       note.created_at ??
       nowIso(),
-    sourceUrl: note.web_url,
     metadata: {
       provider: "granola",
       granolaNoteId: note.id,
-      sourceUrl: note.web_url,
       createdAt: note.created_at,
       updatedAt: note.updated_at,
       scheduledStartTime:

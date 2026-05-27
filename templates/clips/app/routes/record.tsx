@@ -12,7 +12,11 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { agentNativePath, appBasePath } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  captureClientException,
+} from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
@@ -32,7 +36,12 @@ import {
   defaultRecordingTitle,
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
-import { MAX_UPLOAD_BYTES, formatMb } from "@/lib/compress";
+import {
+  COMPRESS_THRESHOLD_BYTES,
+  MAX_UPLOAD_BYTES,
+  compressBlobIfTooLarge,
+  formatMb,
+} from "@/lib/compress";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -374,6 +383,14 @@ function isUploadSizeError(error: string): boolean {
   return /too large to upload|too large for clips|limit is \d|file is too large|file size/i.test(
     error,
   );
+}
+
+function uploadTooLargeMessage(size: number, detail?: string): string {
+  return `Video is too large to upload (${
+    detail ?? formatMb(size)
+  }, limit is ${formatMb(MAX_UPLOAD_BYTES)}). Choose a video under ${formatMb(
+    MAX_UPLOAD_BYTES,
+  )}, or trim/export a smaller copy and upload again.`;
 }
 
 function isUploadFailureError(error: string): boolean {
@@ -1119,18 +1136,71 @@ export default function RecordRoute() {
 
         let uploadBlob: Blob = file;
         let uploadMimeType = mimeType;
+        let compressionError: {
+          message: string;
+          stderrTail: string[];
+          elapsedMs: number;
+        } | null = null;
+        let uploadTooLargeDetail: string | undefined;
 
+        if (file.size > COMPRESS_THRESHOLD_BYTES) {
+          setUiState("compressing");
+          const compression = await compressBlobIfTooLarge(file, mimeType, {
+            width: meta.width,
+            height: meta.height,
+            durationMs: meta.durationMs,
+            signal: abort.signal,
+            onProgress: ({ stage, progress }) => {
+              if (stage === "encoding" && typeof progress === "number") {
+                setCompressionProgress(progress);
+              } else if (stage === "finalizing") {
+                setCompressionProgress(1);
+              } else {
+                setCompressionProgress(null);
+              }
+            },
+            onError: (err) => {
+              compressionError = err;
+              captureClientException(
+                new Error(`Upload compression failed: ${err.message}`),
+                {
+                  tags: {
+                    uploadStep: "local-file-compression",
+                    mimeType,
+                  },
+                  extra: {
+                    filename: file.name,
+                    fileBytes: file.size,
+                    width: meta.width,
+                    height: meta.height,
+                    stderrTail: err.stderrTail,
+                    elapsedMs: err.elapsedMs,
+                  },
+                },
+              );
+            },
+          });
+          if (isStale()) return;
+
+          uploadBlob = compression.blob;
+          uploadMimeType = compression.outputMimeType || mimeType;
+          if (compressionError) {
+            console.warn(
+              "[recorder] upload compression failed, falling back to source file",
+              compressionError,
+            );
+          }
+          if (uploadBlob.size > MAX_UPLOAD_BYTES && compression.compressed) {
+            uploadTooLargeDetail = `${formatMb(uploadBlob.size)} after compression`;
+          }
+          setCompressionProgress(null);
+        }
         if (uploadBlob.size > MAX_UPLOAD_BYTES) {
           throw new Error(
-            `Video is too large to upload (${formatMb(
-              uploadBlob.size,
-            )}, limit is ${formatMb(
-              MAX_UPLOAD_BYTES,
-            )}). Choose a video under ${formatMb(
-              MAX_UPLOAD_BYTES,
-            )}, or trim/export a smaller copy and upload again.`,
+            uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
           );
         }
+        setUiState("uploading");
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
@@ -1214,11 +1284,13 @@ export default function RecordRoute() {
           });
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
-            throw new Error(
+            const error = new Error(
               `Upload failed at chunk ${i + 1}/${totalChunks}: ${
                 text || chunkRes.statusText
               }`,
             );
+            (error as Error & { status?: number }).status = chunkRes.status;
+            throw error;
           }
           if (isFinal) {
             finalChunkResult =
@@ -1252,7 +1324,13 @@ export default function RecordRoute() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
         const aborted = err instanceof Error && err.name === "AbortError";
-        if (createdId) {
+        const status =
+          err instanceof Error
+            ? (err as Error & { status?: number }).status
+            : undefined;
+        const serverRejectedTooLarge =
+          status === 413 || isUploadSizeError(message);
+        if (createdId && !serverRejectedTooLarge) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

@@ -41,7 +41,7 @@ function resultDeepLink(result: UniversalSearchResult): string | null {
 
 export default defineAction({
   description:
-    "Search Brain-indexed company memory and return deterministic federated coverage/delegation hints for deciding which specialist app to ask next.",
+    "Search Brain-indexed company knowledge and return deterministic federated coverage/delegation hints for deciding which specialist app to ask next.",
   schema: z.object({
     query: z.string().min(1),
     type: z

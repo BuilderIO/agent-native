@@ -483,10 +483,14 @@ export function compilePrompt(input: {
   const customInstructions = input.customInstructions?.trim()
     ? `\nLibrary custom instructions:\n${input.customInstructions.trim()}\n`
     : "";
+  const referenceInstruction =
+    input.referenceCount > 0
+      ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
+      : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
 
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
 
-Use the ${input.referenceCount} attached reference images as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.
+${referenceInstruction}
 
 Style brief:
 ${style.description || "Infer the style from the references."}${palette}

@@ -22,8 +22,9 @@ import {
   getAppUrl,
   FRAME_PORT,
   getTemplate,
-  getTemplateGatewayAppUrl,
+  getDesktopTemplateGatewayAppUrl,
   getTemplateGatewayUrl,
+  isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
@@ -69,11 +70,14 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    if (templateGatewayOverridesDevUrls()) {
-      const gatewayUrl = getTemplateGatewayAppUrl(appConfig.id);
+    if (
+      templateGatewayOverridesDevUrls() ||
+      isDefaultDesktopTemplateDevTarget(appConfig)
+    ) {
+      const gatewayUrl = getDesktopTemplateGatewayAppUrl(appConfig.id);
       if (gatewayUrl) return gatewayUrl;
     }
-    // User-edited dev URL wins outside the explicit lazy gateway launcher.
+    // User-edited dev URLs still win for custom/non-default dev targets.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
     // First-party templates without an explicit override go through the frame.
     if (getTemplate(appConfig.id)) return getAppUrl(app);
@@ -643,7 +647,12 @@ function ErrorScreen({
   const devPort = appConfig?.devPort ?? app.devPort;
   const gatewayUrl = getTemplateGatewayUrl();
   const gatewayAppUrl =
-    isDev && gatewayUrl ? getTemplateGatewayAppUrl(app.id) : null;
+    isDev &&
+    (gatewayUrl ||
+      templateGatewayOverridesDevUrls() ||
+      (appConfig && isDefaultDesktopTemplateDevTarget(appConfig)))
+      ? getDesktopTemplateGatewayAppUrl(app.id)
+      : null;
   const devStatusUrl =
     gatewayAppUrl ?? (devPort ? `http://localhost:${devPort}` : undefined);
   const devServerStatus = useUrlCheck(devStatusUrl, isDev);

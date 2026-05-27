@@ -4,6 +4,7 @@ import {
   PromptComposer,
   appBasePath,
   sendToAgentChat,
+  useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
 import { toast } from "sonner";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
+import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
 import {
   getLibraryCustomInstructions,
@@ -39,6 +41,7 @@ import {
   sortLibrariesForCreate,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import type { LibraryPreset } from "../../shared/library-presets";
 
 const ASPECT_RATIOS = [
   { value: "16:9", label: "16:9 - wide" },
@@ -212,10 +215,21 @@ function HomeGeneratePanel({
     "get-image-generation-config",
     {},
   ) as { data?: ImageGenerationConfig };
-  const sortedLibraries = useMemo(
-    () => sortLibrariesForCreate(libraries),
-    [libraries],
-  );
+  const { data: presetData } = useActionQuery("list-library-presets", {});
+  const createFromPreset = useActionMutation("create-library-from-preset");
+  const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
+  const [createdLibrary, setCreatedLibrary] =
+    useState<ImageLibrarySummary | null>(null);
+  const sortedLibraries = useMemo(() => {
+    const sorted = sortLibrariesForCreate(libraries);
+    if (
+      createdLibrary &&
+      !sorted.some((library) => library.id === createdLibrary.id)
+    ) {
+      return [createdLibrary, ...sorted];
+    }
+    return sorted;
+  }, [createdLibrary, libraries]);
   const popularLibraries = sortedLibraries.slice(0, 3);
   const [libraryId, setLibraryId] = useState<string>(
     () => loadLastLibraryId() ?? "",
@@ -229,6 +243,7 @@ function HomeGeneratePanel({
   const [customRatioOpen, setCustomRatioOpen] = useState(false);
   const [customRatioInput, setCustomRatioInput] = useState("");
   const [customRatioError, setCustomRatioError] = useState<string | null>(null);
+  const [creatingPresetId, setCreatingPresetId] = useState<string | null>(null);
 
   const selectedLibrary =
     libraryId === "generic"
@@ -254,6 +269,26 @@ function HomeGeneratePanel({
       return;
     }
     chooseLibrary(value);
+  };
+
+  const createPresetLibrary = (presetId: string) => {
+    setCreatingPresetId(presetId);
+    createFromPreset.mutate(
+      { presetId },
+      {
+        onSuccess: (library: any) => {
+          const next = library as ImageLibrarySummary;
+          setCreatedLibrary(next);
+          chooseLibrary(next.id);
+          setCreatingPresetId(null);
+          toast.success(`${next.title} library ready`);
+        },
+        onError: (error: Error) => {
+          setCreatingPresetId(null);
+          toast.error(error.message || "Could not create preset library.");
+        },
+      },
+    );
   };
 
   const handleAspectChange = (value: string) => {
@@ -603,7 +638,7 @@ function HomeGeneratePanel({
           <div className="flex items-center gap-2">
             <IconPhotoPlus size={16} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">
-              Popular libraries
+              {popularLibraries.length ? "Popular libraries" : "Default styles"}
             </h2>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -627,20 +662,34 @@ function HomeGeneratePanel({
             ))}
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={onRequestNewLibrary}
-            className="flex min-h-40 w-full flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 px-6 py-8 text-center transition hover:border-foreground/30 hover:bg-muted/30"
-          >
-            <IconPhotoPlus className="h-8 w-8 text-muted-foreground" />
-            <span className="mt-3 text-sm font-semibold">
-              Create your first library
-            </span>
-            <span className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-              Libraries keep references, saved generations, and style guidance
-              ready for future asset work.
-            </span>
-          </button>
+          <div className="rounded-lg border border-dashed bg-muted/20 p-5">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Start with a default style
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Create a library from a preset, then generate from the prompt
+                  above.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onRequestNewLibrary}
+                className="gap-2"
+              >
+                <IconPhotoPlus className="h-4 w-4" />
+                Custom library
+              </Button>
+            </div>
+            <LibraryPresetGrid
+              presets={presets}
+              creatingId={creatingPresetId}
+              onCreate={createPresetLibrary}
+            />
+          </div>
         )}
       </section>
 

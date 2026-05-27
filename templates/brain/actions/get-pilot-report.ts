@@ -6,6 +6,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getAccessibleSource,
   parseJson,
+  safeCitationUrl,
   serializeSource,
 } from "../server/lib/brain.js";
 import {
@@ -78,7 +79,7 @@ function firstCitation(evidenceJson: string) {
 
 function serializeCitation(item: BrainEvidence | null) {
   if (!item) return null;
-  const sourceUrl = item.sourceUrl ?? item.url ?? null;
+  const sourceUrl = safeCitationUrl(item.sourceUrl ?? item.url);
   return {
     captureId: item.captureId,
     captureTitle: item.captureTitle
@@ -97,7 +98,7 @@ function redactOptionalText(value: string | null | undefined) {
 
 function sourceUrlFromEvidence(evidenceJson: string) {
   const citation = firstCitation(evidenceJson);
-  return citation?.sourceUrl ?? citation?.url ?? null;
+  return safeCitationUrl(citation?.sourceUrl ?? citation?.url);
 }
 
 function isPastIso(value: string | null | undefined, nowMs: number) {
@@ -304,7 +305,7 @@ function trustLaneSummary(status: PilotTrustLaneStatus, targetChannel: string) {
     case "needs-eval":
       return `${targetChannel} needs retrieval eval confirmation before broadening sync.`;
     case "ready-to-expand":
-      return `${targetChannel} has cited published memory and is ready for a narrow expansion.`;
+      return `${targetChannel} has cited published knowledge and is ready for a narrow expansion.`;
   }
 }
 

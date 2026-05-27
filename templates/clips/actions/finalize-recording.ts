@@ -17,8 +17,8 @@ import {
   readAppState,
   writeAppState,
   deleteAppState,
-  listAppState,
 } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { captureRouteError } from "@agent-native/core/server";
@@ -57,8 +57,27 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+async function listRecordingChunkKeys(
+  ownerEmail: string,
+  recordingId: string,
+): Promise<string[]> {
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ?`,
+    args: [ownerEmail, `recording-chunks-${recordingId}-%`],
+  });
+  return rows.map((row) => String(row.key));
+}
+
+function chunkIndexFromKey(key: string): number {
+  return Number(key.split("-").pop() || 0);
+}
+
 const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload and finish saving this clip.";
+const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+const RECORDING_TOO_LARGE_REASON =
+  "Recording is too large to process. Clips now compresses before upload; please update the app and try again, or record a shorter clip / lower-resolution screen.";
 
 function stateNumber(
   value: Record<string, unknown> | null | undefined,
@@ -137,9 +156,7 @@ export default defineAction({
       if (!existing) {
         console.warn("[finalize] recording not found", { id, ownerEmail });
         // Still purge chunks for this id — it's orphaned.
-        chunkKeysToPurge = (await listAppState(`recording-chunks-${id}-`)).map(
-          (e) => e.key,
-        );
+        chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
 
@@ -224,24 +241,22 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       });
 
-      // Pull all chunk entries for this recording in index order.
-      const chunkEntries = await listAppState(`recording-chunks-${id}-`);
-      chunkEntries.sort((a, b) => {
-        const ai = Number(a.key.split("-").pop() || 0);
-        const bi = Number(b.key.split("-").pop() || 0);
-        return ai - bi;
-      });
+      // Pull chunk keys first, then fetch values one at a time. A single
+      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
+      // timeout before we even start assembling the recording.
+      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      chunkKeys.sort((a, b) => chunkIndexFromKey(a) - chunkIndexFromKey(b));
       debugLog("[finalize] chunks found", {
         id,
-        count: chunkEntries.length,
+        count: chunkKeys.length,
       });
       // Commit to deleting these keys in the finally below. We collect
       // the keys NOW (not after success) because a throw in uploadFile
       // or the drizzle update would otherwise bypass the delete and
       // orphan the chunks.
-      chunkKeysToPurge = chunkEntries.map((e) => e.key);
+      chunkKeysToPurge = chunkKeys;
 
-      if (chunkEntries.length === 0) {
+      if (chunkKeys.length === 0) {
         await db
           .update(schema.recordings)
           .set({
@@ -258,13 +273,52 @@ export default defineAction({
         throw new Error(`No chunks found for recording ${id}`);
       }
 
+      const failChunkAssembly = async (failureReason: string) => {
+        const now = new Date().toISOString();
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureReason,
+            updatedAt: now,
+          })
+          .where(eq(schema.recordings.id, id));
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "failed",
+          failureReason,
+          updatedAt: now,
+        });
+        throw new Error(failureReason);
+      };
+
       const parts: Uint8Array[] = [];
-      for (const entry of chunkEntries) {
-        const b64 =
-          typeof entry.value?.data === "string" ? entry.value.data : null;
-        if (b64) parts.push(b64ToBytes(b64));
+      for (const key of chunkKeys) {
+        const entry = await readAppState(key);
+        const b64 = typeof entry?.data === "string" ? entry.data : null;
+        const index = chunkIndexFromKey(key);
+        if (!b64) {
+          await failChunkAssembly(
+            `Recording chunk ${index} is missing upload data. Please retry the recording.`,
+          );
+        }
+
+        const bytes = b64ToBytes(b64);
+        const expectedBytes = stateNumber(entry, "bytes");
+        if (
+          typeof expectedBytes === "number" &&
+          bytes.byteLength !== expectedBytes
+        ) {
+          await failChunkAssembly(
+            `Recording chunk ${index} is incomplete (${bytes.byteLength} of ${expectedBytes} bytes). Please retry the recording.`,
+          );
+        }
+        parts.push(bytes);
       }
       const assembled = concatBytes(parts);
+      if (assembled.byteLength > MAX_RECORDING_UPLOAD_BYTES) {
+        await failChunkAssembly(RECORDING_TOO_LARGE_REASON);
+      }
       // `parts` is no longer needed — dropping the array reference lets V8
       // GC the Uint8Array slices while uploadFile is in flight. Each entry
       // can be megabytes and we can be holding a gigabyte total for long
@@ -377,8 +431,8 @@ export default defineAction({
           status: "waiting_storage",
           failureReason: STORAGE_SETUP_REQUIRED_REASON,
           progress: 100,
-          chunksReceived: chunkEntries.length,
-          totalChunks: chunkEntries.length,
+          chunksReceived: chunkKeys.length,
+          totalChunks: chunkKeys.length,
           mimeType,
           durationMs: finalDurationMs,
           width: finalWidth,

@@ -921,6 +921,71 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("keeps recovery prompts from replacing the original user request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-recovery",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Build a CS operations tool" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "The agent stopped before finishing.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Continue from where you left off and finish my last request.",
+              },
+            ],
+            metadata: {
+              custom: { agentNativeRecoveryAction: "continue" },
+            },
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe(
+      "Continue from where you left off and finish my last request.",
+    );
+    expect(body.displayMessage).toBe("Build a CS operations tool");
+    expect(body.history).toEqual([
+      { role: "user", content: "Build a CS operations tool" },
+      { role: "assistant", content: "The agent stopped before finishing." },
+    ]);
+  });
+
   it("auto-continues without surfacing loop limit text", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1347,6 +1412,91 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "did not produce any visible progress",
     );
+  });
+
+  it("continues once when a run timeout happened during action input streaming", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing create-extension action",
+                tool: "create-extension",
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([
+              {
+                type: "text",
+                text: "created a compact first version",
+              },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-action-input-timeout",
+      threadId: "thread-action-input-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Build a detailed CS operations extension",
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).toContain(
+      "preparing the `create-extension` action input",
+    );
+    expect(secondBody.message).toContain("compact working v1");
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "Build a detailed CS operations extension" },
+    ]);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("created a compact first version");
   });
 
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {

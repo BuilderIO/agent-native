@@ -66,6 +66,74 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value ?? {});
 }
 
+const SOURCE_URL_METADATA_KEYS = [
+  "sourceUrl",
+  "url",
+  "permalink",
+  "webUrl",
+  "web_url",
+] as const;
+
+export function isDirectGranolaSummaryUrl(value: unknown): boolean {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const pathname = url.pathname.toLowerCase();
+    if (host === "notes.granola.ai") return true;
+    if (host === "granola.ai" || host.endsWith(".granola.ai")) {
+      return pathname.startsWith("/d/") || pathname.includes("/note");
+    }
+    return host.includes("granola.example");
+  } catch {
+    return false;
+  }
+}
+
+export function safeCitationUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || isDirectGranolaSummaryUrl(trimmed)) return null;
+  return trimmed;
+}
+
+export function sourceUrlFromMetadataRecord(
+  metadata: Record<string, unknown>,
+): string | null {
+  for (const key of SOURCE_URL_METADATA_KEYS) {
+    const value = safeCitationUrl(metadata[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function sanitizeGranolaCaptureMetadataLinks(
+  provider: BrainSourceProvider,
+  metadata?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!metadata || provider !== "granola") return metadata;
+  const next = { ...metadata };
+  for (const key of SOURCE_URL_METADATA_KEYS) {
+    if (isDirectGranolaSummaryUrl(next[key])) delete next[key];
+  }
+  return next;
+}
+
+export function sanitizeEvidenceCitationUrls(
+  evidence: BrainEvidence[],
+): BrainEvidence[] {
+  return evidence.map((item) => {
+    const next: BrainEvidence = { ...item };
+    const sourceUrl = safeCitationUrl(next.sourceUrl);
+    const url = safeCitationUrl(next.url);
+    if (sourceUrl) next.sourceUrl = sourceUrl;
+    else delete next.sourceUrl;
+    if (url) next.url = url;
+    else delete next.url;
+    return next;
+  });
+}
+
 export async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -168,7 +236,7 @@ function retrievalPolicy(
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
           "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company memory.",
+          "Never present raw capture matches as approved company knowledge.",
           "Say when a result is unreviewed and needs distillation or review.",
         ],
       };
@@ -370,7 +438,9 @@ export function serializeKnowledge(
       row.entitiesJson,
       [],
     ),
-    evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
+    evidence: sanitizeEvidenceCitationUrls(
+      parseJson<BrainEvidence[]>(row.evidenceJson, []),
+    ),
     publishedResourcePath: row.publishedResourcePath,
     supersedesId: row.supersedesId,
     supersededById: row.supersededById,
@@ -398,7 +468,9 @@ export function serializeProposal(
     rationale: row.rationale,
     proposedAction: row.proposedAction as BrainProposalAction,
     payload: parseJson(row.payloadJson, {}),
-    evidence: parseJson<BrainEvidence[]>(row.evidenceJson, []),
+    evidence: sanitizeEvidenceCitationUrls(
+      parseJson<BrainEvidence[]>(row.evidenceJson, []),
+    ),
     status: row.status,
     visibility: row.visibility,
     reviewerNotes: row.reviewerNotes,
@@ -535,11 +607,15 @@ export async function createCapture(values: {
     if (existing) return existing;
   }
   const settings = await readBrainSettings();
+  const metadata = sanitizeGranolaCaptureMetadataLinks(
+    source.provider as BrainSourceProvider,
+    values.metadata,
+  );
   const sanitized = await sanitizeCaptureForStorage({
     kind: values.kind,
     title: values.title,
     content: values.content,
-    metadata: values.metadata,
+    metadata,
     capturedAt: values.capturedAt,
     source: {
       id: source.id,
@@ -609,17 +685,19 @@ export async function validateEvidence(
       access.capture.metadataJson,
       {},
     );
-    const sourceUrl =
-      item.sourceUrl ?? item.url ?? metadata.sourceUrl?.toString();
-    validated.push({
+    const sourceUrl = safeCitationUrl(
+      item.sourceUrl ?? item.url ?? metadata.sourceUrl,
+    );
+    const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
       note: item.note,
-      sourceUrl,
       timestampMs: item.timestampMs,
-    });
+    };
+    if (sourceUrl) result.sourceUrl = sourceUrl;
+    validated.push(result);
   }
   return validated;
 }
@@ -674,11 +752,13 @@ export function applyRedactions(values: {
       type: redact(entity.type),
       name: redact(entity.name),
     })),
-    evidence: values.evidence.map((item) => ({
-      ...item,
-      quote: redact(item.quote),
-      note: item.note ? redact(item.note) : item.note,
-    })),
+    evidence: sanitizeEvidenceCitationUrls(
+      values.evidence.map((item) => ({
+        ...item,
+        quote: redact(item.quote),
+        note: item.note ? redact(item.note) : item.note,
+      })),
+    ),
     redacted: changed,
   };
 }
@@ -750,7 +830,8 @@ export function buildCanonicalKnowledgeMarkdown(
 ) {
   const citations = values.evidence
     .map((item, index) => {
-      const where = item.sourceUrl ? ` (${item.sourceUrl})` : "";
+      const sourceUrl = safeCitationUrl(item.sourceUrl ?? item.url);
+      const where = sourceUrl ? ` (${sourceUrl})` : "";
       const captureTitle = item.captureTitle || item.captureId || "Source";
       return `${index + 1}. ${captureTitle}${where}: "${item.quote}"`;
     })
@@ -778,11 +859,7 @@ function buildCanonicalResource(values: CanonicalResourceValues) {
 
 function sourceUrlFromCaptureMetadata(metadataJson: string) {
   const metadata = parseJson<Record<string, unknown>>(metadataJson, {});
-  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = metadata[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return null;
+  return sourceUrlFromMetadataRecord(metadata);
 }
 
 async function publishKnowledgeResource(values: {
@@ -894,11 +971,8 @@ function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
         quote,
       };
       if (typeof evidence.note === "string") result.note = evidence.note;
-      if (typeof evidence.sourceUrl === "string") {
-        result.sourceUrl = evidence.sourceUrl;
-      } else if (typeof evidence.url === "string") {
-        result.sourceUrl = evidence.url;
-      }
+      const sourceUrl = safeCitationUrl(evidence.sourceUrl ?? evidence.url);
+      if (sourceUrl) result.sourceUrl = sourceUrl;
       if (typeof evidence.timestampMs === "number") {
         result.timestampMs = evidence.timestampMs;
       }
@@ -986,7 +1060,7 @@ export async function previewKnowledgeCanonicalResource(input: {
     }
     if (input.operation === "unpublish" && !row.publishedResourcePath) {
       warnings.push(
-        "This memory is not currently mirrored to workspace context.",
+        "This knowledge is not currently mirrored to workspace context.",
       );
     }
     return {

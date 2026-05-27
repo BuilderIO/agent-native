@@ -8,6 +8,7 @@ import {
   AssistantUiStaleIndexErrorBoundary,
   displayableUserMessageText,
   isAssistantUiStaleIndexError,
+  latestNonRecoveryUserMessageText,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -17,6 +18,48 @@ describe("displayableUserMessageText", () => {
         "\n\n<context>\nHidden attachment instructions\n</context>",
       ),
     ).toBe("");
+  });
+});
+
+describe("latestNonRecoveryUserMessageText", () => {
+  it("skips recovery prompts when finding the original user request", () => {
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Build a CS operations tool" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I stopped before finishing" }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Continue from where you stopped. Use the partial work above.",
+          },
+        ],
+        metadata: { custom: { agentNativeRecoveryAction: "continue" } },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I stopped again" }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Retry the previous request from a clean approach.\n\nOriginal request:\n\nBuild a CS operations tool",
+          },
+        ],
+      },
+    ];
+
+    expect(latestNonRecoveryUserMessageText(messages)).toBe(
+      "Build a CS operations tool",
+    );
   });
 });
 

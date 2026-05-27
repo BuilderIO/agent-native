@@ -21,6 +21,7 @@ import {
   IconCalendarTime,
   IconPlus,
   IconWorld,
+  IconPhoto,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
@@ -51,6 +52,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Microphone: IconMicrophone,
   CalendarTime: IconCalendarTime,
   Globe: IconWorld,
+  Photo: IconPhoto,
 };
 
 interface SidebarProps {

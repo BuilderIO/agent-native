@@ -183,6 +183,27 @@ window.electronAPI.interApp.on((from, event, data) => {
 });
 ```
 
+## App launch shortcuts
+
+Desktop can register local global shortcuts that show Agent Native, switch to a target app, and optionally pass a view through the existing `/_agent-native/open` bridge.
+
+Shortcuts live in the advanced settings panel under **Customize per app → Keyboard launch shortcuts**. A binding stores:
+
+```ts
+{
+  accelerator: "Control+Alt+V",
+  app: "mail",
+  view: "inbox",
+  behavior: "toggle"
+}
+```
+
+`toggle` hides Agent Native when the same app is already frontmost; `show` always focuses and switches. External agents can propose a shortcut with a confirmed desktop deep link:
+
+```text
+agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
+```
+
 ---
 
 ## Port assignments

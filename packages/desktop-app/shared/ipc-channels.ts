@@ -1,5 +1,10 @@
 /** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
+import type {
+  DesktopShortcutSettings,
+  DesktopShortcutUpdateResult,
+  DesktopShortcutUpsertRequest,
+} from "./desktop-shortcuts";
 
 export const IPC = {
   /** Window control channels (renderer → main) */
@@ -75,6 +80,11 @@ export const IPC = {
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
+
+  /** Local desktop app-launch shortcuts (renderer ↔ main) */
+  SHORTCUTS_LOAD: "shortcuts:load",
+  SHORTCUTS_UPSERT: "shortcuts:upsert",
+  SHORTCUTS_REMOVE: "shortcuts:remove",
 } as const;
 
 /** Auto-update status surfaced from electron-updater. */
@@ -578,3 +588,9 @@ export interface DesktopOpenRequest {
   path?: string;
   runId?: string;
 }
+
+export type {
+  DesktopShortcutSettings,
+  DesktopShortcutUpdateResult,
+  DesktopShortcutUpsertRequest,
+};

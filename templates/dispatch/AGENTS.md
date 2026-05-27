@@ -66,12 +66,13 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `agents`, `destinations`, `identities`, `approvals`, `audit`, `thread-debug`, `dreams`, `team`, or a custom nav item id from `app/dispatch-extensions.tsx`
+- `navigation.view`: `chat`, `overview`, `apps`, `new-app`, `vault`, `integrations`, `messaging`, `workspace`, `agents`, `destinations`, `identities`, `approvals`, `audit`, `thread-debug`, `dreams`, `team`, or a custom nav item id from `app/dispatch-extensions.tsx`
 - `navigation.path`: current route path
 - Dreams may also include filters such as `sourceId`, `ownerEmail`, `status`, or `dreamId`
 
 The agent can navigate with:
 
+- `navigate(view="chat")`
 - `navigate(view="overview")`
 - `navigate(view="apps")`
 - `navigate(view="new-app")`

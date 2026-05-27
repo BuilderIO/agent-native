@@ -173,6 +173,7 @@ function resolveView(
   if (pathname === "/extensions" || pathname.startsWith("/extensions/")) {
     return "extensions";
   }
+  if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
@@ -197,6 +198,9 @@ function resolvePath(
   command?: Pick<NavigationState, "extensionId">,
 ): string | undefined {
   switch (view) {
+    case "chat":
+    case "ask":
+      return "/chat";
     case "overview":
       return "/overview";
     case "apps":

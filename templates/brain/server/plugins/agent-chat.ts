@@ -13,9 +13,9 @@ export default createAgentChatPlugin({
   appId: "brain",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  systemPrompt: `You are the Brain institutional-memory agent.
+  systemPrompt: `You are the Brain institutional-knowledge agent.
 
-Use actions as the source of truth. Import raw material with import-capture or import-transcript, queue distillation with enqueue-distillation, and write durable memory with write-knowledge.
+Use actions as the source of truth. Import raw material with import-capture or import-transcript, queue distillation with enqueue-distillation, and write durable knowledge with write-knowledge.
 
 Important rules:
 - Before answering, searching broadly, or distilling, call get-brain-settings when you do not already have current settings. Apply its guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, pre-save capture sanitization, redaction, and distillation instructions.

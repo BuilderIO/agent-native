@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
-import { NavLink, useNavigate } from "react-router";
-import { IconBrain, IconPlus, IconSettings } from "@tabler/icons-react";
+import { Link, NavLink, useNavigate } from "react-router";
+import { IconPlus, IconSettings } from "@tabler/icons-react";
 import {
+  appPath,
   FeedbackButton,
   useChatThreads,
   type ChatThreadSummary,
@@ -31,7 +32,7 @@ function formatThreadAge(updatedAt: number) {
 }
 
 function threadTitle(thread: ChatThreadSummary) {
-  return thread.title || thread.preview || "New chat";
+  return thread.title || thread.preview || "Untitled chat";
 }
 
 function BrainChatsSection() {
@@ -47,12 +48,10 @@ function BrainChatsSection() {
   const visibleThreads = useMemo(
     () =>
       threads
-        .filter(
-          (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
-        )
+        .filter((thread) => thread.messageCount > 0)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 8),
-    [activeThreadId, threads],
+    [threads],
   );
 
   useEffect(() => {
@@ -61,7 +60,7 @@ function BrainChatsSection() {
       const detail = (event as CustomEvent).detail as
         | { isRunning?: unknown }
         | undefined;
-      if (detail?.isRunning === false) refreshThreads();
+      if (typeof detail?.isRunning === "boolean") refreshThreads();
     };
 
     window.addEventListener("agent-chat:threads-updated", refresh);
@@ -112,39 +111,29 @@ function BrainChatsSection() {
         </Tooltip>
       </div>
       <div className="grid gap-0.5">
-        {visibleThreads.length > 0 ? (
-          visibleThreads.map((thread) => {
-            const isActive = thread.id === activeThreadId;
-            return (
-              <button
-                key={thread.id}
-                type="button"
-                onClick={() => openThread(thread.id)}
-                className={cn(
-                  "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {threadTitle(thread)}
-                </span>
-                <span className="shrink-0 text-[11px] text-sidebar-foreground/50">
-                  {isActive ? "" : formatThreadAge(thread.updatedAt)}
-                </span>
-              </button>
-            );
-          })
-        ) : (
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="flex h-8 items-center rounded-md px-2 text-left text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground"
-          >
-            <span className="truncate">New chat</span>
-          </button>
-        )}
+        {visibleThreads.map((thread) => {
+          const isActive = thread.id === activeThreadId;
+          return (
+            <button
+              key={thread.id}
+              type="button"
+              onClick={() => openThread(thread.id)}
+              className={cn(
+                "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {threadTitle(thread)}
+              </span>
+              <span className="shrink-0 text-[11px] text-sidebar-foreground/50">
+                {isActive ? "" : formatThreadAge(thread.updatedAt)}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -162,17 +151,28 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
-        <div className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-          <IconBrain className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
-            Brain
-          </p>
-          <p className="truncate text-xs text-sidebar-foreground/70">
-            Company memory
-          </p>
-        </div>
+        <Link
+          to="/"
+          className="flex min-w-0 items-center gap-3 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto shrink-0 dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto shrink-0 dark:block"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+              Brain
+            </p>
+          </div>
+        </Link>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">

@@ -130,6 +130,11 @@ If the extension needs an API key — a CRM token, a weather API — the agent t
 
 If you want to change something later, just say so: "Add a search box to my contact notes." The agent edits the HTML in place — no regeneration of the whole thing.
 
+Every change is versioned. Open the extension viewer's History control to see
+saved versions, inspect the diff from the previous version, and restore an
+older name/description/icon/content snapshot without changing ownership or
+sharing.
+
 ## What an extension can do {#capabilities}
 
 Inside the iframe sandbox, every extension has these helpers on `window`:

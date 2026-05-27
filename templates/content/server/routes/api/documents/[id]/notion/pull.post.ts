@@ -4,5 +4,5 @@ import { pullDocumentFromNotion } from "../../../../../lib/notion-sync.js";
 
 export default defineEventHandler(async (event) => {
   const owner = await getDocumentOwnerEmail(event);
-  return pullDocumentFromNotion(owner, event.context.params!.id);
+  return pullDocumentFromNotion(owner, event.context.params!.id, true);
 });

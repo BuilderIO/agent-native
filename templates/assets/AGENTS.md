@@ -15,6 +15,10 @@ agent-native apps over A2A.
 - Respect library `customInstructions` on every generation. Update them with
   `create-library` / `update-library` when the user wants persistent guidance
   beyond the structured style brief.
+- Use `list-library-presets` and `create-library-from-preset` when the user
+  wants a ready-made visual style library. Presets are textual, brand-safe
+  guidance; they intentionally do not bundle copyrighted screenshots or exact
+  studio/brand looks.
 - For multiple images, prefer `generate-image-batch` with stable slot IDs.
 - For videos, call `generate-video`, then call `refresh-generation-run` until
   the run is `completed` and returns a video asset.
@@ -32,6 +36,8 @@ agent-native apps over A2A.
 | ----------------------------------------------- | ---------------------------------------------------------- |
 | `list-libraries`                                | List accessible asset libraries                            |
 | `create-library`                                | Create a new asset library                                 |
+| `list-library-presets`                          | List built-in editable style library presets               |
+| `create-library-from-preset`                    | Create an asset library from a built-in style preset       |
 | `get-library`                                   | Read a library with collections, assets, and runs          |
 | `update-library`                                | Update metadata, instructions, style brief, logo, cover    |
 | `delete-library`                                | Delete a library and children                              |

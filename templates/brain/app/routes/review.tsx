@@ -402,7 +402,8 @@ export default function ReviewRoute() {
                   <CardContent className="grid gap-4">
                     <div className="grid gap-3">
                       <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                        {draftValue(proposal, "body") || "No proposed memory."}
+                        {draftValue(proposal, "body") ||
+                          "No proposed knowledge."}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">{insight.target.label}</Badge>
@@ -445,7 +446,7 @@ export default function ReviewRoute() {
                           </div>
                           <div className="grid gap-2">
                             <Label htmlFor={`proposal-body-${proposal.id}`}>
-                              Proposed memory
+                              Proposed knowledge
                             </Label>
                             <Textarea
                               id={`proposal-body-${proposal.id}`}
@@ -608,7 +609,7 @@ export default function ReviewRoute() {
         ) : (
           <EmptyActionState
             title={`No ${status} proposals`}
-            detail="New source captures appear here when Brain needs a reviewer before turning them into company memory."
+            detail="New source captures appear here when Brain needs a reviewer before turning them into company knowledge."
           />
         )}
 
@@ -745,7 +746,7 @@ function buildTargetContext(
 
   if (knowledgeId) {
     return {
-      label: "Merge into existing memory",
+      label: "Merge into existing knowledge",
       detail: `Approving applies this wording to ${shortId(knowledgeId)}.`,
       knowledgeId,
     };
@@ -753,7 +754,7 @@ function buildTargetContext(
 
   if (supersedesId) {
     return {
-      label: "Supersede existing memory",
+      label: "Supersede existing knowledge",
       detail: `Approving creates a replacement and archives ${shortId(
         supersedesId,
       )}.`,
@@ -763,15 +764,15 @@ function buildTargetContext(
 
   if (proposal.proposedAction === "archive") {
     return {
-      label: "Archive memory",
-      detail: "Approving marks the target memory as archived.",
+      label: "Archive knowledge",
+      detail: "Approving marks the target knowledge as archived.",
       knowledgeId,
     };
   }
 
   return {
-    label: "Create new memory",
-    detail: "Approving adds a new durable company-memory entry.",
+    label: "Create new knowledge",
+    detail: "Approving adds a new durable company knowledge entry.",
   };
 }
 
@@ -795,7 +796,7 @@ function buildPrivacyFlags(
     );
   }
   if (context.publishTier === "company") {
-    flags.push("Company-tier memory");
+    flags.push("Company-tier knowledge");
   } else if (context.publishTier) {
     flags.push(`${titleCase(context.publishTier)} publish tier`);
   }
@@ -837,16 +838,16 @@ function buildQueueReason(
     )}, below the auto-publish threshold.`;
   }
   if (context.publishTier === "company") {
-    return "Company-tier memory requires reviewer approval.";
+    return "Company-tier knowledge requires reviewer approval.";
   }
-  return "Queued for reviewer approval before becoming durable company memory.";
+  return "Queued for reviewer approval before becoming durable company knowledge.";
 }
 
 function buildApproveLabel(target: TargetContext, status: string | null) {
   if (status === "redacted") return "Approve redacted draft";
   if (target.supersedesId) return "Approve replacement";
   if (target.knowledgeId) return "Approve update";
-  return "Approve memory";
+  return "Approve knowledge";
 }
 
 function readString(value: unknown) {
@@ -1160,7 +1161,7 @@ function ProposalDetailsSheet({
               current={draftTitle}
             />
             <DraftDiff
-              label="Memory body"
+              label="Knowledge body"
               queued={queuedBody}
               current={draftBody}
               multiline

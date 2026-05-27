@@ -1,10 +1,10 @@
 # Agent-Native Brain
 
-Brain is clean company chat backed by cited institutional memory. People ask
+Brain is clean company chat backed by cited institutional knowledge. People ask
 questions in the Ask route; Brain answers from approved company knowledge with
 links back to the Slack thread, meeting, transcript, issue, or webhook capture
 that supports the answer. Sources, Review, and Knowledge are the admin/support
-surfaces for connecting data, approving proposals, and inspecting cited memory.
+surfaces for connecting data, approving proposals, and inspecting cited knowledge.
 
 Brain ingests approved Slack channels, Clips recordings, Granola Team-space
 notes, GitHub issues/PRs, and generic transcript/webhook payloads. Transcript
@@ -14,7 +14,7 @@ provider payload. It then distills imported captures into reviewable SQL-backed
 knowledge with source links.
 
 The product direction is intentionally Glean-shaped, but the shipped V1 is not a
-full enterprise search replacement. Brain starts with open-source company memory
+full enterprise search replacement. Brain starts with open-source company knowledge
 over reviewed knowledge, then expands toward broader, permission-aware
 workspace search.
 
@@ -53,32 +53,32 @@ workspace search.
   records with `get-knowledge` or `get-capture`. Cross-app expansion is exposed
   as delegation guidance, not as hidden reads from other apps.
 - **Review queue:** the Review route lists pending/approved/rejected proposals,
-  lets reviewers edit proposed memory text, inspect evidence/source links, and
+  lets reviewers edit proposed knowledge text, inspect evidence/source links, and
   approve or reject. Reviewers can publish approved proposals as shared
-  `context/company-brain/...` workspace context when the memory should be
+  `context/company-brain/...` workspace context when the knowledge should be
   ambient for Dispatch and other apps.
 - **Source setup:** the Sources route leads with configured sources and one
   clear Add source action. Provider catalog, source filtering, health checks,
   and maintenance syncs live under Advanced. Sources are org-shared by default
-  so approved memory benefits the whole workspace.
+  so approved knowledge benefits the whole workspace.
 - **Ops and settings:** Ops stays available as an advanced/debug route for
   queued, processing, stale, failed, and done distillation work. Settings
   controls assistant identity, source posture, default publish tier,
-  company-memory approval, citations, redaction, and connector notifications.
+  company-knowledge approval, citations, redaction, and connector notifications.
 
 ## Brain vs Dispatch
 
-Brain is the company-memory specialist. It ingests approved sources, reviews
+Brain is the company-knowledge specialist. It ingests approved sources, reviews
 captures, distills durable facts and decisions, and answers from citations.
 
 Dispatch is the workspace control plane. It owns central messaging, the shared
 secrets vault, cross-app A2A routing, recurring jobs, approvals, and the
 distribution and approval of workspace-wide resources. In a workspace, Dispatch
 can route questions to Brain and grant Brain shared provider credentials, but
-Brain remains the place where company memory is ingested, reviewed, searched,
+Brain remains the place where company knowledge is ingested, reviewed, searched,
 and cited. Brain exposes
 read-only, citation-backed retrieval as its public A2A capability so Dispatch
-and sibling apps can ask company-memory questions. That is not anonymous data
+and sibling apps can ask company-knowledge questions. That is not anonymous data
 access: Brain's A2A agent card can be discovered publicly, but actual retrieval
 stays behind the authenticated A2A/action boundary and uses the same review,
 redaction, citation, and source-access rules as in-app Brain searches.
@@ -128,7 +128,7 @@ pnpm --filter brain build
 
 ## Agent Retrieval Pattern
 
-Agents should treat Brain as cited company memory, not a guess engine:
+Agents should treat Brain as cited company knowledge, not a guess engine:
 
 - Start with `search-everything` for broad questions so knowledge, raw captures,
   and sources can all be considered. Inspect `federatedCoverage` before
@@ -151,7 +151,7 @@ Agents should treat Brain as cited company memory, not a guess engine:
 
 ## Privacy And Gating
 
-Brain is scoped to company memory, not personal surveillance:
+Brain is scoped to company knowledge, not personal surveillance:
 
 - Slack sync reads only configured channels and rejects DMs/MPIMs.
 - Granola sync reads Team-space notes exposed by Granola's API, not private

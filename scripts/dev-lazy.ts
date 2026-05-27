@@ -23,6 +23,13 @@ interface TemplateApp {
   process?: ChildProcess;
   restartTimer?: NodeJS.Timeout;
   restartAttempts?: number;
+  lastFailure?: {
+    code: number | null;
+    at: number;
+    output: string;
+    nextRetryAt: number;
+  };
+  outputTail?: string;
   ready?: boolean;
   readinessProbe?: Promise<void>;
 }
@@ -36,8 +43,17 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
+const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const APP_OUTPUT_TAIL_BYTES = 8_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS = ["assets"];
+const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store, no-cache, max-age=0, must-revalidate",
+  pragma: "no-cache",
+  expires: "0",
+};
 
 function hasFlag(name: string): boolean {
   return argv.includes(name);
@@ -127,10 +143,25 @@ function compareApps(
 
 const allApps = readTemplateApps();
 const appById = new Map(allApps.map((app) => [app.id, app]));
+const includeDesktop = hasFlag("--desktop");
+const includeElectron = hasFlag("--electron");
+
+function includeDesktopLazyDefaults(selected: TemplateApp[]): TemplateApp[] {
+  if (!includeDesktop) return selected;
+  const selectedIds = new Set(selected.map((app) => app.id));
+  const additions = DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS.map((id) =>
+    appById.get(id),
+  ).filter(
+    (app): app is TemplateApp => Boolean(app) && !selectedIds.has(app.id),
+  );
+  return additions.length ? [...selected, ...additions] : selected;
+}
+
 const requestedApps = (() => {
   if (hasFlag("--all")) return allApps;
   const appsArg = flagValue("--apps");
-  if (!appsArg) return allApps.filter((app) => app.core);
+  if (!appsArg)
+    return includeDesktopLazyDefaults(allApps.filter((app) => app.core));
   const ids = appsArg
     .split(",")
     .map((app) => app.trim())
@@ -151,8 +182,6 @@ if (requestedApps.length === 0) {
 
 const apps = requestedApps.sort(compareApps);
 const selectedById = new Map(apps.map((app) => [app.id, app]));
-const includeDesktop = hasFlag("--desktop");
-const includeElectron = hasFlag("--electron");
 const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const prewarmEnabled = (() => {
@@ -198,6 +227,10 @@ const requestedGatewayPort = Number(
 );
 const proxyReadyTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+);
+const proxyResponseTimeoutMs = Number(
+  process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+    DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
 );
 let gatewayUrl = `http://${gatewayHost}:${requestedGatewayPort}`;
 const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
@@ -348,13 +381,24 @@ function pipeOutput(
   prefix: string,
   chunk: unknown,
   write: (value: string) => void,
-): void {
+): string {
   const lines = String(chunk)
     .split(/\r?\n/)
     .filter(Boolean)
     .filter((line) => !isChildDevServerUrlLine(line));
-  if (lines.length === 0) return;
+  if (lines.length === 0) return "";
+  const output = lines.join("\n") + "\n";
   write(lines.map((line) => `${prefix} ${line}`).join("\n") + "\n");
+  return output;
+}
+
+function appendAppOutputTail(app: TemplateApp, output: string): void {
+  if (!output) return;
+  const next = `${app.outputTail ?? ""}${output}`;
+  app.outputTail =
+    next.length > APP_OUTPUT_TAIL_BYTES
+      ? next.slice(-APP_OUTPUT_TAIL_BYTES)
+      : next;
 }
 
 function firstHeaderValue(
@@ -391,31 +435,58 @@ function escapeHtml(value: string): string {
 
 function renderStartingApp(app: TemplateApp): string {
   const escapedName = escapeHtml(app.name);
+  const failure = app.lastFailure;
+  const retryDelayMs = failure
+    ? Math.max(1_000, failure.nextRetryAt - Date.now() + 250)
+    : 900;
+  const refreshSeconds = failure
+    ? Math.max(1, Math.ceil(retryDelayMs / 1_000))
+    : 1;
+  const refreshScriptDelay = failure ? retryDelayMs : 900;
+  const title = failure
+    ? `App failed to start: ${escapedName}`
+    : `Starting ${escapedName}`;
+  const message = failure
+    ? `The lazy template gateway will retry in ${Math.max(
+        1,
+        Math.ceil((failure.nextRetryAt - Date.now()) / 1_000),
+      )}s. Fix the error below or stop the server with Ctrl+C.`
+    : "The lazy template gateway is waking this app's dev server.";
+  const failureOutput = failure?.output.trim();
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="1" />
-    <title>Starting ${escapedName}</title>
+    <meta http-equiv="refresh" content="${refreshSeconds}" />
+    <title>${title}</title>
     <meta name="color-scheme" content="light dark" />
     <style>
-      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; } }
+      :root { --bg: #fafafa; --fg: #171717; --muted: #737373; --bar-bg: #e5e5e5; --bar-fill: #171717; --danger: #dc2626; --code-bg: #171717; --code-fg: #fafafa; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --bar-bg: #262626; --bar-fill: #fafafa; --danger: #f87171; --code-bg: #171717; --code-fg: #f5f5f5; } }
       body { min-height: 100vh; margin: 0; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
-      main { width: min(420px, calc(100vw - 48px)); }
+      main { width: min(680px, calc(100vw - 48px)); }
       .bar { height: 3px; overflow: hidden; border-radius: 999px; background: var(--bar-bg); }
       .bar::before { content: ""; display: block; height: 100%; width: 42%; border-radius: inherit; background: var(--bar-fill); animation: load 1s ease-in-out infinite; }
+      main.failed .bar::before { width: 100%; background: var(--danger); animation: none; }
       p { color: var(--muted); }
+      pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), 900);</script>
+    <script>
+      (() => {
+        const reload = () => window.location.reload();
+        setTimeout(reload, ${JSON.stringify(refreshScriptDelay)});
+        setInterval(reload, ${JSON.stringify(Math.max(refreshScriptDelay, 3_000))});
+      })();
+    </script>
   </head>
   <body>
-    <main>
+    <main class="${failure ? "failed" : ""}">
       <div class="bar"></div>
-      <h1>Starting ${escapedName}</h1>
-      <p>The lazy template gateway is waking this app's dev server.</p>
+      <h1>${title}</h1>
+      <p>${escapeHtml(message)}</p>
+      ${failureOutput ? `<pre>${escapeHtml(failureOutput)}</pre>` : ""}
     </main>
   </body>
 </html>`;
@@ -518,6 +589,11 @@ function appRestartDelay(attempts: number): number {
   );
 }
 
+function formatProxyReadyTimeout(timeoutMs: number): string {
+  const seconds = timeoutMs / 1_000;
+  return Number.isInteger(seconds) ? `${seconds}s` : `${timeoutMs}ms`;
+}
+
 function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -536,6 +612,41 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function probeHttpReady(
+  app: Pick<TemplateApp, "id" | "port">,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let req: http.ClientRequest;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      resolve(ok);
+    };
+    req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: app.port,
+        method: "GET",
+        path: `/${app.id}`,
+        headers: {
+          accept: "text/html",
+          host: `127.0.0.1:${app.port}`,
+        },
+      },
+      (res) => {
+        res.resume();
+        finish(true);
+      },
+    );
+    req.setTimeout(timeoutMs, () => finish(false));
+    req.once("error", () => finish(false));
+    req.end();
+  });
+}
+
 async function waitForPort(port: number, deadline: number): Promise<boolean> {
   while (Date.now() < deadline) {
     if (await probePort(port)) return true;
@@ -546,11 +657,29 @@ async function waitForPort(port: number, deadline: number): Promise<boolean> {
   return false;
 }
 
+async function waitForHttpReady(
+  app: TemplateApp,
+  deadline: number,
+): Promise<boolean> {
+  while (Date.now() < deadline) {
+    const timeoutMs = Math.min(1_000, Math.max(1, deadline - Date.now()));
+    if (await probeHttpReady(app, timeoutMs)) return true;
+    await new Promise((resolve) =>
+      setTimeout(resolve, PROXY_READY_RETRY_DELAY_MS),
+    );
+  }
+  return false;
+}
+
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
-  app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+  app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
     .then((ready) => {
-      if (ready) app.ready = true;
+      if (ready) {
+        app.ready = true;
+        return;
+      }
+      failAppStartupTimeout(app);
     })
     .finally(() => {
       app.readinessProbe = undefined;
@@ -590,7 +719,7 @@ async function prewarmRemainingApps(): Promise<void> {
       if (app.process && !app.process.killed) continue;
       startApp(app);
       ensureReadinessProbe(app);
-      await waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).catch(
+      await waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).catch(
         () => false,
       );
     }
@@ -629,10 +758,9 @@ function proxyHeaders(
 
 function startApp(app: TemplateApp): void {
   if (app.process && !app.process.killed) return;
-  if (app.restartTimer) {
-    clearTimeout(app.restartTimer);
-    app.restartTimer = undefined;
-  }
+  if (app.restartTimer) return;
+  app.lastFailure = undefined;
+  app.outputTail = undefined;
 
   const basePath = `/${app.id}`;
   const child = spawn(
@@ -683,29 +811,73 @@ function startApp(app: TemplateApp): void {
   }, 5_000);
   stableTimer.unref();
 
-  child.stdout?.on("data", (chunk) =>
-    pipeOutput(prefix, chunk, (value) => process.stdout.write(value)),
-  );
-  child.stderr?.on("data", (chunk) =>
-    pipeOutput(prefix, chunk, (value) => process.stderr.write(value)),
-  );
+  child.stdout?.on("data", (chunk) => {
+    appendAppOutputTail(
+      app,
+      pipeOutput(prefix, chunk, (value) => process.stdout.write(value)),
+    );
+  });
+  child.stderr?.on("data", (chunk) => {
+    appendAppOutputTail(
+      app,
+      pipeOutput(prefix, chunk, (value) => process.stderr.write(value)),
+    );
+  });
   child.on("exit", (code) => {
     clearTimeout(stableTimer);
     app.process = undefined;
     app.ready = false;
     app.readinessProbe = undefined;
     if (code === 0 || shuttingDown) return;
-    app.restartAttempts = (app.restartAttempts ?? 0) + 1;
-    const delay = appRestartDelay(app.restartAttempts);
-    process.stderr.write(
-      `${prefix} exited with code ${code}; retrying in ${Math.round(delay / 1000)}s\n`,
-    );
-    app.restartTimer = setTimeout(() => {
-      app.restartTimer = undefined;
-      startApp(app);
-    }, delay);
-    app.restartTimer.unref();
+    scheduleAppRestart(app, {
+      code,
+      output: app.outputTail ?? "",
+      logMessage: `exited with code ${code}`,
+    });
   });
+}
+
+function scheduleAppRestart(
+  app: TemplateApp,
+  input: { code: number | null; output: string; logMessage: string },
+): void {
+  if (shuttingDown || app.restartTimer) return;
+  app.restartAttempts = (app.restartAttempts ?? 0) + 1;
+  const delay = appRestartDelay(app.restartAttempts);
+  const nextRetryAt = Date.now() + delay;
+  app.lastFailure = {
+    code: input.code,
+    at: Date.now(),
+    output: input.output,
+    nextRetryAt,
+  };
+  process.stderr.write(
+    `${colorPrefix(app.id)} ${input.logMessage}; retrying in ${Math.round(delay / 1000)}s\n`,
+  );
+  app.restartTimer = setTimeout(() => {
+    app.restartTimer = undefined;
+    startApp(app);
+  }, delay);
+  app.restartTimer.unref();
+}
+
+function failAppStartupTimeout(app: TemplateApp): void {
+  if (app.ready || app.restartTimer) return;
+  const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
+  const message =
+    `Timed out waiting ${timeout} for /${app.id} to return ` +
+    `an HTTP response on 127.0.0.1:${app.port}.`;
+  const output = [message, app.outputTail?.trim()]
+    .filter(Boolean)
+    .join("\n\nLast child output:\n");
+  app.ready = false;
+  app.readinessProbe = undefined;
+  scheduleAppRestart(app, {
+    code: null,
+    output,
+    logMessage: message,
+  });
+  app.process?.kill("SIGTERM");
 }
 
 function proxyHttp(
@@ -718,7 +890,7 @@ function proxyHttp(
 
   if (!app.ready && wantsHtml(req)) {
     ensureReadinessProbe(app);
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
     if (req.method === "HEAD") {
       res.end();
       return;
@@ -727,8 +899,19 @@ function proxyHttp(
     return;
   }
 
+  const serveStartingPage = () => {
+    res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(renderStartingApp(app));
+  };
+
   const dispatch = () => {
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
+    let settled = false;
+    let responseTimer: NodeJS.Timeout;
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -738,13 +921,42 @@ function proxyHttp(
         headers,
       },
       (proxyRes) => {
+        if (settled) {
+          proxyRes.resume();
+          return;
+        }
+        settled = true;
+        clearTimeout(responseTimer);
         app.ready = true;
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
         proxyRes.pipe(res);
       },
     );
+    responseTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      app.ready = false;
+      proxyReq.destroy();
+      ensureReadinessProbe(app);
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      if (wantsHtml(req)) {
+        serveStartingPage();
+        return;
+      }
+      res.writeHead(504, { "content-type": "text/plain" });
+      res.end(
+        `Template "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+      );
+    }, proxyResponseTimeoutMs);
+    responseTimer.unref();
 
     proxyReq.on("error", (err) => {
+      clearTimeout(responseTimer);
+      if (settled) return;
+      settled = true;
       if (res.headersSent) {
         res.end();
         return;
@@ -761,12 +973,13 @@ function proxyHttp(
     return;
   }
 
-  void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
+  void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
+      failAppStartupTimeout(app);
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(
-          `Template "${app.id}" is not ready yet: connect ECONNREFUSED 127.0.0.1:${app.port}`,
+          `Template "${app.id}" is not ready yet: no HTTP response from 127.0.0.1:${app.port}`,
         );
       } else {
         res.end();
@@ -787,6 +1000,7 @@ function proxyUpgrade(
   startApp(app);
   void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
+      failAppStartupTimeout(app);
       socket.destroy();
       return;
     }

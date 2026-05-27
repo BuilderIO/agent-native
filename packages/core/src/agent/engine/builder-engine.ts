@@ -56,12 +56,11 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Default to the max — design generation, multi-screen prototypes, and other
-// large-output workloads need every second they can get inside Lambda's 75s
-// function budget. The cap stays at 55s to leave ~20s headroom for response
-// streaming + the soft-timeout continuation path in run-loop-with-resume.
-const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
-const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+// Keep the gateway timeout below the hosted run soft timeout so the agent loop
+// can append a continuation and persist terminal state before serverless hosts
+// (Netlify synchronous Functions are 60s) hard-kill the invocation.
+const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 32768;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 

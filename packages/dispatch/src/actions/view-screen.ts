@@ -67,6 +67,13 @@ export default defineAction({
       approvalPolicy: overview.settings,
     };
     if (navigation) screen.navigation = navigation;
+    if (navigation?.view === "chat") {
+      screen.chatSurface = {
+        view: "full-page Dispatch chat",
+        purpose:
+          "Create apps, manage workspace resources, route work to connected agents, and continue Dispatch conversations.",
+      };
+    }
     if (navigation?.view === "overview") {
       screen.recentAudit = overview.recentAudit.slice(0, 5);
       screen.recentApprovals = overview.recentApprovals.slice(0, 5);
