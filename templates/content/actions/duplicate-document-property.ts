@@ -1,0 +1,92 @@
+import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+import { listPropertiesForDocument, nanoid } from "./_property-utils.js";
+
+export default defineAction({
+  description:
+    "Duplicate a Notion-style property definition and copy its stored values.",
+  schema: z.object({
+    documentId: z.string().describe("Document ID used to scope access"),
+    propertyId: z.string().describe("Property definition ID to duplicate"),
+  }),
+  run: async ({ documentId, propertyId }) => {
+    const access = await assertAccess("document", documentId, "editor");
+    const document = access.resource;
+    const db = getDb();
+
+    const [definition] = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.id, propertyId),
+          eq(
+            schema.documentPropertyDefinitions.ownerEmail,
+            document.ownerEmail,
+          ),
+        ),
+      );
+    if (!definition) throw new Error(`Property "${propertyId}" not found`);
+
+    const [maxPos] = await db
+      .select({
+        max: sql<number>`COALESCE(MAX(position), -1)`,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyDefinitions.ownerEmail,
+            document.ownerEmail,
+          ),
+          document.orgId
+            ? eq(schema.documentPropertyDefinitions.orgId, document.orgId)
+            : sql`${schema.documentPropertyDefinitions.orgId} IS NULL`,
+        ),
+      );
+
+    const now = new Date().toISOString();
+    const newPropertyId = nanoid();
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: newPropertyId,
+      ownerEmail: definition.ownerEmail,
+      orgId: definition.orgId,
+      name: `${definition.name} copy`,
+      type: definition.type,
+      visibility: definition.visibility,
+      optionsJson: definition.optionsJson,
+      position: (maxPos?.max ?? -1) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const values = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+    if (values.length > 0) {
+      await db.insert(schema.documentPropertyValues).values(
+        values.map((value) => ({
+          id: nanoid(),
+          ownerEmail: value.ownerEmail,
+          documentId: value.documentId,
+          propertyId: newPropertyId,
+          valueJson: value.valueJson,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    }
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    return {
+      documentId,
+      properties: await listPropertiesForDocument(document),
+    };
+  },
+});

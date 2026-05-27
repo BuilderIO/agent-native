@@ -1,3 +1,11 @@
+import type {
+  DocumentPropertyOptions,
+  DocumentPropertyOption,
+  DocumentPropertyType,
+  DocumentPropertyValue,
+  DocumentPropertyVisibility,
+} from "./properties";
+
 export type DocumentAccessRole = "owner" | "viewer" | "editor" | "admin";
 
 export interface Document {
@@ -13,6 +21,7 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  properties?: DocumentProperty[];
   createdAt: string;
   updatedAt: string;
 }
@@ -108,4 +117,59 @@ export interface DocumentVersion {
 
 export interface DocumentVersionListResponse {
   versions: DocumentVersion[];
+}
+
+export type {
+  DocumentPropertyOptions,
+  DocumentPropertyOption,
+  DocumentPropertyType,
+  DocumentPropertyValue,
+  DocumentPropertyVisibility,
+} from "./properties";
+
+export interface DocumentPropertyDefinition {
+  id: string;
+  name: string;
+  type: DocumentPropertyType;
+  visibility: DocumentPropertyVisibility;
+  options: DocumentPropertyOptions;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentProperty {
+  definition: DocumentPropertyDefinition;
+  value: DocumentPropertyValue;
+  editable: boolean;
+}
+
+export interface DocumentPropertiesResponse {
+  documentId: string;
+  properties: DocumentProperty[];
+}
+
+export interface ConfigureDocumentPropertyRequest {
+  id?: string;
+  documentId: string;
+  name: string;
+  type: DocumentPropertyType;
+  visibility?: DocumentPropertyVisibility;
+  options?: DocumentPropertyOptions;
+}
+
+export interface SetDocumentPropertyRequest {
+  documentId: string;
+  propertyId: string;
+  value: DocumentPropertyValue;
+}
+
+export interface DuplicateDocumentPropertyRequest {
+  documentId: string;
+  propertyId: string;
+}
+
+export interface DeleteDocumentPropertyRequest {
+  documentId: string;
+  propertyId: string;
 }

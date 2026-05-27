@@ -9,6 +9,7 @@ import type { ClipboardEvent } from "react";
 import { useNavigate } from "react-router";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
+import { DocumentProperties } from "./DocumentProperties";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
@@ -482,6 +483,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               style={{ fieldSizing: "content" } as any}
               className="block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40 md:text-4xl"
             />
+            <DocumentProperties documentId={documentId} canEdit={canEdit} />
           </div>
 
           <div

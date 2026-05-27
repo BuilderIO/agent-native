@@ -9,6 +9,7 @@ import {
 } from "../server/lib/documents.js";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import { listPropertiesForDocument } from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -38,6 +39,7 @@ export default defineAction({
           isFavorite: parseDocumentFavorite(doc.isFavorite),
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           visibility: doc.visibility,
+          properties: await listPropertiesForDocument(doc),
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
         };

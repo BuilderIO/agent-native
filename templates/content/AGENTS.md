@@ -91,19 +91,24 @@ cd templates/content && pnpm action <name> [args]
 
 ### Document Operations
 
-| Action                         | Args                                                                     | Purpose                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `list-documents`               | `[--format json]`                                                        | List document metadata/tree; no full bodies                                           |
-| `search-documents`             | `--query <text> [--format json]`                                         | Search by title/content and return snippets                                           |
-| `get-document`                 | `--id <id> [--format json]`                                              | Get a single document with content                                                    |
-| `pull-document`                | `--id <id> [--format markdown\|text]`                                    | Collab-aware "ingest the final" read                                                  |
-| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                       | Create a new document                                                                 |
-| `edit-document`                | `--id <id> --find <text> --replace <text>`                               | Surgical text edit (preferred for modifications)                                      |
-| `edit-document`                | `--id <id> --edits <json>`                                               | Batch surgical text edits                                                             |
-| `update-document`              | `--id <id> [--title] [--content] [--icon]`                               | Full rewrite of document fields                                                       |
-| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]` | Hide/show an org-accessible document in Organization/search while keeping link access |
-| `move-document`                | `--id <id> [--parentId] [--position]`                                    | Move or reorder a document in the page tree                                           |
-| `delete-document`              | `--id <id>`                                                              | Delete with recursive children                                                        |
+| Action                         | Args                                                                                                                         | Purpose                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list-documents`               | `[--format json]`                                                                                                            | List document metadata/tree; no full bodies                                           |
+| `search-documents`             | `--query <text> [--format json]`                                                                                             | Search by title/content and return snippets                                           |
+| `get-document`                 | `--id <id> [--format json]`                                                                                                  | Get a single document with content                                                    |
+| `pull-document`                | `--id <id> [--format markdown\|text]`                                                                                        | Collab-aware "ingest the final" read                                                  |
+| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                                                           | Create a new document                                                                 |
+| `edit-document`                | `--id <id> --find <text> --replace <text>`                                                                                   | Surgical text edit (preferred for modifications)                                      |
+| `edit-document`                | `--id <id> --edits <json>`                                                                                                   | Batch surgical text edits                                                             |
+| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                                                                   | Full rewrite of document fields                                                       |
+| `list-document-properties`     | `--documentId <id> [--format json]`                                                                                          | List Notion-style property definitions and values for a document                      |
+| `configure-document-property`  | `--documentId <id> [--id <propertyId>] --name <name> --type <type> [--visibility always_show\|hide_when_empty\|always_hide]` | Create or update a property definition                                                |
+| `duplicate-document-property`  | `--documentId <id> --propertyId <propertyId>`                                                                                | Duplicate a property definition and its stored values                                 |
+| `delete-document-property`     | `--documentId <id> --propertyId <propertyId>`                                                                                | Delete a property definition and its stored values                                    |
+| `set-document-property`        | `--documentId <id> --propertyId <propertyId> --value <json>`                                                                 | Set a document property value                                                         |
+| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                                                     | Hide/show an org-accessible document in Organization/search while keeping link access |
+| `move-document`                | `--id <id> [--parentId] [--position]`                                                                                        | Move or reorder a document in the page tree                                           |
+| `delete-document`              | `--id <id>`                                                                                                                  | Delete with recursive children                                                        |
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
@@ -214,6 +219,17 @@ A companion `document_shares` table holds per-user or per-org grants with a `rol
 Documents form a tree via `parent_id`. Content is stored as markdown.
 
 Related tables (`document_versions`, `document_comments`, `document_sync_links`) also carry `owner_email` so a workspace can be upgraded cleanly from local mode to a real account without losing document history, comments, or Notion links.
+
+Document properties are SQL-backed, Notion-style structured metadata rather
+than YAML embedded in the markdown body. The property definition table stores
+workspace-level fields (`text`, `number`, `select`, `multi_select`, `status`,
+`date`, `checkbox`, `url`, `email`, `phone`, plus computed `id`,
+`created_time`, `created_by`, and `last_edited_time`) plus property visibility
+(`always_show`, `hide_when_empty`, `always_hide`). The value table stores
+per-document JSON values. Use `list-document-properties`,
+`configure-document-property`, `set-document-property`,
+`duplicate-document-property`, and `delete-document-property`; do not edit
+property rows via raw SQL when an action can do it.
 
 ## UI Components
 

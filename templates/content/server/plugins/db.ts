@@ -135,6 +135,37 @@ export default runMigrations(
       version: 17,
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS document_property_definitions (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      visibility TEXT NOT NULL DEFAULT 'always_show',
+      options_json TEXT NOT NULL DEFAULT '{}',
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 19,
+      sql: `CREATE TABLE IF NOT EXISTS document_property_values (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      document_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      value_json TEXT NOT NULL DEFAULT 'null',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 20,
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'always_show'`,
+    },
   ],
   { table: "content_migrations" },
 );

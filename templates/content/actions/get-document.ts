@@ -6,6 +6,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
+import { listPropertiesForDocument } from "./_property-utils.js";
 import "../server/db/index.js";
 
 function canEditRole(role: string) {
@@ -51,6 +52,7 @@ export default defineAction({
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      properties: await listPropertiesForDocument(doc),
     };
   },
   link: ({ result }) => {
