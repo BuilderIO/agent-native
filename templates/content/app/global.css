@@ -752,30 +752,25 @@
   position: relative;
 }
 
-/* Remove bottom border from last row */
 .notion-editor table tr:last-child td,
 .notion-editor table tr:last-child th {
   border-bottom: none;
 }
 
-/* Remove right border from last column */
 .notion-editor table tr td:last-child,
 .notion-editor table tr th:last-child {
   border-right: none;
 }
 
-/* Make the first row always look like a header */
-.notion-editor table tr:first-child td,
-.notion-editor table tr:first-child th {
-  font-weight: 600;
+.notion-editor table th {
+  font-weight: inherit;
   text-align: left;
-  background-color: hsl(var(--muted) / 0.7);
+  background-color: transparent;
 }
 
-/* Remove header styling from any subsequent rows that might contain th tags */
-.notion-editor table tr:not(:first-child) th {
-  font-weight: normal;
-  background-color: transparent;
+.notion-editor table .notion-table-header-cell {
+  background-color: hsl(var(--muted) / 0.45);
+  font-weight: 500;
 }
 
 .notion-editor table .selectedCell:after {
@@ -806,6 +801,18 @@
 
 .resize-cursor {
   cursor: col-resize;
+}
+
+.notion-table-resizing-column,
+.notion-table-resizing-column * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.notion-table-resizing-row,
+.notion-table-resizing-row * {
+  cursor: row-resize !important;
+  user-select: none;
 }
 
 /* Images */

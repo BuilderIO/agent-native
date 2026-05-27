@@ -199,7 +199,7 @@ const commands: CommandItem[] = [
       editor
         .chain()
         .focus()
-        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: false })
         .run(),
   },
 ];
