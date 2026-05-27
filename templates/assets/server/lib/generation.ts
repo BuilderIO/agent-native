@@ -204,7 +204,7 @@ export async function generateWithBuilderImageApi(
         resourceId: input.libraryId,
       },
       metadata: {
-        collectionId: input.collectionId,
+        collectionId: input.collectionId ?? undefined,
         callerAppId: input.callerAppId,
         source: input.source,
         groundingMode: input.groundingMode,
