@@ -1007,6 +1007,202 @@ export default function AppSettings({
                 )}
               </div>
 
+              <button
+                type="button"
+                className="settings-disclosure settings-disclosure--nested"
+                onClick={() => setShowShortcutSettings((value) => !value)}
+              >
+                {showShortcutSettings ? (
+                  <IconChevronDown size={14} />
+                ) : (
+                  <IconChevronRight size={14} />
+                )}
+                <IconKeyboard size={14} />
+                <span>Keyboard launch shortcuts</span>
+              </button>
+
+              {showShortcutSettings && (
+                <div className="settings-section settings-shortcut-section">
+                  <div className="settings-shortcut-form">
+                    <ShortcutRecorder
+                      value={shortcutDraft.accelerator}
+                      onChange={(accelerator) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          accelerator,
+                        }))
+                      }
+                    />
+                    <select
+                      value={shortcutDraft.app}
+                      onChange={(event) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          app: event.target.value,
+                        }))
+                      }
+                      aria-label="Shortcut target app"
+                    >
+                      {apps.map((app) => (
+                        <option key={app.id} value={app.id}>
+                          {app.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={shortcutDraft.view}
+                      onChange={(event) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          view: event.target.value,
+                        }))
+                      }
+                      placeholder="view, optional"
+                      aria-label="Shortcut target view"
+                    />
+                    <div className="settings-mode-toggle">
+                      <button
+                        type="button"
+                        className={`settings-mode-btn${shortcutDraft.behavior === "toggle" ? " settings-mode-btn--active" : ""}`}
+                        onClick={() =>
+                          setShortcutDraft((current) => ({
+                            ...current,
+                            behavior: "toggle",
+                          }))
+                        }
+                      >
+                        Toggle
+                      </button>
+                      <button
+                        type="button"
+                        className={`settings-mode-btn${shortcutDraft.behavior === "show" ? " settings-mode-btn--active" : ""}`}
+                        onClick={() =>
+                          setShortcutDraft((current) => ({
+                            ...current,
+                            behavior: "show",
+                          }))
+                        }
+                      >
+                        Show
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--primary settings-shortcut-save"
+                      onClick={handleShortcutSave}
+                      disabled={!shortcutDraftValid || shortcutSaving}
+                    >
+                      <IconCheck size={14} />
+                      {shortcutDraft.id ? "Save" : "Add"}
+                    </button>
+                    {shortcutDraft.id && (
+                      <button
+                        type="button"
+                        className="settings-btn settings-btn--ghost settings-shortcut-cancel"
+                        onClick={() =>
+                          setShortcutDraft(defaultShortcutDraft(apps))
+                        }
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+
+                  {shortcutMessage && (
+                    <div className="settings-shortcut-message">
+                      {shortcutMessage}
+                    </div>
+                  )}
+
+                  <div className="settings-shortcut-list">
+                    {(shortcutSettings?.bindings ?? []).length === 0 ? (
+                      <div className="settings-shortcut-empty">
+                        No desktop shortcuts configured.
+                      </div>
+                    ) : (
+                      shortcutSettings?.bindings.map((binding) => {
+                        const targetApp = apps.find(
+                          (app) => app.id === binding.app,
+                        );
+                        const registration = shortcutRegistrations.get(
+                          binding.id,
+                        );
+                        return (
+                          <div
+                            key={binding.id}
+                            className="settings-shortcut-row"
+                          >
+                            <div className="settings-shortcut-main">
+                              <span className="settings-shortcut-keys">
+                                {formatDesktopShortcutAccelerator(
+                                  binding.accelerator,
+                                  window.electronAPI?.platform,
+                                )}
+                              </span>
+                              <span className="settings-shortcut-target">
+                                {targetApp?.name ?? binding.app}
+                                {binding.view ? ` / ${binding.view}` : ""}
+                              </span>
+                              {registration?.error && binding.enabled && (
+                                <span className="settings-shortcut-warning">
+                                  <IconAlertCircle size={12} />
+                                  {registration.error}
+                                </span>
+                              )}
+                            </div>
+                            <div className="settings-shortcut-actions">
+                              <span
+                                className={`settings-shortcut-status${registration?.registered ? " settings-shortcut-status--ok" : ""}`}
+                              >
+                                {binding.enabled
+                                  ? registration?.registered
+                                    ? "Active"
+                                    : "Inactive"
+                                  : "Off"}
+                              </span>
+                              <button
+                                type="button"
+                                className="settings-icon-btn"
+                                onClick={() =>
+                                  setShortcutDraft(
+                                    shortcutDraftFromBinding(binding),
+                                  )
+                                }
+                                title="Edit shortcut"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="settings-icon-btn settings-icon-btn--danger"
+                                onClick={() => handleShortcutRemove(binding.id)}
+                                title="Remove shortcut"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                              <label className="settings-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={binding.enabled}
+                                  onChange={(event) =>
+                                    handleShortcutToggle(
+                                      binding,
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span className="settings-toggle-track" />
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Add / Reset */}
               <div className="settings-section">
                 <button
