@@ -211,36 +211,12 @@ function normalizeServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, "");
 }
 
-function isLocalServerUrl(serverUrl: string): boolean {
-  try {
-    const hostname = new URL(serverUrl).hostname.toLowerCase();
-    return (
-      hostname === "localhost" ||
-      hostname === "0.0.0.0" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname.endsWith(".localhost")
-    );
-  } catch {
-    return /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::|\/|$)/i.test(
-      serverUrl.trim(),
-    );
-  }
-}
-
 function serverUrlForPendingUpload(
   upload: PendingDesktopUpload,
   currentServerUrl: string,
 ): string {
-  const savedServerUrl = normalizeServerUrl(upload.serverUrl || "");
   const normalizedCurrent = normalizeServerUrl(currentServerUrl);
-  if (
-    savedServerUrl &&
-    !(isLocalServerUrl(savedServerUrl) && !isLocalServerUrl(normalizedCurrent))
-  ) {
-    return savedServerUrl;
-  }
-  return normalizedCurrent;
+  return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
 function authTokenStorageKey(serverUrl: string): string {

@@ -423,7 +423,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording(&app, &saved)?;
+            clear_saved_recording_after_success(&app, &saved);
             Ok(result)
         }
         Err(err) => {
@@ -985,7 +985,7 @@ pub async fn native_fullscreen_recording_retry_upload(
 
     match result {
         Ok(result) => {
-            clear_saved_recording(&app, &saved)?;
+            clear_saved_recording_after_success(&app, &saved);
             Ok(result)
         }
         Err(err) => {
@@ -1377,6 +1377,15 @@ fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Resul
     remove_saved_file(&saved.file_path, "pending recording file")?;
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     remove_saved_file(&path, "pending recording metadata")
+}
+
+fn clear_saved_recording_after_success(app: &AppHandle, saved: &SavedNativeRecording) {
+    if let Err(err) = clear_saved_recording(app, saved) {
+        eprintln!(
+            "[clips-tray] upload succeeded for {}, but local pending recording cleanup failed: {err}",
+            saved.recording_id
+        );
+    }
 }
 
 fn persist_saved_recording_error(app: &AppHandle, saved: &mut SavedNativeRecording, error: &str) {
