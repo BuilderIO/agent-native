@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconArrowLeft,
+  IconArrowBackUp,
   IconChevronRight,
   IconDots,
+  IconHistory,
   IconLoader2,
   IconPencil,
   IconRefresh,
@@ -92,6 +94,7 @@ interface Extension {
   updatedAt?: string;
   ownerEmail?: string;
   role?: ExtensionBridgeRole | null;
+  canEdit?: boolean;
   canDelete?: boolean;
 }
 
@@ -135,6 +138,128 @@ function buildExtensionViewerSrcDoc(
       role,
     },
   );
+}
+
+interface ExtensionHistoryEntry {
+  id: string;
+  extensionId: string;
+  version: number;
+  operation: string;
+  summary: string;
+  name: string;
+  description: string;
+  icon: string | null;
+  actorEmail: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
+  createdAt: string;
+  persisted: boolean;
+  contentLength: number;
+}
+
+interface ExtensionHistoryDiffLine {
+  type: "equal" | "insert" | "delete";
+  text: string;
+}
+
+interface ExtensionHistoryDetail {
+  entry: ExtensionHistoryEntry & { content?: string };
+  previous: (ExtensionHistoryEntry & { content?: string }) | null;
+  diff: ExtensionHistoryDiffLine[];
+  stats: {
+    addedLines: number;
+    deletedLines: number;
+    changed: boolean;
+  };
+}
+
+type CompactDiffLine =
+  | ExtensionHistoryDiffLine
+  | { type: "omitted"; count: number };
+
+function formatHistoryTime(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function operationLabel(operation: string): string {
+  switch (operation) {
+    case "create":
+      return "Created";
+    case "baseline":
+      return "Baseline";
+    case "metadata-update":
+      return "Details";
+    case "content-update":
+      return "Content";
+    case "restore":
+      return "Restore";
+    default:
+      return operation;
+  }
+}
+
+function compactDiffLines(
+  lines: ExtensionHistoryDiffLine[],
+  context = 3,
+): CompactDiffLine[] {
+  const result: CompactDiffLine[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.type !== "equal") {
+      result.push(line);
+      i += 1;
+      continue;
+    }
+
+    let end = i + 1;
+    while (end < lines.length && lines[end].type === "equal") end += 1;
+    const run = lines.slice(i, end);
+    if (run.length > context * 2 + 1) {
+      result.push(...run.slice(0, context));
+      result.push({ type: "omitted", count: run.length - context * 2 });
+      result.push(...run.slice(-context));
+    } else {
+      result.push(...run);
+    }
+    i = end;
+  }
+  return result;
+}
+
+function diffLineClass(line: CompactDiffLine): string {
+  switch (line.type) {
+    case "insert":
+      return "bg-primary/10 text-primary";
+    case "delete":
+      return "bg-destructive/10 text-destructive";
+    case "omitted":
+      return "bg-muted/60 text-muted-foreground";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+function diffLinePrefix(line: CompactDiffLine): string {
+  switch (line.type) {
+    case "insert":
+      return "+";
+    case "delete":
+      return "-";
+    case "omitted":
+      return "...";
+    default:
+      return " ";
+  }
 }
 
 function applyCanonicalLink(path: string): () => void {

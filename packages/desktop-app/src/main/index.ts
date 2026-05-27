@@ -1020,6 +1020,7 @@ let desktopShortcutRegistrations = new Map<
   DesktopShortcutRegistration
 >();
 const registeredDesktopShortcutAccelerators = new Set<string>();
+let desktopShortcutsActivated = false;
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
@@ -1097,6 +1098,21 @@ function unregisterDesktopShortcutBindings() {
   registeredDesktopShortcutAccelerators.clear();
 }
 
+function refreshDesktopShortcutBindings() {
+  if (desktopShortcutsActivated) {
+    registerDesktopShortcutBindings();
+    return;
+  }
+
+  unregisterDesktopShortcutBindings();
+  desktopShortcutRegistrations = new Map(
+    AppStore.loadDesktopShortcutBindings().map((binding) => [
+      binding.id,
+      { id: binding.id, registered: false },
+    ]),
+  );
+}
+
 function hideMainWindowForShortcut() {
   const win =
     mainWindow && !mainWindow.isDestroyed()
@@ -1130,6 +1146,7 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
 }
 
 function registerDesktopShortcutBindings() {
+  desktopShortcutsActivated = true;
   unregisterDesktopShortcutBindings();
   const registrations = new Map<string, DesktopShortcutRegistration>();
   const bindings = AppStore.loadDesktopShortcutBindings();
@@ -5419,7 +5436,7 @@ ipcMain.handle(
   IPC.APPS_ADD,
   (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
     const apps = AppStore.addApp(app);
-    registerDesktopShortcutBindings();
+    refreshDesktopShortcutBindings();
     return apps;
   },
 );
@@ -5428,7 +5445,7 @@ ipcMain.handle(
   IPC.APPS_REMOVE,
   (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
     const apps = AppStore.removeApp(id);
-    registerDesktopShortcutBindings();
+    refreshDesktopShortcutBindings();
     return apps;
   },
 );
@@ -5441,14 +5458,14 @@ ipcMain.handle(
     updates: Partial<AppConfig>,
   ): AppConfig[] => {
     const apps = AppStore.updateApp(id, updates);
-    registerDesktopShortcutBindings();
+    refreshDesktopShortcutBindings();
     return apps;
   },
 );
 
 ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
   const apps = AppStore.resetToDefaults();
-  registerDesktopShortcutBindings();
+  refreshDesktopShortcutBindings();
   return apps;
 });
 
@@ -6630,7 +6647,6 @@ app.whenReady().then(() => {
   reconcileInterruptedCodeAgentRuns("startup");
 
   const win = createWindow();
-  registerDesktopShortcutBindings();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
 
   // Intercept keyboard shortcuts on the shell renderer

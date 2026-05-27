@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useMemo, useState } from "react";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { toast } from "sonner";
 import {
   IconLibraryPhoto,
   IconPhotoPlus,
@@ -10,18 +11,24 @@ import { Button } from "@/components/ui/button";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
+import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
 } from "@/lib/libraries";
+import type { LibraryPreset } from "../../shared/library-presets";
 
 export default function LibrariesPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useActionQuery("list-libraries", {});
+  const { data: presetData } = useActionQuery("list-library-presets", {});
+  const createFromPreset = useActionMutation("create-library-from-preset");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ImageLibrarySummary | null>(null);
+  const [creatingPresetId, setCreatingPresetId] = useState<string | null>(null);
+  const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
 
   const libraries = useMemo(() => {
     const items = sortLibrariesByUsage(
@@ -39,6 +46,23 @@ export default function LibrariesPage() {
         .includes(q),
     );
   }, [data, query]);
+
+  function createPresetLibrary(presetId: string) {
+    setCreatingPresetId(presetId);
+    createFromPreset.mutate(
+      { presetId },
+      {
+        onSuccess: (library: any) => {
+          setCreatingPresetId(null);
+          navigate(`/library/${library.id}`);
+        },
+        onError: (error: Error) => {
+          setCreatingPresetId(null);
+          toast.error(error.message || "Could not create preset library.");
+        },
+      },
+    );
+  }
 
   return (
     <PageShell
@@ -97,14 +121,22 @@ export default function LibrariesPage() {
             ))}
           </div>
         ) : (
-          <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-8 text-center">
-            <IconLibraryPhoto className="h-10 w-10 text-muted-foreground" />
-            <h3 className="mt-4 text-base font-semibold">No libraries yet</h3>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              You can still generate assets from Create. Add a library when you
-              want future generations to follow your references and
-              instructions.
-            </p>
+          <div className="rounded-lg border border-dashed bg-muted/20 p-6">
+            <div className="mx-auto max-w-2xl text-center">
+              <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
+              <h3 className="mt-4 text-base font-semibold">No libraries yet</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Start with a default style library or create your own references
+                and instructions.
+              </p>
+            </div>
+            <div className="mx-auto mt-6 max-w-4xl">
+              <LibraryPresetGrid
+                presets={presets}
+                creatingId={creatingPresetId}
+                onCreate={createPresetLibrary}
+              />
+            </div>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button onClick={() => setOpen(true)} className="gap-2">
                 <IconPhotoPlus className="h-4 w-4" />

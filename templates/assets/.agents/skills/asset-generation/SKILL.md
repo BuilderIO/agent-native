@@ -28,6 +28,9 @@ or generated image/video assets that another app can reference by ID and URL.
 ## Image Workflows
 
 1. Pick or match the library with `list-libraries` or `match-library`.
+   If the user wants a default look rather than a brand library, call
+   `list-library-presets` and then `create-library-from-preset`; the resulting
+   library is editable and reusable like any other library.
 2. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
 3. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
@@ -54,4 +57,5 @@ or generated image/video assets that another app can reference by ID and URL.
 - Do not call image/video providers directly from another app.
 - Do not treat `images` as the app identity; the app id is `assets`.
 - Do not use picker UI for unattended generation when direct actions are enough.
-
+- Do not use copyrighted screenshots or named studio/brand image sets as preset
+  references. Use broad textual guidance and user-provided references instead.

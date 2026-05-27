@@ -5,8 +5,11 @@ import {
   deleteExtension,
   getHiddenExtensionIdsForCurrentUser,
   getExtension,
+  getExtensionHistoryVersion,
   hideExtension,
+  listExtensionHistory,
   listExtensions,
+  restoreExtensionHistoryVersion,
   unhideExtension,
   updateExtension,
   updateExtensionContent,
@@ -128,6 +131,82 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             includeContent,
           ),
         };
+      },
+      readOnly: true,
+    },
+
+    "list-extension-history": {
+      tool: {
+        description:
+          "List saved history snapshots for one extension. Use this when the user asks what changed, wants a changelog, or wants to pick an older version to restore. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url>.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id whose history should be listed.",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum versions to return. Defaults to 50.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full HTML content for each version. Defaults to false.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const history = await listExtensionHistory(id, {
+          limit:
+            args?.limit === undefined ? undefined : coerceLimit(args.limit),
+          includeContent: coerceBoolean(args?.includeContent),
+        });
+        return {
+          ok: true,
+          count: history.length,
+          history,
+        };
+      },
+      readOnly: true,
+    },
+
+    "get-extension-history-version": {
+      tool: {
+        description:
+          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id whose history version should be read.",
+            },
+            version: {
+              type: "number",
+              description: "History version number to inspect.",
+            },
+          },
+          required: ["id", "version"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const version = Number(args?.version);
+        if (!Number.isInteger(version) || version < 1) {
+          return "Error: version must be a positive integer.";
+        }
+        const detail = await getExtensionHistoryVersion(id, version);
+        if (!detail) {
+          return `Error: extension history version not found: ${id}#${version}`;
+        }
+        return { ok: true, ...detail };
       },
       readOnly: true,
     },
@@ -337,6 +416,46 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             next: "If the user wants this gone only from their own view, call hide-extension with the same id.",
           };
         }
+      },
+    },
+
+    "restore-extension-history-version": {
+      tool: {
+        description:
+          "Restore an extension's name, description, icon, and HTML content from a saved history version. Requires editor access. This does not restore sharing visibility or ownership.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id to restore.",
+            },
+            version: {
+              type: "number",
+              description:
+                "Saved history version number to restore. Use list-extension-history first if unsure.",
+            },
+          },
+          required: ["id", "version"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const version = Number(args?.version);
+        if (!Number.isInteger(version) || version < 1) {
+          return "Error: version must be a positive integer.";
+        }
+        const result = await restoreExtensionHistoryVersion(id, version);
+        if (!result) {
+          return `Error: extension history version not found: ${id}#${version}`;
+        }
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        return {
+          ok: true,
+          restoredVersion: version,
+          extension: await summarizeExtension(result, hiddenIds, false),
+        };
       },
     },
 

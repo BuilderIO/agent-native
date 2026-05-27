@@ -16,7 +16,7 @@
  * deployed rows remain readable.
  */
 
-import { table, text, now } from "../db/schema.js";
+import { table, text, integer, now } from "../db/schema.js";
 import { ownableColumns, createSharesTable } from "../sharing/schema.js";
 
 export const extensions = table("tools", {
@@ -36,6 +36,23 @@ export const extensionHides = table("tool_hidden_extensions", {
   id: text("id").primaryKey(),
   extensionId: text("tool_id").notNull(),
   ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+export const extensionHistory = table("tool_history", {
+  id: text("id").primaryKey(),
+  extensionId: text("tool_id").notNull(),
+  version: integer("version").notNull(),
+  operation: text("operation").notNull(),
+  summary: text("summary").notNull().default(""),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  content: text("content").notNull().default(""),
+  icon: text("icon"),
+  actorEmail: text("actor_email"),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  visibility: text("visibility").notNull().default("private"),
   createdAt: text("created_at").notNull().default(now()),
 });
 
@@ -160,6 +177,46 @@ export const EXTENSION_HIDES_UNIQUE_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXIS
 
 export const EXTENSION_HIDES_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_hidden_extensions_owner_idx
   ON tool_hidden_extensions (owner_email)`;
+
+export const EXTENSION_HISTORY_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_history (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  operation TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  icon TEXT,
+  actor_email TEXT,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`;
+
+export const EXTENSION_HISTORY_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_history (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  operation TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  icon TEXT,
+  actor_email TEXT,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  created_at TEXT NOT NULL DEFAULT now()
+)`;
+
+export const EXTENSION_HISTORY_VERSION_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_history_tool_version_idx
+  ON tool_history (tool_id, version)`;
+
+export const EXTENSION_HISTORY_CREATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_history_tool_created_idx
+  ON tool_history (tool_id, created_at)`;
 
 // ---------------------------------------------------------------------------
 // extension_consents — vestigial, kept for additive-schema compliance

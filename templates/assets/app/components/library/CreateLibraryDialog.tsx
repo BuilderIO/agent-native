@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { LibraryPresetGrid } from "./LibraryPresetGrid";
+import type { LibraryPreset } from "../../../shared/library-presets";
 
 export function CreateLibraryDialog({
   open,
@@ -22,9 +26,13 @@ export function CreateLibraryDialog({
   onCreated?: (library: any) => void;
 }) {
   const createLibrary = useActionMutation("create-library");
+  const createFromPreset = useActionMutation("create-library-from-preset");
+  const { data: presetData } = useActionQuery("list-library-presets", {});
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
+  const [creatingPresetId, setCreatingPresetId] = useState<string | null>(null);
+  const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
 
   function submit() {
     if (!title.trim()) return;
@@ -46,13 +54,48 @@ export function CreateLibraryDialog({
     );
   }
 
+  function createPresetLibrary(presetId: string) {
+    setCreatingPresetId(presetId);
+    createFromPreset.mutate(
+      { presetId },
+      {
+        onSuccess: (library: any) => {
+          setCreatingPresetId(null);
+          onOpenChange(false);
+          onCreated?.(library);
+        },
+        onError: (error: Error) => {
+          setCreatingPresetId(null);
+          toast.error(error.message || "Could not create preset library.");
+        },
+      },
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>New asset library</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium">Start from a style preset</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Create an editable library with built-in generation guidance.
+              </p>
+            </div>
+            <LibraryPresetGrid
+              presets={presets}
+              creatingId={creatingPresetId}
+              onCreate={createPresetLibrary}
+              compact
+            />
+          </div>
+
+          <Separator />
+
           <div className="space-y-2">
             <Label htmlFor="library-title">Name</Label>
             <Input
