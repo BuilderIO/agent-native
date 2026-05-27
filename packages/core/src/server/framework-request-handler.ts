@@ -24,6 +24,8 @@ const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
+const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
+  "_agentNativeMiddlewareDispatcherPatched";
 
 interface PluginReadyEntry {
   promise: Promise<void>;
@@ -113,6 +115,7 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
  */
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
+  ensureGlobalMiddlewareDispatch(nitroApp);
 
   // Reuse the cached shim if we've wrapped this nitroApp before
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
@@ -164,6 +167,46 @@ export function getH3App(nitroApp: any): H3AppShim {
   }
 
   return shim;
+}
+
+/**
+ * Nitro 3 production builds generate a route dispatcher by overriding h3's
+ * internal `~getMiddleware()` hook. Some generated dispatchers return only
+ * route-rule middleware and skip the global `h3["~middleware"]` array that
+ * `getH3App().use()` appends to. Wrap the dispatcher once so framework routes
+ * registered at runtime are still part of request dispatch.
+ */
+function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
+  const h3 = nitroApp?.h3;
+  if (!h3 || h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY]) return;
+
+  const original =
+    typeof h3["~getMiddleware"] === "function"
+      ? h3["~getMiddleware"].bind(h3)
+      : undefined;
+
+  h3["~getMiddleware"] = (event: H3Event, route: unknown) => {
+    const originalResult = original ? original(event, route) : [];
+    const originalList = Array.isArray(originalResult)
+      ? originalResult
+      : originalResult
+        ? [originalResult]
+        : [];
+    const globalMiddleware = Array.isArray(h3["~middleware"])
+      ? h3["~middleware"]
+      : [];
+    if (globalMiddleware.length === 0) return originalList;
+
+    const alreadyIncluded = new Set(originalList);
+    const missingGlobal = globalMiddleware.filter(
+      (middleware) => !alreadyIncluded.has(middleware),
+    );
+    return missingGlobal.length
+      ? [...missingGlobal, ...originalList]
+      : originalList;
+  };
+
+  h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = true;
 }
 
 /**
