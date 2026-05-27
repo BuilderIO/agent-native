@@ -185,7 +185,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 Extensions are mini sandboxed Alpine.js apps that run inside iframes. The agent can create, edit, and manage them at runtime without modifying the app's source code. See the `extensions` skill for full patterns.
 
-> **Extensions vs. LLM tools.** This codebase uses the word "tool" in two distinct senses. _Extensions_ (this primitive) are user-facing sandboxed mini-apps. _LLM tools_ are the function-calling primitives the agent invokes — `tool: { description, parameters }` on an `ActionEntry`, MCP tools (`mcp__<server-id>__*`), and entries in the agent's tool registry. Both exist in this codebase; never confuse them. Physical SQL tables (`tools`, `tool_data`, `tool_shares`, `tool_id`, `tool_consents`, `tool_slots`, `tool_slot_installs`) keep their original names — only the user-facing primitive concept and the Drizzle export names (`extensions`, `extensionData`, `extensionShares`) use the new term.
+> **Extensions vs. LLM tools.** This codebase uses the word "tool" in two distinct senses. _Extensions_ (this primitive) are user-facing sandboxed mini-apps. _LLM tools_ are the function-calling primitives the agent invokes — `tool: { description, parameters }` on an `ActionEntry`, MCP tools (`mcp__<server-id>__*`), and entries in the agent's tool registry. Both exist in this codebase; never confuse them. Physical SQL tables (`tools`, `tool_data`, `tool_shares`, `tool_history`, `tool_id`, `tool_consents`, `tool_slots`, `tool_slot_installs`) keep their original names — only the user-facing primitive concept and the Drizzle export names (`extensions`, `extensionData`, `extensionShares`) use the new term.
 
 **IMPORTANT:** When a user asks to "create an extension" or "make a ... extension" (or the older "create a tool" / "make a tool" phrasing), use the `create-extension` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes.
 
@@ -211,11 +211,12 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 
 **`extensionData` is a built-in per-extension key-value store with user/org scoping.** When a user asks to "add persistence", "save data", or "remember state" in an extension, use `extensionData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by extension ID. All methods accept an optional `{ scope }` option: `'user'` (default, private), `'org'` (shared with org), or `'all'` (list/get only — returns both).
 
-**NEVER suggest Builder, source code changes, or new files for extension modifications.** All extension changes go through `update-extension-content` (to edit the Alpine.js HTML) or `extensionData` (to persist data).
+**NEVER suggest Builder, source code changes, or new files for extension modifications.** All extension changes go through `update-extension` (to edit the Alpine.js HTML or metadata) or `extensionData` (to persist data).
 
 ### How it works
 
 - Extensions are stored in the `tools` SQL table (Drizzle export `extensions`) and rendered via `GET /_agent-native/extensions/:id/render` inside a sandboxed iframe.
+- Extension snapshots are stored in `tool_history`; use history actions or the viewer History popover to inspect diffs and restore older content.
 - `extensionFetch()` proxies API calls through `POST /_agent-native/extensions/proxy`, which injects encrypted secrets (`${keys.NAME}` pattern) and enforces SSRF protections.
 - Extensions inherit the main app's Tailwind v4 theme automatically.
 - Sharing uses the standard framework model (`ownableColumns()` + `createSharesTable()`): private by default, shareable with org or specific users. The shares table is `tool_shares` in SQL (Drizzle export `extensionShares`).
@@ -223,11 +224,14 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 
 ### Agent actions for extensions
 
-| Action             | What it does                                                              |
-| ------------------ | ------------------------------------------------------------------------- |
-| `create-extension` | Create a new extension (name, description, Alpine.js HTML content)        |
-| `update-extension` | Update an extension — use `patches` array for find/replace diffs          |
-| `navigate`         | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
+| Action                              | What it does                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `create-extension`                  | Create a new extension (name, description, Alpine.js HTML content)        |
+| `update-extension`                  | Update an extension — use `patches`/`edits` for targeted HTML changes     |
+| `list-extension-history`            | List saved history versions for an extension                              |
+| `get-extension-history-version`     | Inspect one saved version with a previous-version diff                    |
+| `restore-extension-history-version` | Restore name, description, icon, and HTML content from a saved version    |
+| `navigate`                          | Navigate to `--view=extensions` or `--view=extensions --extensionId=<id>` |
 
 ### Routes
 
@@ -239,6 +243,9 @@ Use `appAction(name, params)` for template data/actions such as `list-events` or
 | PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)           |
 | DELETE | `/_agent-native/extensions/:id`        | Delete an extension                               |
 | GET    | `/_agent-native/extensions/:id/render` | Render HTML for iframe                            |
+| GET    | `/_agent-native/extensions/:id/history` | List saved extension versions                     |
+| GET    | `/_agent-native/extensions/:id/history/:version` | Get one version and diff             |
+| POST   | `/_agent-native/extensions/:id/history/:version/restore` | Restore a version             |
 | POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection         |
 
 ### Secrets for extensions

@@ -46,6 +46,11 @@ describe("extensions/store", () => {
       ),
     ).toBe(false);
     expect(
+      statements.some((sql) =>
+        /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+tool_history/i.test(sql),
+      ),
+    ).toBe(true);
+    expect(
       statements.some((sql) => /RENAME\s+TO\s+tool_data_old/i.test(sql)),
     ).toBe(false);
     expect(
@@ -178,6 +183,13 @@ describe("extensions/store", () => {
     });
     expect(insertedRows).toHaveLength(1);
     expect(insertedRows[0]).toMatchObject({ visibility: "private" });
+    expect(
+      client.execute.mock.calls.some((call) => {
+        const input = call[0] as string | { sql: string };
+        const sql = typeof input === "string" ? input : input.sql;
+        return /INSERT\s+INTO\s+tool_history/i.test(sql);
+      }),
+    ).toBe(true);
   });
 
   it("surfaces extension marker persistence failures", async () => {
