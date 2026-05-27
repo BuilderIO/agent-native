@@ -366,7 +366,7 @@ export class RecorderEngine {
    * fetch quietly complete and the recording finalise server-side.
    */
   private uploadAbort: AbortController | null = null;
-  private streamChunksDuringRecording = true;
+  private streamChunksDuringRecording = false;
 
   private state: RecorderState = "idle";
 
@@ -650,9 +650,7 @@ export class RecorderEngine {
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
-    this.streamChunksDuringRecording = canStreamMediaRecorderChunks(
-      this.mimeType,
-    );
+    this.streamChunksDuringRecording = false;
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
@@ -1036,6 +1034,7 @@ export class RecorderEngine {
         compression = await compressBlobIfTooLarge(assembled, this.mimeType, {
           width: meta.dimensions.width,
           height: meta.dimensions.height,
+          durationMs: meta.durationMs,
           signal: abort.signal,
           onProgress: (p) => {
             this.opts.onCompressionProgress?.({
