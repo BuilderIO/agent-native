@@ -6,7 +6,6 @@ import {
   IconEdit,
   IconPin,
   IconPlus,
-  IconSettings,
 } from "@tabler/icons-react";
 import {
   appPath,
@@ -14,6 +13,7 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { navItems } from "@/lib/brain";
 import { cn } from "@/lib/utils";
@@ -353,13 +353,18 @@ export function Sidebar() {
         </div>
       </nav>
 
-      <div className="grid gap-2 border-t border-sidebar-border px-3 py-3">
-        <NavLink to="/settings" className={navClass}>
-          <IconSettings className="size-4 shrink-0" />
-          <span className="truncate">Settings</span>
-        </NavLink>
-        <FeedbackButton />
-        <OrgSwitcher />
+      <div className="mt-auto shrink-0">
+        <div className="border-t border-sidebar-border px-2 py-1">
+          <ExtensionsSidebarSection />
+        </div>
+
+        <div className="border-t border-sidebar-border px-3 py-2">
+          <OrgSwitcher />
+        </div>
+
+        <div className="border-t border-sidebar-border px-3 py-2">
+          <FeedbackButton />
+        </div>
       </div>
     </aside>
   );
