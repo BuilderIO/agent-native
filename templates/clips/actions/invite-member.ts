@@ -12,8 +12,8 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import { emit } from "@agent-native/core/event-bus";
+import { organizations, orgInvitations } from "@agent-native/core/org";
 import {
   sendEmail,
   isEmailConfigured,
@@ -26,6 +26,8 @@ import {
   nanoid,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
 
 function getAppName(): string {
   return process.env.APP_NAME || "Clips";
@@ -56,12 +58,11 @@ function baseUrl(): string {
 }
 
 async function fetchOrgName(orgId: string): Promise<string> {
-  const exec = getDbExec();
-  const res = await exec.execute({
-    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
-    args: [orgId],
-  });
-  const row = (res.rows as Array<{ name?: string }>)[0];
+  const [row] = await getDb()
+    .select({ name: organizations.name })
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1);
   return row?.name ?? "Organization";
 }
 
@@ -75,7 +76,7 @@ export default defineAction({
     ),
   }),
   run: async (args) => {
-    const exec = getDbExec();
+    const db = getDb();
 
     const { organizationId } = await requireOrganizationAccess(undefined, [
       "admin",
@@ -86,25 +87,36 @@ export default defineAction({
 
     // Rotate any existing pending invite for this email so the latest one is
     // the only live token.
-    const existingRes = await exec.execute({
-      sql: `SELECT id FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-      args: [organizationId, inviteeEmail],
-    });
-    const existing = (existingRes.rows as Array<{ id?: string }>)[0];
+    const [existing] = await db
+      .select({ id: orgInvitations.id })
+      .from(orgInvitations)
+      .where(
+        and(
+          eq(orgInvitations.orgId, organizationId),
+          sql`lower(${orgInvitations.email}) = ${inviteeEmail}`,
+          eq(orgInvitations.status, "pending"),
+        ),
+      )
+      .limit(1);
     if (existing?.id) {
-      await exec.execute({
-        sql: `UPDATE org_invitations SET status = 'canceled' WHERE id = ?`,
-        args: [existing.id],
-      });
+      await db
+        .update(orgInvitations)
+        .set({ status: "canceled" })
+        .where(eq(orgInvitations.id, existing.id));
     }
 
     const id = nanoid(24);
     const token = id;
     const nowMs = Date.now();
 
-    await exec.execute({
-      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-      args: [id, organizationId, args.email, inviter, nowMs, role],
+    await db.insert(orgInvitations).values({
+      id,
+      orgId: organizationId,
+      email: args.email,
+      invitedBy: inviter,
+      createdAt: nowMs,
+      status: "pending",
+      role,
     });
 
     const orgName = await fetchOrgName(organizationId);

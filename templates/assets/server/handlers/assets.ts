@@ -1,0 +1,294 @@
+import {
+  createError,
+  defineEventHandler,
+  getQuery,
+  readMultipartFormData,
+  setHeader,
+  setResponseStatus,
+} from "h3";
+import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
+import { getSession } from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { getDb, schema } from "../db/index.js";
+import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
+import {
+  hasRasterImageSignature,
+  hasVideoSignature,
+} from "../lib/image-processing.js";
+import { getObject } from "../lib/storage.js";
+import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
+import { IMAGE_CATEGORIES } from "../../shared/api.js";
+import type { ImageCategory, ImageRole } from "../../shared/api.js";
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  avif: "image/avif",
+  mp4: "video/mp4",
+  m4v: "video/x-m4v",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
+
+const IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/avif",
+]);
+
+const VIDEO_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/x-m4v",
+  "video/quicktime",
+  "video/webm",
+]);
+
+/**
+ * Decode a multipart text field as UTF-8.
+ *
+ * Nitro / h3 returns each part's `data` as a `Uint8Array`. Calling `.toString()`
+ * directly on a `Uint8Array` inherits `Array.prototype.toString`, so a libraryId
+ * like "TXHoc9..." becomes "84,88,72,..." (the bytes joined with commas), and
+ * downstream code (e.g. `assertAccess("asset-library", id, ...)`) gets a
+ * nonsense id and throws "No access". Wrap with `Buffer.from` so UTF-8 decoding
+ * runs regardless of whether `data` is a Buffer or a Uint8Array.
+ */
+function readField(
+  parts: Array<{ name?: string; data?: Uint8Array | Buffer }> | undefined,
+  name: string,
+): string | null {
+  const data = parts?.find((part) => part.name === name)?.data;
+  if (!data) return null;
+  return Buffer.from(data).toString("utf-8");
+}
+
+function cleanMime(type: string | undefined, filename: string | undefined) {
+  const raw = type?.split(";")[0].trim().toLowerCase();
+  if (raw && (IMAGE_MIME_TYPES.has(raw) || VIDEO_MIME_TYPES.has(raw)))
+    return raw;
+  const ext = filename?.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_BY_EXT[ext] ?? "application/octet-stream";
+}
+
+function categoryFromForm(value: unknown): ImageCategory {
+  const raw = typeof value === "string" ? value : "style-only";
+  return (IMAGE_CATEGORIES as readonly string[]).includes(raw)
+    ? (raw as ImageCategory)
+    : "style-only";
+}
+
+function roleFromCategory(category: ImageCategory): ImageRole {
+  if (category === "logo") return "logo_reference";
+  if (category === "product") return "product_reference";
+  if (category === "diagram") return "diagram_reference";
+  if (category === "video") return "video_reference";
+  return "style_reference";
+}
+
+function hasAllowedSignature(mimeType: string, data: Uint8Array): boolean {
+  if (IMAGE_MIME_TYPES.has(mimeType))
+    return hasRasterImageSignature(mimeType, data);
+  if (VIDEO_MIME_TYPES.has(mimeType)) return hasVideoSignature(mimeType, data);
+  return false;
+}
+
+async function assertCollectionBelongsToLibrary(
+  collectionId: string,
+  libraryId: string,
+) {
+  const [collection] = await getDb()
+    .select({
+      id: schema.assetCollections.id,
+      libraryId: schema.assetCollections.libraryId,
+    })
+    .from(schema.assetCollections)
+    .where(eq(schema.assetCollections.id, collectionId))
+    .limit(1);
+  if (!collection || collection.libraryId !== libraryId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "collectionId does not belong to this library",
+    });
+  }
+}
+
+async function assertFolderBelongsToLibrary(
+  folderId: string,
+  libraryId: string,
+) {
+  const [folder] = await getDb()
+    .select({
+      id: schema.assetFolders.id,
+      libraryId: schema.assetFolders.libraryId,
+    })
+    .from(schema.assetFolders)
+    .where(eq(schema.assetFolders.id, folderId))
+    .limit(1);
+  if (!folder || folder.libraryId !== libraryId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "folderId does not belong to this library",
+    });
+  }
+}
+
+async function withUserContext(event: any, fn: () => Promise<unknown>) {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId ?? undefined },
+    fn,
+  );
+}
+
+export const uploadAssets = defineEventHandler(async (event) =>
+  withUserContext(event, async () => {
+    const parts = await readMultipartFormData(event);
+    const libraryId = readField(parts, "libraryId");
+    if (!libraryId) {
+      setResponseStatus(event, 400);
+      return { error: "libraryId is required" };
+    }
+    await assertAccess("asset-library", libraryId, "editor");
+    const collectionId = readField(parts, "collectionId") || null;
+    const folderId = readField(parts, "folderId") || null;
+    if (collectionId) {
+      await assertCollectionBelongsToLibrary(collectionId, libraryId);
+    }
+    if (folderId) {
+      await assertFolderBelongsToLibrary(folderId, libraryId);
+    }
+    const category = categoryFromForm(readField(parts, "category"));
+    const title = readField(parts, "title") || null;
+    const files =
+      parts?.filter((part) => part.name === "files" && part.data) ?? [];
+    if (!files.length) {
+      setResponseStatus(event, 400);
+      return { error: "No files uploaded" };
+    }
+    if (files.length > 20) {
+      setResponseStatus(event, 413);
+      return { error: "Too many files (max 20)" };
+    }
+    const assets = [];
+    for (const part of files) {
+      const mimeType = cleanMime(part.type, part.filename);
+      const mediaType = mediaTypeFromMime(mimeType);
+      const maxBytes =
+        mediaType === "video" ? 250 * 1024 * 1024 : 25 * 1024 * 1024;
+      if (part.data.byteLength > maxBytes) {
+        setResponseStatus(event, 413);
+        return {
+          error:
+            mediaType === "video"
+              ? "File too large (max 250 MB per video)"
+              : "File too large (max 25 MB per image)",
+        };
+      }
+      if (!hasAllowedSignature(mimeType, part.data)) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Only PNG, JPEG, WebP, AVIF, MP4, MOV, M4V, and WebM assets are supported.",
+        };
+      }
+      const asset = await createAssetFromBuffer({
+        libraryId,
+        collectionId,
+        folderId,
+        buffer: Buffer.from(part.data),
+        mimeType,
+        mediaType,
+        role: roleFromCategory(category),
+        status: "reference",
+        title:
+          title ||
+          part.filename ||
+          (mediaType === "video" ? "Reference video" : "Reference image"),
+        altText: part.filename || null,
+        metadata: {
+          originalName: part.filename,
+          uploadId: nanoid(),
+        },
+        category,
+      });
+      assets.push(asset);
+    }
+    return { count: assets.length, assets };
+  }),
+);
+
+export const streamAsset = defineEventHandler(async (event) =>
+  withUserContext(event, async () => {
+    const assetId = event.context.params?.assetId;
+    if (!assetId)
+      throw createError({ statusCode: 404, statusMessage: "Not found" });
+    const [asset] = await getDb()
+      .select()
+      .from(schema.assets)
+      .where(eq(schema.assets.id, assetId))
+      .limit(1);
+    if (!asset)
+      throw createError({ statusCode: 404, statusMessage: "Not found" });
+    await assertAccess("asset-library", asset.libraryId, "viewer");
+    const query = getQuery(event);
+    const useThumb = query.variant === "thumb" && asset.thumbnailObjectKey;
+    const key = useThumb ? asset.thumbnailObjectKey! : asset.objectKey;
+    const body = await getObject(key);
+    setHeader(event, "content-type", useThumb ? "image/webp" : asset.mimeType);
+    setHeader(event, "cache-control", "private, max-age=300");
+    if (query.download === "1") {
+      const ext =
+        asset.mimeType === "image/jpeg"
+          ? "jpg"
+          : asset.mimeType === "image/webp"
+            ? "webp"
+            : asset.mimeType === "image/avif"
+              ? "avif"
+              : asset.mimeType === "video/webm"
+                ? "webm"
+                : asset.mimeType === "video/quicktime"
+                  ? "mov"
+                  : asset.mimeType === "video/x-m4v"
+                    ? "m4v"
+                    : asset.mimeType.startsWith("video/")
+                      ? "mp4"
+                      : "png";
+      setHeader(
+        event,
+        "content-disposition",
+        `attachment; filename="${asset.title || asset.id}.${ext}"`,
+      );
+    }
+    return body;
+  }),
+);
+
+export async function markAssetSaved(assetId: string) {
+  const db = getDb();
+  const [asset] = await db
+    .select()
+    .from(schema.assets)
+    .where(eq(schema.assets.id, assetId))
+    .limit(1);
+  if (!asset) throw new Error("Asset not found.");
+  await assertAccess("asset-library", asset.libraryId, "editor");
+  const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
+  metadata.savedAt = nowIso();
+  await db
+    .update(schema.assets)
+    .set({
+      status: "saved",
+      metadata: stringifyJson(metadata),
+      updatedAt: nowIso(),
+    })
+    .where(eq(schema.assets.id, assetId));
+}

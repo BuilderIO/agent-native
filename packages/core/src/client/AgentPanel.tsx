@@ -380,6 +380,8 @@ export interface AgentPanelProps extends Omit<
   browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
+  /** Show the chat thread tab row when the panel header is hidden. Default: true. */
+  showTabBar?: boolean;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -493,6 +495,7 @@ function AgentPanelInner({
   scope,
   browserTabId,
   chatNotice,
+  showTabBar = true,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -1366,6 +1369,7 @@ function AgentPanelInner({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
+            showTabBar={showTabBar}
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}

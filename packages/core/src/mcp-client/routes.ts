@@ -66,6 +66,7 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { fetchHubServers } from "./hub-client.js";
+import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
@@ -239,6 +240,17 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     }
   }
 
+  try {
+    const workspaceServers = await loadWorkspaceMcpServers();
+    for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
+      servers[mergedKey] = cfg;
+    }
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] workspace MCP resource merge failed: ${err?.message ?? err}. Continuing with local config.`,
+    );
+  }
+
   // Hub-consume: if this app is configured to consume from a remote hub
   // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its
   // org-scope servers and merge. Hub entries use `hub_<orgId>_<name>` so
@@ -256,6 +268,53 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
 
   if (Object.keys(servers).length === 0) return null;
   return { servers, source: base?.source ?? "merged" };
+}
+
+function sortedConfigSignature(config: McpConfig | null): string {
+  const entries = Object.entries(config?.servers ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return JSON.stringify(entries);
+}
+
+function mcpConfigRefreshIntervalMs(): number {
+  const raw = process.env.AGENT_NATIVE_MCP_CONFIG_REFRESH_MS;
+  if (raw?.trim() === "0") return 0;
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 5_000) return parsed;
+  return 60_000;
+}
+
+export function startMcpConfigRefresh(
+  manager: McpClientManager,
+): (() => void) | null {
+  const intervalMs = mcpConfigRefreshIntervalMs();
+  if (intervalMs <= 0 || typeof setInterval !== "function") return null;
+
+  let currentSignature = sortedConfigSignature(manager.getConfig());
+  let refreshing = false;
+  const refresh = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const next = await buildMergedConfig();
+      const nextSignature = sortedConfigSignature(next);
+      if (nextSignature !== currentSignature) {
+        await manager.reconfigure(next);
+        currentSignature = nextSignature;
+      }
+    } catch (err: any) {
+      console.warn(
+        `[mcp-client] config refresh failed: ${err?.message ?? err}`,
+      );
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  const timer = setInterval(refresh, intervalMs);
+  (timer as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
 }
 
 async function resolveContextForRequest(event: H3Event): Promise<{

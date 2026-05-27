@@ -250,10 +250,10 @@ Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scope
 
 First-party analytics events live in SQL tables managed by this template:
 
-| Table                   | Contents                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `analytics_public_keys` | Public write keys used by hosted apps to send events to `/track`                                                                                              |
-| `analytics_events`      | Event rows recorded by `/track`, scoped to the key owner's user/org. Common dimensions include `event_name`, `timestamp`, `app`, `template`, and `signed_in`. |
+| Table                   | Contents                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `analytics_public_keys` | Public write keys used by hosted apps to send events to `/track`                                                                                                         |
+| `analytics_events`      | Event rows recorded by `/track`, scoped to the key owner's user/org. Common dimensions include `event_name`, `timestamp`, `app`, `template`, `signed_in`, and `user_id`. |
 
 Use the `first-party` dashboard source or `query-agent-native-analytics` action for these events. Do **not** use `db-query` for user analytics questions unless the user explicitly asks to inspect the app's internal tables.
 
@@ -267,6 +267,8 @@ WHERE timestamp >= '<start-utc>'
 GROUP BY event_name
 ORDER BY events DESC
 ```
+
+`analytics_events.user_id` stores the top-level tracked user identity when the emitting app sends one. Use it for email-domain filters, for example `lower(coalesce(user_id, '')) NOT LIKE '%@builder.io'` to exclude Builder.io signed-in users while keeping anonymous rows.
 
 For calendar-day questions, convert the user's requested timezone to UTC before querying. For example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z` through `2026-05-02T04:00:00Z`.
 
@@ -321,7 +323,7 @@ To override the default org plugin (e.g. to add custom validation or extra handl
 
 | Var                                   | Required for                                                                                                 |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                        | All deployments — Neon Postgres URL                                                                          |
+| `DATABASE_URL`                        | All deployments — persistent SQL connection string                                                           |
 | `BETTER_AUTH_SECRET`                  | Auth — random 32-byte hex string                                                                             |
 | `BETTER_AUTH_URL`                     | Auth — `https://analytics.agent-native.com`                                                                  |
 | `GOOGLE_CLIENT_ID`                    | Google sign-in (OAuth 2.0 Client ID, NOT the SA)                                                             |
@@ -508,7 +510,7 @@ title: Weekly signups
 ```
 ````
 
-The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (1..6 — number of grid columns to span; clamped to the active section's column count). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them. The dashboard always renders 1 column on screens narrower than `md` and expands to the configured column count from `md` and up — set the dashboard-level `columns` (1..6, default 2) for the panels before any section, and use a `chartType: "section"` panel with its own `columns` to switch the grid for the panels that follow it.
+The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (1..6 — number of grid columns to span; clamped to the active section's column count). Optional `config` for axis keys, formatting, pivots, color palettes, stacking, and `legend`. Dashboard configs may also include `filters` with controls such as `{ id, label, type: "select", default, options }`; panel SQL references them as `{{filterId}}`. Chart legends render automatically; set `config.legend=false` only when the user asks to hide them. The dashboard always renders 1 column on screens narrower than `md` and expands to the configured column count from `md` and up — set the dashboard-level `columns` (1..6, default 2) for the panels before any section, and use a `chartType: "section"` panel with its own `columns` to switch the grid for the panels that follow it.
 
 Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, persist it as a saved dashboard panel instead and link to that dashboard.
 

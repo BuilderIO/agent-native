@@ -9,8 +9,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
+import { orgInvitations } from "@agent-native/core/org";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -19,28 +21,25 @@ export default defineAction({
     token: z.string().min(1).describe("Invite token (invitation id)"),
   }),
   run: async (args) => {
-    const exec = getDbExec();
-
-    const res = await exec.execute({
-      sql: `SELECT id, org_id FROM org_invitations WHERE id = ? LIMIT 1`,
-      args: [args.token],
-    });
-    const invite = (
-      res.rows as Array<{
-        id?: string;
-        org_id?: string;
-      }>
-    )[0];
-    if (!invite?.id) {
+    const db = getDb();
+    const [invite] = await db
+      .select({
+        id: orgInvitations.id,
+        orgId: orgInvitations.orgId,
+      })
+      .from(orgInvitations)
+      .where(eq(orgInvitations.id, args.token))
+      .limit(1);
+    if (!invite) {
       return { declined: false, error: "Invite not found." };
     }
 
-    await exec.execute({
-      sql: `UPDATE org_invitations SET status = 'rejected' WHERE id = ?`,
-      args: [invite.id],
-    });
+    await db
+      .update(orgInvitations)
+      .set({ status: "rejected" })
+      .where(eq(orgInvitations.id, invite.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { declined: true, organizationId: invite.org_id };
+    return { declined: true, organizationId: invite.orgId };
   },
 });

@@ -1,0 +1,81 @@
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
+
+function navigationFromPath(pathname: string) {
+  const library = pathname.match(/^\/library\/([^/]+)/);
+  if (library) return { view: "library", libraryId: library[1] };
+  const asset = pathname.match(/^\/asset\/([^/]+)/);
+  if (asset) return { view: "asset", assetId: asset[1] };
+  const image = pathname.match(/^\/image\/([^/]+)/);
+  if (image) return { view: "asset", assetId: image[1] };
+  if (pathname === "/") return { view: "create" };
+  if (pathname === "/libraries") return { view: "libraries" };
+  if (pathname === "/extensions") return { view: "extensions" };
+  const extension = pathname.match(/^\/extensions\/([^/]+)/);
+  if (extension) return { view: "extensions", extensionId: extension[1] };
+  if (pathname === "/audit") return { view: "audit" };
+  if (pathname === "/settings") return { view: "settings" };
+  return { view: "create" };
+}
+
+function pathFromCommand(command: any): string | null {
+  if (!command) return null;
+  if (typeof command.path === "string") return command.path;
+  if (command.view === "library" && command.libraryId) {
+    return `/library/${command.libraryId}`;
+  }
+  if (
+    (command.view === "asset" || command.view === "image") &&
+    command.assetId
+  ) {
+    return `/asset/${command.assetId}`;
+  }
+  if (command.view === "audit") return "/audit";
+  if (command.view === "settings") return "/settings";
+  if (command.view === "create") return "/";
+  if (command.view === "libraries") return "/libraries";
+  if (command.view === "extensions" && command.extensionId) {
+    return `/extensions/${command.extensionId}`;
+  }
+  if (command.view === "extensions") return "/extensions";
+  return null;
+}
+
+export function useNavigationState() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-request-source": "assets-ui",
+      },
+      body: JSON.stringify(navigationFromPath(location.pathname)),
+    }).catch(() => {});
+  }, [location.pathname]);
+
+  const { data: command } = useQuery({
+    queryKey: ["app-state", "navigate"],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/navigate"),
+      );
+      if (!res.ok) return null;
+      return res.json();
+    },
+    refetchInterval: 1000,
+  });
+
+  useEffect(() => {
+    const path = pathFromCommand(command);
+    if (!path) return;
+    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+      method: "DELETE",
+    }).catch(() => {});
+    navigate(path);
+  }, [command, navigate]);
+}

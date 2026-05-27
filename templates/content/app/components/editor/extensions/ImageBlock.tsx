@@ -8,6 +8,10 @@ import {
   useState,
 } from "react";
 import {
+  EmbeddedApp,
+  type EmbeddedAppRef,
+} from "@agent-native/embedding/react";
+import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconCopy,
@@ -28,6 +32,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogContent,
   DialogOverlay,
   DialogPortal,
   DialogTitle,
@@ -46,7 +51,7 @@ import {
 import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
 import type { ContentImageOptions } from "./ImageNode";
 
-type ImageSourceTab = "upload" | "link";
+type ImageSourceTab = "upload" | "assets" | "link";
 type ResizeDirection = "left" | "right";
 
 interface ImageResizeState {
@@ -59,6 +64,44 @@ interface ImageResizeState {
 const MIN_IMAGE_WIDTH = 160;
 const MAX_AGENT_IMAGE_DIMENSION = 1600;
 const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
+const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+
+interface PickedAssetImagePayload {
+  url?: unknown;
+  previewUrl?: unknown;
+  downloadUrl?: unknown;
+  embedUrl?: unknown;
+  altText?: unknown;
+  title?: unknown;
+}
+
+function assetsPickerUrl() {
+  return (
+    import.meta.env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL ||
+    DEFAULT_ASSETS_PICKER_URL
+  );
+}
+
+function pickedAssetString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function pickedAssetImageSource(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const image = payload as PickedAssetImagePayload;
+  return (
+    pickedAssetString(image.url) ??
+    pickedAssetString(image.previewUrl) ??
+    pickedAssetString(image.downloadUrl) ??
+    pickedAssetString(image.embedUrl)
+  );
+}
+
+function pickedAssetImageAlt(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const image = payload as PickedAssetImagePayload;
+  return pickedAssetString(image.altText) ?? pickedAssetString(image.title);
+}
 
 function normalizedImageWidth(value: unknown): number | null {
   const width =
@@ -360,6 +403,7 @@ export function ImageBlock({
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [sourceTab, setSourceTab] = useState<ImageSourceTab>("upload");
+  const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [altPopoverOpen, setAltPopoverOpen] = useState(false);
   const [altDraft, setAltDraft] = useState("");
@@ -433,6 +477,12 @@ export function ImageBlock({
     setImageUrl("");
     setSourcePanelDismissed(false);
     setSourcePanelOpen(true);
+  }
+
+  function openAssetsPicker() {
+    setAssetsPickerOpen(true);
+    setSourcePanelOpen(false);
+    setSourcePanelDismissed(true);
   }
 
   function handleLightboxOpenChange(open: boolean) {
@@ -636,6 +686,57 @@ export function ImageBlock({
     setSourcePanelOpen(false);
   }
 
+  function handleAssetsPickerReady(
+    _payload: unknown,
+    _event: MessageEvent,
+    ref: EmbeddedAppRef,
+  ) {
+    ref.postMessage("configure", {
+      prompt: alt.trim() || undefined,
+      query: alt.trim() || undefined,
+    });
+  }
+
+  function handleAssetsPickerMessage(name: string, payload: unknown) {
+    if (name === "close") {
+      setAssetsPickerOpen(false);
+      return;
+    }
+
+    if (name !== "chooseImage") return;
+    const nextSrc = pickedAssetImageSource(payload);
+    if (!nextSrc) {
+      toast.error("Assets did not return an image URL.");
+      return;
+    }
+
+    updateAttributes({
+      src: nextSrc,
+      alt: pickedAssetImageAlt(payload) ?? alt,
+    });
+    setAssetsPickerOpen(false);
+    toast.success("Image added");
+  }
+
+  function renderAssetsPickerDialog() {
+    return (
+      <Dialog open={assetsPickerOpen} onOpenChange={setAssetsPickerOpen}>
+        <DialogContent className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+          <div className="flex h-12 shrink-0 items-center border-b px-4">
+            <DialogTitle className="text-base">Assets</DialogTitle>
+          </div>
+          <EmbeddedApp
+            url={assetsPickerUrl()}
+            title="Assets image picker"
+            className="min-h-0 flex-1 border-0 bg-background"
+            onReady={handleAssetsPickerReady}
+            onMessage={handleAssetsPickerMessage}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   function renderSourcePanel(replace = false) {
     return (
       <div
@@ -652,6 +753,15 @@ export function ImageBlock({
             onClick={() => setSourceTab("upload")}
           >
             Upload
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sourceTab === "assets"}
+            className="media-source-panel__tab"
+            onClick={() => setSourceTab("assets")}
+          >
+            Assets
           </button>
           <button
             type="button"
@@ -673,6 +783,12 @@ export function ImageBlock({
               onClick={() => fileInputRef.current?.click()}
             >
               Upload file
+            </Button>
+          </div>
+        ) : sourceTab === "assets" ? (
+          <div className="media-source-panel__body">
+            <Button type="button" className="w-full" onClick={openAssetsPicker}>
+              Choose from Assets
             </Button>
           </div>
         ) : (
@@ -737,6 +853,7 @@ export function ImageBlock({
           />
 
           {showSourcePanel ? renderSourcePanel() : null}
+          {renderAssetsPickerDialog()}
         </div>
       </NodeViewWrapper>
     );
@@ -1036,6 +1153,7 @@ export function ImageBlock({
         )}
 
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}
+        {renderAssetsPickerDialog()}
 
         <Dialog open={lightboxOpen} onOpenChange={handleLightboxOpenChange}>
           <DialogPortal>

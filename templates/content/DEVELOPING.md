@@ -8,7 +8,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router, TypeScript, Vite, TailwindCSS
 - **Backend**: Nitro (via @agent-native/core)
-- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
+- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
 - **UI**: Radix UI + Lucide icons + shadcn/ui
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 

@@ -324,6 +324,7 @@ export {
   type ChatThreadScope,
   type ChatThreadSummary,
   type ChatThreadData,
+  type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
 export {
   AgentChatSurface,

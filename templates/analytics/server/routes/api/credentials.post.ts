@@ -135,32 +135,5 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Auto-seed the Node Exporter dashboard the first time PROMETHEUS_URL is saved.
-  if (savedKeys.has("PROMETHEUS_URL")) {
-    try {
-      const scope = await resolveSettingsScope(event);
-      const existing = await getScopedSettingRecord(
-        scope,
-        "sql-dashboard-node-exporter",
-      );
-      if (!existing) {
-        const seed = loadDashboardSeed("node-exporter");
-        if (seed) {
-          await putScopedSettingRecord(
-            scope,
-            "sql-dashboard-node-exporter",
-            seed,
-          );
-        }
-      }
-    } catch (err: any) {
-      // Don't fail the credential save if seeding hiccups — log and move on.
-      console.warn(
-        "[credentials] failed to seed node-exporter dashboard:",
-        err?.message ?? err,
-      );
-    }
-  }
-
   return { saved: toSave.map((v) => v.key), deleted: toDelete };
 });

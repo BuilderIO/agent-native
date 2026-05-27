@@ -7,6 +7,14 @@ description: "Deploy agent-native apps to any platform with Nitro presets — No
 
 Agent-native apps use [Nitro](https://nitro.build) under the hood, which means you can deploy to any platform with zero config changes — just set a preset.
 
+## Before You Deploy: Pick a Persistent Database {#persistent-database}
+
+Every deployed app needs a persistent SQL database. In local development, agent-native falls back to a SQLite file at `data/app.db`; that is convenient on your machine, but it is not durable in containers, previews, or serverless environments where the filesystem can be reset.
+
+Set `DATABASE_URL` in your deploy provider before promoting an app to production. Agent-native uses Drizzle for schema and queries, so the data layer is portable across Drizzle-compatible SQL backends. The built-in adapters auto-detect Postgres URLs, libSQL/Turso URLs, SQLite file URLs, and Cloudflare D1 bindings. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available. Turso is one option, not a requirement.
+
+Use `DATABASE_AUTH_TOKEN` only when your database provider requires a separate token, such as Turso/libSQL. For workspaces, all apps inherit the root `DATABASE_URL` by default; set `<APP_NAME>_DATABASE_URL` when one app should use a different database.
+
 ## Workspace Deploy: One Origin, Many Apps {#workspace-deploy}
 
 If your project is a [workspace](/docs/multi-app-workspace), you can ship every app in it to a single origin with one command:
@@ -200,13 +208,13 @@ export default defineConfig({
 
 ### Build / Runtime {#env-runtime}
 
-| Variable              | Description                                                                                                          |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                | Server port (Node.js only)                                                                                           |
-| `NITRO_PRESET`        | Override build preset at build time                                                                                  |
-| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone. |
-| `DATABASE_URL`        | Postgres / Turso / SQLite connection string. Required in production.                                                 |
-| `DATABASE_AUTH_TOKEN` | Auth token for Turso / libsql connections.                                                                           |
+| Variable              | Description                                                                                                                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                | Server port (Node.js only)                                                                                                                                                                         |
+| `NITRO_PRESET`        | Override build preset at build time                                                                                                                                                                |
+| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone.                                                                               |
+| `DATABASE_URL`        | Persistent SQL connection string. Required in production; common options include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available. |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                                                                                      |
 
 ### Required in Production {#env-required-prod}
 

@@ -54,15 +54,15 @@ For full details on how scoping works at the SQL level, see [Security & Data Sco
 
 ## Adding multi-tenancy to a new table {#new-tables}
 
-When you add a new domain table, include `organization_id` to make it tenant-aware:
+When you add a new domain table, use the framework's dialect-agnostic schema helpers and include ownership columns to make it tenant-aware:
 
 ```typescript
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
 
-export const projects = sqliteTable("projects", {
+export const projects = table("projects", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  organizationId: text("organization_id").notNull(),
+  ...ownableColumns(),
   // ... other columns
 });
 ```

@@ -112,13 +112,13 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Response summaries, exports, and trend analysis on demand",
     ],
   },
-  images: {
-    appName: "Agent-Native Images",
+  assets: {
+    appName: "Agent-Native Assets",
     tagline:
-      "Your AI agent creates, refines, and organizes on-brand images alongside you.",
+      "Your AI agent creates, refines, and organizes on-brand assets alongside you.",
     features: [
-      "Build reusable brand image libraries from logos, product shots, and references",
-      "Generate heroes, diagrams, slide art, and product visuals from a prompt",
+      "Build reusable asset libraries from logos, product shots, videos, and references",
+      "Generate heroes, diagrams, slide art, product visuals, and videos from a prompt",
       "Audit prompts, references, outputs, and refinements across every run",
     ],
   },
@@ -219,6 +219,9 @@ const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
   "blank-app": "starter",
   "migration-goal-surface": "migration",
+  asset: "assets",
+  image: "assets",
+  images: "assets",
   video: "videos",
 };
 

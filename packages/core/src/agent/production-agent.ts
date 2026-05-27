@@ -2263,8 +2263,12 @@ export function createProductionAgentHandler(
       if (options.skipFilesContext) return filesContext;
       if (history.length === 0) {
         try {
-          const { resourceListAccessible, SHARED_OWNER, resourceGet } =
-            await import("../resources/store.js");
+          const {
+            resourceListAccessible,
+            SHARED_OWNER,
+            WORKSPACE_OWNER,
+            resourceGet,
+          } = await import("../resources/store.js");
           const {
             getResourceKind,
             parseCustomAgentProfile,
@@ -2272,8 +2276,13 @@ export function createProductionAgentHandler(
             parseSkillMetadata,
           } = await import("../resources/metadata.js");
           const ownerEmail = getRequestUserEmail();
+          const orgId = getRequestOrgId();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(ownerEmail);
+          const allResources = await resourceListAccessible(
+            ownerEmail,
+            undefined,
+            { userEmail: ownerEmail, orgId },
+          );
 
           if (allResources.length > 0) {
             const fileLines: string[] = [];
@@ -2281,7 +2290,12 @@ export function createProductionAgentHandler(
             const agentLines: string[] = [];
             const jobLines: string[] = [];
             for (const r of allResources) {
-              const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+              const scope =
+                r.owner === WORKSPACE_OWNER
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
               const kind = getResourceKind(r.path);
               if (kind === "file") {
                 fileLines.push(`  ${r.path} (${scope})`);
@@ -2298,7 +2312,10 @@ export function createProductionAgentHandler(
                 kind === "agent" ||
                 kind === "remote-agent"
               ) {
-                const full = await resourceGet(r.id);
+                const full = await resourceGet(r.id, {
+                  userEmail: ownerEmail,
+                  orgId,
+                });
                 if (!full) continue;
                 if (kind === "skill") {
                   const skill = parseSkillMetadata(full.content, r.path);

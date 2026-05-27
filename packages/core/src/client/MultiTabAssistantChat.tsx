@@ -1504,6 +1504,29 @@ export function MultiTabAssistantChat({
     };
   }, [closeTab, closeAllTabs, addTab]);
 
+  useEffect(() => {
+    const handleOpenThread = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { threadId?: unknown; newThread?: unknown }
+        | undefined;
+      const threadId =
+        typeof detail?.threadId === "string" ? detail.threadId : "";
+      if (!threadId) return;
+
+      if (detail?.newThread === true) {
+        newThreadIds.current.add(threadId);
+      }
+      setOpenTabIds((prev) =>
+        prev.includes(threadId) ? prev : [...prev, threadId],
+      );
+      switchThread(threadId);
+    };
+
+    window.addEventListener("agent-chat:open-thread", handleOpenThread);
+    return () =>
+      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
+  }, [switchThread]);
+
   const clearActiveTab = useCallback(() => {
     addTab();
   }, [addTab]);

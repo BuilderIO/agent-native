@@ -1,6 +1,5 @@
-import { eq, desc, and, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
-import { isPostgres } from "@agent-native/core/db";
 
 function makeId(owner: string, contact: string): string {
   return `${owner.toLowerCase()}:${contact.toLowerCase()}`;
@@ -17,54 +16,25 @@ export async function incrementSendFrequency(
   const now = Date.now();
   for (const r of recipients) {
     const id = makeId(ownerEmail, r.email);
-    if (isPostgres()) {
-      await db
-        .insert(schema.contactFrequency)
-        .values({
-          id,
-          ownerEmail: ownerEmail.toLowerCase(),
-          contactEmail: r.email.toLowerCase(),
-          contactName: r.name || "",
-          sendCount: 1,
-          receiveCount: 0,
+    await db
+      .insert(schema.contactFrequency)
+      .values({
+        id,
+        ownerEmail: ownerEmail.toLowerCase(),
+        contactEmail: r.email.toLowerCase(),
+        contactName: r.name || "",
+        sendCount: 1,
+        receiveCount: 0,
+        lastContactedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.contactFrequency.id,
+        set: {
+          sendCount: sql`${schema.contactFrequency.sendCount} + 1`,
+          contactName: r.name || sql`${schema.contactFrequency.contactName}`,
           lastContactedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: schema.contactFrequency.id,
-          set: {
-            sendCount: sql`${schema.contactFrequency.sendCount} + 1`,
-            contactName: r.name || sql`${schema.contactFrequency.contactName}`,
-            lastContactedAt: now,
-          },
-        });
-    } else {
-      // SQLite: INSERT OR REPLACE pattern
-      const existing = await db
-        .select()
-        .from(schema.contactFrequency)
-        .where(eq(schema.contactFrequency.id, id))
-        .limit(1);
-      if (existing.length > 0) {
-        await db
-          .update(schema.contactFrequency)
-          .set({
-            sendCount: existing[0].sendCount + 1,
-            contactName: r.name || existing[0].contactName,
-            lastContactedAt: now,
-          })
-          .where(eq(schema.contactFrequency.id, id));
-      } else {
-        await db.insert(schema.contactFrequency).values({
-          id,
-          ownerEmail: ownerEmail.toLowerCase(),
-          contactEmail: r.email.toLowerCase(),
-          contactName: r.name || "",
-          sendCount: 1,
-          receiveCount: 0,
-          lastContactedAt: now,
-        });
-      }
-    }
+        },
+      });
   }
 }
 
