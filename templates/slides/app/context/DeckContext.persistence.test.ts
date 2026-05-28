@@ -184,4 +184,43 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
   });
+
+  it("records the first edit after reloading over a pending undo skip", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+  });
 });

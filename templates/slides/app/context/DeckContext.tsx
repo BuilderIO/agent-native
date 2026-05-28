@@ -418,6 +418,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, [decks]);
 
   const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
+    skipHistoryRef.current = false;
     setDecks(nextDecks);
     setHistory([
       {
