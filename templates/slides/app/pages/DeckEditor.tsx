@@ -78,6 +78,7 @@ function MissingDeckAccessPane({
   deckId,
   hasTeamJoinOption,
   orgLoading,
+  orgError,
   refreshing,
   onRetry,
   onBack,
@@ -85,21 +86,27 @@ function MissingDeckAccessPane({
   deckId: string | undefined;
   hasTeamJoinOption: boolean;
   orgLoading: boolean;
+  orgError: boolean;
   refreshing: boolean;
   onRetry: () => void;
   onBack: () => void;
 }) {
-  const Icon = hasTeamJoinOption || orgLoading ? IconBuilding : IconLock;
+  const Icon =
+    hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
   const title = orgLoading
     ? "Looking for this deck"
-    : hasTeamJoinOption
-      ? "Join your team to open this deck"
-      : "Deck unavailable";
+    : orgError
+      ? "Couldn't check team access"
+      : hasTeamJoinOption
+        ? "Join your team to open this deck"
+        : "Deck unavailable";
   const description = orgLoading
     ? "Checking whether this presentation is shared with your account."
-    : hasTeamJoinOption
-      ? "This link points to a team presentation. Join the team shown above and the deck will open here automatically."
-      : "This deck may have been removed, or your account does not have access to it.";
+    : orgError
+      ? "We couldn't verify whether this presentation is shared with your account. Try again to reload team access and the deck."
+      : hasTeamJoinOption
+        ? "This link points to a team presentation. Join the team shown above and the deck will open here automatically."
+        : "This deck may have been removed, or your account does not have access to it.";
 
   return (
     <div className="flex flex-1 items-center justify-center bg-background px-4 py-10">
@@ -169,7 +176,12 @@ export default function DeckEditor() {
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
-  const { data: org, isLoading: orgLoading } = useOrg();
+  const {
+    data: org,
+    isLoading: orgLoading,
+    isError: orgError,
+    refetch: refetchOrg,
+  } = useOrg();
 
   // Dialog/popover states
   const [imageGenOpen, setImageGenOpen] = useState(false);
@@ -265,11 +277,12 @@ export default function DeckEditor() {
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
     try {
+      await refetchOrg();
       await reloadDecks();
     } finally {
       setRetryingMissingDeck(false);
     }
-  }, [reloadDecks]);
+  }, [refetchOrg, reloadDecks]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -705,6 +718,7 @@ export default function DeckEditor() {
         deckId={id}
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
+        orgError={orgError}
         refreshing={retryingMissingDeck}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}
