@@ -22,7 +22,10 @@ import {
   buildScopingSqlite,
   type ScopingContext,
 } from "./scoping.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoRawDbAccessControlWrite,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
 function isPostgresUrl(url: string): boolean {
@@ -198,6 +201,7 @@ function validateWriteSql(sql: string, index: number): string {
     );
   }
   assertNoSensitiveFrameworkTables(normalized, "write");
+  assertNoRawDbAccessControlWrite(normalized);
   return normalized;
 }
 
