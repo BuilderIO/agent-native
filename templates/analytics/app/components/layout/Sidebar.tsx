@@ -31,6 +31,11 @@ import {
   IconSearch,
   IconArchive,
   IconHome,
+  IconFilter,
+  IconBookmark,
+  IconBuilding,
+  IconLock,
+  IconLink,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
