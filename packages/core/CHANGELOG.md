@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.24.4
+
+### Patch Changes
+
+- 4b91db4: Block raw database tools from writing app-defined identity and access-control data.
+
 ## 0.24.3
 
 ### Patch Changes
