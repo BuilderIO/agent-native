@@ -297,4 +297,44 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
     expect(result.current.getDeck("first-deck")).toBeUndefined();
   });
+
+  it("clears loading when the initial response becomes stale after navigation", async () => {
+    window.history.pushState({}, "", "/deck/first-deck");
+    const firstDeck: Deck = {
+      id: "first-deck",
+      title: "First Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    let resolveDecks: (response: Response) => void = () => {};
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      const href =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+
+      if (href.endsWith("/api/decks")) {
+        return new Promise<Response>((resolve) => {
+          resolveDecks = resolve;
+        });
+      }
+
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    window.history.pushState({}, "", "/deck/second-deck");
+    await act(async () => {
+      resolveDecks(new Response(JSON.stringify([firstDeck]), { status: 200 }));
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.getDeck("first-deck")).toBeUndefined();
+  });
 });

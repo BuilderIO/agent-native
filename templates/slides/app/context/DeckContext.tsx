@@ -457,6 +457,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         requestId !== deckBaselineRequestIdRef.current ||
         requestedOpenDeckId !== currentOpenDeckIdFromWindow()
       ) {
+        setLoading(false);
         return;
       }
       // Initial fetch failed — start empty so the UI can render. The fallback
