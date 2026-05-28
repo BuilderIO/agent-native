@@ -51,10 +51,9 @@ export default defineEventHandler(async (event: H3Event) => {
   const queryUsername =
     typeof query.username === "string" ? query.username : undefined;
   const [ownerSettings, reservedUsername] = await Promise.all([
-    getUserSetting(
-      bookingLink.ownerEmail,
-      "calendar-settings",
-    ) as Promise<Settings | null>,
+    getUserSetting(bookingLink.ownerEmail, "calendar-settings").then(
+      (settings) => settings as unknown as Settings | null,
+    ),
     getBookingUsername(bookingLink.ownerEmail),
   ]);
   const imageInput: BookingOgImageInput = {
@@ -67,8 +66,12 @@ export default defineEventHandler(async (event: H3Event) => {
     bookingPageTitle: ownerSettings?.bookingPageTitle,
   };
   const png = renderBookingOgImagePng(imageInput);
+  const body = png.buffer.slice(
+    png.byteOffset,
+    png.byteOffset + png.byteLength,
+  ) as ArrayBuffer;
 
-  return new Response(png, {
+  return new Response(body, {
     headers: {
       "Content-Type": "image/png",
       "Content-Length": String(png.byteLength),
