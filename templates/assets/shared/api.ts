@@ -11,6 +11,8 @@ export const IMAGE_CATEGORIES = [
   "other",
 ] as const;
 
+export const MAX_ASSET_UPLOAD_FILES = 20;
+
 export const ASPECT_RATIOS = [
   "1:1",
   "1:4",
@@ -154,6 +156,7 @@ export interface AssetFolderSummary {
 export interface ImageAssetMetadata {
   category?: ImageCategory;
   colors?: string[];
+  contentHash?: string;
   generated?: boolean;
   sourceAssetId?: string;
   referenceAssetIds?: string[];
@@ -163,6 +166,18 @@ export interface ImageAssetMetadata {
   downloadUrl?: string;
   downloadUrlExpiresAt?: string;
   [key: string]: unknown;
+}
+
+export interface SkippedAssetUploadDuplicate {
+  filename: string | null;
+  reason: "same-upload" | "existing-asset";
+  assetId?: string;
+  title?: string | null;
+}
+
+export interface FailedAssetUpload {
+  filename: string | null;
+  message: string;
 }
 
 export interface AssetVariantState {

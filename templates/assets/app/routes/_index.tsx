@@ -55,6 +55,10 @@ import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
+import {
+  getSkippedDuplicateCount,
+  type AssetUploadResult,
+} from "@/lib/upload-results";
 import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
@@ -612,23 +616,53 @@ function HomeGeneratePanel({
           const data = await res.json().catch(() => ({}));
           throw new Error(data?.error || `Upload failed (${res.status})`);
         }
-        const data = await res.json();
+        const data = (await res.json()) as AssetUploadResult;
+        const skippedCount = getSkippedDuplicateCount(data);
         uploadedAssets = (data.assets ?? []).map((a: any) => ({
           id: a.id,
           title: a.title || "Reference image",
         }));
-        toast.success(
-          `Added ${uploadedAssets.length} reference${
-            uploadedAssets.length === 1 ? "" : "s"
-          } to ${selectedLibrary.title}`,
-          { id: uploadingToast },
-        );
+        if (uploadedAssets.length > 0 && skippedCount > 0) {
+          toast.success(
+            `Added ${uploadedAssets.length} reference${
+              uploadedAssets.length === 1 ? "" : "s"
+            }; skipped ${skippedCount} duplicate${
+              skippedCount === 1 ? "" : "s"
+            }.`,
+            { id: uploadingToast },
+          );
+        } else if (uploadedAssets.length > 0) {
+          toast.success(
+            `Added ${uploadedAssets.length} reference${
+              uploadedAssets.length === 1 ? "" : "s"
+            } to ${selectedLibrary.title}`,
+            { id: uploadingToast },
+          );
+        } else if (skippedCount > 0) {
+          toast.warning(
+            `Skipped ${skippedCount} duplicate reference${
+              skippedCount === 1 ? "" : "s"
+            }.`,
+            {
+              id: uploadingToast,
+              description: `Already in ${selectedLibrary.title}.`,
+            },
+          );
+        } else {
+          toast.warning("No new references were added.", {
+            id: uploadingToast,
+          });
+        }
       } catch (err: any) {
         toast.error(err?.message || "Couldn't upload references.", {
           id: uploadingToast,
         });
         return;
       }
+    }
+
+    if (!trimmed && uploadedAssets.length === 0 && textFiles.length === 0) {
+      return;
     }
 
     let textContextSnippets: string[] = [];

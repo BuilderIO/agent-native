@@ -27,16 +27,34 @@ import { getObject } from "../server/lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
   ASPECT_RATIOS,
+  GENERATION_INTENTS,
   IMAGE_CATEGORIES,
   IMAGE_MODELS,
+  IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
+  STYLE_STRENGTHS,
   type AssetVariantState,
+  type ImageCategory,
+  type ImageModel,
+  type ImageQualityTier,
   type StyleBrief,
 } from "../shared/api.js";
 import {
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
+
+function resolveModelForTier(
+  tier: ImageQualityTier | undefined,
+  category: ImageCategory | undefined,
+): ImageModel | undefined {
+  if (!tier) return undefined;
+  if (tier === "fast") return "gemini-3.1-flash-image-preview";
+  if (tier === "best") return "gemini-3-pro-image-preview";
+  return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
+    ? "gemini-3-pro-image-preview"
+    : "gemini-3.1-flash-image-preview";
+}
 
 export default defineAction({
   description:
@@ -50,6 +68,9 @@ export default defineAction({
     aspectRatio: z.enum(ASPECT_RATIOS).optional(),
     imageSize: z.enum(IMAGE_SIZES).optional(),
     model: z.enum(IMAGE_MODELS).optional(),
+    tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
+    intent: z.enum(GENERATION_INTENTS).default("generate"),
+    styleStrength: z.enum(STYLE_STRENGTHS).default("balanced"),
     categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
     referenceAssetIds: z
       .array(z.string())
@@ -60,6 +81,12 @@ export default defineAction({
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
     sourceAssetId: z.string().optional(),
+    subjectAssetId: z
+      .string()
+      .optional()
+      .describe(
+        "Subject image to preserve for restyle/edit runs. The subject is attached before style references.",
+      ),
     groundingMode: z.enum(["auto", "off", "google-search"]).default("auto"),
     // Audit metadata. Defaulted to "chat" because that's the agent's typical
     // entry point; the UI Generate popover and A2A callers override.
@@ -69,6 +96,12 @@ export default defineAction({
       .optional()
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design'). Audit log filters on this.",
+      ),
+    activateSessionAsset: z.coerce
+      .boolean()
+      .default(true)
+      .describe(
+        "When false, attach the output to the session without making it the active asset. Batch generation selects the active asset deterministically after all slots finish.",
       ),
   }),
   parallelSafe: true,
@@ -144,6 +177,26 @@ export default defineAction({
     if (collection && collection.libraryId !== args.libraryId) {
       throw new Error("Collection does not belong to this asset library.");
     }
+    if (args.intent === "edit" && !args.subjectAssetId) {
+      throw new Error("Edit runs require subjectAssetId.");
+    }
+    if (args.subjectAssetId) {
+      const [subject] = await db
+        .select({
+          id: schema.assets.id,
+          libraryId: schema.assets.libraryId,
+          mimeType: schema.assets.mimeType,
+        })
+        .from(schema.assets)
+        .where(eq(schema.assets.id, args.subjectAssetId))
+        .limit(1);
+      if (!subject || subject.libraryId !== args.libraryId) {
+        throw new Error("Subject asset must belong to this asset library.");
+      }
+      if (!subject.mimeType.startsWith("image/")) {
+        throw new Error("Subject asset must be an image.");
+      }
+    }
     const styleBrief = {
       ...parseJson<StyleBrief>(library.styleBrief, {}),
       ...parseJson<StyleBrief>(collection?.styleBrief, {}),
@@ -156,12 +209,18 @@ export default defineAction({
       preset?.imageSize ??
       collection?.defaultImageSize ??
       "2K") as (typeof IMAGE_SIZES)[number];
-    const resolvedModel = (args.model ??
-      preset?.model ??
-      "gemini-3.1-flash-image-preview") as (typeof IMAGE_MODELS)[number];
+    const presetSettings = parseJson<{ tier?: ImageQualityTier }>(
+      preset?.settings,
+      {},
+    );
+    const resolvedTier = args.tier ?? presetSettings.tier;
     const category = (args.categories?.[0] ??
       preset?.category ??
-      collection?.category) as any;
+      collection?.category) as ImageCategory | undefined;
+    const resolvedModel = (args.model ??
+      resolveModelForTier(resolvedTier, category) ??
+      preset?.model ??
+      "gemini-3.1-flash-image-preview") as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);
@@ -187,7 +246,10 @@ export default defineAction({
       categories: resolvedCategories,
       referenceAssetIds: args.referenceAssetIds,
       sourceAssetId: args.sourceAssetId,
+      subjectAssetId: args.subjectAssetId,
+      intent: args.intent,
       limit:
+        args.intent !== "restyle" &&
         preset?.referencePolicy === "explicit" &&
         !args.referenceAssetIds?.length
           ? 0
@@ -203,6 +265,8 @@ export default defineAction({
       referenceCount: references.length,
       includeLogo: args.includeLogo,
       category,
+      intent: args.intent,
+      styleStrength: args.styleStrength,
     });
     const runId = nanoid();
     const now = nowIso();
@@ -211,16 +275,30 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail() ?? null;
     const orgId = getRequestOrgId() ?? null;
     const referenceSelection = {
-      mode: args.referenceAssetIds?.length ? "explicit" : "sampled-latest",
+      mode: args.referenceAssetIds?.length
+        ? "explicit"
+        : references.some((ref) => ref.selectionReason === "anchor")
+          ? "anchored-deterministic"
+          : "deterministic",
       limit: args.referenceAssetIds?.length
         ? args.referenceAssetIds.length
         : references.length,
       requestedAssetIds: args.referenceAssetIds ?? [],
       selectedAssetIds: references.map((ref) => ref.id),
+      anchorAssetIds: references
+        .filter((ref) => ref.selectionReason === "anchor")
+        .map((ref) => ref.id),
       sourceAssetId: args.sourceAssetId,
+      subjectAssetId: args.subjectAssetId,
+      selectionReasons: Object.fromEntries(
+        references.map((ref) => [ref.id, ref.selectionReason ?? "scored"]),
+      ),
     };
     const settingsUsed = {
       model: resolvedModel,
+      tier: resolvedTier ?? null,
+      intent: args.intent,
+      styleStrength: args.styleStrength,
       aspectRatio: resolvedAspectRatio,
       imageSize: resolvedImageSize,
       groundingMode: args.groundingMode,
@@ -234,6 +312,10 @@ export default defineAction({
     const baseMetadata = {
       slotId: args.slotId,
       sourceAssetId: args.sourceAssetId,
+      subjectAssetId: args.subjectAssetId,
+      intent: args.intent,
+      styleStrength: args.styleStrength,
+      tier: resolvedTier,
       includeLogo: args.includeLogo,
       categories: resolvedCategories ?? [],
       presetId: preset?.id,
@@ -284,6 +366,8 @@ export default defineAction({
         aspectRatio: resolvedAspectRatio,
         imageSize: resolvedImageSize,
         groundingMode: args.groundingMode,
+        intent: args.intent,
+        styleStrength: args.styleStrength,
         runId,
         libraryId: args.libraryId,
         collectionId: resolvedCollectionId ?? null,
@@ -349,6 +433,10 @@ export default defineAction({
           compiledPrompt,
           referenceAssetIds: references.map((ref) => ref.id),
           sourceAssetId: args.sourceAssetId,
+          subjectAssetId: args.subjectAssetId,
+          intent: args.intent,
+          styleStrength: args.styleStrength,
+          tier: resolvedTier,
           includeLogo: args.includeLogo,
           presetId: preset?.id,
           sessionId: session?.id,
@@ -366,15 +454,17 @@ export default defineAction({
           sessionId: session.id,
           assetId: asset.id,
           generationRunId: runId,
-          role: "candidate",
+          role: args.activateSessionAsset ? "active" : "candidate",
           note: null,
           sortOrder: 100,
           createdAt: itemCreatedAt,
         });
-        await db
-          .update(schema.assetGenerationSessions)
-          .set({ activeAssetId: asset.id, updatedAt: itemCreatedAt })
-          .where(eq(schema.assetGenerationSessions.id, session.id));
+        if (args.activateSessionAsset) {
+          await db
+            .update(schema.assetGenerationSessions)
+            .set({ activeAssetId: asset.id, updatedAt: itemCreatedAt })
+            .where(eq(schema.assetGenerationSessions.id, session.id));
+        }
       }
       await db
         .update(schema.assetGenerationRuns)
@@ -387,6 +477,10 @@ export default defineAction({
             outputAssetIds: [asset.id],
             slotId,
             sourceAssetId: args.sourceAssetId,
+            subjectAssetId: args.subjectAssetId,
+            intent: args.intent,
+            styleStrength: args.styleStrength,
+            tier: resolvedTier,
             includeLogo: args.includeLogo,
             categories: resolvedCategories ?? [],
             referenceSelection,

@@ -47,10 +47,18 @@ export default defineAction({
       settingsUsed?: {
         includeLogo?: boolean;
         categories?: string[];
+        tier?: string | null;
+        intent?: string;
+        styleStrength?: string;
+        subjectAssetId?: string;
       };
       includeLogo?: boolean;
       categories?: string[];
       sourceAssetId?: string;
+      subjectAssetId?: string;
+      intent?: string;
+      styleStrength?: string;
+      tier?: string | null;
     }>(run.metadata, {});
     const categories =
       metadata.settingsUsed?.categories ?? metadata.categories ?? undefined;
@@ -64,12 +72,23 @@ export default defineAction({
       aspectRatio: run.aspectRatio as any,
       imageSize: run.imageSize as any,
       model: run.model as any,
+      tier: (metadata.settingsUsed?.tier ?? metadata.tier ?? undefined) as any,
+      intent: (metadata.settingsUsed?.intent ??
+        metadata.intent ??
+        "generate") as any,
+      styleStrength: (metadata.settingsUsed?.styleStrength ??
+        metadata.styleStrength ??
+        "balanced") as any,
       categories: categories as any,
       includeLogo: Boolean(
         metadata.settingsUsed?.includeLogo ?? metadata.includeLogo,
       ),
       groundingMode: run.groundingMode as any,
       sourceAssetId: metadata.sourceAssetId,
+      subjectAssetId:
+        metadata.settingsUsed?.subjectAssetId ??
+        metadata.subjectAssetId ??
+        undefined,
       slotId,
       source,
       callerAppId,

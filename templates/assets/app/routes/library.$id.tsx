@@ -71,6 +71,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  chunkAssetUploads,
+  getFailedUploadCount,
+  getSkippedDuplicateCount,
+  getUploadedAssetCount,
+  type AssetUploadResult,
+} from "@/lib/upload-results";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -286,6 +293,7 @@ export default function LibraryPage() {
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length) return;
     const selectedFiles = Array.from(files);
+    const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
     const pending: PendingUpload[] = selectedFiles.map((file, index) => ({
@@ -295,40 +303,94 @@ export default function LibraryPage() {
       folderId: selectedFolderId,
       status: "uploading" as const,
     }));
+    const pendingByFile = new Map(
+      selectedFiles.map((file, index) => [file, pending[index]]),
+    );
+    const removePendingFiles = (uploadedFiles: File[]) => {
+      const completedIds = new Set(
+        uploadedFiles
+          .map((file) => pendingByFile.get(file)?.id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+      setPendingUploads((current) =>
+        current.filter((upload) => !completedIds.has(upload.id)),
+      );
+    };
     setPendingUploads(pending);
     setUploading(true);
     let keepPending = false;
     const toastId = toast.loading(
       `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
       {
-        description: "Processing previews and saving them to the library.",
+        description:
+          uploadChunks.length > 1
+            ? `Processing in ${uploadChunks.length} batches.`
+            : "Processing previews and saving them to the library.",
       },
     );
     try {
-      const form = new FormData();
-      form.append("libraryId", libraryId);
-      form.append("category", category);
-      if (selectedFolderId) {
-        form.append("folderId", selectedFolderId);
+      let uploadedCount = 0;
+      let skippedCount = 0;
+      let failedCount = 0;
+      for (const chunk of uploadChunks) {
+        const form = new FormData();
+        form.append("libraryId", libraryId);
+        form.append("category", category);
+        if (selectedFolderId) {
+          form.append("folderId", selectedFolderId);
+        }
+        for (const file of chunk) form.append("files", file);
+        const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+          method: "POST",
+          body: form,
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error || `Upload failed (${response.status})`);
+        }
+        const result = (await response
+          .json()
+          .catch(() => null)) as AssetUploadResult | null;
+        uploadedCount += getUploadedAssetCount(result);
+        skippedCount += getSkippedDuplicateCount(result);
+        failedCount += getFailedUploadCount(result);
+        removePendingFiles(chunk);
       }
-      for (const file of selectedFiles) form.append("files", file);
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error || `Upload failed (${response.status})`);
+      if (failedCount > 0) {
+        toast.warning(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; ${failedCount} failed.`,
+          {
+            id: toastId,
+            description:
+              skippedCount > 0
+                ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                : undefined,
+          },
+        );
+      } else if (uploadedCount > 0 && skippedCount > 0) {
+        toast.success(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`,
+          { id: toastId },
+        );
+      } else if (uploadedCount > 0) {
+        toast.success(`Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`, {
+          id: toastId,
+        });
+      } else if (skippedCount > 0) {
+        toast.warning(
+          `Skipped ${skippedCount} duplicate asset${
+            skippedCount === 1 ? "" : "s"
+          }.`,
+          {
+            id: toastId,
+            description: "Already in this library.",
+          },
+        );
+      } else {
+        toast.warning("No new assets were uploaded.", { id: toastId });
       }
-      const result = (await response.json().catch(() => null)) as {
-        count?: number;
-      } | null;
-      const count = result?.count ?? selectedFiles.length;
-      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`, {
-        id: toastId,
-      });
       await refreshLibrary();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Upload failed";

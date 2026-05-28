@@ -248,6 +248,7 @@ export function computeFindTimeSlots(args: {
   const participantEmails = args.participants.map((participant) =>
     participant.email.toLowerCase(),
   );
+  const participantEmailSet = new Set(participantEmails);
   const slots: FindTimeSlot[] = [];
 
   let date = dateOnlyInTimezone(new Date(args.range.from), args.range.timezone);
@@ -281,6 +282,9 @@ export function computeFindTimeSlots(args: {
         const end = cursor + durationMs;
         const unavailable = new Set(
           args.busyBlocks
+            .filter((block) =>
+              participantEmailSet.has(block.participantEmail.toLowerCase()),
+            )
             .filter((block) => intervalOverlaps(cursor, end, block))
             .map((block) => block.participantEmail.toLowerCase()),
         );

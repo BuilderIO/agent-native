@@ -67,6 +67,8 @@ export default function AssetDetailPage() {
     createSession.mutate(
       {
         libraryId: asset.libraryId,
+        collectionId: asset.collectionId ?? null,
+        presetId: asset.metadata?.presetId ?? null,
         title: asset.title || "Image handoff",
         brief:
           asset.prompt || asset.description || "Continue refining this asset.",

@@ -59,6 +59,41 @@ describe("find-time scheduling", () => {
     ]);
   });
 
+  it("ignores busy blocks that do not belong to requested participants", () => {
+    const range = resolveFindTimeRange({
+      date: "2026-05-26",
+      timezone: "America/New_York",
+      now: new Date("2026-05-01T12:00:00.000Z"),
+    });
+
+    const slots = computeFindTimeSlots({
+      range,
+      participants,
+      busyBlocks: [
+        busy("non-participant@example.com", "09:00", "12:00"),
+        busy("guest@example.com", "10:30", "11:00"),
+      ],
+      schedule: {
+        sunday: [],
+        monday: [],
+        tuesday: [{ start: "09:00", end: "12:00" }],
+        wednesday: [],
+        thursday: [],
+        friday: [],
+        saturday: [],
+      },
+      durationMinutes: 30,
+      slotStepMinutes: 30,
+    });
+
+    expect(slots.map((slot) => slot.start)).toContain(
+      zonedDateTimeToUtcIso("2026-05-26", "09:00", "America/New_York"),
+    );
+    expect(slots.map((slot) => slot.start)).not.toContain(
+      zonedDateTimeToUtcIso("2026-05-26", "10:30", "America/New_York"),
+    );
+  });
+
   it("uses the requested timezone when resolving date-only bounds", () => {
     const range = resolveFindTimeRange({
       from: "2026-05-26",

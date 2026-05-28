@@ -26,12 +26,18 @@ export default defineAction({
         "product_reference",
         "diagram_reference",
         "video_reference",
+        "subject_reference",
+        "edit_target",
         "generated",
       ])
       .optional(),
     category: z.enum(IMAGE_CATEGORIES).optional(),
+    isStyleAnchor: z.coerce
+      .boolean()
+      .optional()
+      .describe("Marks this reference as a stable brand/style anchor."),
   }),
-  run: async ({ id, category, ...args }) => {
+  run: async ({ id, category, isStyleAnchor, ...args }) => {
     const asset = await getAssetOrThrow(id);
     await assertAccess("asset-library", asset.libraryId, "editor");
     if (args.folderId) {
@@ -46,6 +52,7 @@ export default defineAction({
     }
     const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
     if (category !== undefined) metadata.category = category;
+    if (isStyleAnchor !== undefined) metadata.isStyleAnchor = isStyleAnchor;
     const updates: Record<string, unknown> = {
       updatedAt: nowIso(),
       metadata: stringifyJson(metadata),

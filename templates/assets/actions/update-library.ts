@@ -35,7 +35,10 @@ export default defineAction({
         defaultModel: z.enum(IMAGE_MODELS).optional(),
         defaultAspectRatio: z.enum(ASPECT_RATIOS).optional(),
         defaultImageSize: z.enum(IMAGE_SIZES).optional(),
+        canonicalStyleAssetIds: z.array(z.string()).optional(),
+        brandAnalysis: z.record(z.string(), z.unknown()).optional(),
       })
+      .catchall(z.unknown())
       .optional(),
     coverAssetId: z.string().nullable().optional(),
     canonicalLogoAssetId: z.string().nullable().optional(),

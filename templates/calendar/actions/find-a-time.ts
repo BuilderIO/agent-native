@@ -115,15 +115,22 @@ function addCalendarEventBusyBlocks(
   busyByKey: Map<string, FindTimeBusyBlock>,
   events: CalendarEvent[],
   organizerEmail: string,
+  participantEmailSet: Set<string>,
   ignoreStart?: string,
   ignoreEnd?: string,
 ) {
   for (const event of events.filter(eventBlocksAvailability)) {
     if (event.allDay) continue;
+    const participantEmail = (
+      event.overlayEmail ||
+      event.accountEmail ||
+      organizerEmail
+    ).toLowerCase();
+    if (!participantEmailSet.has(participantEmail)) continue;
     addBusyBlock(
       busyByKey,
       {
-        participantEmail: (event.accountEmail || organizerEmail).toLowerCase(),
+        participantEmail,
         start: event.start,
         end: event.end,
         title: event.title,
@@ -235,6 +242,9 @@ export default defineAction({
     addUniqueEmail(participantEmails, organizerEmail);
     for (const attendee of attendeeEmails)
       addUniqueEmail(participantEmails, attendee);
+    const participantEmailSet = new Set(
+      participantEmails.map((email) => email.toLowerCase()),
+    );
     const participants = makeParticipants(organizerEmail, attendeeEmails);
 
     const busyByKey = new Map<string, FindTimeBusyBlock>();
@@ -277,6 +287,7 @@ export default defineAction({
         busyByKey,
         eventResult.events,
         organizerEmail,
+        participantEmailSet,
         args.ignoreStart,
         args.ignoreEnd,
       );
@@ -287,11 +298,15 @@ export default defineAction({
       });
     }
 
-    const busy = Array.from(busyByKey.values()).sort(
-      (a, b) =>
-        new Date(a.start).getTime() - new Date(b.start).getTime() ||
-        a.participantEmail.localeCompare(b.participantEmail),
-    );
+    const busy = Array.from(busyByKey.values())
+      .filter((block) =>
+        participantEmailSet.has(block.participantEmail.toLowerCase()),
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.start).getTime() - new Date(b.start).getTime() ||
+          a.participantEmail.localeCompare(b.participantEmail),
+      );
     const slots = computeFindTimeSlots({
       range,
       participants,

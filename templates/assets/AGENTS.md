@@ -12,6 +12,10 @@ agent-native apps over A2A.
 - Use asset libraries as the source of truth for brand style. Uploaded logos,
   product images, reference clips, and saved generations are evidence; never
   invent exact logos from memory.
+- Keep brand reference selection deterministic and small. Prefer JSON-backed
+  anchors from `assetLibraries.settings.canonicalStyleAssetIds`, plus assets
+  marked with `assets.metadata.isStyleAnchor`, before sampling other relevant
+  references.
 - Respect library `customInstructions` on every generation. Update them with
   `create-library` / `update-library` when the user wants persistent guidance
   beyond the structured style brief.
@@ -61,8 +65,10 @@ agent-native apps over A2A.
 | `get-asset`                                                                          | Read one image or video asset                              |
 | `update-asset` / `delete-asset` / `delete-assets`                                    | Move, describe, retag, save, archive, or delete assets     |
 | `open-asset-picker`                                                                  | Open the MCP App / iframe picker for image or video choice |
+| `analyze-collection-style`                                                           | Run vision brand analysis for a collection                 |
 | `generate-image`                                                                     | Generate one candidate                                     |
 | `generate-image-batch`                                                               | Generate many candidates in parallel                       |
+| `edit-image` / `restyle-image`                                                       | Chat-driven edits/restyles using subject and style refs    |
 | `generate-video`                                                                     | Start one async Veo video candidate                        |
 | `refresh-generation-run`                                                             | Poll/complete async video runs                             |
 | `rerun-generation-run`                                                               | Re-run a prior prompt/settings with latest library context |
@@ -90,14 +96,26 @@ agent-native apps over A2A.
   feedback, and brief. Then use `prepare-generation-session-continuation` to
   open a new chat preloaded with all context.
 - Use a small relevant subset by default. Automatic selection samples up to 6
-  current references. Pass `referenceAssetIds` only when the exact references
-  must be preserved.
+  current references, starting with deterministic style anchors from
+  `assetLibraries.settings.canonicalStyleAssetIds` and
+  `assets.metadata.isStyleAnchor`. Pass `referenceAssetIds` only when the exact
+  references must be preserved.
+- Use `analyze-collection-style` when a collection needs a stronger visual
+  brief. Treat the vision output as brand analysis for palette, composition,
+  lighting, subject treatment, typography policy, and negative constraints.
 - Compile the style brief into prompts: palette, composition, lighting,
   typography policy, subject framing, custom instructions, and explicit
   constraints.
+- For vague short prompts, enhance conservatively: add only brand/style context
+  from the library and keep `originalPrompt` unchanged in the run record.
+- Use quality `tier` values deliberately: `fast` for quick exploration, `best`
+  for final/high-value output, and `auto` when the caller has no preference.
 - Generation runs expose `originalPrompt`, `compiledPrompt`, `settingsUsed`,
   `referenceSelection`, and `output`. Use `rerun-generation-run` to test
   changed custom instructions or reference images without retyping the prompt.
+- Restyles and edits are chat-driven actions. Use `restyle-image` when preserving
+  the subject from `subjectAssetId` while applying brand style with
+  `styleStrength`; use `edit-image` for targeted changes to an existing image.
 - Avoid in-image text unless the user explicitly asks for exact visible text.
 - For video generation, use `16:9` or `9:16`; choose `8` seconds when using
   reference images or higher resolutions.
@@ -108,6 +126,10 @@ agent-native apps over A2A.
   the user-provided Gemini key fallback.
 - For logo accuracy, ask the image provider to leave a clean placeholder region
   and composite the canonical uploaded logo server-side.
+- Do not add visible restyle, edit, or quality-tier buttons to the UI. The chat
+  should route those requests to actions.
+- Brand QA scoring and best-of-N selection are deferred; do not document them as
+  available workflows yet.
 
 ## Inline Previews
 

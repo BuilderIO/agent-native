@@ -28,6 +28,9 @@ or generated image/video assets that another app can reference by ID and URL.
 - Use generation sessions when another person needs to continue improving a
   candidate. Sessions carry the brief, preset, active asset, feedback, and run
   IDs without requiring the original chat thread.
+- Use chat-driven `restyle-image` and `edit-image` for preserving subjects,
+  applying library style, and making targeted changes. Do not surface separate
+  restyle, edit, or quality-tier buttons in host UIs.
 - Use browser/deep-link fallback when the host cannot render MCP Apps inline.
   Surface the returned picker link instead of inventing a separate UI.
 
@@ -40,11 +43,25 @@ or generated image/video assets that another app can reference by ID and URL.
 2. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
 3. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
-4. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-5. Use `refine-image` for feedback on an existing asset.
-6. If a designer will take over, call `create-generation-session` or
+4. Let the server choose a small deterministic reference set unless the user
+   named exact assets. Canonical style anchors come from
+   `assetLibraries.settings.canonicalStyleAssetIds` and
+   `assets.metadata.isStyleAnchor`.
+5. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
+   output, or `tier: "auto"` when there is no clear preference.
+6. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+7. Use `refine-image` for feedback on an existing asset, `edit-image` for
+   targeted changes, and `restyle-image` with `subjectAssetId` and
+   `styleStrength` for subject-preserving brand restyles.
+8. If a designer will take over, call `create-generation-session` or
    `update-generation-session`, then `prepare-generation-session-continuation`
    when they want a chat preloaded with the session context.
+
+For short vague prompts, enhance conservatively with library style context while
+preserving the user's original prompt in run metadata. Use
+`analyze-collection-style` when a collection needs upgraded vision brand
+analysis before generation. Brand QA scoring and best-of-N selection are
+deferred.
 
 ## Video Workflows
 

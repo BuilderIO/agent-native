@@ -729,8 +729,8 @@ export function compilePrompt(input: {
       : intent === "restyle"
         ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
         : input.referenceCount > 0
-      ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
-      : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
+          : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
 
   if (intent === "edit") {
     return `Edit the attached image for the "${input.libraryTitle}" asset library.
@@ -770,14 +770,20 @@ export async function selectReferences(input: {
   categories?: ImageCategory[];
   referenceAssetIds?: string[];
   sourceAssetId?: string;
+  subjectAssetId?: string;
+  intent?: GenerationIntent;
   limit?: number;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
-  const explicitIds = [...new Set(input.referenceAssetIds ?? [])];
+  let explicitIds = [...new Set(input.referenceAssetIds ?? [])];
   if (explicitIds.length) {
-    if (input.sourceAssetId && !explicitIds.includes(input.sourceAssetId)) {
-      explicitIds.unshift(input.sourceAssetId);
-    }
+    explicitIds = [
+      input.subjectAssetId,
+      input.sourceAssetId === input.subjectAssetId
+        ? undefined
+        : input.sourceAssetId,
+      ...explicitIds,
+    ].filter((id, index, all): id is string => !!id && all.indexOf(id) === index);
     const rows = await db
       .select()
       .from(schema.assets)
@@ -798,17 +804,35 @@ export async function selectReferences(input: {
             asset.status !== "archived" &&
             asset.status !== "failed",
         ),
+      (asset) =>
+        asset.id === input.subjectAssetId
+          ? input.intent === "edit"
+            ? "edit_target"
+            : "subject_reference"
+          : undefined,
+      () => "explicit",
     );
   }
-  const filters = [eq(schema.assets.libraryId, input.libraryId)];
+  const [library] = await db
+    .select({ settings: schema.assetLibraries.settings })
+    .from(schema.assetLibraries)
+    .where(eq(schema.assetLibraries.id, input.libraryId))
+    .limit(1);
   const rows = await db
     .select()
     .from(schema.assets)
-    .where(filters.length === 1 ? filters[0] : and(...filters));
+    .where(eq(schema.assets.libraryId, input.libraryId));
 
   const categories = new Set(input.categories ?? []);
+  const intent = input.intent ?? "generate";
   const limit = input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT;
-  const scored = rows
+  const settings = parseJson<{
+    canonicalStyleAssetIds?: string[];
+  }>(library?.settings, {});
+  const canonicalStyleAssetIds = Array.isArray(settings.canonicalStyleAssetIds)
+    ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
+    : [];
+  const candidates = rows
     .filter(
       (asset) =>
         asset.mimeType.startsWith("image/") &&
@@ -816,9 +840,20 @@ export async function selectReferences(input: {
         asset.status !== "failed",
     )
     .map((asset) => {
-      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
+      const metadata = parseJson<{
+        category?: string;
+        isStyleAnchor?: boolean;
+        intent?: string;
+      }>(asset.metadata, {});
       let score = 0;
-      if (asset.id === input.sourceAssetId) score += 100;
+      const isSubject = asset.id === input.subjectAssetId;
+      const isSource = asset.id === input.sourceAssetId;
+      const isAnchor =
+        metadata.isStyleAnchor === true ||
+        canonicalStyleAssetIds.includes(asset.id);
+      if (isSubject) score += 120;
+      if (isSource) score += 100;
+      if (isAnchor) score += 30;
       if (asset.collectionId && asset.collectionId === input.collectionId)
         score += 20;
       if (
@@ -828,38 +863,91 @@ export async function selectReferences(input: {
         score += 10;
       if (asset.role !== "generated") score += 4;
       if (asset.role === "logo_reference") score += 3;
-      return { asset, metadata, score };
+      if (asset.role === "product_reference") score += 3;
+      if (intent === "restyle" && asset.role === "style_reference") score += 5;
+      if (intent === "restyle" && asset.role === "generated") score -= 4;
+      return { asset, metadata, score, isAnchor, isSubject, isSource };
     })
-    .sort(
-      (a, b) =>
-        b.score - a.score || b.asset.createdAt.localeCompare(a.asset.createdAt),
+    .filter(
+      (item) =>
+        item.isSubject ||
+        item.isSource ||
+        item.isAnchor ||
+        item.metadata.intent !== "subject",
     );
-  const source = input.sourceAssetId
-    ? scored.find((item) => item.asset.id === input.sourceAssetId)
-    : undefined;
-  const remainingLimit = Math.max(0, limit - (source ? 1 : 0));
-  const pool = scored
-    .filter((item) => item.asset.id !== source?.asset.id)
-    .slice(0, Math.max(remainingLimit * 4, remainingLimit));
-  const sampled = sampleWeighted(pool, remainingLimit);
-  const selected = source ? [source, ...sampled] : sampled;
 
-  return loadReferenceData(selected.map((item) => item.asset));
+  const byId = new Map(candidates.map((item) => [item.asset.id, item]));
+  const selected: typeof candidates = [];
+  const selectedIds = new Set<string>();
+  const push = (item: (typeof candidates)[number] | undefined) => {
+    if (!item || selectedIds.has(item.asset.id)) return;
+    selected.push(item);
+    selectedIds.add(item.asset.id);
+  };
+
+  push(input.subjectAssetId ? byId.get(input.subjectAssetId) : undefined);
+  if (intent === "edit") {
+    return loadReferenceData(
+      selected.map((item) => item.asset),
+      () => "edit_target",
+      () => "subject",
+    );
+  }
+  push(input.sourceAssetId ? byId.get(input.sourceAssetId) : undefined);
+
+  const anchorLimit =
+    intent === "restyle"
+      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
+      : Math.max(1, Math.ceil(limit * 0.6));
+  const anchorIds = [
+    ...canonicalStyleAssetIds,
+    ...candidates
+      .filter((item) => item.metadata.isStyleAnchor === true)
+      .sort(compareReferenceCandidates)
+      .map((item) => item.asset.id),
+  ];
+  for (const id of [...new Set(anchorIds)].slice(0, anchorLimit)) {
+    push(byId.get(id));
+  }
+
+  const remainingLimit = Math.max(0, limit - selected.length);
+  const fill = candidates
+    .filter((item) => !selectedIds.has(item.asset.id))
+    .sort(compareReferenceCandidates)
+    .slice(0, remainingLimit);
+  for (const item of fill) push(item);
+
+  return loadReferenceData(
+    selected.map((item) => item.asset),
+    (asset) =>
+      asset.id === input.subjectAssetId
+        ? "subject_reference"
+        : asset.id === input.sourceAssetId
+          ? undefined
+          : undefined,
+    (asset) => {
+      if (asset.id === input.subjectAssetId) return "subject";
+      if (asset.id === input.sourceAssetId) return "source";
+      const item = byId.get(asset.id);
+      return item?.isAnchor ? "anchor" : "scored";
+    },
+  );
 }
 
-function sampleWeighted<T extends { score: number }>(
-  items: T[],
-  limit: number,
-): T[] {
-  if (limit <= 0) return [];
-  return items
-    .map((item) => ({
-      item,
-      key: Math.random() ** (1 / Math.max(1, item.score + 1)),
-    }))
-    .sort((a, b) => b.key - a.key)
-    .slice(0, limit)
-    .map(({ item }) => item);
+type ReferenceCandidate = {
+  asset: { id: string; createdAt: string };
+  score: number;
+};
+
+export function compareReferenceCandidates(
+  a: ReferenceCandidate,
+  b: ReferenceCandidate,
+): number {
+  return (
+    b.score - a.score ||
+    b.asset.createdAt.localeCompare(a.asset.createdAt) ||
+    a.asset.id.localeCompare(b.asset.id)
+  );
 }
 
 async function loadReferenceData(
@@ -870,6 +958,11 @@ async function loadReferenceData(
     objectKey: string;
     metadata: string;
   }>,
+  roleForAsset?: (asset: { id: string; role: string }) => string | undefined,
+  reasonForAsset?: (asset: {
+    id: string;
+    role: string;
+  }) => ReferenceForGeneration["selectionReason"] | undefined,
 ) {
   const refs: ReferenceForGeneration[] = [];
   for (const asset of selected) {
@@ -878,10 +971,11 @@ async function loadReferenceData(
     const metadata = parseJson<{ category?: string }>(asset.metadata, {});
     refs.push({
       id: asset.id,
-      role: asset.role,
+      role: roleForAsset?.(asset) ?? asset.role,
       category: metadata.category,
       mimeType: asset.mimeType,
       data: bytes.toString("base64"),
+      selectionReason: reasonForAsset?.(asset),
     });
   }
   return refs;
