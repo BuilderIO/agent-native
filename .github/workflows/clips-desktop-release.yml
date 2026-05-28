@@ -123,15 +123,6 @@ jobs:
           V=$(node -p "require('./${{ env.TAURI_APP_PATH }}/package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure icon.ico is BMP-encoded (Windows only)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          # RC.EXE v10.0.10011 (the system rc.exe on Windows Server) rejects
-          # ICO files with PNG-compressed images. Tauri v2 CLI generates
-          # PNG-compressed ICO by default. Convert all entries to BMP/DIB.
-          node "$TAURI_APP_PATH/src-tauri/icons/png-to-bmp-ico.mjs"
-
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
