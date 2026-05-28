@@ -10,9 +10,12 @@ import { parseJson } from "./json.js";
 import { getObject } from "./storage.js";
 import type {
   AspectRatio,
+  GenerationIntent,
   ImageCategory,
   ImageModel,
+  ImageQualityTier,
   ImageSize,
+  StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
 
@@ -22,11 +25,15 @@ export interface ReferenceForGeneration {
   category?: string;
   mimeType: string;
   data: string;
+  selectionReason?: "subject" | "source" | "anchor" | "scored" | "explicit";
 }
 
 // Keep automatic reference context compact for Gemini. Explicit
 // referenceAssetIds bypass this cap because the caller made a deliberate set.
 export const DEFAULT_GENERATION_REFERENCE_LIMIT = 6;
+const STYLE_ANALYSIS_REFERENCE_LIMIT = 8;
+const STYLE_ANALYSIS_MODEL =
+  process.env.ASSETS_STYLE_ANALYSIS_MODEL || "gemini-2.5-flash";
 
 export interface GenerateProviderInput {
   prompt: string;
@@ -36,6 +43,8 @@ export interface GenerateProviderInput {
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
   groundingMode: "auto" | "off" | "google-search";
+  intent?: GenerationIntent;
+  styleStrength?: StyleStrength;
   runId?: string;
   libraryId?: string;
   collectionId?: string | null;
@@ -208,6 +217,7 @@ export async function generateWithBuilderImageApi(
         callerAppId: input.callerAppId,
         source: input.source,
         groundingMode: input.groundingMode,
+        intent: input.intent,
       },
     }),
     signal: AbortSignal.timeout(90_000),
@@ -442,11 +452,109 @@ export async function generateWithGemini(
     : new Error("Gemini image generation failed.");
 }
 
+export interface StyleAnalysisOutput {
+  styleBrief: StyleBrief;
+  model: string;
+}
+
+export async function analyzeStyleWithGemini(input: {
+  references: ReferenceForGeneration[];
+  previous?: StyleBrief;
+}): Promise<StyleAnalysisOutput> {
+  const refs = input.references.slice(0, STYLE_ANALYSIS_REFERENCE_LIMIT);
+  if (!refs.length) {
+    return { styleBrief: input.previous ?? {}, model: STYLE_ANALYSIS_MODEL };
+  }
+
+  const { GoogleGenAI } = await import("@google/genai");
+  const client = new GoogleGenAI({ apiKey: await getGeminiApiKey() });
+  const response = await client.models.generateContent({
+    model: STYLE_ANALYSIS_MODEL,
+    contents: [
+      {
+        text: [
+          "Analyze these brand/style reference images for a reusable image generation style brief.",
+          "Return only compact JSON with keys: description, medium, mood, subjectMatter, texture, composition, lighting, typographyPolicy, doNot.",
+          "Use specific trait-locking phrases that can be reused across future image prompts.",
+          "Do not name brands, artists, studios, franchises, or copyrighted works unless they appear as user-provided brand identity.",
+          "Keep doNot as an array of short constraints. Omit uncertain fields instead of guessing.",
+          input.previous?.description
+            ? `Existing style description to preserve unless contradicted: ${input.previous.description}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      },
+      ...refs.map((ref) => ({
+        inlineData: { mimeType: ref.mimeType, data: ref.data },
+      })),
+    ],
+    config: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  const text =
+    response.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part.text)
+      .filter(Boolean)
+      .join("\n") ?? "";
+  const parsed = parseJson<Record<string, unknown>>(
+    extractJsonObject(text),
+    {},
+  );
+  return {
+    styleBrief: sanitizeStyleBrief(parsed),
+    model: STYLE_ANALYSIS_MODEL,
+  };
+}
+
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+  return "{}";
+}
+
+function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
+  const stringField = (key: string) => {
+    const raw = value[key];
+    return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+  };
+  const doNot = Array.isArray(value.doNot)
+    ? value.doNot.filter(
+        (item): item is string => typeof item === "string" && !!item.trim(),
+      )
+    : undefined;
+  return {
+    description: stringField("description"),
+    medium: stringField("medium"),
+    mood: stringField("mood"),
+    subjectMatter: stringField("subjectMatter"),
+    texture: stringField("texture"),
+    composition: stringField("composition"),
+    lighting: stringField("lighting"),
+    typographyPolicy: stringField("typographyPolicy"),
+    doNot: doNot?.length ? doNot.map((item) => item.trim()) : undefined,
+  };
+}
+
 async function generateWithManualImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
+  }
+  if (input.intent === "restyle" || input.intent === "edit") {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "Restyle and edit runs need Builder-managed image generation or a Gemini API key because the OpenAI fallback cannot attach source images in this pipeline yet.",
+    });
   }
   return generateWithOpenAI(input);
 }
@@ -576,6 +684,9 @@ function toBuilderReferenceRole(role: string) {
       return "product";
     case "diagram_reference":
       return "composition";
+    case "subject_reference":
+    case "edit_target":
+      return "source";
     case "generated":
       return "source";
     default:
@@ -591,8 +702,11 @@ export function compilePrompt(input: {
   referenceCount: number;
   includeLogo: boolean;
   category?: ImageCategory;
+  intent?: GenerationIntent;
+  styleStrength?: StyleStrength;
 }): string {
   const style = input.styleBrief;
+  const intent = input.intent ?? "generate";
   const palette = style.palette?.length
     ? `\nPalette to preserve: ${style.palette.join(", ")}.`
     : "";
@@ -610,9 +724,24 @@ export function compilePrompt(input: {
     ? `\nLibrary custom instructions:\n${input.customInstructions.trim()}\n`
     : "";
   const referenceInstruction =
-    input.referenceCount > 0
+    intent === "edit"
+      ? "Use the attached image as the edit target. Preserve all unchanged areas, geometry, camera, dimensions, and identity as closely as the model allows."
+      : intent === "restyle"
+        ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
+        : input.referenceCount > 0
       ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
       : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+
+  if (intent === "edit") {
+    return `Edit the attached image for the "${input.libraryTitle}" asset library.
+
+${referenceInstruction}
+
+Make only this change:
+${input.prompt}
+
+Do not reimagine the image, change its aspect ratio, add new text, or alter unrelated subjects. Return the full image.`;
+  }
 
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
 
@@ -620,6 +749,10 @@ ${referenceInstruction}
 
 Style brief:
 ${style.description || "Infer the style from the references."}${palette}
+${style.medium ? `\nMedium: ${style.medium}.` : ""}
+${style.mood ? `\nMood: ${style.mood}.` : ""}
+${style.subjectMatter ? `\nSubject matter: ${style.subjectMatter}.` : ""}
+${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
 ${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}

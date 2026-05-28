@@ -36,6 +36,12 @@ export const IMAGE_MODELS = [
   "gemini-2.5-flash-image",
 ] as const;
 
+export const GENERATION_INTENTS = ["generate", "restyle", "edit"] as const;
+
+export const STYLE_STRENGTHS = ["subtle", "balanced", "strong"] as const;
+
+export const IMAGE_QUALITY_TIERS = ["auto", "fast", "best"] as const;
+
 export const ASSET_MEDIA_TYPES = ["image", "video"] as const;
 
 export const GENERATION_PRESET_REFERENCE_POLICIES = [
@@ -69,6 +75,8 @@ export type ImageRole =
   | "product_reference"
   | "diagram_reference"
   | "video_reference"
+  | "subject_reference"
+  | "edit_target"
   | "generated";
 export type ImageStatus =
   | "reference"
@@ -79,6 +87,9 @@ export type ImageStatus =
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 export type ImageModel = (typeof IMAGE_MODELS)[number];
+export type GenerationIntent = (typeof GENERATION_INTENTS)[number];
+export type StyleStrength = (typeof STYLE_STRENGTHS)[number];
+export type ImageQualityTier = (typeof IMAGE_QUALITY_TIERS)[number];
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
@@ -91,6 +102,10 @@ export type GenerationSessionStatus =
 export interface StyleBrief {
   description?: string;
   palette?: string[];
+  medium?: string;
+  mood?: string;
+  subjectMatter?: string;
+  texture?: string;
   composition?: string;
   lighting?: string;
   typographyPolicy?: string;
