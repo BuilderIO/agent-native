@@ -110,6 +110,16 @@ export const TOGGLE_SUMMARY_PLACEHOLDER = "Toggle";
 export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
   "Empty toggle. Click or drop blocks inside.";
 
+function normalizeIndentAttr(value: unknown): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : 0;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 8) : 0;
+}
+
 export function focusMostRecentEmptyToggleSummary(editor: {
   view: { dom: HTMLElement };
 }) {
@@ -310,6 +320,7 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
       }`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
+      data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
       draggable="true"
       data-drag-handle=""
     >
@@ -479,6 +490,7 @@ export const NotionToggle = Node.create({
       color: { default: null },
       headingLevel: { default: null },
       open: { default: false },
+      indent: { default: 0 },
     };
   },
 
@@ -493,6 +505,7 @@ export const NotionToggle = Node.create({
             color: node.getAttribute("color"),
             headingLevel: node.getAttribute("data-heading-level"),
             open: node.hasAttribute("open"),
+            indent: normalizeIndentAttr(node.getAttribute("data-nfm-indent")),
           };
         },
         contentElement: (element) => {
@@ -518,6 +531,7 @@ export const NotionToggle = Node.create({
             color: node.getAttribute("data-color"),
             headingLevel: node.getAttribute("data-heading-level"),
             open: node.getAttribute("data-open") === "true",
+            indent: normalizeIndentAttr(node.getAttribute("data-nfm-indent")),
           };
         },
         contentElement: (element) =>
@@ -537,6 +551,9 @@ export const NotionToggle = Node.create({
         "data-color": HTMLAttributes.color || undefined,
         "data-heading-level": HTMLAttributes.headingLevel || undefined,
         "data-open": HTMLAttributes.open ? "true" : undefined,
+        "data-nfm-indent": HTMLAttributes.indent
+          ? String(HTMLAttributes.indent)
+          : undefined,
       }),
       [
         "div",
@@ -567,19 +584,21 @@ export const NotionToggle = Node.create({
             attrs["data-heading-level"] = String(node.attrs.headingLevel);
           }
           if (node.attrs.open) attrs.open = "";
+          const indent = normalizeIndentAttr(node.attrs.indent);
+          const prefix = "\t".repeat(indent);
           const inner = serializeInnerMarkdown((this as any).editor, node);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
-          _state.write(openTag);
+          _state.write(`${prefix}${openTag}`);
           _state.ensureNewLine();
           _state.write(
-            `<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
+            `${prefix}<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
           );
           if (inner.trim()) {
             _state.ensureNewLine();
-            _state.write(indentMarkdown(inner));
+            _state.write(indentMarkdown(inner, `${prefix}\t`));
           }
           _state.ensureNewLine();
-          _state.write("</details>");
+          _state.write(`${prefix}</details>`);
           _state.closeBlock(node);
         },
         parse: {},

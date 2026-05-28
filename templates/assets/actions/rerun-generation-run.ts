@@ -5,16 +5,21 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
 import generateImage from "./generate-image.js";
+import { requireGenerationSessionInLibrary } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and sampled references.",
+    "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and deterministic references.",
   schema: z.object({
     runId: z.string().describe("Generation run to rerun"),
     slotId: z
       .string()
       .optional()
       .describe("Optional variant slot ID for the new generation"),
+    sessionId: z
+      .string()
+      .optional()
+      .describe("Optional session to attach the rerun result to"),
     source: z.enum(["chat", "ui", "a2a"]).default("chat"),
     callerAppId: z
       .string()
@@ -24,7 +29,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({ runId, slotId, source, callerAppId }) => {
+  run: async ({ runId, slotId, sessionId, source, callerAppId }) => {
     const db = getDb();
     const [run] = await db
       .select()
@@ -33,15 +38,27 @@ export default defineAction({
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
     await assertAccess("asset-library", run.libraryId, "editor");
+    const resolvedSessionId = sessionId ?? run.sessionId ?? undefined;
+    if (resolvedSessionId) {
+      await requireGenerationSessionInLibrary(resolvedSessionId, run.libraryId);
+    }
 
     const metadata = parseJson<{
       settingsUsed?: {
         includeLogo?: boolean;
         categories?: string[];
+        tier?: string | null;
+        intent?: string;
+        styleStrength?: string;
+        subjectAssetId?: string;
       };
       includeLogo?: boolean;
       categories?: string[];
       sourceAssetId?: string;
+      subjectAssetId?: string;
+      intent?: string;
+      styleStrength?: string;
+      tier?: string | null;
     }>(run.metadata, {});
     const categories =
       metadata.settingsUsed?.categories ?? metadata.categories ?? undefined;
@@ -49,16 +66,29 @@ export default defineAction({
     return generateImage.run({
       libraryId: run.libraryId,
       collectionId: run.collectionId ?? undefined,
+      presetId: run.presetId ?? undefined,
+      sessionId: resolvedSessionId,
       prompt: run.prompt,
       aspectRatio: run.aspectRatio as any,
       imageSize: run.imageSize as any,
       model: run.model as any,
+      tier: (metadata.settingsUsed?.tier ?? metadata.tier ?? undefined) as any,
+      intent: (metadata.settingsUsed?.intent ??
+        metadata.intent ??
+        "generate") as any,
+      styleStrength: (metadata.settingsUsed?.styleStrength ??
+        metadata.styleStrength ??
+        "balanced") as any,
       categories: categories as any,
       includeLogo: Boolean(
         metadata.settingsUsed?.includeLogo ?? metadata.includeLogo,
       ),
       groundingMode: run.groundingMode as any,
       sourceAssetId: metadata.sourceAssetId,
+      subjectAssetId:
+        metadata.settingsUsed?.subjectAssetId ??
+        metadata.subjectAssetId ??
+        undefined,
       slotId,
       source,
       callerAppId,

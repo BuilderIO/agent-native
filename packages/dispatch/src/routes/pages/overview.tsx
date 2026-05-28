@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, type LoaderFunctionArgs } from "react-router";
 import {
   PromptComposer,
   useActionQuery,
@@ -34,6 +34,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
+import {
+  buildThreadLinkPreviewMeta,
+  loadThreadLinkPreview,
+} from "@/server/lib/thread-link-preview";
 import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
 interface IntegrationStatus {
@@ -471,8 +475,17 @@ function StepRow({ step }: { step: ChecklistStep }) {
   );
 }
 
-export function meta() {
-  return [{ title: "Overview — Dispatch" }];
+export async function loader({ request }: LoaderFunctionArgs) {
+  const threadId = new URL(request.url).searchParams.get("thread");
+  return {
+    threadPreview: await loadThreadLinkPreview(threadId),
+  };
+}
+
+export function meta({ data }: { data?: Awaited<ReturnType<typeof loader>> }) {
+  return data?.threadPreview
+    ? buildThreadLinkPreviewMeta(data.threadPreview)
+    : [{ title: "Overview — Dispatch" }];
 }
 
 export default function OverviewRoute() {

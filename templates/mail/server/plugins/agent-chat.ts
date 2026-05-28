@@ -19,7 +19,9 @@ export default createAgentChatPlugin({
       icon: "email",
       search: async (query: string, event?: any) => {
         try {
-          const params = new URLSearchParams({ view: "inbox" });
+          const params = new URLSearchParams({
+            view: query ? "all" : "inbox",
+          });
           if (query) params.set("q", query);
           // Build URL from the incoming request's host to avoid port mismatches
           const host =

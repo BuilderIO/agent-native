@@ -71,6 +71,8 @@ export default function BookingPage() {
     isLoading: bookingLinkLoading,
     isError: bookingLinkError,
   } = usePublicBookingLink(slug, username);
+  const isRedirecting =
+    !!bookingLink && (!!bookingLink.redirectPath || !!bookingLink.redirect);
 
   // Handle slug redirects (old URL → new URL)
   useEffect(() => {
@@ -85,8 +87,6 @@ export default function BookingPage() {
   }, [bookingLink?.redirect, bookingLink?.redirectPath, username, navigate]);
 
   const [step, setStep] = useState<Step>("date");
-  const hasDurationChoice =
-    bookingLink?.durations && bookingLink.durations.length > 1;
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(
@@ -106,9 +106,14 @@ export default function BookingPage() {
     bookingLink?.durations && bookingLink.durations.length > 0
       ? bookingLink.durations
       : null;
+  const hasDurationChoice = !!durationOptions && durationOptions.length > 1;
+  const bookingLinkDuration =
+    durationOptions && durationOptions.length === 1
+      ? durationOptions[0]
+      : bookingLink?.duration;
   const duration =
     selectedDuration ??
-    bookingLink?.duration ??
+    bookingLinkDuration ??
     availability?.slotDurationMinutes ??
     settings?.defaultEventDuration ??
     30;
@@ -125,7 +130,9 @@ export default function BookingPage() {
       monthEnd,
       duration,
       slug,
-      step === "date" && !!availability,
+      step === "date" &&
+        !!availability &&
+        (!hasDurationChoice || selectedDuration !== null),
     );
   const createBooking = useCreateBooking();
   const selectedSlotRange = selectedSlot
@@ -222,7 +229,20 @@ export default function BookingPage() {
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
 
-  if (bookingLinkLoading || settingsLoading || availabilityLoading) {
+  useEffect(() => {
+    if (hasDurationChoice && step === "date" && selectedDuration === null) {
+      setStep("duration");
+    } else if (!hasDurationChoice && step === "duration") {
+      setStep("date");
+    }
+  }, [hasDurationChoice, selectedDuration, step]);
+
+  if (
+    bookingLinkLoading ||
+    settingsLoading ||
+    availabilityLoading ||
+    isRedirecting
+  ) {
     return (
       <BookingPageShell>
         <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">

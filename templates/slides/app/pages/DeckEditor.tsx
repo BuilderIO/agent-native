@@ -825,8 +825,8 @@ export default function DeckEditor() {
               slide={currentSlide}
               deckId={id}
               readOnly={!canEdit}
-              onUpdateSlide={(updates) =>
-                updateSlide(id, currentSlide.id, updates)
+              onUpdateSlide={(updates, slideIdOverride) =>
+                updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
               }
               activeTab={activeTab}
               onGenerateImage={() => setImageGenOpen(true)}

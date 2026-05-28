@@ -30,6 +30,10 @@ import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
+import {
+  parseBookingLinkDurations,
+  resolveAvailabilityDuration,
+} from "../lib/booking-durations.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 import {
   sendBookingCancellationEmails,
@@ -132,6 +136,7 @@ type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
   slug: string;
+  bookingLink?: BookingLinkRow;
   conflictSlugs: string[];
 };
 
@@ -275,39 +280,6 @@ function parseRequestDate(value: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function uniqueDurations(values: number[]): number[] {
-  return [...new Set(values.filter((value) => Number.isInteger(value)))];
-}
-
-function parseBookingLinkDurations(
-  bookingLink: Pick<BookingLinkRow, "duration" | "durations">,
-): number[] {
-  if (bookingLink.durations) {
-    try {
-      const parsed = JSON.parse(bookingLink.durations);
-      if (Array.isArray(parsed)) {
-        const durations = uniqueDurations(
-          parsed
-            .map((value) =>
-              typeof value === "number"
-                ? value
-                : typeof value === "string"
-                  ? Number(value)
-                  : NaN,
-            )
-            .filter((value) => value > 0 && value <= 24 * 60),
-        );
-        if (durations.length > 0) return durations;
-      }
-    } catch {
-      // Fall through to the primary duration below.
-    }
-  }
-  return [bookingLink.duration].filter(
-    (value) => Number.isInteger(value) && value > 0 && value <= 24 * 60,
-  );
-}
-
 function requestedBookingRange(
   startValue: unknown,
   endValue: unknown,
@@ -394,6 +366,7 @@ async function resolveAvailabilityContext({
         : config),
     ownerEmail,
     slug,
+    bookingLink,
     conflictSlugs,
   };
 }
@@ -1033,16 +1006,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     const from = parseDateOnly(query.from);
     const to = parseDateOnly(query.to);
     const hasRangeQuery = query.from !== undefined || query.to !== undefined;
-    const duration = parseInt(
-      typeof query.duration === "string" ? query.duration : "30",
-      10,
-    );
     const slug = typeof query.slug === "string" ? query.slug : "";
-
-    if (!Number.isFinite(duration) || duration <= 0 || duration > 24 * 60) {
-      setResponseStatus(event, 400);
-      return { error: "duration must be between 1 and 1440 minutes" };
-    }
 
     if (hasRangeQuery) {
       if (!from || !to) {
@@ -1071,6 +1035,16 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     if (!context.effectiveConfig) {
       return hasRangeQuery ? { dates: [] } : { slots: [] };
     }
+    const durationResult = resolveAvailabilityDuration({
+      rawDuration: query.duration,
+      bookingLink: context.bookingLink,
+      availability: context.effectiveConfig,
+    });
+    if ("error" in durationResult) {
+      setResponseStatus(event, 400);
+      return { error: durationResult.error };
+    }
+    const duration = durationResult.duration;
 
     if (hasRangeQuery) {
       const rangeStart = formatDateOnly(from!);

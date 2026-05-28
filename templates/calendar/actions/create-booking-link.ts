@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 
 function rowToBookingLink(
   row: typeof schema.bookingLinks.$inferSelect,
@@ -81,6 +82,13 @@ export default defineAction({
   }),
   run: async (args) => {
     const body = args as Record<string, any>;
+    const durationInput = normalizeBookingDurationInput({
+      duration: body.duration,
+      durations: body.durations,
+    });
+    if ("error" in durationInput) {
+      throw new Error(durationInput.error);
+    }
     const slug = String(body.slug).trim().toLowerCase();
     const [existingLink, existingRedirect] = await Promise.all([
       getDb()
@@ -106,8 +114,10 @@ export default defineAction({
         slug,
         title: String(body.title).trim(),
         description: body.description ? String(body.description).trim() : null,
-        duration: body.duration,
-        durations: body.durations ? JSON.stringify(body.durations) : null,
+        duration: durationInput.duration,
+        durations: durationInput.durations
+          ? JSON.stringify(durationInput.durations)
+          : null,
         customFields: body.customFields
           ? JSON.stringify(body.customFields)
           : null,

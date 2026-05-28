@@ -7,19 +7,10 @@ import {
   getClients,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { getUserSetting } from "@agent-native/core/settings";
+import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
-
-const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox -in:sent",
-  unread: "is:unread in:inbox -in:sent",
-  starred: "is:starred",
-  sent: "in:sent",
-  drafts: "in:drafts",
-  archive: "-in:inbox -in:sent -in:drafts -in:trash",
-  trash: "in:trash",
-  all: "",
-};
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -131,9 +122,9 @@ export default defineAction({
     const q = typeof args?.q === "string" ? args.q : undefined;
     if (!q) return null;
     return {
-      url: buildDeepLink({ app: "mail", view: "inbox", params: { search: q } }),
+      url: buildDeepLink({ app: "mail", view: "all", params: { q } }),
       label: "Open search in Mail",
-      view: "inbox",
+      view: "all",
     };
   },
   run: async (args) => {
@@ -184,16 +175,8 @@ export default defineAction({
           break;
       }
 
-      const q = args.q.toLowerCase();
       emails = emails
-        .filter(
-          (e: any) =>
-            e.subject?.toLowerCase().includes(q) ||
-            e.snippet?.toLowerCase().includes(q) ||
-            e.body?.toLowerCase().includes(q) ||
-            e.from?.name?.toLowerCase().includes(q) ||
-            e.from?.email?.toLowerCase().includes(q),
-        )
+        .filter((e: any) => emailMessageMatchesSearch(e, args.q))
         .sort(
           (a: any, b: any) =>
             new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -219,8 +202,7 @@ export default defineAction({
     const clients = await getClients(ownerEmail);
     if (clients.length === 0) return "Error: No Google account connected.";
 
-    const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-    const gmailQuery = viewPrefix ? `${viewPrefix} ${args.q}` : args.q;
+    const gmailQuery = buildGmailEmailSearchQuery({ view, q: args.q });
 
     const labelMap = new Map<string, string>();
     await Promise.all(

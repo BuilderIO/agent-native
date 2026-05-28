@@ -7,7 +7,7 @@ import {
   serializeEditorToNfm,
 } from "./notion-markdown";
 
-const EDITOR_INDENT = "&nbsp;&nbsp;";
+const EDITOR_INDENT = "&emsp;&emsp;";
 
 describe("parseNfmForEditor", () => {
   describe("empty-block handling", () => {
@@ -54,6 +54,12 @@ describe("parseNfmForEditor", () => {
     it("converts triple-tab indent to triply-nested visual indentation", () => {
       const result = parseNfmForEditor("parent\n\t\t\tdeep");
       expect(result).toContain(`${EDITOR_INDENT.repeat(3)}deep`);
+    });
+
+    it("normalizes legacy two-nbsp visual indents to tab-backed visual indentation", () => {
+      const result = parseNfmForEditor("parent\n&nbsp;&nbsp;child");
+      expect(result).toContain(`${EDITOR_INDENT}child`);
+      expect(result).not.toContain("&nbsp;&nbsp;child");
     });
 
     it("converts indented list items without a list parent to blockquote lists", () => {
@@ -189,6 +195,20 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("plain text");
       expect(result).toContain("more text");
+    });
+
+    it("keeps indented Notion toggle blocks out of markdown code blocks", () => {
+      const input = [
+        "parent",
+        "\t<details>",
+        "\t<summary>agents doing</summary>",
+        "\t</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain('<details data-nfm-indent="1">');
+      expect(result).toContain("<summary>agents doing</summary>");
+      expect(result).not.toMatch(/^\t<details/m);
+      expect(result).not.toMatch(/^ {4}<details/m);
     });
 
     it("keeps bullets in a single <ul> even with blank lines between items", () => {
@@ -545,6 +565,25 @@ describe("normalizeNfmForNotion", () => {
         "\t- item 1",
         "\tplain child",
         "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("turns editor-only toggle indent attrs back into real Notion tabs", () => {
+    const result = normalizeNfmForNotion(
+      [
+        '<details data-nfm-indent="2">',
+        "<summary>Indented toggle</summary>",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(result).toBe(
+      [
+        "\t\t<details>",
+        "\t\t<summary>Indented toggle</summary>",
+        "\t\t\t<empty-block/>",
+        "\t\t</details>",
       ].join("\n"),
     );
   });

@@ -304,6 +304,17 @@ export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
   return changed;
 }
 
+export function hasUncommittedDeckChanges(
+  deckId: string,
+  dirtyDeckIds: Set<string>,
+): boolean {
+  return (
+    dirtyDeckIds.has(deckId) ||
+    pendingSaves.has(deckId) ||
+    inFlightSaves.has(deckId)
+  );
+}
+
 export const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
@@ -502,8 +513,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         if (
           currentOpenId &&
           !pending.has(currentOpenId) &&
-          !pendingSaves.has(currentOpenId) &&
-          !inFlightSaves.has(currentOpenId)
+          !hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current)
         ) {
           try {
             const res = await fetch(
@@ -597,7 +607,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           // copy may be a few hundred ms behind what the user just typed.
           // Polling and the next save's response will bring the canonical
           // state once the local burst settles.
-          if (pendingSaves.has(data.deckId) || inFlightSaves.has(data.deckId)) {
+          if (hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)) {
             return;
           }
           // Refetch the changed deck from the API

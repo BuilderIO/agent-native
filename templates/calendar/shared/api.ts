@@ -132,6 +132,45 @@ export interface CalendarEventDraft {
   updatedAt?: string;
 }
 
+export interface FindTimeParticipant {
+  email: string;
+  displayName?: string;
+  role: "organizer" | "attendee";
+}
+
+export interface FindTimeBusyBlock {
+  participantEmail: string;
+  participantName?: string;
+  start: string;
+  end: string;
+  title?: string;
+}
+
+export interface FindTimeSlot {
+  start: string;
+  end: string;
+  date: string;
+  durationMinutes: number;
+  availableParticipantEmails: string[];
+  unavailableParticipantEmails: string[];
+}
+
+export interface FindTimeResult {
+  range: {
+    from: string;
+    to: string;
+    timezone: string;
+    durationMinutes: number;
+    slotStepMinutes: number;
+  };
+  googleConnected: boolean;
+  participants: FindTimeParticipant[];
+  busy: FindTimeBusyBlock[];
+  slots: FindTimeSlot[];
+  errors?: Array<{ email: string; error: string }>;
+  message?: string;
+}
+
 export type DeleteEventScope = "single" | "all" | "thisAndFollowing";
 export type UpdateEventScope = "single" | "all";
 

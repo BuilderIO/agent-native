@@ -33,7 +33,19 @@ export function LibraryCard({
   showInstructions?: boolean;
 }) {
   const instructions = getLibraryCustomInstructions(library);
-  const coverThumbnailUrl = assetMediaUrl(library.coverAsset?.thumbnailUrl);
+  const previewAssets = (
+    library.previewAssets?.length
+      ? library.previewAssets
+      : library.coverAsset
+        ? [library.coverAsset]
+        : []
+  )
+    .slice(0, 4)
+    .map((asset) => ({
+      ...asset,
+      src: assetMediaUrl(asset.thumbnailUrl ?? asset.previewUrl),
+    }))
+    .filter((asset) => Boolean(asset.src));
   const className = cn(
     "group flex h-full w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-card text-left text-card-foreground transition hover:border-foreground/30",
     compact ? "min-h-0" : "min-h-32",
@@ -48,17 +60,36 @@ export function LibraryCard({
           compact ? "aspect-[16/8]" : "aspect-[16/9]",
         )}
       >
-        <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
-        {coverThumbnailUrl ? (
-          <img
-            src={coverThumbnailUrl}
-            alt=""
-            onError={(event) => {
-              event.currentTarget.hidden = true;
-            }}
-            className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-[1.02]"
-          />
-        ) : null}
+        {previewAssets.length ? (
+          <div
+            className={cn(
+              "absolute inset-0 grid gap-px bg-border",
+              previewAssets.length === 1 ? "grid-cols-1" : "grid-cols-2",
+              previewAssets.length <= 2 ? "grid-rows-1" : "grid-rows-2",
+            )}
+          >
+            {previewAssets.map((asset, index) => (
+              <div
+                key={asset.id}
+                className={cn(
+                  "min-h-0 min-w-0 overflow-hidden",
+                  previewAssets.length === 3 && index === 0 && "row-span-2",
+                )}
+              >
+                <img
+                  src={asset.src}
+                  alt={asset.altText ?? asset.title ?? ""}
+                  onError={(event) => {
+                    event.currentTarget.hidden = true;
+                  }}
+                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
+        )}
       </div>
       <div
         className={cn(

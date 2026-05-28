@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { markPopoverInteractOutside } from "@/lib/popover-click-guard";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
@@ -20,6 +20,7 @@ import {
   IconMessage,
   IconPalette,
   IconPaperclip,
+  IconCalendarTime,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,7 +42,11 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import type {
+  CalendarEvent,
+  FindTimeSlot,
+  UpdateEventScope,
+} from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import {
@@ -64,6 +69,7 @@ import {
   EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
+import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
@@ -318,6 +324,7 @@ export function EventDetailPopover({
 
   // Inline editing state
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [editDescription, setEditDescription] = useState(
     event.description || "",
   );
@@ -395,6 +402,7 @@ export function EventDetailPopover({
     setEditReminders(reminderState.reminders);
     setEditAttachments(attachmentsToDrafts(event.attachments));
     setEditTimeScope("single");
+    setFindTimeOpen(false);
   }, [
     event.id,
     event.description,
@@ -735,6 +743,48 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     saveField,
   ]);
 
+  const schedulingAttendees = useMemo(
+    () =>
+      (event.attendees ?? [])
+        .filter((attendee) => {
+          const email = attendee.email.toLowerCase();
+          return !attendee.self && email !== event.accountEmail?.toLowerCase();
+        })
+        .map((attendee) => ({
+          email: attendee.email,
+          displayName: attendee.displayName,
+          photoUrl: attendee.photoUrl,
+        })),
+    [event.accountEmail, event.attendees],
+  );
+  const findTimeTimezone =
+    editTimezone || event.startTimeZone || getLocalTimezone();
+  const findTimeDurationMinutes = Math.max(
+    5,
+    differenceInMinutes(parseISO(event.end), parseISO(event.start)),
+  );
+
+  const handleSelectFindTimeSlot = useCallback(
+    (slot: FindTimeSlot) => {
+      setEditDate(toDateInputValue(slot.start));
+      setEditEndDate(toDateInputValue(slot.end));
+      setEditStartTime(toTimeInputValue(slot.start));
+      setEditEndTime(toTimeInputValue(slot.end));
+      setEditTimezone(findTimeTimezone);
+      setEditingField(null);
+      setFindTimeOpen(false);
+      saveField({
+        start: slot.start,
+        end: slot.end,
+        allDay: false,
+        startTimeZone: findTimeTimezone,
+        endTimeZone: findTimeTimezone,
+        scope: isRecurringEvent ? editTimeScope : "single",
+      });
+    },
+    [editTimeScope, findTimeTimezone, isRecurringEvent, saveField],
+  );
+
   const handleSaveRecurrence = useCallback(() => {
     const recurrence = buildRecurrenceRules(
       editRecurrencePreset,
@@ -931,7 +981,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
         side={isMobile ? "bottom" : "right"}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="w-[calc(100vw-2rem)] sm:w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
+        className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:w-[420px]"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -940,6 +990,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           }
         }}
         onInteractOutside={(e) => {
+          if (findTimeOpen) {
+            e.preventDefault();
+            return;
+          }
           // Don't close if clicking inside an Apollo popover (portaled to body)
           const target = e.target as HTMLElement;
           if (
@@ -1208,6 +1262,42 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                     )}
                   </div>
                 </div>
+              )}
+
+              {!event.allDay && !isOverlay && (
+                <div className="flex items-center gap-3 py-1">
+                  <div className="h-4 w-4 shrink-0" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 text-xs"
+                    onClick={() => setFindTimeOpen(true)}
+                  >
+                    <IconCalendarTime className="h-3.5 w-3.5" />
+                    Find a time
+                  </Button>
+                </div>
+              )}
+
+              {!event.allDay && !isOverlay && (
+                <FindTimeTakeover
+                  open={findTimeOpen}
+                  onOpenChange={setFindTimeOpen}
+                  title="Find a time"
+                  subtitle={event.title}
+                  date={editDate || toDateInputValue(event.start)}
+                  timezone={findTimeTimezone}
+                  durationMinutes={findTimeDurationMinutes}
+                  attendees={schedulingAttendees}
+                  accountEmail={event.accountEmail}
+                  selectedStart={event.start}
+                  selectedEnd={event.end}
+                  ignoreStart={event.start}
+                  ignoreEnd={event.end}
+                  onSelectSlot={handleSelectFindTimeSlot}
+                  onAddAttendee={handleAddAttendee}
+                />
               )}
 
               {/* Timezone */}

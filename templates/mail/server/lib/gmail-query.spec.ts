@@ -19,6 +19,38 @@ describe("buildGmailEmailSearchQuery", () => {
     );
   });
 
+  it("expands bare email-address searches across address fields", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: "ada@example.com",
+      }),
+    ).toBe(
+      "{from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
+    );
+  });
+
+  it("keeps explicit Gmail address operators unchanged", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: "from:ada@example.com",
+      }),
+    ).toBe("from:ada@example.com");
+  });
+
+  it("keeps label and view clauses when expanding an email address search", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "inbox",
+        label: "customer success",
+        q: "ada@example.com",
+      }),
+    ).toBe(
+      "in:inbox -in:sent label:customer-success {from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
+    );
+  });
+
   it("scopes archive searches to archived mail", () => {
     expect(buildGmailEmailSearchQuery({ view: "archive", q: "receipt" })).toBe(
       "-in:inbox -in:sent -in:drafts -in:trash receipt",

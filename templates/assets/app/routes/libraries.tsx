@@ -67,7 +67,7 @@ export default function LibrariesPage() {
   return (
     <PageShell
       title="Libraries"
-      description="Organize references, generated assets, folders, and reusable instructions."
+      description="Organize references, generated assets, folders, and reusable style guidance."
     >
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -117,6 +117,7 @@ export default function LibrariesPage() {
                 library={library}
                 to={`/library/${library.id}`}
                 onEdit={() => setEditing(library)}
+                showInstructions={false}
               />
             ))}
           </div>
@@ -127,7 +128,7 @@ export default function LibrariesPage() {
               <h3 className="mt-4 text-base font-semibold">No libraries yet</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 Start with a default style library or create your own references
-                and instructions.
+                and style guidance.
               </p>
             </div>
             <div className="mx-auto mt-6 max-w-4xl">

@@ -89,6 +89,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "assets:asset_folders": "child rows scoped through libraries",
   "assets:image_assets": "child rows scoped through libraries/collections",
   "assets:image_collections": "child rows scoped through libraries",
+  "assets:image_generation_presets": "child rows scoped through libraries",
+  "assets:image_generation_sessions": "child rows scoped through libraries",
+  "assets:image_generation_session_items":
+    "child rows scoped through generation sessions/libraries",
   "mail:email_link_tracking": "tracking rows scoped through owning draft/job",
   "meeting-notes:companies": "directory/cache table accessed by actions",
   "meeting-notes:meeting_attendees": "child rows scoped through meetings",

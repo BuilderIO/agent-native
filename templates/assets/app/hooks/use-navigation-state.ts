@@ -32,6 +32,13 @@ function pathFromCommand(command: any): string | null {
   ) {
     return `/asset/${command.assetId}`;
   }
+  if (
+    (command.view === "generation-session" ||
+      command.view === "generation-run") &&
+    command.libraryId
+  ) {
+    return `/library/${command.libraryId}`;
+  }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
   if (command.view === "create") return "/";

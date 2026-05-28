@@ -9,6 +9,7 @@ import {
 import { accessFilter } from "@agent-native/core/sharing";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 
 const durationSchema = z.coerce
   .number()
@@ -170,8 +171,17 @@ export default defineAction({
 
       const slug = await uniqueSlug(requestedSlug);
       const durations =
-        copy.durations ?? parseJson<number[]>(source.durations, []);
-      const duration = copy.duration ?? durations[0] ?? source.duration;
+        copy.durations ??
+        (copy.duration === undefined
+          ? parseJson<number[]>(source.durations, [])
+          : []);
+      const durationInput = normalizeBookingDurationInput({
+        duration: copy.duration ?? source.duration,
+        durations,
+      });
+      if ("error" in durationInput) {
+        throw new Error(durationInput.error);
+      }
       const id = nanoid();
 
       await getDb()
@@ -184,8 +194,10 @@ export default defineAction({
             copy.description !== undefined
               ? copy.description.trim() || null
               : source.description,
-          duration,
-          durations: durations.length > 1 ? JSON.stringify(durations) : null,
+          duration: durationInput.duration,
+          durations: durationInput.durations
+            ? JSON.stringify(durationInput.durations)
+            : null,
           customFields: source.customFields,
           conferencing: source.conferencing,
           color: source.color,

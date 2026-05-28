@@ -1,9 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq, and, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { extractDominantColors } from "../server/lib/image-processing.js";
+import {
+  analyzeStyleWithGemini,
+  isGeminiImageGenerationConfigured,
+  type ReferenceForGeneration,
+} from "../server/lib/generation.js";
 import { getObject } from "../server/lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import { serializeLibrary } from "./_helpers.js";
@@ -11,21 +16,16 @@ import type { StyleBrief } from "../shared/api.js";
 
 /**
  * Synthesize a reusable style guide from a library's reference images.
- *
- * Right now this extracts a dominant-color palette from each non-archived
- * reference asset (Sharp-based, no vision model), merges palettes by frequency,
- * and writes the result back to `library.styleBrief`. v2 will call a vision
- * model for descriptive style language; for v1 the dominant-color heuristic is
- * good enough to seed the palette field.
  */
 export default defineAction({
   description:
-    "Analyze the reference images in a library and update its style brief with an extracted palette. Use this after the user uploads reference images to seed the brand palette automatically.",
+    "Analyze reference images in an asset library or collection and update the style brief with palette plus vision-derived brand/style traits.",
   schema: z.object({
     libraryId: z.string(),
+    collectionId: z.string().optional(),
     paletteSize: z.coerce.number().int().min(3).max(12).default(6),
   }),
-  run: async ({ libraryId, paletteSize }) => {
+  run: async ({ libraryId, collectionId, paletteSize }) => {
     await assertAccess("asset-library", libraryId, "editor");
     const db = getDb();
     const [library] = await db
@@ -34,23 +34,43 @@ export default defineAction({
       .where(eq(schema.assetLibraries.id, libraryId))
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
+    const [collection] = collectionId
+      ? await db
+          .select()
+          .from(schema.assetCollections)
+          .where(eq(schema.assetCollections.id, collectionId))
+          .limit(1)
+      : [null];
+    if (collection && collection.libraryId !== libraryId) {
+      throw new Error("Collection does not belong to this asset library.");
+    }
 
-    // Pull every non-archived asset that isn't a generated candidate; these
-    // are the brand evidence the agent should learn from.
-    const refs = await db
+    const rows = await db
       .select()
       .from(schema.assets)
-      .where(
-        and(
-          eq(schema.assets.libraryId, libraryId),
-          ne(schema.assets.role, "generated"),
-        ),
-      );
+      .where(eq(schema.assets.libraryId, libraryId));
+    const refs = rows.filter(
+      (asset) =>
+        asset.role !== "generated" &&
+        asset.status !== "archived" &&
+        asset.status !== "failed" &&
+        asset.mimeType.startsWith("image/") &&
+        (!collectionId || asset.collectionId === collectionId),
+    );
 
     const colorScores = new Map<string, number>();
+    const referenceData: ReferenceForGeneration[] = [];
     for (const ref of refs) {
       const buffer = await getObject(ref.objectKey).catch(() => null);
       if (!buffer) continue;
+      const metadata = parseJson<{ category?: string }>(ref.metadata, {});
+      referenceData.push({
+        id: ref.id,
+        role: ref.role,
+        category: metadata.category,
+        mimeType: ref.mimeType,
+        data: buffer.toString("base64"),
+      });
       const colors = await extractDominantColors(buffer).catch(
         (): string[] => [],
       );
@@ -66,25 +86,88 @@ export default defineAction({
       .slice(0, paletteSize)
       .map(([hex]) => hex);
 
-    const previous = parseJson<StyleBrief>(library.styleBrief, {});
+    const previous = collection
+      ? parseJson<StyleBrief>(collection.styleBrief, {})
+      : parseJson<StyleBrief>(library.styleBrief, {});
+    let analyzedStyle: StyleBrief = {};
+    let analysisModel: string | null = null;
+    let analysisMode: "vision" | "palette" = "palette";
+    if (
+      referenceData.length > 0 &&
+      (await isGeminiImageGenerationConfigured().catch(() => false))
+    ) {
+      try {
+        const output = await analyzeStyleWithGemini({
+          references: referenceData,
+          previous,
+        });
+        analyzedStyle = output.styleBrief;
+        analysisModel = output.model;
+        analysisMode = "vision";
+      } catch {
+        analyzedStyle = {};
+      }
+    }
     const styleBrief: StyleBrief = {
       ...previous,
+      ...Object.fromEntries(
+        Object.entries(analyzedStyle).filter(([, value]) =>
+          Array.isArray(value) ? value.length > 0 : Boolean(value),
+        ),
+      ),
       palette: palette.length > 0 ? palette : previous.palette,
     };
 
-    await db
-      .update(schema.assetLibraries)
-      .set({ styleBrief: stringifyJson(styleBrief), updatedAt: nowIso() })
-      .where(eq(schema.assetLibraries.id, libraryId));
+    const analyzedAt = nowIso();
+    if (collection) {
+      await db
+        .update(schema.assetCollections)
+        .set({ styleBrief: stringifyJson(styleBrief), updatedAt: analyzedAt })
+        .where(eq(schema.assetCollections.id, collection.id));
+    } else {
+      const settings = parseJson<Record<string, unknown>>(library.settings, {});
+      settings.brandAnalysis = {
+        analyzedAt,
+        referenceCount: refs.length,
+        analyzedImageCount: referenceData.length,
+        mode: analysisMode,
+        model: analysisModel,
+      };
+      await db
+        .update(schema.assetLibraries)
+        .set({
+          styleBrief: stringifyJson(styleBrief),
+          settings: stringifyJson(settings),
+          updatedAt: analyzedAt,
+        })
+        .where(eq(schema.assetLibraries.id, libraryId));
+    }
 
     return {
       libraryId,
+      collectionId: collection?.id ?? null,
       analyzed: refs.length,
+      analyzedImages: referenceData.length,
+      mode: analysisMode,
+      model: analysisModel,
       palette,
-      library: serializeLibrary({
-        ...library,
-        styleBrief: stringifyJson(styleBrief),
-      }),
+      styleBrief,
+      library: collection
+        ? undefined
+        : serializeLibrary({
+            ...library,
+            styleBrief: stringifyJson(styleBrief),
+            settings: stringifyJson({
+              ...parseJson<Record<string, unknown>>(library.settings, {}),
+              brandAnalysis: {
+                analyzedAt,
+                referenceCount: refs.length,
+                analyzedImageCount: referenceData.length,
+                mode: analysisMode,
+                model: analysisModel,
+              },
+            }),
+          }),
     };
   },
 });

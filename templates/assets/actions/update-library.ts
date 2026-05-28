@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
-import { nowIso, stringifyJson } from "../server/lib/json.js";
+import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 
 async function assertAssetBelongsToLibrary(
@@ -35,7 +35,10 @@ export default defineAction({
         defaultModel: z.enum(IMAGE_MODELS).optional(),
         defaultAspectRatio: z.enum(ASPECT_RATIOS).optional(),
         defaultImageSize: z.enum(IMAGE_SIZES).optional(),
+        canonicalStyleAssetIds: z.array(z.string()).optional(),
+        brandAnalysis: z.record(z.string(), z.unknown()).optional(),
       })
+      .catchall(z.unknown())
       .optional(),
     coverAssetId: z.string().nullable().optional(),
     canonicalLogoAssetId: z.string().nullable().optional(),
@@ -59,7 +62,18 @@ export default defineAction({
     }
     if (styleBrief !== undefined)
       updates.styleBrief = stringifyJson(styleBrief);
-    if (settings !== undefined) updates.settings = stringifyJson(settings);
+    if (settings !== undefined) {
+      const [library] = await getDb()
+        .select({ settings: schema.assetLibraries.settings })
+        .from(schema.assetLibraries)
+        .where(eq(schema.assetLibraries.id, id))
+        .limit(1);
+      const previousSettings = parseJson<Record<string, unknown>>(
+        library?.settings,
+        {},
+      );
+      updates.settings = stringifyJson({ ...previousSettings, ...settings });
+    }
     if (coverAssetId !== undefined) {
       if (coverAssetId) {
         await assertAssetBelongsToLibrary(coverAssetId, id, "Cover asset");

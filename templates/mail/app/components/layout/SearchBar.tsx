@@ -74,7 +74,7 @@ export function SearchBar({
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
         lastSyncedQueryRef.current = trimmed;
-        navigate(`/inbox?q=${encodeURIComponent(trimmed)}`);
+        navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -85,7 +85,7 @@ export function SearchBar({
       const q = contact.email;
       setQuery(q);
       lastSyncedQueryRef.current = q;
-      navigate(`/inbox?q=${encodeURIComponent(q)}`);
+      navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
     [navigate],

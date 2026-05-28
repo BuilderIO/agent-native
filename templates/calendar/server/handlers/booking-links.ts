@@ -21,6 +21,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { ensureBookingUsername } from "./booking-usernames.js";
+import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -99,6 +100,14 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
         setResponseStatus(event, 400);
         return { error: "title, slug, and duration are required" };
       }
+      const durationInput = normalizeBookingDurationInput({
+        duration: body.duration,
+        durations: body.durations,
+      });
+      if ("error" in durationInput) {
+        setResponseStatus(event, 400);
+        return { error: durationInput.error };
+      }
 
       const slug = String(body.slug).trim().toLowerCase();
       const [existingLink, existingRedirect] = await Promise.all([
@@ -128,8 +137,10 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
           description: body.description
             ? String(body.description).trim()
             : null,
-          duration: Number(body.duration),
-          durations: body.durations ? JSON.stringify(body.durations) : null,
+          duration: durationInput.duration,
+          durations: durationInput.durations
+            ? JSON.stringify(durationInput.durations)
+            : null,
           customFields: body.customFields
             ? JSON.stringify(body.customFields)
             : null,
@@ -173,6 +184,14 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
       if (!body.title || !body.slug || !body.duration) {
         setResponseStatus(event, 400);
         return { error: "title, slug, and duration are required" };
+      }
+      const durationInput = normalizeBookingDurationInput({
+        duration: body.duration,
+        durations: body.durations,
+      });
+      if ("error" in durationInput) {
+        setResponseStatus(event, 400);
+        return { error: durationInput.error };
       }
 
       // Sharing: only owner / editor / admin can update.
@@ -221,8 +240,10 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
           description: body.description
             ? String(body.description).trim()
             : null,
-          duration: Number(body.duration),
-          durations: body.durations ? JSON.stringify(body.durations) : null,
+          duration: durationInput.duration,
+          durations: durationInput.durations
+            ? JSON.stringify(durationInput.durations)
+            : null,
           customFields: body.customFields
             ? JSON.stringify(body.customFields)
             : null,

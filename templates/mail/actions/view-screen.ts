@@ -10,6 +10,7 @@ import {
   gmailToEmailMessage,
   fetchGmailLabelMap,
 } from "../server/lib/google-auth.js";
+import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
@@ -18,17 +19,7 @@ import {
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
-
-const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox -in:sent",
-  unread: "is:unread in:inbox -in:sent",
-  starred: "is:starred",
-  sent: "in:sent",
-  drafts: "in:drafts",
-  archive: "-in:inbox -in:sent -in:drafts -in:trash",
-  trash: "in:trash",
-  all: "",
-};
+import { emailMessageMatchesSearch } from "@shared/search.js";
 
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
@@ -58,14 +49,8 @@ async function fetchEmailList(
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
       if (search) {
-        const q = search.toLowerCase();
-        emails = emails.filter(
-          (e: any) =>
-            e.subject?.toLowerCase().includes(q) ||
-            e.snippet?.toLowerCase().includes(q) ||
-            e.body?.toLowerCase().includes(q) ||
-            e.from?.name?.toLowerCase().includes(q) ||
-            e.from?.email?.toLowerCase().includes(q),
+        emails = emails.filter((e: any) =>
+          emailMessageMatchesSearch(e, search),
         );
       }
       return emails.slice(0, 50);
@@ -82,8 +67,7 @@ async function fetchEmailList(
         }),
       );
 
-      const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-      const gmailQuery = [viewPrefix, search].filter(Boolean).join(" ");
+      const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
       const effectiveQuery =
         view === "all" && !search ? "" : gmailQuery || "in:inbox -in:sent";
       const { messages } = await listGmailMessages(
@@ -147,14 +131,8 @@ async function fetchEmailList(
           break;
       }
       if (search) {
-        const q = search.toLowerCase();
-        emails = emails.filter(
-          (e: any) =>
-            e.subject?.toLowerCase().includes(q) ||
-            e.snippet?.toLowerCase().includes(q) ||
-            e.body?.toLowerCase().includes(q) ||
-            e.from?.name?.toLowerCase().includes(q) ||
-            e.from?.email?.toLowerCase().includes(q),
+        emails = emails.filter((e: any) =>
+          emailMessageMatchesSearch(e, search),
         );
       }
       return emails.slice(0, 50);

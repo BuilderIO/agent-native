@@ -15,11 +15,15 @@ Use A2A when another app needs brand imagery, video, or reusable source media an
    per slide. Always pass `source: "a2a"` and `callerAppId` with the calling
    app id (`slides`, `design`, `content`, `mail`) so the Assets audit log can
    group cross-agent generations.
-3. For video, call `generate-video` and then `refresh-generation-run` until the run completes.
-4. Preserve returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and
+3. For social/blog/diagram slots, call `list-generation-presets` and pass the
+   matching `presetId` so output rules travel with the run.
+4. When a human designer needs to continue the work, create or update a
+   generation session and preserve the returned `sessionId`.
+5. For video, call `generate-video` and then `refresh-generation-run` until the run completes.
+6. Preserve returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and
    `embedPath` exactly.
-5. Insert exported URLs into the caller's artifact.
-6. On feedback, call `refine-image` with the prior `assetId`, `source: "a2a"`,
+7. Insert exported URLs into the caller's artifact.
+8. On feedback, call `refine-image` with the prior `assetId`, `source: "a2a"`,
    and the same `callerAppId`, then replace only the affected destination.
 
 ## Audit Trail

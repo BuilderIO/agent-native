@@ -7,7 +7,7 @@ import {
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import pLimit from "p-limit";
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
@@ -15,12 +15,16 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
 import {
+  filterDuplicateAssetUploads,
+  hashAssetBuffer,
+} from "../lib/upload-dedupe.js";
+import {
   hasRasterImageSignature,
   hasVideoSignature,
 } from "../lib/image-processing.js";
 import { getObject } from "../lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
-import { IMAGE_CATEGORIES } from "../../shared/api.js";
+import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
 import type { ImageCategory, ImageRole } from "../../shared/api.js";
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -170,6 +174,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
       await assertFolderBelongsToLibrary(folderId, libraryId);
     }
     const category = categoryFromForm(readField(parts, "category"));
+    const intent = readField(parts, "intent");
     const title = readField(parts, "title") || null;
     const files =
       parts?.filter((part) => part.name === "files" && part.data) ?? [];
@@ -177,9 +182,9 @@ export const uploadAssets = defineEventHandler(async (event) =>
       setResponseStatus(event, 400);
       return { error: "No files uploaded" };
     }
-    if (files.length > 20) {
+    if (files.length > MAX_ASSET_UPLOAD_FILES) {
       setResponseStatus(event, 413);
-      return { error: "Too many files (max 20)" };
+      return { error: `Too many files (max ${MAX_ASSET_UPLOAD_FILES})` };
     }
     const preparedFiles = [];
     for (const part of files) {
@@ -203,27 +208,66 @@ export const uploadAssets = defineEventHandler(async (event) =>
             "Only PNG, JPEG, WebP, AVIF, MP4, MOV, M4V, and WebM assets are supported.",
         };
       }
+      const buffer = Buffer.from(part.data);
+      const contentHash = hashAssetBuffer(buffer);
+      const filename = part.filename || null;
       preparedFiles.push({
-        buffer: Buffer.from(part.data),
+        altText: filename,
+        buffer,
+        contentHash,
+        filename,
         mimeType,
         mediaType,
         title:
           title ||
-          part.filename ||
+          filename ||
           (mediaType === "video" ? "Reference video" : "Reference image"),
-        altText: part.filename || null,
         metadata: {
-          originalName: part.filename,
+          contentHash,
+          ...(intent === "subject" ? { intent: "subject" } : {}),
+          originalName: filename,
           uploadId: nanoid(),
         },
       });
     }
 
+    const existingReferenceAssets = await getDb()
+      .select({
+        id: schema.assets.id,
+        title: schema.assets.title,
+        mediaType: schema.assets.mediaType,
+        mimeType: schema.assets.mimeType,
+        sizeBytes: schema.assets.sizeBytes,
+        metadata: schema.assets.metadata,
+        objectKey: schema.assets.objectKey,
+      })
+      .from(schema.assets)
+      .where(
+        and(
+          eq(schema.assets.libraryId, libraryId),
+          eq(schema.assets.status, "reference"),
+        ),
+      );
+    const deduped = await filterDuplicateAssetUploads({
+      files: preparedFiles,
+      existingAssets: existingReferenceAssets,
+      readExistingAssetBuffer: (asset) => getObject(asset.objectKey),
+    });
+
+    if (!deduped.files.length) {
+      return {
+        count: 0,
+        assets: [],
+        skippedDuplicates: deduped.skippedDuplicates,
+      };
+    }
+
     const limit = pLimit(UPLOAD_CONCURRENCY);
-    const assets = await Promise.all(
-      preparedFiles.map((file) =>
-        limit(() =>
-          createAssetFromBuffer({
+    const uploadResults = await Promise.allSettled(
+      deduped.files.map((file) =>
+        limit(async () => ({
+          file,
+          asset: await createAssetFromBuffer({
             libraryId,
             collectionId,
             folderId,
@@ -237,10 +281,41 @@ export const uploadAssets = defineEventHandler(async (event) =>
             metadata: file.metadata,
             category,
           }),
-        ),
+        })),
       ),
     );
-    return { count: assets.length, assets };
+    const assets = uploadResults.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value.asset] : [],
+    );
+    const errors = uploadResults.flatMap((result, index) =>
+      result.status === "rejected"
+        ? [
+            {
+              filename: deduped.files[index]?.filename ?? null,
+              message:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : "Upload failed",
+            },
+          ]
+        : [],
+    );
+    if (!assets.length && errors.length) {
+      setResponseStatus(event, 500);
+      return {
+        error: errors[0]?.message ?? "Upload failed",
+        count: 0,
+        assets,
+        skippedDuplicates: deduped.skippedDuplicates,
+        errors,
+      };
+    }
+    return {
+      count: assets.length,
+      assets,
+      skippedDuplicates: deduped.skippedDuplicates,
+      errors,
+    };
   }),
 );
 

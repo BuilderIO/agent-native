@@ -1,1 +1,5 @@
-export { default, meta } from "@agent-native/dispatch/routes/pages/overview";
+export {
+  default,
+  loader,
+  meta,
+} from "@agent-native/dispatch/routes/pages/overview";

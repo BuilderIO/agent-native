@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -54,6 +55,12 @@ import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
+import {
+  chunkAssetUploads,
+  getFailedUploadCount,
+  getSkippedDuplicateCount,
+  type AssetUploadResult,
+} from "@/lib/upload-results";
 import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
@@ -99,7 +106,10 @@ type ImageGenerationConfig = {
 
 export default function CreatePage() {
   const navigate = useNavigate();
-  const { data } = useActionQuery("list-libraries", {});
+  const { data, isLoading: librariesLoading } = useActionQuery(
+    "list-libraries",
+    {},
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const libraries = ((data as any)?.libraries ?? []) as ImageLibrarySummary[];
 
@@ -111,6 +121,7 @@ export default function CreatePage() {
     >
       <HomeGeneratePanel
         libraries={libraries}
+        librariesLoading={librariesLoading}
         onRequestNewLibrary={() => setCreateOpen(true)}
       />
 
@@ -123,6 +134,37 @@ export default function CreatePage() {
         }}
       />
     </PageShell>
+  );
+}
+
+function LibrarySectionSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Loading libraries">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="size-4 rounded-sm" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="overflow-hidden rounded-lg border bg-card"
+          >
+            <Skeleton className="aspect-[16/8] rounded-none" />
+            <div className="space-y-3 p-3">
+              <Skeleton className="h-4 w-2/3" />
+              <div className="flex gap-2">
+                <Skeleton className="h-5 w-14 rounded-full" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -397,9 +439,11 @@ async function readInlineTextContextFiles(files: File[]) {
 
 function HomeGeneratePanel({
   libraries,
+  librariesLoading,
   onRequestNewLibrary,
 }: {
   libraries: ImageLibrarySummary[];
+  librariesLoading: boolean;
   onRequestNewLibrary: () => void;
 }) {
   const navigate = useNavigate();
@@ -407,7 +451,10 @@ function HomeGeneratePanel({
     "get-image-generation-config",
     {},
   ) as { data?: ImageGenerationConfig };
-  const { data: presetData } = useActionQuery("list-library-presets", {});
+  const { data: presetData, isLoading: presetsLoading } = useActionQuery(
+    "list-library-presets",
+    {},
+  );
   const createFromPreset = useActionMutation("create-library-from-preset");
   const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
   const [createdLibrary, setCreatedLibrary] =
@@ -423,6 +470,8 @@ function HomeGeneratePanel({
     return sorted;
   }, [createdLibrary, libraries]);
   const popularLibraries = sortedLibraries.slice(0, 3);
+  const librariesAreaLoading =
+    librariesLoading || (!popularLibraries.length && presetsLoading);
   const [libraryId, setLibraryId] = useState<string>(
     () => loadLastLibraryId() ?? "",
   );
@@ -553,39 +602,99 @@ function HomeGeneratePanel({
 
     let uploadedAssets: { id: string; title: string }[] = [];
     if (imageFiles.length > 0 && selectedLibrary) {
+      const uploadChunks = chunkAssetUploads(imageFiles);
       const uploadingToast = toast.loading(
         `Uploading ${imageFiles.length} reference${imageFiles.length === 1 ? "" : "s"}...`,
+        {
+          description:
+            uploadChunks.length > 1
+              ? `Processing in ${uploadChunks.length} batches.`
+              : undefined,
+        },
       );
       try {
-        const form = new FormData();
-        form.append("libraryId", selectedLibrary.id);
-        form.append("category", "style-only");
-        for (const file of imageFiles) form.append("files", file);
-        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-          method: "POST",
-          body: form,
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data?.error || `Upload failed (${res.status})`);
+        let skippedCount = 0;
+        let failedCount = 0;
+        for (const chunk of uploadChunks) {
+          const form = new FormData();
+          form.append("libraryId", selectedLibrary.id);
+          form.append("category", "style-only");
+          for (const file of chunk) form.append("files", file);
+          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data?.error || `Upload failed (${res.status})`);
+          }
+          const data = (await res.json()) as AssetUploadResult;
+          skippedCount += getSkippedDuplicateCount(data);
+          failedCount += getFailedUploadCount(data);
+          uploadedAssets.push(
+            ...(data.assets ?? []).map((a: any) => ({
+              id: a.id,
+              title: a.title || "Reference image",
+            })),
+          );
         }
-        const data = await res.json();
-        uploadedAssets = (data.assets ?? []).map((a: any) => ({
-          id: a.id,
-          title: a.title || "Reference image",
-        }));
-        toast.success(
-          `Added ${uploadedAssets.length} reference${
-            uploadedAssets.length === 1 ? "" : "s"
-          } to ${selectedLibrary.title}`,
-          { id: uploadingToast },
-        );
+        const uploadedCount = uploadedAssets.length;
+        if (failedCount > 0) {
+          toast.warning(
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
+            }; ${failedCount} failed.`,
+            {
+              id: uploadingToast,
+              description:
+                skippedCount > 0
+                  ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                  : null,
+            },
+          );
+        } else if (uploadedCount > 0 && skippedCount > 0) {
+          toast.success(
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
+            }; skipped ${skippedCount} duplicate${
+              skippedCount === 1 ? "" : "s"
+            }.`,
+            { id: uploadingToast, description: null },
+          );
+        } else if (uploadedCount > 0) {
+          toast.success(
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
+            } to ${selectedLibrary.title}`,
+            { id: uploadingToast, description: null },
+          );
+        } else if (skippedCount > 0) {
+          toast.warning(
+            `Skipped ${skippedCount} duplicate reference${
+              skippedCount === 1 ? "" : "s"
+            }.`,
+            {
+              id: uploadingToast,
+              description: `Already in ${selectedLibrary.title}.`,
+            },
+          );
+        } else {
+          toast.warning("No new references were added.", {
+            id: uploadingToast,
+            description: null,
+          });
+        }
       } catch (err: any) {
         toast.error(err?.message || "Couldn't upload references.", {
           id: uploadingToast,
+          description: null,
         });
         return;
       }
+    }
+
+    if (!trimmed && uploadedAssets.length === 0 && textFiles.length === 0) {
+      return;
     }
 
     let textContextSnippets: string[] = [];
@@ -863,62 +972,70 @@ function HomeGeneratePanel({
       </section>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconPhotoPlus size={16} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">
-              {popularLibraries.length ? "Popular libraries" : "Default styles"}
-            </h2>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/libraries">
-              View all
-              <IconArrowUpRight size={15} className="ml-1.5" />
-            </Link>
-          </Button>
-        </div>
-
-        {popularLibraries.length ? (
-          <div className="grid gap-3 md:grid-cols-3">
-            {popularLibraries.map((library) => (
-              <LibraryCard
-                key={library.id}
-                library={library}
-                to={`/library/${library.id}`}
-                selected={selectedLibrary?.id === library.id}
-                compact
-              />
-            ))}
-          </div>
+        {librariesAreaLoading ? (
+          <LibrarySectionSkeleton />
         ) : (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-5">
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Start with a default style
-                </h3>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Create a library from a preset, then generate from the prompt
-                  above.
-                </p>
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <IconPhotoPlus size={16} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">
+                  {popularLibraries.length
+                    ? "Popular libraries"
+                    : "Default styles"}
+                </h2>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onRequestNewLibrary}
-                className="gap-2"
-              >
-                <IconPhotoPlus className="h-4 w-4" />
-                Custom library
+              <Button asChild variant="outline" size="sm">
+                <Link to="/libraries">
+                  View all
+                  <IconArrowUpRight size={15} className="ml-1.5" />
+                </Link>
               </Button>
             </div>
-            <LibraryPresetGrid
-              presets={presets}
-              creatingId={creatingPresetId}
-              onCreate={createPresetLibrary}
-            />
-          </div>
+
+            {popularLibraries.length ? (
+              <div className="grid gap-3 md:grid-cols-3">
+                {popularLibraries.map((library) => (
+                  <LibraryCard
+                    key={library.id}
+                    library={library}
+                    to={`/library/${library.id}`}
+                    selected={selectedLibrary?.id === library.id}
+                    compact
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed bg-muted/20 p-5">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">
+                      Start with a default style
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Create a library from a preset, then generate from the
+                      prompt above.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onRequestNewLibrary}
+                    className="gap-2"
+                  >
+                    <IconPhotoPlus className="h-4 w-4" />
+                    Custom library
+                  </Button>
+                </div>
+                <LibraryPresetGrid
+                  presets={presets}
+                  creatingId={creatingPresetId}
+                  onCreate={createPresetLibrary}
+                />
+              </div>
+            )}
+          </>
         )}
       </section>
 
