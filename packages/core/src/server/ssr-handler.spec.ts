@@ -125,7 +125,7 @@ describe("createH3SSRHandler", () => {
   it("injects the default social image into SSR HTML without one", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response(
-        '<html><head><title>Calendar</title></head><body>ok</body></html>',
+        "<html><head><title>Calendar</title></head><body>ok</body></html>",
         {
           headers: { "content-type": "text/html; charset=utf-8" },
         },

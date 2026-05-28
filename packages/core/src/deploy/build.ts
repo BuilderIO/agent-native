@@ -308,8 +308,8 @@ function injectHeadScript(html, script) {
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
 const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
-  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
-)};
+    AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  )};
 const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i;
 const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;

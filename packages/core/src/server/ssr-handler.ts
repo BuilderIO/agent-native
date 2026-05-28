@@ -146,8 +146,7 @@ function injectHeadScript(html: string, script: string | null): string {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
-const OG_IMAGE_META_RE =
-  /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const OG_IMAGE_META_RE = /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
 const TWITTER_CARD_META_RE =
   /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE =
