@@ -9,7 +9,7 @@ import { requireGenerationSessionInLibrary } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and sampled references.",
+    "Rerun a prior asset generation using its original prompt and settings, but recompile against the latest library custom instructions, style brief, collection data, and deterministic references.",
   schema: z.object({
     runId: z.string().describe("Generation run to rerun"),
     slotId: z

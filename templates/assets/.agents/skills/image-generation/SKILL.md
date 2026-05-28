@@ -43,7 +43,7 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 ## Prompting
 
 - Treat references as evidence, not decoration.
-- Let the server sample references unless the user named exact assets. Automatic
+- Let the server choose references unless the user named exact assets. Automatic
   generation uses up to 6 relevant current references, seeded by canonical
   style anchors; explicit `referenceAssetIds` are preserved.
 - If a collection's style feels underspecified, call `analyze-collection-style`
@@ -76,4 +76,4 @@ are performing, use `navigate --view audit`, `list-audit-runs`, or
 
 Use `rerun-generation-run` to rerun the original prompt and settings from an
 older generation against the latest library style brief, custom instructions,
-collection data, and sampled references.
+collection data, and deterministic references.
