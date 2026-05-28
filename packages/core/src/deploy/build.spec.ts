@@ -7,6 +7,7 @@ import {
   getNodeBuiltinNames,
   runNitroBuildPipeline,
 } from "./build.js";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
@@ -158,6 +159,9 @@ export default (event) =>
     expect(html).toContain('href="/docs/next"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('url("/docs/hero.png")');
+    expect(html).toContain(
+      `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+    );
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );

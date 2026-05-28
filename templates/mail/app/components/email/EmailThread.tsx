@@ -2538,6 +2538,7 @@ function HtmlEmailBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
   const { resolvedTheme } = useTheme();
@@ -3133,6 +3134,12 @@ function HtmlEmailBody({
     doc.addEventListener("click", handleLinkClick);
 
     // Forward keyboard events from iframe to parent
+    const focusParentAfterShortcut = () => {
+      window.focus();
+      iframeRef.current?.blur();
+      frameHostRef.current?.focus({ preventScroll: true });
+    };
+
     const forwardKey = (e: KeyboardEvent) => {
       const forwarded = new KeyboardEvent(e.type, {
         key: e.key,
@@ -3146,7 +3153,13 @@ function HtmlEmailBody({
         bubbles: true,
         cancelable: true,
       });
-      window.dispatchEvent(forwarded);
+      const handled = !window.dispatchEvent(forwarded);
+      if (handled || forwarded.defaultPrevented) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusParentAfterShortcut();
+        requestAnimationFrame(focusParentAfterShortcut);
+      }
     };
     doc.addEventListener("keydown", forwardKey);
 
@@ -3265,7 +3278,7 @@ function HtmlEmailBody({
     (isEmbedded || !showImagesForThread);
 
   return (
-    <div>
+    <div ref={frameHostRef} tabIndex={-1} className="outline-none">
       {showBanner && (
         <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-accent/60 text-[12px] text-muted-foreground">
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
