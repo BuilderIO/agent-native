@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.24.7
+
+### Patch Changes
+
+- 5355ff0: Keep the optional undici import out of browser and template build graphs.
+
 ## 0.24.6
 
 ### Patch Changes
