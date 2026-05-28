@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.24.5
+
+### Patch Changes
+
+- 32bb63c: Remove browser-facing ACCESS_TOKEN auth gates and keep static bearer tokens limited to MCP/connect fallback clients.
+
 ## 0.24.4
 
 ### Patch Changes
