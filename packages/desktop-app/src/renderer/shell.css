@@ -271,6 +271,17 @@ body {
   display: none;
 }
 
+.sidebar:focus,
+.sidebar:focus-visible,
+.sidebar-nav:focus,
+.sidebar-nav:focus-visible,
+.sidebar-footer:focus,
+.sidebar-footer:focus-visible,
+.sidebar-item:focus,
+.sidebar-item:focus-visible {
+  outline: none;
+}
+
 .sidebar-footer {
   width: 100%;
   display: flex;
