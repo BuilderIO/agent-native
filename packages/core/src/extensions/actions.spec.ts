@@ -29,9 +29,12 @@ describe("extensions/actions", () => {
       createExtension: vi.fn(),
       deleteExtension: vi.fn(),
       getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser,
       hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
       listExtensions,
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent: vi.fn(),
@@ -88,9 +91,12 @@ describe("extensions/actions", () => {
       createExtension: vi.fn(),
       deleteExtension: vi.fn(),
       getExtension,
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser,
       hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent: vi.fn(),
@@ -132,6 +138,126 @@ describe("extensions/actions", () => {
     });
   });
 
+  it("lists extension history snapshots without content by default", async () => {
+    const listExtensionHistory = vi.fn(async () => [
+      {
+        id: "hist-2",
+        extensionId: "ext-zoom",
+        version: 2,
+        operation: "content-update",
+        summary: "Updated content (+1 -0 lines)",
+        name: "Connect Zoom",
+        description: "Broken Zoom connector",
+        icon: null,
+        actorEmail: "thomas@example.com",
+        ownerEmail: "thomas@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        createdAt: "2026-05-06T01:00:00.000Z",
+        persisted: true,
+        contentLength: 42,
+      },
+    ]);
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
+      getHiddenExtensionIdsForCurrentUser: vi.fn(),
+      hideExtension: vi.fn(),
+      listExtensionHistory,
+      listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent: vi.fn(),
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["list-extension-history"].run({
+      id: "ext-zoom",
+    })) as any;
+
+    expect(actions["list-extension-history"].readOnly).toBe(true);
+    expect(listExtensionHistory).toHaveBeenCalledWith("ext-zoom", {
+      limit: undefined,
+      includeContent: false,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      count: 1,
+      history: [{ version: 2, summary: "Updated content (+1 -0 lines)" }],
+    });
+    expect(result.history[0]).not.toHaveProperty("content");
+  });
+
+  it("restores an extension from a history version", async () => {
+    const restoreExtensionHistoryVersion = vi.fn(async () => ({
+      ...extensionRow,
+      updatedAt: "2026-05-06T02:00:00.000Z",
+    }));
+
+    vi.doMock("./store.js", () => ({
+      createExtension: vi.fn(),
+      deleteExtension: vi.fn(),
+      getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
+      getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
+      hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
+      listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion,
+      unhideExtension: vi.fn(),
+      updateExtension: vi.fn(),
+      updateExtensionContent: vi.fn(),
+    }));
+    vi.doMock("./slots/store.js", () => ({
+      addExtensionSlotTarget: vi.fn(),
+      installExtensionSlot: vi.fn(),
+      uninstallExtensionSlot: vi.fn(),
+      listExtensionsForSlot: vi.fn(),
+      listSlotsForExtension: vi.fn(),
+    }));
+    vi.doMock("../application-state/script-helpers.js", () => ({
+      writeAppState: vi.fn(),
+    }));
+    vi.doMock("../sharing/access.js", () => ({
+      resolveAccess: vi.fn(async () => ({
+        role: "editor",
+        resource: extensionRow,
+      })),
+    }));
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["restore-extension-history-version"].run({
+      id: "ext-zoom",
+      version: 1,
+    })) as any;
+
+    expect(restoreExtensionHistoryVersion).toHaveBeenCalledWith("ext-zoom", 1);
+    expect(result).toMatchObject({
+      ok: true,
+      restoredVersion: 1,
+      extension: { id: "ext-zoom", canEdit: true },
+    });
+  });
+
   it("hides a shared extension from the current user's view", async () => {
     const hideExtension = vi.fn(async () => true);
 
@@ -139,9 +265,12 @@ describe("extensions/actions", () => {
       createExtension: vi.fn(),
       deleteExtension: vi.fn(),
       getExtension: vi.fn(async () => extensionRow),
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(),
       hideExtension,
+      listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent: vi.fn(),
@@ -187,9 +316,12 @@ describe("extensions/actions", () => {
       createExtension: vi.fn(),
       deleteExtension: vi.fn(),
       getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
       hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent,
@@ -246,9 +378,12 @@ describe("extensions/actions", () => {
       createExtension: vi.fn(),
       deleteExtension: vi.fn(),
       getExtension: vi.fn(),
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(async () => new Set<string>()),
       hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent,
@@ -300,9 +435,12 @@ describe("extensions/actions", () => {
         throw new Error("Requires admin role");
       }),
       getExtension: vi.fn(async () => extensionRow),
+      getExtensionHistoryVersion: vi.fn(),
       getHiddenExtensionIdsForCurrentUser: vi.fn(),
       hideExtension: vi.fn(),
+      listExtensionHistory: vi.fn(),
       listExtensions: vi.fn(),
+      restoreExtensionHistoryVersion: vi.fn(),
       unhideExtension: vi.fn(),
       updateExtension: vi.fn(),
       updateExtensionContent: vi.fn(),

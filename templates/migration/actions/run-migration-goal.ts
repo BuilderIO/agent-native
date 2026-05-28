@@ -23,6 +23,7 @@ import {
   assessmentSourceMetadata,
   getRunRow,
   loadTasks,
+  parsePlanInputsJson,
   replaceTasks,
   replaceVerifierResults,
   rowToRun,
@@ -96,7 +97,9 @@ export default defineAction({
 
     if (!row.planPath) {
       const ir = JSON.parse(row.irJson ?? "{}") as ProjectIR;
-      const result = await planMigration(rowToRun(row), ir);
+      const result = await planMigration(rowToRun(row), ir, {
+        planInputs: parsePlanInputsJson(row.planInputsJson),
+      });
       await replaceTasks(id, result.tasks);
       await db
         .update(schema.migrationRuns)

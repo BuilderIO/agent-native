@@ -72,6 +72,8 @@ Examples:
             preview: t.preview,
             messageCount: t.messageCount,
             updatedAt: t.updatedAt,
+            pinnedAt: t.pinnedAt ?? null,
+            archivedAt: t.archivedAt ?? null,
           })),
           count: threads.length,
         },
@@ -98,8 +100,14 @@ Examples:
     const title = t.title || t.preview || "(untitled)";
     const msgs = t.messageCount === 1 ? "1 msg" : `${t.messageCount} msgs`;
     const time = formatTime(t.updatedAt);
+    const flags = [
+      t.pinnedAt ? "pinned" : null,
+      t.archivedAt ? "archived" : null,
+    ].filter(Boolean);
     console.log(`  ${title}`);
-    console.log(`    ID: ${t.id}  |  ${msgs}  |  ${time}`);
+    console.log(
+      `    ID: ${t.id}  |  ${msgs}  |  ${time}${flags.length ? `  |  ${flags.join(", ")}` : ""}`,
+    );
     if (t.preview && t.title && t.preview !== t.title) {
       console.log(
         `    ${t.preview.slice(0, 80)}${t.preview.length > 80 ? "..." : ""}`,

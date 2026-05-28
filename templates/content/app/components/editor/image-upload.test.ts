@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getImageFiles, uploadImageFile } from "./image-upload";
+import {
+  getAudioFiles,
+  getImageFiles,
+  getVideoFiles,
+  uploadAudioFile,
+  uploadImageFile,
+  uploadVideoFile,
+} from "./image-upload";
 
 describe("image uploads", () => {
   afterEach(() => {
@@ -87,6 +94,78 @@ describe("image uploads", () => {
     expect(getImageFiles([file])).toEqual([]);
     await expect(uploadImageFile(file)).rejects.toThrow(
       "Only image files can be uploaded.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uploads video files through the framework file-upload endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ url: "https://cdn.example.com/demo.mp4" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["video-bytes"], "demo.mp4", {
+      type: "video/mp4",
+    });
+
+    await expect(uploadVideoFile(file)).resolves.toBe(
+      "https://cdn.example.com/demo.mp4",
+    );
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const uploadedFile = body.get("file") as File;
+    expect(uploadedFile.name).toBe("demo.mp4");
+    expect(uploadedFile.type).toBe("video/mp4");
+  });
+
+  it("ignores non-video files before uploading", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    expect(getVideoFiles([file])).toEqual([]);
+    await expect(uploadVideoFile(file)).rejects.toThrow(
+      "Only video files can be uploaded.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uploads audio files through the framework file-upload endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ url: "https://cdn.example.com/demo.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["audio-bytes"], "demo.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await expect(uploadAudioFile(file)).resolves.toBe(
+      "https://cdn.example.com/demo.mp3",
+    );
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    const uploadedFile = body.get("file") as File;
+    expect(uploadedFile.name).toBe("demo.mp3");
+    expect(uploadedFile.type).toBe("audio/mpeg");
+  });
+
+  it("ignores non-audio files before uploading", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["video-bytes"], "demo.mp4", {
+      type: "video/mp4",
+    });
+
+    expect(getAudioFiles([file])).toEqual([]);
+    await expect(uploadAudioFile(file)).rejects.toThrow(
+      "Only audio files can be uploaded.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

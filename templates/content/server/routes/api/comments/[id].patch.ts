@@ -1,11 +1,12 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import {
   getSession,
   readBody,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../../../db/index.js";
 
 /**
  * PATCH /api/comments/:id
@@ -33,14 +34,16 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const client = getDbExec();
-      const { rows } = await client.execute({
-        sql: "SELECT document_id, thread_id, author_email FROM document_comments WHERE id = ?",
-        args: [id],
-      });
-      const comment = rows[0] as
-        | { document_id: string; thread_id: string; author_email: string }
-        | undefined;
+      const db = getDb();
+      const [comment] = await db
+        .select({
+          documentId: schema.documentComments.documentId,
+          threadId: schema.documentComments.threadId,
+          authorEmail: schema.documentComments.authorEmail,
+        })
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.id, id))
+        .limit(1);
 
       if (!comment) {
         setResponseStatus(event, 404);
@@ -48,10 +51,10 @@ export default defineEventHandler(async (event) => {
       }
 
       try {
-        if (resolved === true || comment.author_email !== session.email) {
-          await assertAccess("document", comment.document_id, "editor");
+        if (resolved === true || comment.authorEmail !== session.email) {
+          await assertAccess("document", comment.documentId, "editor");
         } else {
-          await assertAccess("document", comment.document_id, "viewer");
+          await assertAccess("document", comment.documentId, "viewer");
         }
       } catch (err) {
         if (err instanceof ForbiddenError) {
@@ -61,39 +64,43 @@ export default defineEventHandler(async (event) => {
         throw err;
       }
 
-      const setClauses: string[] = [];
-      const args: any[] = [];
+      const updates: Partial<typeof schema.documentComments.$inferInsert> = {
+        updatedAt: new Date().toISOString(),
+      };
 
       if (content !== undefined) {
-        setClauses.push("content = ?");
-        args.push(content);
+        updates.content = content;
       }
       if (resolved !== undefined) {
         // When resolving, update all comments in the thread.
         if (resolved) {
-          const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-          await client.execute({
-            sql: `UPDATE document_comments SET resolved = 1, updated_at = ${nowExpr} WHERE document_id = ? AND thread_id = ?`,
-            args: [comment.document_id, comment.thread_id],
-          });
+          await db
+            .update(schema.documentComments)
+            .set({ resolved: 1, updatedAt: updates.updatedAt })
+            .where(
+              and(
+                eq(schema.documentComments.documentId, comment.documentId),
+                eq(schema.documentComments.threadId, comment.threadId),
+              ),
+            );
           return { ok: true, resolved: true };
         }
-        setClauses.push("resolved = ?");
-        args.push(resolved ? 1 : 0);
+        updates.resolved = resolved ? 1 : 0;
       }
 
-      if (setClauses.length === 0) {
+      if (content === undefined && resolved === undefined) {
         return { ok: true };
       }
 
-      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-      setClauses.push(`updated_at = ${nowExpr}`);
-      args.push(id, comment.document_id);
-
-      await client.execute({
-        sql: `UPDATE document_comments SET ${setClauses.join(", ")} WHERE id = ? AND document_id = ?`,
-        args,
-      });
+      await db
+        .update(schema.documentComments)
+        .set(updates)
+        .where(
+          and(
+            eq(schema.documentComments.id, id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
 
       return { ok: true };
     },

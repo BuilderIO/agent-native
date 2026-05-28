@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   generateWorkspaceAppDescription,
+  listAvailableWorkspaceTemplates,
   listWorkspaceApps,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
@@ -346,5 +347,19 @@ describe("listWorkspaceApps", () => {
         "customer-onboarding",
       ),
     ).toBe("Tracks customer onboarding risks and handoffs.");
+  });
+
+  it("offers Brain and Assets as workspace template tiles", async () => {
+    stubNoPendingContext();
+    stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
+
+    const templates = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listAvailableWorkspaceTemplates(),
+    );
+
+    expect(templates.map((template) => template.name)).toEqual(
+      expect.arrayContaining(["brain", "assets"]),
+    );
   });
 });

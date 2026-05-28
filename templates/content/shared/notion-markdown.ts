@@ -1,4 +1,5 @@
 export const VISUAL_INDENT = "\u00A0\u00A0";
+const VISUAL_INDENT_ENTITY = "&nbsp;&nbsp;";
 
 const LEGACY_TOGGLE_RE = /^(?:[-*]\s+)?(?:▶|▾)\s+(.*)$/;
 const CODE_FENCE_RE = /^```/;
@@ -74,6 +75,11 @@ function getLeadingIndent(rawLine: string): { indent: number; text: string } {
     if (rawLine.startsWith(VISUAL_INDENT, index)) {
       indent++;
       index += VISUAL_INDENT.length;
+      continue;
+    }
+    if (rawLine.startsWith(VISUAL_INDENT_ENTITY, index)) {
+      indent++;
+      index += VISUAL_INDENT_ENTITY.length;
       continue;
     }
     if (rawLine.startsWith("  ", index)) {
@@ -571,12 +577,10 @@ function nfmLinesToHtml(lines: string[]): string {
       html.push(`<li><p>${inlineMarkdownToHtml(text)}</p>`);
     } else {
       closeLists();
-      // Plain text — use nested <blockquote> for indentation
-      let tag = `<p>${inlineMarkdownToHtml(content)}</p>`;
-      for (let i = 0; i < rawDepth; i++) {
-        tag = `<blockquote>${tag}</blockquote>`;
-      }
-      html.push(tag);
+      // Plain indented text is a Notion visual indent, not a quote block.
+      html.push(
+        `<p>${VISUAL_INDENT.repeat(Math.max(0, rawDepth))}${inlineMarkdownToHtml(content)}</p>`,
+      );
     }
   }
 
@@ -704,12 +708,12 @@ function convertNfmBlocks(text: string): string {
         continue;
       }
 
-      // Plain indented text → blockquote (Notion-style indent, no bullet)
+      // Plain indented text → visual indent (Notion-style indent, no quote)
       // Separate from previous non-blank line so each becomes its own block
       if (result.length > 0 && result[result.length - 1].trim() !== "") {
         result.push("");
       }
-      result.push("> ".repeat(depth) + content);
+      result.push(`${VISUAL_INDENT_ENTITY.repeat(depth)}${content}`);
       resetListState();
       continue;
     }

@@ -275,6 +275,7 @@ function permissionGuidance(
   message: string,
   opts?: { mode?: RecordingMode; micDeviceId?: string | null },
 ): string | null {
+  if (isUploadFailureError(message)) return null;
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
     if (opts?.mode === "screen") {
@@ -326,6 +327,7 @@ function permissionSettingsUrl(
   message: string,
   mode?: RecordingMode,
 ): string | null {
+  if (isUploadFailureError(message)) return null;
   if (!isMacPlatform() || isPolicyPermissionError(message)) return null;
   if (isScreenPermissionError(message)) return MAC_SCREEN_RECORDING_PREF_URL;
   if (isCameraPermissionError(message)) return MAC_CAMERA_PREF_URL;
@@ -369,6 +371,7 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
 }
 
 function getRecordingErrorTitle(error: string): string {
+  if (isUploadSizeError(error)) return "Video is too large";
   if (isUploadFailureError(error)) return "Upload failed";
   if (isScreenPermissionError(error)) return "Screen recording needs access";
   if (isCameraPermissionError(error)) return "Camera needs access";
@@ -376,11 +379,36 @@ function getRecordingErrorTitle(error: string): string {
   return "Couldn't start recording";
 }
 
+function isUploadSizeError(error: string): boolean {
+  return /too large to upload|too large for clips|limit is \d|file is too large|file size/i.test(
+    error,
+  );
+}
+
+function uploadTooLargeMessage(size: number, detail?: string): string {
+  return `Video is too large to upload (${
+    detail ?? formatMb(size)
+  }, limit is ${formatMb(MAX_UPLOAD_BYTES)}). Choose a video under ${formatMb(
+    MAX_UPLOAD_BYTES,
+  )}, or trim/export a smaller copy and upload again.`;
+}
+
 function isUploadFailureError(error: string): boolean {
-  return /upload failed|chunk|reset-chunks|re-upload/i.test(error);
+  return (
+    isUploadSizeError(error) ||
+    /upload failed|chunk|reset-chunks|re-upload/i.test(error)
+  );
 }
 
 function friendlyRecordingErrorMessage(error: string): string {
+  if (isUploadSizeError(error)) {
+    return `This video is too large for Clips to upload directly. Choose a video under ${formatMb(
+      MAX_UPLOAD_BYTES,
+    )}, or trim/export a smaller copy and upload again.`;
+  }
+  if (isUploadFailureError(error)) {
+    return "The video could not finish uploading. Retry the upload before starting over.";
+  }
   if (isPolicyPermissionError(error)) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
   }
@@ -395,9 +423,6 @@ function friendlyRecordingErrorMessage(error: string): string {
   }
   if (isMicrophonePermissionError(error)) {
     return "Clips could not start the microphone. Allow microphone access, then try again.";
-  }
-  if (isUploadFailureError(error)) {
-    return "The recording could not finish uploading. Retry the upload before starting over.";
   }
   if (error.length > 220) {
     return "Something blocked the recorder before it could start.";
@@ -496,12 +521,17 @@ function RecordingErrorCard({
   canRetryUpload: boolean;
   onTryAgain: () => void;
 }) {
-  const guidance = permissionGuidance(error, { mode, micDeviceId });
-  const permissionError = isPermissionError(error);
-  const policyError = isPolicyPermissionError(error);
+  const uploadFailure = isUploadFailureError(error);
+  const guidance = uploadFailure
+    ? null
+    : permissionGuidance(error, { mode, micDeviceId });
+  const permissionError = !uploadFailure && isPermissionError(error);
+  const policyError = !uploadFailure && isPolicyPermissionError(error);
   const embeddedScreenError =
-    isEmbeddedWindow() && isScreenPermissionError(error);
-  const settings = getModePermissionLabels(mode, micDeviceId);
+    !uploadFailure && isEmbeddedWindow() && isScreenPermissionError(error);
+  const settings = permissionError
+    ? getModePermissionLabels(mode, micDeviceId)
+    : [];
   const directUrl = directRecorderUrl();
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
@@ -509,7 +539,7 @@ function RecordingErrorCard({
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
       <div className="border-b border-border p-6">
-        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
           <IconAlertTriangle className="h-5 w-5" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
@@ -738,10 +768,15 @@ export default function RecordRoute() {
 
   const showRecordingErrorToast = useCallback((message: string) => {
     const pendingOpts = pendingStartOptsRef.current;
-    const guidance = permissionGuidance(message, pendingOpts ?? undefined);
-    const settingsUrl = permissionSettingsUrl(message, pendingOpts?.mode);
+    const uploadFailure = isUploadFailureError(message);
+    const guidance = uploadFailure
+      ? null
+      : permissionGuidance(message, pendingOpts ?? undefined);
+    const settingsUrl = uploadFailure
+      ? null
+      : permissionSettingsUrl(message, pendingOpts?.mode);
     const friendlyMessage = friendlyRecordingErrorMessage(message);
-    toast.error("Couldn't start recording", {
+    toast.error(uploadFailure ? "Upload failed" : "Couldn't start recording", {
       description: guidance ?? friendlyMessage,
       duration: guidance ? 20_000 : 10_000,
       action: settingsUrl
@@ -1018,11 +1053,11 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Upload a local video file as a Clip.
   // Reads metadata via a hidden <video>, creates the recording row, then
-  // streams the file to /api/uploads/:id/chunk in 5MB slices (the chunk
-  // route caps at 6MB) with isFinal=1 on the last slice. Mirrors the
-  // recorder's upload pipeline so finalize-recording handles it identically.
+  // streams the file to /api/uploads/:id/chunk in slices small enough for
+  // Netlify's effective binary function payload limit. Mirrors the recorder's
+  // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024; // 5 MiB; chunk route allows up to 6.
+  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
 
   const probeVideoMetadata = useCallback(
     (
@@ -1106,12 +1141,14 @@ export default function RecordRoute() {
           stderrTail: string[];
           elapsedMs: number;
         } | null = null;
+        let uploadTooLargeDetail: string | undefined;
 
         if (file.size > COMPRESS_THRESHOLD_BYTES) {
           setUiState("compressing");
           const compression = await compressBlobIfTooLarge(file, mimeType, {
             width: meta.width,
             height: meta.height,
+            durationMs: meta.durationMs,
             signal: abort.signal,
             onProgress: ({ stage, progress }) => {
               if (stage === "encoding" && typeof progress === "number") {
@@ -1153,19 +1190,17 @@ export default function RecordRoute() {
               compressionError,
             );
           }
-          if (uploadBlob.size > MAX_UPLOAD_BYTES) {
-            const detail = compression.compressed
-              ? `${formatMb(uploadBlob.size)} after compression`
-              : `${formatMb(uploadBlob.size)}`;
-            throw new Error(
-              `Video is too large to upload (${detail}, limit is ${formatMb(
-                MAX_UPLOAD_BYTES,
-              )}). Try a shorter recording or lower the screen resolution / frame rate.`,
-            );
+          if (uploadBlob.size > MAX_UPLOAD_BYTES && compression.compressed) {
+            uploadTooLargeDetail = `${formatMb(uploadBlob.size)} after compression`;
           }
           setCompressionProgress(null);
-          setUiState("uploading");
         }
+        if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
+          );
+        }
+        setUiState("uploading");
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
@@ -1249,11 +1284,13 @@ export default function RecordRoute() {
           });
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
-            throw new Error(
+            const error = new Error(
               `Upload failed at chunk ${i + 1}/${totalChunks}: ${
                 text || chunkRes.statusText
               }`,
             );
+            (error as Error & { status?: number }).status = chunkRes.status;
+            throw error;
           }
           if (isFinal) {
             finalChunkResult =
@@ -1287,7 +1324,13 @@ export default function RecordRoute() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
         const aborted = err instanceof Error && err.name === "AbortError";
-        if (createdId) {
+        const status =
+          err instanceof Error
+            ? (err as Error & { status?: number }).status
+            : undefined;
+        const serverRejectedTooLarge =
+          status === 413 || isUploadSizeError(message);
+        if (createdId && !serverRejectedTooLarge) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1298,11 +1341,15 @@ export default function RecordRoute() {
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
-          toast.error("Upload failed", {
-            description:
-              "The clip was marked failed in your library. You can remove it from the card menu.",
-            duration: 12_000,
-          });
+          toast.error(
+            isUploadSizeError(message) ? "Video is too large" : "Upload failed",
+            {
+              description: createdId
+                ? "The clip was marked failed in your library. You can remove it from the card menu."
+                : friendlyRecordingErrorMessage(message),
+              duration: 12_000,
+            },
+          );
         }
       } finally {
         if (fileUploadAbortRef.current === abort) {

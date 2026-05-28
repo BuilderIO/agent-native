@@ -89,6 +89,7 @@ assertSameMembers(
     .map((template) => template.name),
   [
     "analytics",
+    "assets",
     "brain",
     "calendar",
     "clips",
@@ -136,7 +137,7 @@ assert.match(
 );
 assert.match(
   appWebview,
-  /getTemplateGatewayAppUrl\(appConfig\.id\)/,
+  /getDesktopTemplateGatewayAppUrl\(appConfig\.id\)/,
   "desktop lazy Electron mode must route template dev URLs through the gateway",
 );
 assert.match(

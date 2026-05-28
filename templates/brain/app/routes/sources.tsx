@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
@@ -11,6 +11,7 @@ import {
   IconCircleDashed,
   IconClock,
   IconDatabaseImport,
+  IconDotsVertical,
   IconExternalLink,
   IconFileSearch,
   IconFileText,
@@ -52,7 +53,13 @@ import {
 } from "@/lib/brain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -1441,6 +1448,140 @@ function BrainHealthStrip({
   );
 }
 
+function SourceFact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-foreground">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function SourceListItem({
+  source,
+  syncPending,
+  onReview,
+  onSync,
+  onTune,
+}: {
+  source: BrainSource;
+  syncPending: boolean;
+  onReview: () => void;
+  onSync: () => void;
+  onTune: () => void;
+}) {
+  const Icon = sourceProviderIcon(source.provider);
+  const retry = sourceRetryAfter(source);
+  const hasSyncNotice = Boolean(
+    source.lastError || retry || source.latestRun?.status === "error",
+  );
+  const nextSync = source.nextSyncAt
+    ? (shortDate(source.nextSyncAt) ?? source.nextSyncAt)
+    : null;
+  const coverage =
+    typeof source.coverage === "number" ? formatPercent(source.coverage) : null;
+
+  return (
+    <Card className="overflow-hidden shadow-none">
+      <CardContent className="p-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,auto)_auto] xl:items-center">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
+              <Icon className="size-4 text-muted-foreground" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h2 className="truncate text-base font-medium text-foreground">
+                  {sourceName(source)}
+                </h2>
+                <StatusBadge status={sourceHealth(source)} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="max-w-full capitalize">
+                  {sourceType(source)}
+                </Badge>
+                {nextSync ? (
+                  <span className="text-xs text-muted-foreground">
+                    Next sync {nextSync}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                {sourceDescription(source)}
+              </p>
+            </div>
+          </div>
+
+          <div
+            className={
+              coverage
+                ? "grid grid-cols-2 gap-4 sm:grid-cols-3 xl:min-w-80"
+                : "grid grid-cols-2 gap-4 xl:min-w-64"
+            }
+          >
+            <SourceFact
+              label="Captures"
+              value={(source.recordCount ?? 0).toLocaleString()}
+            />
+            <SourceFact
+              label="Last sync"
+              value={shortDate(sourceLastSync(source)) ?? "Never"}
+            />
+            {coverage ? <SourceFact label="Coverage" value={coverage} /> : null}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="outline" onClick={onReview}>
+              <IconFileSearch className="size-4" />
+              Captures
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-9"
+                  aria-label={`More actions for ${sourceName(source)}`}
+                >
+                  <IconDotsVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+                  <IconRefresh className="size-4" />
+                  Sync now
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onTune}>
+                  <IconSettings2 className="size-4" />
+                  Tune source
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {coverage ? (
+          <Progress
+            value={source.coverage * 100}
+            className="mt-4 h-1.5 bg-muted"
+          />
+        ) : null}
+
+        {hasSyncNotice ? (
+          <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 px-3 py-2 text-sm">
+            <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <p className="min-w-0 truncate text-muted-foreground">
+              {syncDetail(source)}
+            </p>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SourcesRoute() {
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
@@ -1692,7 +1833,7 @@ export default function SourcesRoute() {
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Button
               size="sm"
-              variant="outline"
+              variant="ghost"
               onClick={() => setAdvancedOpen(true)}
             >
               <IconSettings2 className="size-4" />
@@ -1710,117 +1851,24 @@ export default function SourcesRoute() {
         }
       />
 
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-3 lg:p-7">
+      <div className="grid gap-3 p-4 sm:p-5 lg:p-7">
         {sourcesQuery.isLoading ? (
-          <div className="lg:col-span-3">
+          <div>
             <LoadingRows rows={3} />
           </div>
         ) : visibleSources.length ? (
-          visibleSources.map((source) => {
-            const Icon = sourceProviderIcon(source.provider);
-            const retry = sourceRetryAfter(source);
-            return (
-              <Card key={source.id} className="overflow-hidden shadow-none">
-                <CardHeader className="pb-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40">
-                        <Icon className="size-4 text-muted-foreground" />
-                      </span>
-                      <div className="min-w-0">
-                        <CardTitle className="truncate text-base">
-                          {sourceName(source)}
-                        </CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {sourceType(source)}
-                        </p>
-                      </div>
-                    </div>
-                    <StatusBadge status={sourceHealth(source)} />
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <p className="min-h-12 text-sm leading-6 text-muted-foreground">
-                    {sourceDescription(source)}
-                  </p>
-
-                  <div className="grid gap-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Coverage</span>
-                      <span>{formatPercent(source.coverage)}</span>
-                    </div>
-                    <Progress value={(source.coverage ?? 0) * 100} />
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-md border border-border bg-card p-3">
-                        <p className="text-xs text-muted-foreground">
-                          Captures
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {(source.recordCount ?? 0).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-border bg-card p-3">
-                        <p className="text-xs text-muted-foreground">
-                          Last sync
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {shortDate(sourceLastSync(source)) ?? "Never"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {(source.lastError || retry || source.latestRun) && (
-                    <div className="flex gap-2 rounded-md border border-border bg-card p-3 text-sm">
-                      <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                      <p className="leading-5 text-muted-foreground">
-                        {syncDetail(source)}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-                    <Badge variant="outline" className="w-fit max-w-full">
-                      {source.nextSyncAt
-                        ? `Next ${shortDate(source.nextSyncAt)}`
-                        : "Manual"}
-                    </Badge>
-                    <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openCaptureReview(source)}
-                      >
-                        <IconFileSearch className="size-4" />
-                        Captures
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={syncSource.isPending}
-                        onClick={() =>
-                          syncSource.mutate({ sourceId: source.id })
-                        }
-                      >
-                        <IconRefresh className="size-4" />
-                        Sync
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => openEdit(source)}
-                      >
-                        <IconSettings2 className="size-4" />
-                        Tune
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })
+          visibleSources.map((source) => (
+            <SourceListItem
+              key={source.id}
+              source={source}
+              syncPending={syncSource.isPending}
+              onReview={() => openCaptureReview(source)}
+              onSync={() => syncSource.mutate({ sourceId: source.id })}
+              onTune={() => openEdit(source)}
+            />
+          ))
         ) : (
-          <div className="lg:col-span-3">
+          <div>
             <EmptyActionState
               title="Connect Brain's first source"
               detail="Add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, manual import, or signed webhook."
@@ -1835,7 +1883,7 @@ export default function SourcesRoute() {
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ? (
-          <div className="lg:col-span-3">
+          <div>
             <EmptyActionState
               title="Source action failed"
               detail="Check source credentials, channel allow-lists, and the latest sync error."

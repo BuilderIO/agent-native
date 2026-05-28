@@ -18,6 +18,6 @@ export default defineAction({
 
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
-    return pullDocumentFromNotion(owner, documentId);
+    return pullDocumentFromNotion(owner, documentId, true);
   },
 });

@@ -10,8 +10,8 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Backend**: Nitro (via @agent-native/core)
 - **UI components**: Radix UI + Lucide icons
 - **Google Integration**: googleapis npm package
-- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
-- **State**: Settings in SQL via settings API, structured data in SQLite via Drizzle
+- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
+- **State**: Settings in SQL via settings API, structured data in SQL via Drizzle
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Project Structure
@@ -31,7 +31,7 @@ server/          # Nitro API server
   db/            # Drizzle schema + DB connection
 shared/          # Shared TypeScript types
 actions/         # Agent-callable scripts
-data/            # SQLite database file (app.db)
+data/            # Local development database fallback
 ```
 
 ## Framework Basics (Nitro + @agent-native/core)
@@ -97,9 +97,9 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ## Database Schema
 
-### SQLite (via Drizzle ORM + @libsql/client)
+### SQL (via Drizzle ORM)
 
-Structured data lives in SQLite (`data/app.db`):
+Structured data lives in SQL. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes so the same code runs across SQLite, Postgres, libSQL/Turso, D1, and other supported backends:
 
 | Table      | Contents                                       |
 | ---------- | ---------------------------------------------- |
@@ -120,7 +120,7 @@ Google OAuth tokens are stored in the SQL `oauth_tokens` table. Use the oauth-to
 
 ### Database Access
 
-Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All queries are async. Set `DATABASE_URL` env var for cloud database (Turso); defaults to local `file:data/app.db`.
+Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All queries are async. Local development defaults to `file:./data/app.db`; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required. Common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
 ## Build & Dev Commands
 

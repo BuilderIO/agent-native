@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/embedding": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -51,6 +52,7 @@
     "@tiptap/starter-kit": "^3.22.2",
     "@tiptap/y-tiptap": "^3.0.2",
     "drizzle-orm": "^0.45.2",
+    "ffmpeg-static": "^5.3.0",
     "h3": "^2.0.1-rc.20",
     "highlight.js": "^11.11.1",
     "isbot": "^5",

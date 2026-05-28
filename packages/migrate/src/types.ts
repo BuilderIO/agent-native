@@ -146,6 +146,7 @@ export interface MigrationArtifacts {
   runDir: string;
   assessmentPath: string;
   planPath: string;
+  planInputsPath: string;
   tasksPath: string;
   reportPath: string;
   irPath: string;

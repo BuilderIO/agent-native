@@ -118,6 +118,53 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("can ignore a saved active thread and start fresh immediately", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:brain",
+      "old-brain-thread",
+    );
+    const oldThread: ChatThreadSummary = {
+      id: "old-brain-thread",
+      title: "Using the Brain demo corpus",
+      preview: "what should the demo cite?",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [oldThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "brain", null, {
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "forked-thread",
+      "old-brain-thread",
+    ]);
+  });
+
   it("keeps the active general chat visible when entering a scoped surface", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms-app",
@@ -398,5 +445,469 @@ describe("useChatThreads", () => {
       messageCount: snapshot.messageCount,
       scope: sourceThread.scope,
     });
+  });
+
+  it("keeps generated titles when later thread saves update the preview", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Using the Brain demo data for this example",
+      preview: "Using the Brain demo data for this example",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "title-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "Brain Demo Setup",
+        preview: "Using the Brain demo data for this example",
+        titleSource: "generated",
+      });
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: JSON.stringify({ messages: [] }),
+        title: "Using the Brain demo data for this example",
+        preview: "What should the demo answer cite?",
+        messageCount: 2,
+      });
+    });
+
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/chat/threads/thread-1" && init?.method === "PUT",
+    );
+    expect(JSON.parse(saveCalls[0]![1]!.body as string).title).toBe(
+      "Brain Demo Setup",
+    );
+    expect(JSON.parse(saveCalls[1]![1]!.body as string).title).toBe(
+      "Brain Demo Setup",
+    );
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      title: "Brain Demo Setup",
+      preview: "What should the demo answer cite?",
+      messageCount: 2,
+    });
+  });
+
+  it("renames a thread optimistically", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Old title",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1/rename" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "rename-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.renameThread("thread-1", "  New   title ");
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({
+      title: "New title",
+    });
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.title,
+    ).toBe("New title");
+  });
+
+  it("rolls back a failed pin update", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Pinned candidate",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+      pinnedAt: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1/pin" && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "pin-failure-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let pinned = true;
+    await act(async () => {
+      pinned = await hook!.pinThread("thread-1", true);
+    });
+
+    expect(pinned).toBe(false);
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      pinnedAt: null,
+      updatedAt: 2,
+    });
+  });
+
+  it("keeps the active thread when archive fails", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:archive-failure-test",
+      "thread-1",
+    );
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Archive candidate",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+      archivedAt: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/threads/thread-1/archive" && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "archive-failure-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let archived = true;
+    await act(async () => {
+      archived = await hook!.archiveThread("thread-1");
+    });
+
+    expect(archived).toBe(false);
+    expect(hook!.activeThreadId).toBe("thread-1");
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      archivedAt: null,
+      updatedAt: 2,
+    });
+  });
+
+  it("keeps server pin metadata when local updatedAt is newer for another reason", async () => {
+    let serverThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Thread",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+      pinnedAt: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [serverThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "server-pin-merge-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "{}",
+        title: "Thread",
+        preview: "local send",
+        messageCount: 2,
+      });
+    });
+
+    serverThread = {
+      ...serverThread,
+      pinnedAt: 123,
+      updatedAt: 3,
+    };
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1"),
+    ).toMatchObject({
+      pinnedAt: 123,
+      preview: "local send",
+      messageCount: 2,
+    });
+  });
+
+  it("does not restore an archived thread after failed archive if the user moved on", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:archive-navigation-test",
+      "thread-1",
+    );
+    const threads: ChatThreadSummary[] = [
+      {
+        id: "thread-1",
+        title: "Archive candidate",
+        preview: "old preview",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        scope: null,
+        archivedAt: null,
+      },
+      {
+        id: "thread-2",
+        title: "Next thread",
+        preview: "keep me open",
+        messageCount: 1,
+        createdAt: 3,
+        updatedAt: 4,
+        scope: null,
+        archivedAt: null,
+      },
+    ];
+    let resolveArchive:
+      | ((response: Response | PromiseLike<Response>) => void)
+      | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads });
+      }
+      if (url === "/chat/threads/thread-1/archive" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => {
+          resolveArchive = resolve;
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "archive-navigation-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let archivePromise: Promise<boolean>;
+    await act(async () => {
+      archivePromise = hook!.archiveThread("thread-1");
+      hook!.switchThread("thread-2");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveArchive!(
+        new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await archivePromise!;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("thread-2");
+  });
+
+  it("preserves a user rename over generated titles and later saves", async () => {
+    const sourceThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Old title",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    let resolveGenerate:
+      | ((response: Response | PromiseLike<Response>) => void)
+      | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [sourceThread] });
+      }
+      if (url === "/chat/generate-title" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => {
+          resolveGenerate = resolve;
+        });
+      }
+      if (url === "/chat/threads/thread-1/rename" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "rename-generated-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const generatedTitlePromise = hook!.generateTitle(
+      "thread-1",
+      "Please summarize this chat",
+    );
+
+    await act(async () => {
+      await hook!.renameThread("thread-1", "User title");
+    });
+    await act(async () => {
+      resolveGenerate!(jsonResponse({ title: "Generated title" }));
+      await generatedTitlePromise;
+    });
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "",
+        title: "Generated title",
+        preview: "Please summarize this chat",
+        titleSource: "generated",
+      });
+    });
+
+    const saveCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/chat/threads/thread-1" && init?.method === "PUT",
+    );
+    expect(JSON.parse(saveCall![1]!.body as string).title).toBe("User title");
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.title,
+    ).toBe("User title");
   });
 });

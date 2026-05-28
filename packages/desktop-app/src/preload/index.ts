@@ -33,6 +33,9 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpdateResult,
+  type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
@@ -92,6 +95,14 @@ const electronAPI = {
       ipcRenderer.on("shortcut:keydown", handler);
       return () => ipcRenderer.removeListener("shortcut:keydown", handler);
     },
+    loadBindings: (): Promise<DesktopShortcutSettings> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_LOAD),
+    upsertBinding: (
+      request: DesktopShortcutUpsertRequest,
+    ): Promise<DesktopShortcutUpdateResult> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_UPSERT, request),
+    removeBinding: (id: string): Promise<DesktopShortcutUpdateResult> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_REMOVE, id),
   },
 
   /** App config management */

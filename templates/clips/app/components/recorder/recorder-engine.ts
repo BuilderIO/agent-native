@@ -126,7 +126,7 @@ interface CompressionUploadMeta {
   outputMimeType?: string;
 }
 
-const DEFAULT_CHUNK_MS = 2000;
+const DEFAULT_CHUNK_MS = 1000;
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
@@ -266,12 +266,11 @@ export function pickMimeType(): string {
   return "";
 }
 
-function canStreamMediaRecorderChunks(mimeType: string): boolean {
-  // WebM chunks emitted by MediaRecorder are safe to concatenate. Browser MP4
-  // chunks are not reliably self-contained; in Safari/WebKit we have seen
-  // ftyp+mdat-only assemblies with no top-level moov atom, which storage will
-  // accept but browsers cannot play. Keep MP4/QuickTime as one final recorder
-  // blob and upload that blob in bounded slices after stop().
+function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
+  // WebM chunks emitted by MediaRecorder are safe to concatenate locally before
+  // compression/upload. Browser MP4 chunks are not reliably self-contained; in
+  // Safari/WebKit we have seen ftyp+mdat-only assemblies with no top-level moov
+  // atom, so MP4/QuickTime stays as one final recorder blob after stop().
   return /^video\/webm(?:;|$)/i.test(mimeType);
 }
 
@@ -340,11 +339,9 @@ export class RecorderEngine {
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
   /**
-   * Local mirror of every chunk we sent to the server, in record order.
-   * We hold these to enable the post-stop "compress and re-upload" path
-   * for clips larger than COMPRESS_THRESHOLD_BYTES — without this buffer
-   * we'd have to ask the server for the chunks back, which neither the
-   * `/api/uploads/:id/chunk` endpoint nor `application_state` support.
+   * Local mirror of every recorder chunk, in record order. We upload after stop
+   * so the server never stores the uncompressed source before compression has a
+   * chance to run.
    *
    * Memory cost: one Blob per 2s slice. A 10-min 1080p screen capture is
    * ~600 MB worst case (heavy motion); typical screen capture is much
@@ -366,7 +363,7 @@ export class RecorderEngine {
    * fetch quietly complete and the recording finalise server-side.
    */
   private uploadAbort: AbortController | null = null;
-  private streamChunksDuringRecording = true;
+  private streamChunksDuringRecording = false;
 
   private state: RecorderState = "idle";
 
@@ -650,16 +647,16 @@ export class RecorderEngine {
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
-    this.streamChunksDuringRecording = canStreamMediaRecorderChunks(
+    this.streamChunksDuringRecording = false;
+    const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
       this.mimeType,
     );
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
       if (!blob || blob.size === 0) return;
-      // Mirror to local buffer BEFORE upload — if compression turns out to
-      // be needed (decided post-stop based on totalRecordedBytes), we need
-      // every chunk on the client side to assemble + re-encode.
+      // Mirror to local buffer first. Upload waits until stop(), after we know
+      // whether this recording needs compression.
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
       if (this.streamChunksDuringRecording) {
@@ -679,7 +676,7 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
-    if (this.streamChunksDuringRecording) {
+    if (useTimeslicedLocalChunks) {
       this.recorder.start(this.opts.chunkIntervalMs);
     } else {
       this.recorder.start();
@@ -748,9 +745,8 @@ export class RecorderEngine {
       // (e.g. display-only mode with no mic). Different browsers dispatch
       // `dataavailable` either before or after state transitions to
       // `inactive`. Yielding one macrotask ensures any still-pending
-      // `dataavailable` event runs first and gets queued by our
-      // start()-time listener before we drain the chunk queue and send
-      // the isFinal=1 sentinel.
+      // `dataavailable` event runs first and is mirrored into localChunks before
+      // the post-stop upload/compression path starts.
       this.transition("stopping");
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     } else {
@@ -758,7 +754,7 @@ export class RecorderEngine {
 
       // Wait for the dataavailable event triggered by recorder.stop() to
       // be picked up by the start()-time listener (which mirrors it into
-      // `localChunks` and queues an upload). We don't push or upload the
+      // `localChunks`). We don't push or upload the
       // final blob here — that listener is the single owner. Pushing
       // again would duplicate the final ~2s slice in `localChunks`,
       // inflating the assembled blob and corrupting the compressed
@@ -818,11 +814,9 @@ export class RecorderEngine {
     };
     this.lastFinalizeMeta = finalizeMeta;
 
-    // Drain in-flight chunk uploads queued by the start()-time listener
-    // (including the final dataavailable that just fired) before we either
-    // compress + re-upload or send the isFinal sentinel. If a streamed upload
-    // already failed, keep `localChunks` + `lastFinalizeMeta` so retryUpload()
-    // can re-send the complete local buffer without a new recording.
+    // Drain any legacy in-flight chunk uploads before we either compress or
+    // upload. New recordings upload after stop(), but keeping this guard makes
+    // retry paths resilient while a release rolls out.
     await this.chunkQueue;
     if (this.uploadFailure) {
       this.cleanupTracks();
@@ -834,9 +828,8 @@ export class RecorderEngine {
     let completed = false;
     try {
       if (this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES) {
-        // Discard everything that streamed up during recording — it's
-        // about to be replaced by the compressed assembly below — and
-        // re-upload from index 0.
+        // Compress before the first server upload so large recordings don't
+        // stage their uncompressed source in SQL.
         result = await this.compressAndReupload(finalizeMeta);
       } else if (!this.streamChunksDuringRecording) {
         this.transition("uploading", { progress: 0 });
@@ -1001,12 +994,10 @@ export class RecorderEngine {
   // -------------------------------------------------------------------------
 
   /**
-   * Re-encode the local chunk buffer at a lower bitrate via ffmpeg.wasm,
-   * discard the chunks we already streamed up (they'd assemble to the
-   * un-compressed source), and upload the compressed result starting at
-   * index 0. Triggered when `totalRecordedBytes > COMPRESS_THRESHOLD_BYTES`
-   * because the assembled blob would otherwise blow Builder.io's 100 MB
-   * per-file upload limit and 500 mid-stream.
+   * Re-encode the local chunk buffer at a lower bitrate via ffmpeg.wasm and
+   * upload the compressed result starting at index 0. Triggered when
+   * `totalRecordedBytes > COMPRESS_THRESHOLD_BYTES` because the assembled blob
+   * would otherwise blow past the server's SQL staging budget.
    *
    * Throws a clean user-facing error if the compressed blob is STILL larger
    * than `MAX_UPLOAD_BYTES`, so the UI can suggest "shorter recording / lower
@@ -1036,6 +1027,7 @@ export class RecorderEngine {
         compression = await compressBlobIfTooLarge(assembled, this.mimeType, {
           width: meta.dimensions.width,
           height: meta.dimensions.height,
+          durationMs: meta.durationMs,
           signal: abort.signal,
           onProgress: (p) => {
             this.opts.onCompressionProgress?.({
@@ -1063,10 +1055,9 @@ export class RecorderEngine {
       const finalBlob = compression.blob;
       const compressedBytes = finalBlob.size;
 
-      // Tell the server to wipe the chunks we streamed up during recording
-      // (they came from an un-compressed source) and stash the compression
-      // metadata so finalize-recording can include it in any Sentry capture
-      // if the upload still fails downstream.
+      // Tell the server to wipe any chunks a previous/legacy attempt may have
+      // uploaded and stash compression metadata so finalize-recording can
+      // include it in any Sentry capture if the upload still fails downstream.
       //
       // A failure here is fatal — proceeding with the re-upload would
       // mix compressed slices (indices 0..N) on top of the leftover
@@ -1329,9 +1320,9 @@ export class RecorderEngine {
     // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
 
-    // The server chunk handler caps each body at ~6 MB, so keep slices under
-    // that cap. This mirrors the local-file upload path in record.tsx.
-    const UPLOAD_SLICE_BYTES = 5 * 1024 * 1024;
+    // Keep binary uploads comfortably under Netlify's effective function
+    // payload limit. This mirrors the local-file upload path in record.tsx.
+    const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
     let lastResult: Record<string, unknown> | undefined;

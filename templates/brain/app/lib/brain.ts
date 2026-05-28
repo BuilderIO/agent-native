@@ -5,10 +5,12 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
+  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
   | "ask"
+  | "extensions"
   | "search"
   | "knowledge"
   | "review"
@@ -915,6 +917,12 @@ export const navItems: Array<{
     href: "/knowledge",
     icon: IconBook2,
   },
+  {
+    view: "settings",
+    label: "Settings",
+    href: "/settings",
+    icon: IconSettings,
+  },
 ];
 
 export const defaultSettings: BrainSettings = {
@@ -938,6 +946,7 @@ export const defaultSettings: BrainSettings = {
 };
 
 export function viewFromPath(pathname: string): BrainView {
+  if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/search")) return "search";
   if (pathname.startsWith("/knowledge")) return "knowledge";
   if (pathname.startsWith("/review")) return "review";
@@ -949,6 +958,8 @@ export function viewFromPath(pathname: string): BrainView {
 
 export function pathFromView(view?: string): string {
   switch (view) {
+    case "extensions":
+      return "/extensions";
     case "search":
       return "/search";
     case "knowledge":

@@ -50,24 +50,29 @@ export type AgentAutoContinueReason =
   | "stream_ended"
   | "stale_run";
 
+export type AgentActivityTrailEntry = { label: string; tool?: string };
+
 export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
   readonly maxIterations?: number;
+  readonly activityTrail: AgentActivityTrailEntry[];
 
   constructor(options: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
+    activityTrail?: AgentActivityTrailEntry[];
   }) {
     super(`Agent run needs automatic continuation: ${options.reason}`);
     this.name = "AgentAutoContinueSignal";
     this.reason = options.reason;
     this.maxIterations = options.maxIterations;
+    this.activityTrail = options.activityTrail ?? [];
   }
 }
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
-type ActivityTrailEntry = { label: string; tool?: string };
+type ActivityTrailEntry = AgentActivityTrailEntry;
 
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
@@ -654,7 +659,9 @@ export async function* readSSEStream(
         if (result) yield withStreamMetadata(result);
         if (action === "auto_continue") {
           throw new AgentAutoContinueSignal(
-            autoContinue ?? { reason: "stream_ended" },
+            autoContinue
+              ? { ...autoContinue, activityTrail: [...activityTrail] }
+              : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
         if (
@@ -686,7 +693,10 @@ export async function* readSSEStream(
   // abnormal here: a healthy run emits a terminal `done` event. Treat this as
   // recoverable so the adapter can first reconnect to the run, then continue
   // from durable history if the producer is gone.
-  throw new AgentAutoContinueSignal({ reason: "stream_ended" });
+  throw new AgentAutoContinueSignal({
+    reason: "stream_ended",
+    activityTrail: [...activityTrail],
+  });
 }
 
 /**

@@ -507,6 +507,11 @@ describe("Brain universal search helpers", () => {
     expect(sourceUrlFromMetadata({ sourceUrl: "https://docs.example/a" })).toBe(
       "https://docs.example/a",
     );
+    expect(
+      sourceUrlFromMetadata({
+        sourceUrl: "https://notes.granola.ai/d/private-call",
+      }),
+    ).toBeNull();
   });
 
   it("summarizes federated coverage without searching other apps", async () => {

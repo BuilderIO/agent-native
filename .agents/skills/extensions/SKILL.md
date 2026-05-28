@@ -195,6 +195,26 @@ PUT /_agent-native/extensions/:id
 { "content": "full new HTML" }
 ```
 
+## History and rollback
+
+Extensions keep a snapshot history in SQL. A version is recorded when an
+extension is created, when metadata or HTML content changes, and when a prior
+version is restored. Existing extensions that predate history get their current
+state saved as a baseline the first time they are edited.
+
+Use these actions when the user asks what changed, wants a changelog/diff, or
+wants to go back in time:
+
+| Action                              | Purpose                                                       |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `list-extension-history`            | List saved versions for one extension                         |
+| `get-extension-history-version`     | Read one version with a previous-version diff                 |
+| `restore-extension-history-version` | Restore name, description, icon, and HTML content from a version |
+
+Restoring a version does **not** restore sharing/ownership; access stays as it
+is now. In the UI, use the History button in the extension viewer to inspect
+versions, see diffs, and restore older content.
+
 ## Alpine.js patterns
 
 Extension HTML uses Alpine.js directives for reactivity. No build step, no
@@ -737,6 +757,7 @@ under-the-hood names are kept to avoid breaking existing data and code:
 | SQL table for extensions             | `tools`               | Renaming a table = drop+create; data must not move     |
 | SQL table for per-ext data           | `tool_data`           | Same                                                   |
 | SQL table for ext shares             | `tool_shares`         | Same                                                   |
+| SQL table for ext history            | `tool_history`        | Same DB naming family                                  |
 | Drizzle schema export                | `extensions`          | Code-side rename — no data migration needed            |
 | Drizzle schema export                | `extensionData`       | Same                                                   |
 | Drizzle schema export                | `extensionShares`     | Same                                                   |
@@ -754,5 +775,5 @@ under-the-hood names are kept to avoid breaking existing data and code:
 - `extension-points` -- how an extension renders as a widget inside another app via named UI slots.
 - `secrets` -- creating and managing API keys for `${keys.NAME}` substitution.
 - `sharing` -- visibility and access control for extensions.
-- `actions` -- the `create-extension` and `update-extension` actions that back extension CRUD.
+- `actions` -- the `create-extension`, `update-extension`, and extension history actions that back extension CRUD and rollback.
 - `frontend-design` -- design guidance when styling extension HTML.

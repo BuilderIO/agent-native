@@ -3,16 +3,21 @@
 import { Editor, getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import {
+  VISUAL_INDENT,
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
+  uploadAndInsertAudioFiles,
+  uploadAndInsertImageFiles,
+  uploadAndInsertVideoFiles,
+  shouldApplyExternalContentSync,
   shouldSeedCollaborativeContent,
 } from "./VisualEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -85,6 +90,10 @@ function insertPlainText(editor: Editor, text: string) {
   const { from, to } = editor.state.selection;
   editor.view.dispatch(editor.state.tr.insertText(text, from, to));
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("VisualEditor markdown round-tripping", () => {
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
@@ -265,6 +274,22 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("renders Notion-pulled plain indents as visual indentation, not blockquotes", () => {
+    const editor = createMarkdownEditor(
+      ["Deck", "\tpublish vs Fusion discussion topic"].join("\n"),
+    );
+
+    try {
+      const json = editor.getJSON();
+      expect(JSON.stringify(json)).not.toContain('"blockquote"');
+      expect(JSON.stringify(json)).toContain(
+        `${VISUAL_INDENT}publish vs Fusion discussion topic`,
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("preserves toggles, bullets, dividers, and following paragraphs", () => {
     const editor = createMarkdownEditor(
       [
@@ -306,6 +331,235 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(stored).toContain("</details>");
       expect(stored).toContain("- Make sure works");
       expect(stored).toContain("---\n\nmake sure everyone has access");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("serializes resized images with a persisted width attribute", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor
+        .chain()
+        .setContent({
+          type: "doc",
+          content: [
+            {
+              type: "image",
+              attrs: {
+                src: "https://example.com/diagram.png",
+                alt: "Architecture diagram",
+                width: 420,
+              },
+            },
+          ],
+        })
+        .run();
+
+      const markdown = (editor.storage as any).markdown.getMarkdown();
+      expect(markdown).toContain(
+        '<img src="https://example.com/diagram.png" alt="Architecture diagram" width="420" />',
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("serializes resized videos with a persisted width attribute", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor
+        .chain()
+        .setContent({
+          type: "doc",
+          content: [
+            {
+              type: "video",
+              attrs: {
+                src: "https://example.com/demo.mp4",
+                width: 640,
+              },
+            },
+          ],
+        })
+        .run();
+
+      const markdown = (editor.storage as any).markdown.getMarkdown();
+      expect(markdown).toContain(
+        '<video src="https://example.com/demo.mp4" controls width="640"></video>',
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("serializes resized audio with a persisted width attribute", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor
+        .chain()
+        .setContent({
+          type: "doc",
+          content: [
+            {
+              type: "audio",
+              attrs: {
+                src: "https://example.com/demo.mp3",
+                width: 420,
+              },
+            },
+          ],
+        })
+        .run();
+
+      const markdown = (editor.storage as any).markdown.getMarkdown();
+      expect(markdown).toContain(
+        '<audio src="https://example.com/demo.mp3" controls width="420"></audio>',
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("optimistically inserts a pending image block before upload resolves", async () => {
+    const editor = createFullEditor();
+    let resolveFetch:
+      | ((response: {
+          ok: boolean;
+          status: number;
+          json: () => Promise<{ url: string }>;
+        }) => void)
+      | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve as typeof resolveFetch;
+          }),
+      ),
+    );
+
+    try {
+      document.body.append(editor.view.dom);
+      const file = new File(["image-bytes"], "diagram.png", {
+        type: "image/png",
+      });
+      const uploadPromise = uploadAndInsertImageFiles(editor.view, [file], 1);
+
+      let json = editor.getJSON();
+      let imageNode = json.content?.find((node) => node.type === "image");
+      expect(imageNode?.attrs?.src).toBeNull();
+      expect(imageNode?.attrs?.uploadId).toMatch(/^image-upload-/);
+
+      resolveFetch?.({
+        ok: true,
+        status: 201,
+        json: async () => ({ url: "https://cdn.example.com/diagram.png" }),
+      });
+      await uploadPromise;
+
+      json = editor.getJSON();
+      imageNode = json.content?.find((node) => node.type === "image");
+      expect(imageNode?.attrs?.src).toBe("https://cdn.example.com/diagram.png");
+      expect(imageNode?.attrs?.uploadId).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("optimistically inserts a pending video block before upload resolves", async () => {
+    const editor = createFullEditor();
+    let resolveFetch:
+      | ((response: {
+          ok: boolean;
+          status: number;
+          json: () => Promise<{ url: string }>;
+        }) => void)
+      | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve as typeof resolveFetch;
+          }),
+      ),
+    );
+
+    try {
+      document.body.append(editor.view.dom);
+      const file = new File(["video-bytes"], "demo.mp4", {
+        type: "video/mp4",
+      });
+      const uploadPromise = uploadAndInsertVideoFiles(editor.view, [file], 1);
+
+      let json = editor.getJSON();
+      let videoNode = json.content?.find((node) => node.type === "video");
+      expect(videoNode?.attrs?.src).toBeNull();
+      expect(videoNode?.attrs?.uploadId).toMatch(/^video-upload-/);
+
+      resolveFetch?.({
+        ok: true,
+        status: 201,
+        json: async () => ({ url: "https://cdn.example.com/demo.mp4" }),
+      });
+      await uploadPromise;
+
+      json = editor.getJSON();
+      videoNode = json.content?.find((node) => node.type === "video");
+      expect(videoNode?.attrs?.src).toBe("https://cdn.example.com/demo.mp4");
+      expect(videoNode?.attrs?.uploadId).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("optimistically inserts a pending audio block before upload resolves", async () => {
+    const editor = createFullEditor();
+    let resolveFetch:
+      | ((response: {
+          ok: boolean;
+          status: number;
+          json: () => Promise<{ url: string }>;
+        }) => void)
+      | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve as typeof resolveFetch;
+          }),
+      ),
+    );
+
+    try {
+      document.body.append(editor.view.dom);
+      const file = new File(["audio-bytes"], "demo.mp3", {
+        type: "audio/mpeg",
+      });
+      const uploadPromise = uploadAndInsertAudioFiles(editor.view, [file], 1);
+
+      let json = editor.getJSON();
+      let audioNode = json.content?.find((node) => node.type === "audio");
+      expect(audioNode?.attrs?.src).toBeNull();
+      expect(audioNode?.attrs?.uploadId).toMatch(/^audio-upload-/);
+
+      resolveFetch?.({
+        ok: true,
+        status: 201,
+        json: async () => ({ url: "https://cdn.example.com/demo.mp3" }),
+      });
+      await uploadPromise;
+
+      json = editor.getJSON();
+      audioNode = json.content?.find((node) => node.type === "audio");
+      expect(audioNode?.attrs?.src).toBe("https://cdn.example.com/demo.mp3");
+      expect(audioNode?.attrs?.uploadId).toBeNull();
     } finally {
       editor.destroy();
     }
@@ -357,6 +611,58 @@ describe("VisualEditor markdown round-tripping", () => {
         fragmentLength: 1,
       }),
     ).toBe(false);
+  });
+
+  it("does not apply stale SQL snapshots over live collaborative edits", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: true,
+        docChanged: false,
+        content: "Older collaborator snapshot",
+        lastEmittedMarkdown: "Merged live content",
+        currentMarkdown: "Merged live content",
+        nextMarkdown: "Older collaborator snapshot",
+        editorFocused: false,
+        lastTypedAt: 0,
+        now: 10_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("applies explicit external sync over live collaborative edits", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: true,
+        docChanged: false,
+        content: "Pulled from Notion",
+        lastEmittedMarkdown: "Local editor state",
+        currentMarkdown: "Local editor state",
+        nextMarkdown: "Pulled from Notion",
+        editorFocused: true,
+        lastTypedAt: 9_500,
+        now: 10_000,
+        forceExternalContentSync: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("still applies external content before collaborative edits begin", () => {
+    expect(
+      shouldApplyExternalContentSync({
+        collaborationActive: true,
+        hasLiveCollaborativeEdits: false,
+        docChanged: false,
+        content: "Pulled from Notion",
+        lastEmittedMarkdown: "",
+        currentMarkdown: "Saved body",
+        nextMarkdown: "Pulled from Notion",
+        editorFocused: false,
+        lastTypedAt: 0,
+        now: 10_000,
+      }),
+    ).toBe(true);
   });
 
   it("labels empty quote blocks with the quote placeholder", () => {

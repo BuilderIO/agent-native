@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   IconArchive,
-  IconArchiveOff,
   IconDots,
   IconPencil,
   IconPlus,
@@ -717,9 +716,6 @@ export default function SqlDashboardPage() {
       method: "DELETE",
     });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
-    queryClient.invalidateQueries({
-      queryKey: ["sql-dashboards-archived-sidebar"],
-    });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
     queryClient.removeQueries({
       queryKey: sqlDashboardPrefetchKey(dashboardId),
@@ -730,51 +726,47 @@ export default function SqlDashboardPage() {
     navigate("/");
   }, [dashboardId, canManage, queryClient, navigate]);
 
-  const handleArchiveToggle = useCallback(
-    async (action: "archive" | "restore") => {
-      if (!dashboardId) return;
-      if (!canEdit) return;
-      const path =
-        action === "archive"
-          ? `/api/sql-dashboards/${dashboardId}/archive`
-          : `/api/sql-dashboards/${dashboardId}/unarchive`;
-      try {
-        const res = await fetchWithAuth(path, { method: "POST" });
-        if (!res.ok) {
-          let msg = `${action} failed (${res.status})`;
-          try {
-            const body = await res.json();
-            if (body?.error) msg = body.error;
-          } catch {
-            // non-JSON body — keep generic message
-          }
-          throw new Error(msg);
+  const handleArchive = useCallback(async () => {
+    if (!dashboardId) return;
+    if (!canEdit) return;
+    if (archivedAt) return;
+    try {
+      const res = await fetchWithAuth(
+        `/api/sql-dashboards/${dashboardId}/archive`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        let msg = `Archive failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.error) msg = body.error;
+        } catch {
+          // non-JSON body — keep generic message
         }
-        queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
-        queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-archived-sidebar"],
-        });
-        queryClient.removeQueries({
-          queryKey: sqlDashboardPrefetchKey(dashboardId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["data", "sql-dashboard", dashboardId],
-        });
-        if (action === "archive") {
-          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-          navigate("/");
-        } else {
-          setArchivedAt(null);
-          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
-        );
+        throw new Error(msg);
       }
-    },
-    [dashboardId, canEdit, queryClient, navigate, dashboard?.name],
-  );
+      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+      queryClient.removeQueries({
+        queryKey: sqlDashboardPrefetchKey(dashboardId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId],
+      });
+      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+      navigate("/");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't archive dashboard",
+      );
+    }
+  }, [
+    dashboardId,
+    canEdit,
+    archivedAt,
+    queryClient,
+    navigate,
+    dashboard?.name,
+  ]);
 
   const handleSaveView = useCallback(
     async (name: string, filters: Record<string, string>) => {
@@ -855,21 +847,6 @@ export default function SqlDashboardPage() {
             </Button>
           </AddPanelPopover>
         ) : null}
-        {archivedAt && canEdit ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleArchiveToggle("restore")}
-              >
-                <IconArchiveOff className="h-4 w-4 mr-1.5" />
-                Restore
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>This dashboard is archived</TooltipContent>
-          </Tooltip>
-        ) : null}
         {canEdit || canManage ? (
           <DropdownMenu>
             <Tooltip>
@@ -888,30 +865,20 @@ export default function SqlDashboardPage() {
               <TooltipContent>More actions</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
-              {canEdit ? (
-                archivedAt ? (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void handleArchiveToggle("restore");
-                    }}
-                  >
-                    <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                    Restore
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void handleArchiveToggle("archive");
-                    }}
-                  >
-                    <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
-                  </DropdownMenuItem>
-                )
+              {canEdit && !archivedAt ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleArchive();
+                  }}
+                >
+                  <IconArchive className="mr-2 h-3.5 w-3.5" />
+                  Archive
+                </DropdownMenuItem>
               ) : null}
-              {canEdit && canManage ? <DropdownMenuSeparator /> : null}
+              {canEdit && !archivedAt && canManage ? (
+                <DropdownMenuSeparator />
+              ) : null}
               {canManage ? (
                 <DropdownMenuItem
                   onSelect={(event) => {

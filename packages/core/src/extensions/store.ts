@@ -19,6 +19,7 @@ import {
   extensions,
   extensionHides,
   extensionShares,
+  extensionHistory,
   EXTENSIONS_CREATE_SQL,
   EXTENSIONS_CREATE_SQL_PG,
   EXTENSION_SHARES_CREATE_SQL,
@@ -37,6 +38,10 @@ import {
   EXTENSION_HIDES_CREATE_SQL_PG,
   EXTENSION_HIDES_UNIQUE_INDEX_SQL,
   EXTENSION_HIDES_OWNER_INDEX_SQL,
+  EXTENSION_HISTORY_CREATE_SQL,
+  EXTENSION_HISTORY_CREATE_SQL_PG,
+  EXTENSION_HISTORY_VERSION_INDEX_SQL,
+  EXTENSION_HISTORY_CREATED_INDEX_SQL,
   EXTENSION_CONSENTS_CREATE_SQL,
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
@@ -53,7 +58,12 @@ import {
   type ExtensionLegacyPatch,
 } from "./content-patch.js";
 
-const getDb = createGetDb({ extensions, extensionShares, extensionHides });
+const getDb = createGetDb({
+  extensions,
+  extensionShares,
+  extensionHides,
+  extensionHistory,
+});
 
 let _initPromise: Promise<void> | undefined;
 
@@ -104,6 +114,17 @@ export async function ensureExtensionsTables(): Promise<void> {
       );
       await retryOnDdlRace(() =>
         client.execute(EXTENSION_HIDES_OWNER_INDEX_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          pg ? EXTENSION_HISTORY_CREATE_SQL_PG : EXTENSION_HISTORY_CREATE_SQL,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSION_HISTORY_VERSION_INDEX_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSION_HISTORY_CREATED_INDEX_SQL),
       );
       // tool_consents was introduced for an audit-C1 per-viewer consent
       // gate that we removed once we settled on intra-org trust as the
@@ -247,6 +268,70 @@ export interface ExtensionRow {
   visibility: "private" | "org" | "public";
 }
 
+export type ExtensionHistoryOperation =
+  | "create"
+  | "baseline"
+  | "metadata-update"
+  | "content-update"
+  | "restore";
+
+export interface ExtensionHistoryEntry {
+  id: string;
+  extensionId: string;
+  version: number;
+  operation: ExtensionHistoryOperation | string;
+  summary: string;
+  name: string;
+  description: string;
+  content?: string;
+  icon: string | null;
+  actorEmail: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
+  createdAt: string;
+  persisted: boolean;
+  contentLength: number;
+}
+
+export interface ExtensionHistoryDiffLine {
+  type: "equal" | "insert" | "delete";
+  text: string;
+}
+
+export interface ExtensionHistoryDetail {
+  entry: ExtensionHistoryEntry;
+  previous: ExtensionHistoryEntry | null;
+  diff: ExtensionHistoryDiffLine[];
+  stats: {
+    addedLines: number;
+    deletedLines: number;
+    changed: boolean;
+  };
+}
+
+interface RawExtensionHistoryRow {
+  id: string;
+  tool_id?: string;
+  extensionId?: string;
+  version: number | string;
+  operation: string;
+  summary?: string | null;
+  name: string;
+  description?: string | null;
+  content?: string | null;
+  icon?: string | null;
+  actor_email?: string | null;
+  actorEmail?: string | null;
+  owner_email?: string | null;
+  ownerEmail?: string | null;
+  org_id?: string | null;
+  orgId?: string | null;
+  visibility?: string | null;
+  created_at?: string;
+  createdAt?: string;
+}
+
 function targetKey(target: ExtensionChangeTarget): string | null {
   if (target.owner) return `owner:${target.owner}`;
   if (target.orgId) return `org:${target.orgId}`;
@@ -360,6 +445,312 @@ export async function notifyExtensionChangeForResource(
   ]);
 }
 
+function extensionHistoryEntryFromRaw(
+  row: RawExtensionHistoryRow,
+  includeContent: boolean,
+): ExtensionHistoryEntry {
+  const content = row.content ?? "";
+  const visibility = normalizeVisibility(row.visibility);
+  return {
+    id: row.id,
+    extensionId: String(row.tool_id ?? row.extensionId ?? ""),
+    version: Number(row.version) || 1,
+    operation: row.operation,
+    summary: row.summary ?? "",
+    name: row.name,
+    description: row.description ?? "",
+    ...(includeContent ? { content } : {}),
+    icon: row.icon ?? null,
+    actorEmail: row.actor_email ?? row.actorEmail ?? null,
+    ownerEmail: row.owner_email ?? row.ownerEmail ?? "",
+    orgId: row.org_id ?? row.orgId ?? null,
+    visibility,
+    createdAt: row.created_at ?? row.createdAt ?? new Date(0).toISOString(),
+    persisted: true,
+    contentLength: content.length,
+  };
+}
+
+function extensionHistoryEntryFromExtension(
+  row: ExtensionRow,
+  includeContent: boolean,
+): ExtensionHistoryEntry {
+  return {
+    id: `current:${row.id}`,
+    extensionId: row.id,
+    version: 1,
+    operation: "baseline",
+    summary: "Current version",
+    name: row.name,
+    description: row.description,
+    ...(includeContent ? { content: row.content } : {}),
+    icon: row.icon,
+    actorEmail: null,
+    ownerEmail: row.ownerEmail,
+    orgId: row.orgId,
+    visibility: row.visibility,
+    createdAt: row.updatedAt,
+    persisted: false,
+    contentLength: row.content.length,
+  };
+}
+
+function normalizeVisibility(value: unknown): "private" | "org" | "public" {
+  return value === "org" || value === "public" ? value : "private";
+}
+
+function currentActorEmail(): string | null {
+  return getRequestUserEmail() ?? null;
+}
+
+function clampHistoryLimit(value: unknown): number {
+  const limit = Number(value ?? 50);
+  if (!Number.isFinite(limit)) return 50;
+  return Math.min(Math.max(1, Math.floor(limit)), 100);
+}
+
+async function historyVersionCount(extensionId: string): Promise<number> {
+  const result = await getDbExec().execute({
+    sql: `SELECT MAX(version) AS version FROM tool_history WHERE tool_id = ?`,
+    args: [extensionId],
+  });
+  const value = (result.rows?.[0] as any)?.version;
+  const version = Number(value ?? 0);
+  return Number.isFinite(version) ? version : 0;
+}
+
+async function hasExtensionHistory(extensionId: string): Promise<boolean> {
+  const result = await getDbExec().execute({
+    sql: `SELECT id FROM tool_history WHERE tool_id = ? LIMIT 1`,
+    args: [extensionId],
+  });
+  return (result.rows?.length ?? 0) > 0;
+}
+
+async function recordExtensionHistorySnapshot(
+  row: ExtensionRow,
+  operation: ExtensionHistoryOperation,
+  summary: string,
+): Promise<ExtensionHistoryEntry> {
+  const version = (await historyVersionCount(row.id)) + 1;
+  const now = new Date().toISOString();
+  const historyId = randomUUID();
+  await getDbExec().execute({
+    sql: `INSERT INTO tool_history (
+      id, tool_id, version, operation, summary, name, description, content,
+      icon, actor_email, owner_email, org_id, visibility, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      historyId,
+      row.id,
+      version,
+      operation,
+      summary,
+      row.name,
+      row.description,
+      row.content,
+      row.icon,
+      currentActorEmail(),
+      row.ownerEmail,
+      row.orgId,
+      row.visibility,
+      now,
+    ],
+  });
+
+  return {
+    id: historyId,
+    extensionId: row.id,
+    version,
+    operation,
+    summary,
+    name: row.name,
+    description: row.description,
+    content: row.content,
+    icon: row.icon,
+    actorEmail: currentActorEmail(),
+    ownerEmail: row.ownerEmail,
+    orgId: row.orgId,
+    visibility: row.visibility,
+    createdAt: now,
+    persisted: true,
+    contentLength: row.content.length,
+  };
+}
+
+async function ensureExtensionHistoryBaseline(
+  row: ExtensionRow,
+): Promise<void> {
+  if (await hasExtensionHistory(row.id)) return;
+  await recordExtensionHistorySnapshot(
+    row,
+    "baseline",
+    "Saved starting version",
+  );
+}
+
+function summarizeMetadataChange(
+  before: ExtensionRow,
+  after: ExtensionRow,
+): string {
+  const changes: string[] = [];
+  if (before.name !== after.name) {
+    changes.push(`Renamed from "${before.name}" to "${after.name}"`);
+  }
+  if (before.description !== after.description) {
+    changes.push("Updated description");
+  }
+  if (before.icon !== after.icon) {
+    changes.push("Updated icon");
+  }
+  if (before.visibility !== after.visibility) {
+    changes.push(`Changed visibility to ${after.visibility}`);
+  }
+  return changes.join("; ") || "Updated details";
+}
+
+function summarizeContentChange(
+  beforeContent: string,
+  afterContent: string,
+): string {
+  const stats = diffStats(createLineDiff(beforeContent, afterContent));
+  if (!stats.changed) return "Saved content";
+  return `Updated content (+${stats.addedLines} -${stats.deletedLines} lines)`;
+}
+
+function parseHistoryVersion(version: unknown): number | null {
+  const parsed = Number(version);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+async function getPersistedHistoryEntry(
+  extensionId: string,
+  version: number,
+  includeContent: boolean,
+): Promise<ExtensionHistoryEntry | null> {
+  const result = await getDbExec().execute({
+    sql: `SELECT id, tool_id, version, operation, summary, name, description,
+      content, icon, actor_email, owner_email, org_id, visibility, created_at
+      FROM tool_history
+      WHERE tool_id = ? AND version = ?
+      LIMIT 1`,
+    args: [extensionId, version],
+  });
+  const row = result.rows?.[0] as RawExtensionHistoryRow | undefined;
+  return row ? extensionHistoryEntryFromRaw(row, includeContent) : null;
+}
+
+function splitLines(text: string): string[] {
+  if (!text) return [];
+  const parts = text.split("\n");
+  return parts
+    .map((line, index) => (index < parts.length - 1 ? `${line}\n` : line))
+    .filter((line) => line.length > 0);
+}
+
+function createLineDiff(
+  beforeText: string,
+  afterText: string,
+): ExtensionHistoryDiffLine[] {
+  const before = splitLines(beforeText);
+  const after = splitLines(afterText);
+  if (before.length === 0 && after.length === 0) return [];
+
+  const cells = before.length * after.length;
+  if (cells > 40_000) return createBoundaryDiff(before, after);
+
+  const dp = Array.from({ length: before.length + 1 }, () =>
+    Array(after.length + 1).fill(0),
+  );
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      dp[i][j] =
+        before[i] === after[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const diff: ExtensionHistoryDiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      diff.push({ type: "equal", text: before[i] });
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      diff.push({ type: "delete", text: before[i] });
+      i += 1;
+    } else {
+      diff.push({ type: "insert", text: after[j] });
+      j += 1;
+    }
+  }
+  while (i < before.length) {
+    diff.push({ type: "delete", text: before[i] });
+    i += 1;
+  }
+  while (j < after.length) {
+    diff.push({ type: "insert", text: after[j] });
+    j += 1;
+  }
+  return diff;
+}
+
+function createBoundaryDiff(
+  before: string[],
+  after: string[],
+): ExtensionHistoryDiffLine[] {
+  let prefix = 0;
+  while (
+    prefix < before.length &&
+    prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) {
+    prefix += 1;
+  }
+
+  let suffix = 0;
+  while (
+    suffix + prefix < before.length &&
+    suffix + prefix < after.length &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  return [
+    ...before
+      .slice(0, prefix)
+      .map((text) => ({ type: "equal" as const, text })),
+    ...before
+      .slice(prefix, before.length - suffix)
+      .map((text) => ({ type: "delete" as const, text })),
+    ...after
+      .slice(prefix, after.length - suffix)
+      .map((text) => ({ type: "insert" as const, text })),
+    ...before
+      .slice(before.length - suffix)
+      .map((text) => ({ type: "equal" as const, text })),
+  ];
+}
+
+function diffStats(diff: ExtensionHistoryDiffLine[]): {
+  addedLines: number;
+  deletedLines: number;
+  changed: boolean;
+} {
+  const addedLines = diff.filter((line) => line.type === "insert").length;
+  const deletedLines = diff.filter((line) => line.type === "delete").length;
+  return {
+    addedLines,
+    deletedLines,
+    changed: addedLines > 0 || deletedLines > 0,
+  };
+}
+
 export interface ListExtensionsOptions {
   includeHidden?: boolean;
 }
@@ -385,6 +776,124 @@ export async function getExtension(id: string): Promise<ExtensionRow | null> {
   await ensureExtensionsTables();
   const access = await resolveAccess("extension", id);
   return (access?.resource as ExtensionRow | undefined) ?? null;
+}
+
+export interface ListExtensionHistoryOptions {
+  limit?: number;
+  includeContent?: boolean;
+}
+
+export async function listExtensionHistory(
+  id: string,
+  options: ListExtensionHistoryOptions = {},
+): Promise<ExtensionHistoryEntry[]> {
+  await ensureExtensionsTables();
+  const extension = await getExtension(id);
+  if (!extension) return [];
+
+  const includeContent = options.includeContent === true;
+  const limit = clampHistoryLimit(options.limit);
+  const result = await getDbExec().execute({
+    sql: `SELECT id, tool_id, version, operation, summary, name, description,
+      content, icon, actor_email, owner_email, org_id, visibility, created_at
+      FROM tool_history
+      WHERE tool_id = ?
+      ORDER BY version DESC
+      LIMIT ?`,
+    args: [id, limit],
+  });
+
+  const entries = (result.rows ?? []).map((row) =>
+    extensionHistoryEntryFromRaw(row as RawExtensionHistoryRow, includeContent),
+  );
+
+  if (entries.length > 0) return entries;
+  return [extensionHistoryEntryFromExtension(extension, includeContent)];
+}
+
+export async function getExtensionHistoryVersion(
+  id: string,
+  versionValue: number | string,
+): Promise<ExtensionHistoryDetail | null> {
+  await ensureExtensionsTables();
+  const extension = await getExtension(id);
+  if (!extension) return null;
+
+  const version = parseHistoryVersion(versionValue);
+  if (!version) return null;
+
+  const persisted = await getPersistedHistoryEntry(id, version, true);
+  const entry =
+    persisted ??
+    (!(await hasExtensionHistory(id)) && version === 1
+      ? extensionHistoryEntryFromExtension(extension, true)
+      : null);
+  if (!entry) return null;
+
+  const previous =
+    version > 1 ? await getPersistedHistoryEntry(id, version - 1, true) : null;
+  const previousContent = previous?.content ?? "";
+  const currentContent = entry.content ?? "";
+  const diff = createLineDiff(previousContent, currentContent);
+
+  return {
+    entry,
+    previous,
+    diff,
+    stats: diffStats(diff),
+  };
+}
+
+export async function restoreExtensionHistoryVersion(
+  id: string,
+  versionValue: number | string,
+): Promise<ExtensionRow | null> {
+  await ensureExtensionsTables();
+  await assertAccess("extension", id, "editor");
+
+  const version = parseHistoryVersion(versionValue);
+  if (!version) return null;
+
+  const existingRows = await getDb()
+    .select()
+    .from(extensions)
+    .where(eq(extensions.id, id));
+  const existing = existingRows[0] as ExtensionRow | undefined;
+  if (!existing) return null;
+
+  await ensureExtensionHistoryBaseline(existing);
+  const target = await getPersistedHistoryEntry(id, version, true);
+  if (!target) return null;
+
+  const beforeTargets = await extensionChangeTargetsForId(id);
+  await getDb()
+    .update(extensions)
+    .set({
+      name: target.name,
+      description: target.description,
+      content: target.content ?? "",
+      icon: target.icon,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(extensions.id, id));
+
+  const rows = await getDb()
+    .select()
+    .from(extensions)
+    .where(eq(extensions.id, id));
+  const row = (rows[0] as ExtensionRow) ?? null;
+  if (row) {
+    await recordExtensionHistorySnapshot(
+      row,
+      "restore",
+      `Restored version ${version}`,
+    );
+    await notifyExtensionChanged([
+      ...beforeTargets,
+      ...(await extensionChangeTargetsForRow(row)),
+    ]);
+  }
+  return row;
 }
 
 export interface CreateExtensionData {
@@ -417,6 +926,7 @@ export async function createExtension(
     visibility: "private",
   };
   await db.insert(extensions).values(row);
+  await recordExtensionHistorySnapshot(row, "create", "Created extension");
   await notifyExtensionChanged([{ owner: row.ownerEmail }]);
   return row;
 }
@@ -457,10 +967,22 @@ export async function updateExtension(
   if (data.description !== undefined) updates.description = data.description;
   if (data.icon !== undefined) updates.icon = data.icon;
   if (data.visibility !== undefined) updates.visibility = data.visibility;
+  const existingRows = await db
+    .select()
+    .from(extensions)
+    .where(eq(extensions.id, id));
+  const existing = existingRows[0] as ExtensionRow | undefined;
+  if (!existing) return null;
+  await ensureExtensionHistoryBaseline(existing);
   await db.update(extensions).set(updates).where(eq(extensions.id, id));
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   const row = (rows[0] as ExtensionRow) ?? null;
   if (row) {
+    await recordExtensionHistorySnapshot(
+      row,
+      "metadata-update",
+      summarizeMetadataChange(existing, row),
+    );
     await notifyExtensionChanged([
       ...beforeTargets,
       ...(await extensionChangeTargetsForRow(row)),
@@ -498,7 +1020,9 @@ export async function updateExtensionContent(
     .from(extensions)
     .where(eq(extensions.id, id));
   if (!existingRows[0]) return null;
-  const existingContent = (existingRows[0] as ExtensionRow).content;
+  const existing = existingRows[0] as ExtensionRow;
+  const existingContent = existing.content;
+  await ensureExtensionHistoryBaseline(existing);
   const update = await applyExtensionContentUpdate(existingContent, opts);
 
   const beforeTargets = await extensionChangeTargetsForId(id);
@@ -509,6 +1033,11 @@ export async function updateExtensionContent(
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   const row = (rows[0] as ExtensionRow) ?? null;
   if (row) {
+    await recordExtensionHistorySnapshot(
+      row,
+      "content-update",
+      summarizeContentChange(existingContent, row.content),
+    );
     await notifyExtensionChanged([
       ...beforeTargets,
       ...(await extensionChangeTargetsForRow(row)),
@@ -529,6 +1058,10 @@ export async function deleteExtension(id: string): Promise<boolean> {
   await db.delete(extensionHides).where(eq(extensionHides.extensionId, id));
   await getDbExec().execute({
     sql: `DELETE FROM tool_data WHERE tool_id = ?`,
+    args: [id],
+  });
+  await getDbExec().execute({
+    sql: `DELETE FROM tool_history WHERE tool_id = ?`,
     args: [id],
   });
   const { cascadeDeleteExtensionSlots } = await import("./slots/store.js");

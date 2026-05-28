@@ -19,17 +19,40 @@ The product surface stays simple on purpose: **Ask** is the primary chat
 experience, while **Sources**, **Review**, and **Knowledge** are admin/support
 surfaces for connecting data, approving proposals, and inspecting cited memory.
 
+![Brain company chat with cited memory sources](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=1200)
+
 Use Brain when your team wants agents to answer questions like "why did we make
 this product decision?", "how does this in-development feature work?", or "what
 changed in this process?" with links back to the source conversation, meeting,
 or issue.
 
-Brain is intentionally on an open-source, Glean-shaped path, but it is not a
-complete Glean replacement today. V1 is company chat plus cited memory over
-reviewed knowledge. V1.5 adds Brain-wide search across knowledge,
-captures, and sources, plus reusable workspace connections for source
-credentials. V2 points toward federated app/source search, permission-aware
-result filtering, ranking, and an expertise graph as a future platform layer.
+Brain's shipped shape is company chat plus cited, reviewed memory over approved
+sources. The current template also includes Brain-wide search across knowledge,
+captures, and source records, plus reusable workspace connections for source
+credentials. Broader federated workspace search and expertise ranking are
+platform direction, not something you need to set up on day one.
+
+## Start Here
+
+1. **Try the demo.** Open Ask and choose **Start demo**. Brain seeds a small
+   product-decision corpus, runs the trust checks, and asks a cited question so
+   you can see answers, citations, review, and not-found behavior before adding
+   real company data.
+2. **Add one source.** Start with a single Slack channel, Granola Team-space
+   feed, GitHub repository, Clips export, or generic transcript webhook. Keep
+   the scope small until citations and review quality look right.
+3. **Review before publishing.** Use Review to inspect evidence, edit wording,
+   and approve only durable company memory.
+4. **Ask from the source.** Use Ask for questions that should be grounded in
+   approved knowledge, not raw chat logs.
+
+## Useful Prompts
+
+- "What did we decide about annual pricing, and where was that discussed?"
+- "Find the most recent onboarding-process change and cite the source."
+- "Summarize what this GitHub discussion means for the launch plan."
+- "Review the pending memory proposals and flag anything too vague to publish."
+- "Which sources are stale or failing sync?"
 
 ## What It Includes
 
@@ -402,7 +425,7 @@ workspaces and reveals Review, Knowledge, and **Run eval** follow-ups once the
 demo is ready.
 
 `run-retrieval-eval` checks an offline real-channel-style retrieval set. It
-uses existing workspace Brain data when #dev-fusion stale Fusion branch answers
+uses existing workspace Brain data when the expected branch-safety answers
 already have citation-backed support; otherwise, with `seedIfMissing` enabled,
 it seeds a small Slack-style fallback corpus and re-runs the same checks. The
 result covers Slack-style citations, branch-safety terms, and an unsupported
@@ -442,6 +465,6 @@ The template follows the agent-native four-area contract:
 - **Application state:** route, filters, and selected IDs mirror into `application_state` for agent context.
 
 See [Dispatch](/docs/dispatch) for the workspace control plane, the
-[Dispatch template](/templates/dispatch) for the scaffolded app,
+[Dispatch template](/docs/template-dispatch) for the scaffolded app,
 [Workspace](/docs/workspace) for shared resources, and
 [A2A Protocol](/docs/a2a-protocol) for cross-app delegation.

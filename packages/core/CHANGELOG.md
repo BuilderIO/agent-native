@@ -1,5 +1,80 @@
 # @agent-native/core
 
+## 0.24.5
+
+### Patch Changes
+
+- 32bb63c: Remove browser-facing ACCESS_TOKEN auth gates and keep static bearer tokens limited to MCP/connect fallback clients.
+
+## 0.24.4
+
+### Patch Changes
+
+- 4b91db4: Block raw database tools from writing app-defined identity and access-control data.
+
+## 0.24.3
+
+### Patch Changes
+
+- daeb0a9: Add custom migration plan inputs for AEM, Builder, headless, jQuery, and verification planning.
+- daeb0a9: Harden chat thread pin and archive updates with owner checks and client rollback on failure.
+
+## 0.24.2
+
+### Patch Changes
+
+- ff0fae2: Allow Brain and Dispatch sidebar chat threads to be renamed from their row menu.
+- ff0fae2: Add fresh-start chat surfaces plus chat thread pin/archive metadata.
+- ff0fae2: Generalize the onboarding copy for image generation provider key setup.
+- ff0fae2: Keep framework routes registered through the H3 shim visible to Nitro 3 generated server dispatchers.
+- ff0fae2: Promote Brain and Assets in public template catalogs and Dispatch workspace template defaults.
+- ff0fae2: Render workspace app menu links with the same template icons used by the desktop app.
+
+## 0.24.1
+
+### Patch Changes
+
+- 7aa1703: fix builder connect 401 for unauthenticated users with a valid connect token
+
+## 0.24.0
+
+### Minor Changes
+
+- 9f3a798: Add extension history snapshots, diffs, and restore support.
+
+### Patch Changes
+
+- 9f3a798: Return 401 for unauthenticated private page routes while still rendering the sign-in page.
+- 9f3a798: Recover agent chat runs that time out while preparing extension action input.
+- 9f3a798: Keep chat recovery retries anchored to the original user request and give hosted timeout recovery more room to persist.
+- 9f3a798: Preserve generated chat titles when later thread saves update chat metadata.
+- 9f3a798: Keep lazy gateway wake pages active until app dev servers return HTTP responses.
+
+## 0.23.0
+
+### Minor Changes
+
+- 2ea399e: Add app-backed skill packaging and CLI support for hosted/local app skill installs.
+
+### Patch Changes
+
+- 2ea399e: Rename the Images template/package to Assets, preserve legacy aliases, and add DAM/video generation capabilities.
+- 2ea399e: Add chat-surface controls for hidden thread tabs and centered empty composers.
+- 2ea399e: Clarify deployment, scaffold, skill, and template guidance for persistent databases and provider-agnostic Drizzle code.
+- 2ea399e: Expose selected Dispatch workspace skills, resources, and MCP server definitions to granted app agents at runtime.
+
+## 0.22.45
+
+### Patch Changes
+
+- 4bed290: Harden collaborative editing against missed updates and concurrent Yjs persistence races.
+
+## 0.22.44
+
+### Patch Changes
+
+- 7ca6c99: Allow UI-submitted agent chat messages to include image data.
+
 ## 0.22.43
 
 ### Patch Changes

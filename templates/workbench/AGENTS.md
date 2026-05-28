@@ -139,7 +139,7 @@ Every `defineAction` is auto-mounted at `/_agent-native/actions/:name` AND expos
 | `onboarding`        | Setup checklist steps (`setup-workbench.ts` registers these)     |
 | `frontend-design`   | Building or restyling any UI                                     |
 | `shadcn-ui`         | Adding shadcn primitives, theming, motion                        |
-| `portability`       | Keeping schema/SQL dialect-agnostic (Neon Postgres in prod)      |
+| `portability`       | Keeping schema/SQL dialect-agnostic across supported providers   |
 | `delegate-to-agent` | AI work always goes through the agent chat — no inline LLM calls |
 
 ## Common Tasks

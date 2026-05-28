@@ -50,7 +50,10 @@
 import path from "path";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoRawDbAccessControlPatchTarget,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
@@ -755,6 +758,7 @@ When to use db-patch vs other tools:
       `Invalid --column: "${column}". Must be a plain identifier (letters, digits, underscore).`,
     );
   assertNoSensitiveFrameworkTables(table, "patch");
+  assertNoRawDbAccessControlPatchTarget(table, column);
   assertNoSensitiveFrameworkTables(where, "read");
   validateWhere(where);
 

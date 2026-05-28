@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { getCurrentOwnerEmail } from "../server/lib/documents.js";
 import { z } from "zod";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -36,7 +37,7 @@ export default defineAction({
 
     const notionPageId = syncLink.remotePageId;
     const accessToken = connection.accessToken;
-    const client = getDbExec();
+    const db = getDb();
     const ownerEmail = owner;
 
     // Pull: Notion -> Local
@@ -47,50 +48,66 @@ export default defineAction({
       const text = nc.rich_text.map((r: any) => r.plain_text).join("");
       if (!text) continue;
 
-      const { rows } = await client.execute({
-        sql: "SELECT id FROM document_comments WHERE notion_comment_id = ? AND owner_email = ?",
-        args: [nc.id, ownerEmail],
-      });
-      if (rows.length > 0) continue;
+      const existing = await db
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.notionCommentId, nc.id),
+            eq(schema.documentComments.ownerEmail, ownerEmail),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) continue;
 
       const id = Math.random().toString(36).slice(2, 14);
-      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-      await client.execute({
-        sql: `INSERT INTO document_comments (id, owner_email, document_id, thread_id, parent_id, content, author_email, author_name, notion_comment_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
-        args: [
-          id,
-          ownerEmail,
-          documentId,
-          id,
-          text,
-          "notion@sync",
-          "Notion",
-          nc.id,
-        ],
+      await db.insert(schema.documentComments).values({
+        id,
+        ownerEmail,
+        documentId,
+        threadId: id,
+        parentId: null,
+        content: text,
+        authorEmail: "notion@sync",
+        authorName: "Notion",
+        notionCommentId: nc.id,
       });
       pulled++;
     }
 
     // Push: Local -> Notion
-    const { rows: localComments } = await client.execute({
-      sql: "SELECT id, content FROM document_comments WHERE document_id = ? AND owner_email = ? AND notion_comment_id IS NULL AND resolved = 0",
-      args: [documentId, ownerEmail],
-    });
+    const localComments = await db
+      .select({
+        id: schema.documentComments.id,
+        content: schema.documentComments.content,
+      })
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.ownerEmail, ownerEmail),
+          isNull(schema.documentComments.notionCommentId),
+          eq(schema.documentComments.resolved, 0),
+        ),
+      );
     let pushed = 0;
 
     for (const lc of localComments) {
-      const content = (lc as any).content;
-      const localId = (lc as any).id;
       const notionId = await addNotionComment(
         notionPageId,
-        content,
+        lc.content,
         accessToken,
       );
       if (notionId) {
-        await client.execute({
-          sql: "UPDATE document_comments SET notion_comment_id = ? WHERE id = ? AND owner_email = ?",
-          args: [notionId, localId, ownerEmail],
-        });
+        await db
+          .update(schema.documentComments)
+          .set({ notionCommentId: notionId })
+          .where(
+            and(
+              eq(schema.documentComments.id, lc.id),
+              eq(schema.documentComments.ownerEmail, ownerEmail),
+            ),
+          );
         pushed++;
       }
     }

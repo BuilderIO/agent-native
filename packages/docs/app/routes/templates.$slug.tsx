@@ -17,6 +17,7 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
@@ -182,6 +183,10 @@ export default function GenericTemplatePage() {
                   <IconExternalLink size={16} />
                 </a>
               )}
+              <TemplateDocsLink
+                template={template}
+                location="generic_template_page"
+              />
               <a
                 href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
                 target="_blank"

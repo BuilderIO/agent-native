@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
   IconApps,
+  IconBrain,
   IconBrush,
   IconCalendarMonth,
   IconChartBar,
@@ -11,6 +12,7 @@ import {
   IconFileText,
   IconLoader2,
   IconMail,
+  IconPhoto,
   IconPlus,
   IconPresentation,
   IconScreenShare,
@@ -58,6 +60,8 @@ const TEMPLATE_ICONS: Record<string, typeof IconMail> = {
   FileText: IconFileText,
   Presentation: IconPresentation,
   ScreenShare: IconScreenShare,
+  Brain: IconBrain,
+  Photo: IconPhoto,
   ChartBar: IconChartBar,
   ClipboardList: IconClipboardList,
   Brush: IconBrush,
