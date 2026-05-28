@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.24.6
+
+### Patch Changes
+
+- 1c28701: Allow extension key resolution to fall back to scoped app credentials after vault secrets miss.
+
 ## 0.24.5
 
 ### Patch Changes
