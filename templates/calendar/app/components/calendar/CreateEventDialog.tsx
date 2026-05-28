@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -36,6 +35,7 @@ import {
   type AttendeeRecipient,
 } from "@/components/calendar/AttendeeAutocomplete";
 import {
+  IconCalendarTime,
   IconBrandZoom,
   IconChevronDown,
   IconMessage,
@@ -55,7 +55,7 @@ import {
   EventColorSwatches,
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
-import { FindTimePanel } from "@/components/calendar/FindTimePanel";
+import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
 import {
   attachmentsToDrafts,
   buildReminderPayload,
@@ -71,7 +71,7 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
+import { shortcutModifierLabel } from "@/lib/utils";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -230,7 +230,7 @@ export function CreateEventPopover({
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
-  const [activeTab, setActiveTab] = useState("details");
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
   const timedOnlyStatus =
     eventType === "outOfOffice" || eventType === "focusTime";
 
@@ -336,7 +336,7 @@ export function CreateEventPopover({
   ]);
 
   useEffect(() => {
-    if (!open) setActiveTab("details");
+    if (!open) setFindTimeOpen(false);
   }, [open]);
 
   useEffect(() => {
@@ -511,7 +511,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     setEndDate(endParts.date);
     setStartTime(startParts.time);
     setEndTime(endParts.time);
-    setActiveTab("details");
+    setFindTimeOpen(false);
     toast("Time selected");
   }
 
@@ -519,6 +519,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
+      if (findTimeOpen) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         formRef.current?.requestSubmit();
@@ -526,7 +527,7 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [findTimeOpen, open]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -660,11 +661,12 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
         align="end"
         sideOffset={8}
         collisionPadding={16}
-        className={cn(
-          "max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-4",
-          activeTab === "find-time" ? "sm:w-[920px]" : "sm:w-80",
-        )}
+        className="max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-4 sm:w-80"
         onInteractOutside={(event) => {
+          if (findTimeOpen) {
+            event.preventDefault();
+            return;
+          }
           const target = event.target as HTMLElement;
           if (target.closest("[data-attendee-autocomplete]")) {
             event.preventDefault();
@@ -675,438 +677,446 @@ Write a short, useful meeting description. Keep it paste-ready and avoid adding 
           {draft ? "Review Invite" : "New Event"}
         </div>
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="details">Event details</TabsTrigger>
-              <TabsTrigger value="find-time">Find a time</TabsTrigger>
-            </TabsList>
-            <TabsContent value="details" className="mt-3 space-y-3">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="event-title" className="text-xs">
+                Title
+              </Label>
+              <Input
+                id="event-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Event title"
+                autoFocus
+                className="h-8 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-type" className="text-xs">
+                Type
+              </Label>
+              <Select
+                value={eventType}
+                onValueChange={(value) => setEventType(value as EventType)}
+              >
+                <SelectTrigger id="event-type" className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Event</SelectItem>
+                  <SelectItem value="outOfOffice">Out of office</SelectItem>
+                  <SelectItem value="focusTime">Focus time</SelectItem>
+                  <SelectItem value="workingLocation">
+                    Working location
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {eventType === "workingLocation" && (
               <div className="space-y-1.5">
-                <Label htmlFor="event-title" className="text-xs">
-                  Title
-                </Label>
-                <Input
-                  id="event-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Event title"
-                  autoFocus
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="event-type" className="text-xs">
-                  Type
-                </Label>
-                <Select
-                  value={eventType}
-                  onValueChange={(value) => setEventType(value as EventType)}
-                >
-                  <SelectTrigger id="event-type" className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Event</SelectItem>
-                    <SelectItem value="outOfOffice">Out of office</SelectItem>
-                    <SelectItem value="focusTime">Focus time</SelectItem>
-                    <SelectItem value="workingLocation">
-                      Working location
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {eventType === "workingLocation" && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="working-location-type" className="text-xs">
-                    Working from
-                  </Label>
-                  <Select
-                    value={workingLocationType}
-                    onValueChange={(value) =>
-                      setWorkingLocationType(value as WorkingLocationType)
-                    }
-                  >
-                    <SelectTrigger
-                      id="working-location-type"
-                      className="h-8 text-sm"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="homeOffice">Home</SelectItem>
-                      <SelectItem value="officeLocation">Office</SelectItem>
-                      <SelectItem value="customLocation">Custom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="event-description" className="text-xs">
-                    Description
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-                    onClick={handleDraftDescription}
-                  >
-                    <IconMessage className="h-3 w-3" />
-                    Ask AI
-                  </Button>
-                </div>
-                <Textarea
-                  id="event-description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional description"
-                  rows={2}
-                  className="text-sm"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-date" className="text-xs">
-                    Start date
-                  </Label>
-                  <Input
-                    id="event-date"
-                    type="date"
-                    value={date}
-                    onChange={(e) => handleDateChange(e.target.value)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-end-date" className="text-xs">
-                    End date
-                  </Label>
-                  <Input
-                    id="event-end-date"
-                    type="date"
-                    min={date}
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value || date)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              </div>
-
-              {timedOnlyStatus ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex w-fit items-center gap-2">
-                      <Switch
-                        id="all-day"
-                        checked={false}
-                        onCheckedChange={setAllDay}
-                        disabled
-                      />
-                      <Label
-                        htmlFor="all-day"
-                        className="text-xs text-muted-foreground"
-                      >
-                        All day
-                      </Label>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {eventType === "outOfOffice"
-                      ? "Out of office events must have a specific start and end time."
-                      : "Focus time events must have a specific start and end time."}
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="all-day"
-                    checked={allDay}
-                    onCheckedChange={setAllDay}
-                  />
-                  <Label htmlFor="all-day" className="text-xs">
-                    All day
-                  </Label>
-                </div>
-              )}
-
-              {!allDay && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="start-time" className="text-xs">
-                      Start
-                    </Label>
-                    <Input
-                      id="start-time"
-                      type="time"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="end-time" className="text-xs">
-                      End
-                    </Label>
-                    <Input
-                      id="end-time"
-                      type="time"
-                      value={endTime}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setEndTime(next);
-                        if (endDate === date && next <= startTime) {
-                          setEndDate(addDaysToDateString(date, 1));
-                        }
-                      }}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <Label htmlFor="event-attendees" className="text-xs">
-                  Attendees
-                </Label>
-                <AttendeeAutocomplete
-                  ref={attendeeAutocompleteRef}
-                  attendees={attendees}
-                  onAdd={addAttendee}
-                  onRemove={removeAttendee}
-                  inputId="event-attendees"
-                  placeholder="Search contacts or type an email"
-                />
-                {attendees.length > 0 && (
-                  <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <IconUsers className="h-3 w-3" />
-                    {attendees.length} invited — Google will email them when you
-                    create
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="event-location" className="text-xs">
-                  Location
-                </Label>
-                <Input
-                  id="event-location"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Optional location"
-                  className="h-8 text-sm"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="event-video-provider" className="text-xs">
-                  Video
+                <Label htmlFor="working-location-type" className="text-xs">
+                  Working from
                 </Label>
                 <Select
-                  value={videoProvider}
+                  value={workingLocationType}
                   onValueChange={(value) =>
-                    setVideoProvider(value as VideoProvider)
+                    setWorkingLocationType(value as WorkingLocationType)
                   }
                 >
                   <SelectTrigger
-                    id="event-video-provider"
+                    id="working-location-type"
                     className="h-8 text-sm"
                   >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No video</SelectItem>
-                    <SelectItem value="google_meet">
-                      <span className="flex items-center gap-2">
-                        <IconVideo className="h-3.5 w-3.5" />
-                        Google Meet
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="zoom">
-                      <span className="flex items-center gap-2">
-                        <IconBrandZoom className="h-3.5 w-3.5" />
-                        Zoom
-                      </span>
-                    </SelectItem>
+                    <SelectItem value="homeOffice">Home</SelectItem>
+                    <SelectItem value="officeLocation">Office</SelectItem>
+                    <SelectItem value="customLocation">Custom</SelectItem>
                   </SelectContent>
                 </Select>
-                {videoProvider === "zoom" && !zoomStatus.data?.connected && (
-                  <div className="rounded-md border border-border bg-muted/30 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        {zoomStatus.data?.configured === false
-                          ? "Zoom OAuth is not configured."
-                          : "Connect Zoom before creating this event."}
-                      </p>
-                      {zoomStatus.data?.configured !== false && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 shrink-0 gap-1.5 text-xs"
-                          disabled={connectZoom.isPending}
-                          onClick={() =>
-                            connectZoom.mutate(undefined, {
-                              onSuccess: () => toast("Zoom connection opened"),
-                              onError: (error) =>
-                                toast.error(
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Could not connect Zoom",
-                                ),
-                            })
-                          }
-                        >
-                          <IconBrandZoom className="h-3.5 w-3.5" />
-                          Connect
-                        </Button>
-                      )}
-                    </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="event-description" className="text-xs">
+                  Description
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+                  onClick={handleDraftDescription}
+                >
+                  <IconMessage className="h-3 w-3" />
+                  Ask AI
+                </Button>
+              </div>
+              <Textarea
+                id="event-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description"
+                rows={2}
+                className="text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="event-date" className="text-xs">
+                  Start date
+                </Label>
+                <Input
+                  id="event-date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="event-end-date" className="text-xs">
+                  End date
+                </Label>
+                <Input
+                  id="event-end-date"
+                  type="date"
+                  min={date}
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value || date)}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+
+            {timedOnlyStatus ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex w-fit items-center gap-2">
+                    <Switch
+                      id="all-day"
+                      checked={false}
+                      onCheckedChange={setAllDay}
+                      disabled
+                    />
+                    <Label
+                      htmlFor="all-day"
+                      className="text-xs text-muted-foreground"
+                    >
+                      All day
+                    </Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {eventType === "outOfOffice"
+                    ? "Out of office events must have a specific start and end time."
+                    : "Focus time events must have a specific start and end time."}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="all-day"
+                  checked={allDay}
+                  onCheckedChange={setAllDay}
+                />
+                <Label htmlFor="all-day" className="text-xs">
+                  All day
+                </Label>
+              </div>
+            )}
+
+            {!allDay && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="start-time" className="text-xs">
+                    Start
+                  </Label>
+                  <Input
+                    id="start-time"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="end-time" className="text-xs">
+                    End
+                  </Label>
+                  <Input
+                    id="end-time"
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setEndTime(next);
+                      if (endDate === date && next <= startTime) {
+                        setEndDate(addDaysToDateString(date, 1));
+                      }
+                    }}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {!effectiveAllDay && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 w-full justify-center gap-1.5 text-xs"
+                onClick={() => setFindTimeOpen(true)}
+              >
+                <IconCalendarTime className="h-3.5 w-3.5" />
+                Find a time
+              </Button>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-attendees" className="text-xs">
+                Attendees
+              </Label>
+              <AttendeeAutocomplete
+                ref={attendeeAutocompleteRef}
+                attendees={attendees}
+                onAdd={addAttendee}
+                onRemove={removeAttendee}
+                inputId="event-attendees"
+                placeholder="Search contacts or type an email"
+              />
+              {attendees.length > 0 && (
+                <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <IconUsers className="h-3 w-3" />
+                  {attendees.length} invited — Google will email them when you
+                  create
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-location" className="text-xs">
+                Location
+              </Label>
+              <Input
+                id="event-location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Optional location"
+                className="h-8 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="event-video-provider" className="text-xs">
+                Video
+              </Label>
+              <Select
+                value={videoProvider}
+                onValueChange={(value) =>
+                  setVideoProvider(value as VideoProvider)
+                }
+              >
+                <SelectTrigger
+                  id="event-video-provider"
+                  className="h-8 text-sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No video</SelectItem>
+                  <SelectItem value="google_meet">
+                    <span className="flex items-center gap-2">
+                      <IconVideo className="h-3.5 w-3.5" />
+                      Google Meet
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="zoom">
+                    <span className="flex items-center gap-2">
+                      <IconBrandZoom className="h-3.5 w-3.5" />
+                      Zoom
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {videoProvider === "zoom" && !zoomStatus.data?.connected && (
+                <div className="rounded-md border border-border bg-muted/30 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {zoomStatus.data?.configured === false
+                        ? "Zoom OAuth is not configured."
+                        : "Connect Zoom before creating this event."}
+                    </p>
+                    {zoomStatus.data?.configured !== false && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 gap-1.5 text-xs"
+                        disabled={connectZoom.isPending}
+                        onClick={() =>
+                          connectZoom.mutate(undefined, {
+                            onSuccess: () => toast("Zoom connection opened"),
+                            onError: (error) =>
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Could not connect Zoom",
+                              ),
+                          })
+                        }
+                      >
+                        <IconBrandZoom className="h-3.5 w-3.5" />
+                        Connect
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-full justify-between px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <IconSettings2 className="h-3.5 w-3.5" />
+                    Event options
+                  </span>
+                  <IconChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-availability" className="text-xs">
+                      Show as
+                    </Label>
+                    <Select
+                      value={
+                        eventType === "workingLocation"
+                          ? "transparent"
+                          : eventType === "default"
+                            ? availability
+                            : "opaque"
+                      }
+                      onValueChange={(value) =>
+                        setAvailability(value as Availability)
+                      }
+                      disabled={eventType !== "default"}
+                    >
+                      <SelectTrigger
+                        id="event-availability"
+                        className="h-8 text-sm"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="opaque">Busy</SelectItem>
+                        <SelectItem value="transparent">Free</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-visibility" className="text-xs">
+                      Visibility
+                    </Label>
+                    <Select
+                      value={
+                        eventType === "workingLocation" ? "public" : visibility
+                      }
+                      onValueChange={(value) =>
+                        setVisibility(value as Visibility)
+                      }
+                      disabled={eventType === "workingLocation"}
+                    >
+                      <SelectTrigger
+                        id="event-visibility"
+                        className="h-8 text-sm"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default</SelectItem>
+                        <SelectItem value="public">Public</SelectItem>
+                        <SelectItem value="private">Private</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {!allDay && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-timezone" className="text-xs">
+                      Timezone
+                    </Label>
+                    <TimezoneCombobox
+                      id="event-timezone"
+                      value={timezone}
+                      onChange={setTimezone}
+                    />
                   </div>
                 )}
-              </div>
 
-              <Collapsible>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-full justify-between px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <IconSettings2 className="h-3.5 w-3.5" />
-                      Event options
-                    </span>
-                    <IconChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-availability" className="text-xs">
-                        Show as
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "transparent"
-                            : eventType === "default"
-                              ? availability
-                              : "opaque"
-                        }
-                        onValueChange={(value) =>
-                          setAvailability(value as Availability)
-                        }
-                        disabled={eventType !== "default"}
-                      >
-                        <SelectTrigger
-                          id="event-availability"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opaque">Busy</SelectItem>
-                          <SelectItem value="transparent">Free</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Color</Label>
+                  <EventColorSwatches
+                    value={colorId}
+                    onChange={setColorId}
+                    includeDefault
+                  />
+                </div>
 
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-visibility" className="text-xs">
-                        Visibility
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "public"
-                            : visibility
-                        }
-                        onValueChange={(value) =>
-                          setVisibility(value as Visibility)
-                        }
-                        disabled={eventType === "workingLocation"}
-                      >
-                        <SelectTrigger
-                          id="event-visibility"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">Default</SelectItem>
-                          <SelectItem value="public">Public</SelectItem>
-                          <SelectItem value="private">Private</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Alerts</Label>
+                  <ReminderControls
+                    idPrefix="event"
+                    mode={reminderMode}
+                    reminders={reminders}
+                    onModeChange={setReminderMode}
+                    onRemindersChange={setReminders}
+                  />
+                </div>
 
-                  {!allDay && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-timezone" className="text-xs">
-                        Timezone
-                      </Label>
-                      <TimezoneCombobox
-                        id="event-timezone"
-                        value={timezone}
-                        onChange={setTimezone}
-                      />
-                    </div>
-                  )}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Attachments</Label>
+                  <AttachmentControls
+                    idPrefix="event"
+                    attachments={attachments}
+                    onChange={setAttachments}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Color</Label>
-                    <EventColorSwatches
-                      value={colorId}
-                      onChange={setColorId}
-                      includeDefault
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Alerts</Label>
-                    <ReminderControls
-                      idPrefix="event"
-                      mode={reminderMode}
-                      reminders={reminders}
-                      onModeChange={setReminderMode}
-                      onRemindersChange={setReminders}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Attachments</Label>
-                    <AttachmentControls
-                      idPrefix="event"
-                      attachments={attachments}
-                      onChange={setAttachments}
-                    />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </TabsContent>
-            <TabsContent value="find-time" className="mt-3">
-              <FindTimePanel
-                date={date}
-                timezone={timezone}
-                durationMinutes={findTimeDurationMinutes}
-                attendees={attendees}
-                accountEmail={draft?.accountEmail}
-                selectedStart={currentStartISO}
-                selectedEnd={currentEndISO}
-                onSelectSlot={handleSelectFindTimeSlot}
-                onAddAttendee={addAttendee}
-                onRemoveAttendee={removeAttendee}
-              />
-            </TabsContent>
-          </Tabs>
+          <FindTimeTakeover
+            open={findTimeOpen}
+            onOpenChange={setFindTimeOpen}
+            title="Find a time"
+            subtitle={title.trim() || (draft ? "Invite" : "New event")}
+            date={date}
+            timezone={timezone}
+            durationMinutes={findTimeDurationMinutes}
+            attendees={attendees}
+            accountEmail={draft?.accountEmail}
+            selectedStart={currentStartISO}
+            selectedEnd={currentEndISO}
+            onSelectSlot={handleSelectFindTimeSlot}
+            onAddAttendee={addAttendee}
+            onRemoveAttendee={removeAttendee}
+          />
 
           <div className="flex items-center justify-between pt-1">
             <p className="text-[10px] text-muted-foreground/60">

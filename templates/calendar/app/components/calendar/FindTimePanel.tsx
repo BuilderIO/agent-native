@@ -23,6 +23,7 @@ import type {
 } from "@shared/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
@@ -152,6 +153,7 @@ interface FindTimePanelProps {
   onAddAttendee?: (attendee: AttendeeRecipient) => void;
   onRemoveAttendee?: (email: string) => void;
   className?: string;
+  isTakeover?: boolean;
 }
 
 export function FindTimePanel({
@@ -168,6 +170,7 @@ export function FindTimePanel({
   onAddAttendee,
   onRemoveAttendee,
   className,
+  isTakeover = false,
 }: FindTimePanelProps) {
   const [anchorDate, setAnchorDate] = useState(() => parseDateOnly(date));
 
@@ -308,7 +311,12 @@ export function FindTimePanel({
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+      <div
+        className={cn(
+          "grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]",
+          isTakeover && "xl:grid-cols-[minmax(0,1fr)_280px]",
+        )}
+      >
         <div className="min-w-0 overflow-x-auto rounded-md border border-border">
           <div className="min-w-[548px]">
             <div className="grid grid-cols-[44px_repeat(7,minmax(72px,1fr))] border-b border-border bg-muted/30">
@@ -328,7 +336,10 @@ export function FindTimePanel({
               ))}
             </div>
             <div
-              className="grid max-h-[430px] grid-cols-[44px_repeat(7,minmax(72px,1fr))] overflow-y-auto"
+              className={cn(
+                "grid max-h-[430px] grid-cols-[44px_repeat(7,minmax(72px,1fr))] overflow-y-auto",
+                isTakeover && "max-h-[calc(100dvh-250px)]",
+              )}
               style={{
                 minHeight: `${(END_HOUR - START_HOUR) * HOUR_HEIGHT}px`,
               }}
@@ -571,5 +582,48 @@ export function FindTimePanel({
         </div>
       </div>
     </div>
+  );
+}
+
+interface FindTimeTakeoverProps extends FindTimePanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title?: string;
+  subtitle?: string;
+}
+
+export function FindTimeTakeover({
+  open,
+  onOpenChange,
+  title = "Find a time",
+  subtitle,
+  className,
+  ...panelProps
+}: FindTimeTakeoverProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        data-find-time-takeover
+        className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-[-50%] translate-y-[-50%] flex-col gap-0 overflow-hidden border-0 p-0 shadow-xl sm:rounded-none"
+      >
+        <header className="flex h-14 shrink-0 items-center border-b border-border px-4 pr-12 md:px-6">
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-base">{title}</DialogTitle>
+            {subtitle ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {subtitle}
+              </p>
+            ) : null}
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+          <FindTimePanel
+            {...panelProps}
+            isTakeover
+            className={cn("mx-auto max-w-7xl", className)}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

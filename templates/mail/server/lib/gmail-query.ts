@@ -15,7 +15,7 @@ export const VIEW_QUERIES: Record<string, string> = {
   all: "",
 };
 
-const BARE_EMAIL_ADDRESS_RE = /^[^\s@<>:()]+@[^\s@<>:()]+\.[^\s@<>:()]+$/i;
+const BARE_EMAIL_ADDRESS_RE = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
 
 export function gmailSearchClause(q: string | undefined): string {
   const trimmed = q?.trim();
