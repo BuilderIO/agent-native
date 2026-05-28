@@ -212,23 +212,6 @@ const authStep: OnboardingStep = {
         ],
       },
     },
-    {
-      id: "access-token",
-      kind: "form",
-      label: "Shared access token",
-      description: "Use a simple token gate for private deployments.",
-      payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "ACCESS_TOKEN",
-            label: "ACCESS_TOKEN",
-            placeholder: "Paste a strong shared token",
-            secret: true,
-          },
-        ],
-      },
-    },
   ],
   isComplete: () => true,
 };

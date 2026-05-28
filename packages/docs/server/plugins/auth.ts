@@ -1,4 +1,8 @@
-import { createAuthPlugin, getAppBasePath } from "@agent-native/core/server";
+import {
+  createAuthPlugin,
+  getAppBasePath,
+  type AuthOptions,
+} from "@agent-native/core/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 import { randomUUID } from "crypto";
 
@@ -21,7 +25,8 @@ function shouldCreateDocsSession(event: H3Event): boolean {
   return shouldCreateDocsSessionForPath(pathname);
 }
 
-export default createAuthPlugin({
+export const docsAuthOptions: AuthOptions = {
+  workspaceAppAudience: "public",
   getSession: async (event) => {
     const cookieName = "an_docs_session";
     let sessionId = getCookie(event, cookieName);
@@ -44,4 +49,6 @@ export default createAuthPlugin({
       userId: sessionId,
     };
   },
-});
+};
+
+export default createAuthPlugin(docsAuthOptions);
