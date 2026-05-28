@@ -27,6 +27,7 @@
 
 import { readAppSecret, readAppSecretMeta } from "./storage.js";
 import type { SecretScope } from "./register.js";
+import { resolveCredentialForScope } from "../credentials/index.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -125,6 +126,7 @@ export async function resolveKeyReferences(
  * 2. active org scope (Dispatch vault sync writes here for org workspaces)
  * 3. active org workspace scope (legacy shared rows)
  * 4. solo workspace scope when no org is active
+ * 5. legacy app credential store user/org scopes
  */
 export async function resolveKeyReferencesWithRequestScopes(
   text: string,
@@ -175,7 +177,40 @@ async function readRequestScopedSecret(
     const result = await readAppSecret({ key: name, ...ref });
     if (result) return { value: result.value, ref: { name, ...ref } };
   }
+  const legacyCredential = await readLegacyCredential(name, userScopeId);
+  if (legacyCredential) return legacyCredential;
   return null;
+}
+
+async function readLegacyCredential(
+  name: string,
+  userScopeId: string,
+): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
+  const orgId = getRequestOrgId();
+  const userValue = await resolveCredentialForScope(name, {
+    userEmail: userScopeId,
+    orgId,
+    scope: "user",
+  }).catch(() => undefined);
+  if (userValue) {
+    return {
+      value: userValue,
+      ref: { name, scope: "user", scopeId: userScopeId },
+    };
+  }
+
+  if (!orgId) return null;
+  const orgValue = await resolveCredentialForScope(name, {
+    userEmail: userScopeId,
+    orgId,
+    scope: "org",
+  }).catch(() => undefined);
+  if (!orgValue) return null;
+
+  return {
+    value: orgValue,
+    ref: { name, scope: "org", scopeId: orgId },
+  };
 }
 
 function requestSecretCandidates(

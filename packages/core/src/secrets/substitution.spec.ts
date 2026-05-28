@@ -4,6 +4,7 @@ const mockReadAppSecret = vi.fn();
 const mockReadAppSecretMeta = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockGetRequestUserEmail = vi.fn();
+const mockResolveCredentialForScope = vi.fn();
 
 vi.mock("./storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -13,6 +14,11 @@ vi.mock("./storage.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   getRequestUserEmail: (...args: any[]) => mockGetRequestUserEmail(...args),
+}));
+
+vi.mock("../credentials/index.js", () => ({
+  resolveCredentialForScope: (...args: any[]) =>
+    mockResolveCredentialForScope(...args),
 }));
 
 import {
@@ -27,6 +33,7 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     mockGetRequestUserEmail.mockReturnValue("alice@example.test");
     mockReadAppSecret.mockResolvedValue(null);
     mockReadAppSecretMeta.mockResolvedValue(null);
+    mockResolveCredentialForScope.mockResolvedValue(undefined);
   });
 
   it("falls back from user scope to active org scope", async () => {
@@ -82,6 +89,58 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
         scopeId: "solo:alice@example.test",
       },
     ]);
+  });
+
+  it("falls back to a legacy user credential after scoped secrets miss", async () => {
+    mockResolveCredentialForScope.mockImplementation(async (_key, { scope }) =>
+      scope === "user" ? "legacy-user-token" : undefined,
+    );
+
+    const result = await resolveKeyReferencesWithRequestScopes(
+      "Bearer ${keys.GITHUB_TOKEN}",
+      "alice@example.test",
+    );
+
+    expect(result.resolved).toBe("Bearer legacy-user-token");
+    expect(result.secretValues).toEqual(["legacy-user-token"]);
+    expect(result.resolvedKeys).toEqual([
+      {
+        name: "GITHUB_TOKEN",
+        scope: "user",
+        scopeId: "alice@example.test",
+      },
+    ]);
+    expect(mockResolveCredentialForScope).toHaveBeenCalledWith("GITHUB_TOKEN", {
+      userEmail: "alice@example.test",
+      orgId: "org_123",
+      scope: "user",
+    });
+  });
+
+  it("falls back to a legacy org credential after user credential misses", async () => {
+    mockResolveCredentialForScope.mockImplementation(async (_key, { scope }) =>
+      scope === "org" ? "legacy-org-token" : undefined,
+    );
+
+    const result = await resolveKeyReferencesWithRequestScopes(
+      "Bearer ${keys.GITHUB_TOKEN}",
+      "alice@example.test",
+    );
+
+    expect(result.resolved).toBe("Bearer legacy-org-token");
+    expect(result.secretValues).toEqual(["legacy-org-token"]);
+    expect(result.resolvedKeys).toEqual([
+      {
+        name: "GITHUB_TOKEN",
+        scope: "org",
+        scopeId: "org_123",
+      },
+    ]);
+    expect(mockResolveCredentialForScope).toHaveBeenCalledWith("GITHUB_TOKEN", {
+      userEmail: "alice@example.test",
+      orgId: "org_123",
+      scope: "org",
+    });
   });
 
   it("reads allowlists from the resolved scope", async () => {
