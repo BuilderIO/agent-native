@@ -164,13 +164,17 @@ export async function isBlockedExtensionUrlWithDns(
  * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
  */
 export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
-  // Dynamic import + `any`: undici is not a direct dependency, so the type
-  // declarations may not resolve. The runtime path is still safe — if the
-  // import throws we return null and the caller falls back to plain fetch.
+  // Keep the optional undici import opaque to Vite/Rolldown. A static
+  // `import("undici")` makes browser builds try to resolve and bundle undici
+  // even though this dispatcher is only useful in Node server runtimes.
   let undici: any;
   let dnsModule: any;
   try {
-    undici = await import("undici" as string);
+    const runtimeImport = new Function(
+      "specifier",
+      "return import(specifier)",
+    ) as (specifier: string) => Promise<any>;
+    undici = await runtimeImport("undici");
     dnsModule = await import("node:dns");
   } catch {
     return null;
