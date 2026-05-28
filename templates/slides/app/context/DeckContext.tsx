@@ -111,6 +111,7 @@ interface DeckContextType {
     id: string,
     updates: Partial<Omit<Deck, "id" | "createdAt">>,
   ) => void;
+  reloadDecks: () => Promise<void>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
@@ -266,6 +267,20 @@ export async function includeOpenDeckIfMissing(
   return directDeck ? [...decks, directDeck] : decks;
 }
 
+async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
+  const currentOpenDeckId =
+    typeof window === "undefined"
+      ? null
+      : deckIdFromPathname(window.location.pathname);
+  const loaded = await fetchDecksFromAPI();
+  if (loaded !== null) {
+    return includeOpenDeckIfMissing(loaded, currentOpenDeckId);
+  }
+  if (!currentOpenDeckId) return null;
+  const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+  return directDeck ? [directDeck] : null;
+}
+
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
     await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
@@ -402,20 +417,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     decksRef.current = decks;
   }, [decks]);
 
+  const reloadDecks = useCallback(async () => {
+    const loaded = await fetchDecksForCurrentRoute();
+    if (loaded === null) return;
+    lastExternalUpdateRef.current = Date.now();
+    setDecks(loaded);
+  }, []);
+
   // Load decks from API on mount
   useEffect(() => {
-    fetchDecksFromAPI().then(async (loaded) => {
+    fetchDecksForCurrentRoute().then(async (loaded) => {
       // Initial fetch failed — start empty so the UI can render. The fallback
       // poll will retry shortly; until then `decks` stays empty without
       // triggering the save effect (lastExternalUpdateRef is bumped).
-      const currentOpenDeckId =
-        typeof window === "undefined"
-          ? null
-          : deckIdFromPathname(window.location.pathname);
-      const initial = await includeOpenDeckIfMissing(
-        loaded ?? [],
-        currentOpenDeckId,
-      );
+      const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       setDecks(initial);
       setHistory([
@@ -1025,6 +1040,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         duplicateDeck,
         deleteDeck,
         updateDeck,
+        reloadDecks,
         getDeck,
         addSlide,
         updateSlide,

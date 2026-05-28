@@ -2,7 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DeckProvider, useDecks } from "./DeckContext";
+import { DeckProvider, useDecks, type Deck } from "./DeckContext";
 
 class MockEventSource {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -17,6 +17,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function setupFetch() {
   let resolveCreate: (response: Response) => void = () => {};
+  let accessibleDeck: Deck | null = null;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
       typeof url === "string"
@@ -36,6 +37,11 @@ function setupFetch() {
     }
 
     if (href.includes("/api/decks/")) {
+      if (accessibleDeck) {
+        return Promise.resolve(
+          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+        );
+      }
       return Promise.resolve(new Response("", { status: 404 }));
     }
 
@@ -46,6 +52,9 @@ function setupFetch() {
   return {
     fetchMock,
     resolveCreate: (response: Response) => resolveCreate(response),
+    setAccessibleDeck: (deck: Deck) => {
+      accessibleDeck = deck;
+    },
   };
 }
 
@@ -119,5 +128,28 @@ describe("DeckContext deck creation persistence", () => {
 
     await expect(persisted).resolves.toBe(false);
     expect(deckFetchCalls(fetchMock)).toEqual([]);
+  });
+
+  it("can reload the currently open deck after access changes", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks).toEqual([]);
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(result.current.getDeck("shared-deck")?.title).toBe("Shared Deck");
   });
 });
