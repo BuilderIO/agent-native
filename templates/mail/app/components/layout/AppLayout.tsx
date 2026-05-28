@@ -2100,7 +2100,7 @@ function AccountPopover({
   onToggleAccount,
   onRemoveAccount,
 }: {
-  accounts: Array<{ email: string; photoUrl?: string }>;
+  accounts: Array<{ email: string; displayName?: string; photoUrl?: string }>;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
   onRemoveAccount: (email: string) => void;
@@ -2173,8 +2173,16 @@ function AccountPopover({
                 imageClassName="h-6 w-6 rounded-full object-cover shrink-0"
                 fallbackClassName="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0"
               />
-              <span className="text-[13px] text-foreground/80 truncate flex-1">
-                {account.email}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[13px] text-foreground/80">
+                  {account.displayName || account.email}
+                </span>
+                {account.displayName &&
+                  account.displayName !== account.email && (
+                    <span className="truncate text-[11px] text-muted-foreground/60">
+                      {account.email}
+                    </span>
+                  )}
               </span>
               <button
                 onClick={() => {

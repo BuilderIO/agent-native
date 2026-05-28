@@ -67,7 +67,7 @@ function FromAccountSelector({
   value,
   onChange,
 }: {
-  accounts: Array<{ email: string }>;
+  accounts: Array<{ email: string; displayName?: string }>;
   value: string | undefined;
   onChange: (email: string) => void;
 }) {
@@ -106,7 +106,9 @@ function FromAccountSelector({
         <SelectContent>
           {accounts.map((acct) => (
             <SelectItem key={acct.email} value={acct.email}>
-              {acct.email}
+              {acct.displayName
+                ? `${acct.displayName} <${acct.email}>`
+                : acct.email}
             </SelectItem>
           ))}
         </SelectContent>
