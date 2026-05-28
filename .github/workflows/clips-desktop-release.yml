@@ -123,33 +123,14 @@ jobs:
           V=$(node -p "require('./${{ env.TAURI_APP_PATH }}/package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Use modern Windows SDK RC.EXE (Windows only)
+      - name: Ensure icon.ico is BMP-encoded (Windows only)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          # The system rc.exe at C:\Windows\System32\rc.exe is version
-          # 10.0.10011.16384 and rejects PNG-compressed ICO files (the
-          # "not in 3.00 format" error). The Windows Kits RC.EXE (10.0.20348+)
-          # supports PNG-embedded ICO. Prepend its directory so tauri-winres
-          # finds the modern one first instead of the system fallback.
-          $kitsBase = "C:\Program Files (x86)\Windows Kits\10\bin"
-          $newest = Get-ChildItem $kitsBase -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
-            Sort-Object { [System.Version]$_.Name } -Descending |
-            Select-Object -First 1
-          if ($newest) {
-            $rcDir = Join-Path $newest.FullName "x64"
-            $rcExe = Join-Path $rcDir "rc.exe"
-            if (Test-Path $rcExe) {
-              $v = (Get-Item $rcExe).VersionInfo.FileVersion
-              Write-Host "Prepending Windows SDK RC.EXE $v from $rcDir"
-              $rcDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            } else {
-              Write-Warning "rc.exe not found at $rcExe — will use whatever is on PATH"
-            }
-          } else {
-            Write-Warning "No versioned directories found under $kitsBase"
-          }
+          # RC.EXE v10.0.10011 (the system rc.exe on Windows Server) rejects
+          # ICO files with PNG-compressed images. Tauri v2 CLI generates
+          # PNG-compressed ICO by default. Convert all entries to BMP/DIB.
+          node "$TAURI_APP_PATH/src-tauri/icons/png-to-bmp-ico.mjs"
 
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
