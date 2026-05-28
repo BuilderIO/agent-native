@@ -2064,6 +2064,13 @@ audio.media-block__content {
 }
 
 /* ===== Collaboration cursors ===== */
+.notion-editor .collaboration-cursor__selection {
+  background-color: hsl(210 100% 52% / 0.14) !important;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .collaboration-cursor__caret {
   border-left: 2px solid;
   border-color: currentColor;

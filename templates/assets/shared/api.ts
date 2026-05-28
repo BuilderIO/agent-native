@@ -33,6 +33,8 @@ export const ASPECT_RATIOS = [
 export const IMAGE_SIZES = ["512", "1K", "2K", "4K"] as const;
 
 export const IMAGE_MODELS = [
+  "gemini-3.1-flash-image",
+  "gemini-3-pro-image",
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
   "gemini-2.5-flash-image",

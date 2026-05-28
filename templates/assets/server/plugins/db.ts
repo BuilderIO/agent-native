@@ -217,7 +217,7 @@ export default runMigrations(
     prompt_template TEXT,
     aspect_ratio TEXT NOT NULL DEFAULT '16:9',
     image_size TEXT NOT NULL DEFAULT '2K',
-    model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image-preview',
+    model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image',
     text_policy TEXT NOT NULL DEFAULT '',
     reference_policy TEXT NOT NULL DEFAULT 'auto',
     settings TEXT NOT NULL DEFAULT '{}',

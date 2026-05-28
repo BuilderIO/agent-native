@@ -26,7 +26,7 @@ export default defineAction({
     promptTemplate: z.string().nullable().optional(),
     aspectRatio: z.enum(ASPECT_RATIOS).default("16:9"),
     imageSize: z.enum(IMAGE_SIZES).default("2K"),
-    model: z.enum(IMAGE_MODELS).default("gemini-3.1-flash-image-preview"),
+    model: z.enum(IMAGE_MODELS).default("gemini-3.1-flash-image"),
     textPolicy: z.string().default(""),
     referencePolicy: z
       .enum(GENERATION_PRESET_REFERENCE_POLICIES)

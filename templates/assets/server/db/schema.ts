@@ -61,7 +61,7 @@ export const assetGenerationPresets = table("image_generation_presets", {
   promptTemplate: text("prompt_template"),
   aspectRatio: text("aspect_ratio").notNull().default("16:9"),
   imageSize: text("image_size").notNull().default("2K"),
-  model: text("model").notNull().default("gemini-3.1-flash-image-preview"),
+  model: text("model").notNull().default("gemini-3.1-flash-image"),
   textPolicy: text("text_policy").notNull().default(""),
   referencePolicy: text("reference_policy").notNull().default("auto"),
   settings: text("settings").notNull().default("{}"),

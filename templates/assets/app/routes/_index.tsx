@@ -56,6 +56,8 @@ import { LibraryCard } from "@/components/library/LibraryCard";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { PageShell } from "@/components/layout/PageShell";
 import {
+  chunkAssetUploads,
+  getFailedUploadCount,
   getSkippedDuplicateCount,
   type AssetUploadResult,
 } from "@/lib/upload-results";
@@ -600,43 +602,71 @@ function HomeGeneratePanel({
 
     let uploadedAssets: { id: string; title: string }[] = [];
     if (imageFiles.length > 0 && selectedLibrary) {
+      const uploadChunks = chunkAssetUploads(imageFiles);
       const uploadingToast = toast.loading(
         `Uploading ${imageFiles.length} reference${imageFiles.length === 1 ? "" : "s"}...`,
+        {
+          description:
+            uploadChunks.length > 1
+              ? `Processing in ${uploadChunks.length} batches.`
+              : undefined,
+        },
       );
       try {
-        const form = new FormData();
-        form.append("libraryId", selectedLibrary.id);
-        form.append("category", "style-only");
-        for (const file of imageFiles) form.append("files", file);
-        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-          method: "POST",
-          body: form,
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data?.error || `Upload failed (${res.status})`);
+        let skippedCount = 0;
+        let failedCount = 0;
+        for (const chunk of uploadChunks) {
+          const form = new FormData();
+          form.append("libraryId", selectedLibrary.id);
+          form.append("category", "style-only");
+          for (const file of chunk) form.append("files", file);
+          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data?.error || `Upload failed (${res.status})`);
+          }
+          const data = (await res.json()) as AssetUploadResult;
+          skippedCount += getSkippedDuplicateCount(data);
+          failedCount += getFailedUploadCount(data);
+          uploadedAssets.push(
+            ...(data.assets ?? []).map((a: any) => ({
+              id: a.id,
+              title: a.title || "Reference image",
+            })),
+          );
         }
-        const data = (await res.json()) as AssetUploadResult;
-        const skippedCount = getSkippedDuplicateCount(data);
-        uploadedAssets = (data.assets ?? []).map((a: any) => ({
-          id: a.id,
-          title: a.title || "Reference image",
-        }));
-        if (uploadedAssets.length > 0 && skippedCount > 0) {
+        const uploadedCount = uploadedAssets.length;
+        if (failedCount > 0) {
+          toast.warning(
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
+            }; ${failedCount} failed.`,
+            {
+              id: uploadingToast,
+              description:
+                skippedCount > 0
+                  ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                  : null,
+            },
+          );
+        } else if (uploadedCount > 0 && skippedCount > 0) {
           toast.success(
-            `Added ${uploadedAssets.length} reference${
-              uploadedAssets.length === 1 ? "" : "s"
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
             }; skipped ${skippedCount} duplicate${
               skippedCount === 1 ? "" : "s"
             }.`,
-            { id: uploadingToast },
+            { id: uploadingToast, description: null },
           );
-        } else if (uploadedAssets.length > 0) {
+        } else if (uploadedCount > 0) {
           toast.success(
-            `Added ${uploadedAssets.length} reference${
-              uploadedAssets.length === 1 ? "" : "s"
+            `Added ${uploadedCount} reference${
+              uploadedCount === 1 ? "" : "s"
             } to ${selectedLibrary.title}`,
-            { id: uploadingToast },
+            { id: uploadingToast, description: null },
           );
         } else if (skippedCount > 0) {
           toast.warning(
@@ -651,11 +681,13 @@ function HomeGeneratePanel({
         } else {
           toast.warning("No new references were added.", {
             id: uploadingToast,
+            description: null,
           });
         }
       } catch (err: any) {
         toast.error(err?.message || "Couldn't upload references.", {
           id: uploadingToast,
+          description: null,
         });
         return;
       }

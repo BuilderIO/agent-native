@@ -62,7 +62,7 @@ export default defineAction({
       prompt,
       aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
       imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,
-      model: (model ?? asset.model ?? "gemini-3.1-flash-image-preview") as any,
+      model: (model ?? asset.model ?? "gemini-3.1-flash-image") as any,
       categories: metadata.category ? [metadata.category] : undefined,
       includeLogo: false,
       groundingMode: "auto",

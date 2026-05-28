@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   changedDeckIds,
   deckIdFromPathname,
+  hasUncommittedDeckChanges,
   includeOpenDeckIfMissing,
   type Deck,
 } from "./DeckContext";
@@ -47,5 +48,10 @@ describe("DeckContext route hydration helpers", () => {
     const after = [deck("a"), { ...deck("b"), title: "Updated" }, deck("c")];
 
     expect(changedDeckIds(before, after)).toEqual(["b", "c"]);
+  });
+
+  it("treats dirty decks as uncommitted before the debounced save is registered", () => {
+    expect(hasUncommittedDeckChanges("dirty", new Set(["dirty"]))).toBe(true);
+    expect(hasUncommittedDeckChanges("clean", new Set(["dirty"]))).toBe(false);
   });
 });

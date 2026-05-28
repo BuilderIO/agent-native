@@ -49,11 +49,11 @@ function resolveModelForTier(
   category: ImageCategory | undefined,
 ): ImageModel | undefined {
   if (!tier) return undefined;
-  if (tier === "fast") return "gemini-3.1-flash-image-preview";
-  if (tier === "best") return "gemini-3-pro-image-preview";
+  if (tier === "fast") return "gemini-3.1-flash-image";
+  if (tier === "best") return "gemini-3-pro-image";
   return ["hero", "landing", "logo", "campaign"].includes(category ?? "")
-    ? "gemini-3-pro-image-preview"
-    : "gemini-3.1-flash-image-preview";
+    ? "gemini-3-pro-image"
+    : "gemini-3.1-flash-image";
 }
 
 export default defineAction({
@@ -220,7 +220,7 @@ export default defineAction({
     const resolvedModel = (args.model ??
       resolveModelForTier(resolvedTier, category) ??
       preset?.model ??
-      "gemini-3.1-flash-image-preview") as (typeof IMAGE_MODELS)[number];
+      "gemini-3.1-flash-image") as (typeof IMAGE_MODELS)[number];
     const resolvedCategories =
       args.categories ??
       (preset?.category ? ([preset.category] as any) : undefined);

@@ -1421,7 +1421,7 @@ function GeneratePopover({
   const [imageSize, setImageSize] = useState("2K");
   const [durationSeconds, setDurationSeconds] = useState(8);
   const [resolution, setResolution] = useState("720p");
-  const [model, setModel] = useState("gemini-3.1-flash-image-preview");
+  const [model, setModel] = useState("gemini-3.1-flash-image");
   const [category, setCategory] = useState("hero");
   const [includeLogo, setIncludeLogo] = useState(false);
   const selectedPreset = presets.find((preset) => preset.id === presetId);
@@ -1452,7 +1452,7 @@ function GeneratePopover({
                 setMediaType(preset.mediaType === "video" ? "video" : "image");
                 setAspectRatio(preset.aspectRatio || "16:9");
                 setImageSize(preset.imageSize || "2K");
-                setModel(preset.model || "gemini-3.1-flash-image-preview");
+                setModel(preset.model || "gemini-3.1-flash-image");
                 setCategory(preset.category || "hero");
               }}
             >
@@ -1482,7 +1482,7 @@ function GeneratePopover({
               setModel(
                 next === "video"
                   ? "veo-3.1-generate-preview"
-                  : "gemini-3.1-flash-image-preview",
+                  : "gemini-3.1-flash-image",
               );
               setCategory(next === "video" ? "video" : "hero");
               setAspectRatio(next === "video" ? "16:9" : aspectRatio);
