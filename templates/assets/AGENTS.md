@@ -14,7 +14,7 @@ agent-native apps over A2A.
   invent exact logos from memory.
 - Keep brand reference selection deterministic and small. Prefer JSON-backed
   anchors from `assetLibraries.settings.canonicalStyleAssetIds`, plus assets
-  marked with `assets.metadata.isStyleAnchor`, before sampling other relevant
+  marked with `assets.metadata.isStyleAnchor`, before choosing other relevant
   references.
 - Respect library `customInstructions` on every generation. Update them with
   `create-library` / `update-library` when the user wants persistent guidance
@@ -95,7 +95,7 @@ agent-native apps over A2A.
   generation session with the active `assetId`, relevant `runId`s, `presetId`,
   feedback, and brief. Then use `prepare-generation-session-continuation` to
   open a new chat preloaded with all context.
-- Use a small relevant subset by default. Automatic selection samples up to 6
+- Use a small relevant subset by default. Automatic selection chooses up to 6
   current references, starting with deterministic style anchors from
   `assetLibraries.settings.canonicalStyleAssetIds` and
   `assets.metadata.isStyleAnchor`. Pass `referenceAssetIds` only when the exact

@@ -76,7 +76,7 @@ export default defineAction({
       .array(z.string())
       .optional()
       .describe(
-        "Exact reference assets to use. When omitted, the server samples a small relevant subset from the latest library references.",
+        "Exact reference assets to use. When omitted, the server deterministically chooses a small relevant subset from the latest library references.",
       ),
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
