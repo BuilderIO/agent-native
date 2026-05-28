@@ -129,6 +129,10 @@ type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
   archivedAt: string | null;
+  keptAt: string | null;
+  visibility: "private" | "org" | "public";
+  ownerEmail: string | null;
+  updatedAt: string | null;
 } & ResourceAccess;
 
 async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
@@ -146,6 +150,13 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       panels: data.panels ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    keptAt: typeof data.keptAt === "string" ? data.keptAt : null,
+    visibility:
+      data.visibility === "org" || data.visibility === "public"
+        ? data.visibility
+        : "private",
+    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
     role: typeof data.role === "string" ? data.role : undefined,
     canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
     canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
@@ -183,6 +194,10 @@ export default function SqlDashboardPage() {
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [keptAt, setKeptAt] = useState<string | null>(null);
+  const [dashboardVisibility, setDashboardVisibility] = useState<"private" | "org" | "public">("private");
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(null);
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );
@@ -335,6 +350,10 @@ export default function SqlDashboardPage() {
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
+    setKeptAt(null);
+    setDashboardVisibility("private");
+    setDashboardOwner(null);
+    setDashboardUpdatedAt(null);
     setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
@@ -345,6 +364,10 @@ export default function SqlDashboardPage() {
     if (fetched && fetched.id !== dashboardId) return;
     setDashboard(fetched?.config ?? null);
     setArchivedAt(fetched?.archivedAt ?? null);
+    setKeptAt(fetched?.keptAt ?? null);
+    setDashboardVisibility(fetched?.visibility ?? "private");
+    setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setResourceAccess(
       fetched
         ? {
