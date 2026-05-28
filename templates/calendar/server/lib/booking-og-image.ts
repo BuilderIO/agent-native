@@ -39,8 +39,12 @@ function displayNameFromIdentifier(
   username?: string | null,
   ownerEmail?: string | null,
 ): string {
-  const source = cleanText(username) || cleanText(ownerEmail).split("@")[0];
-  return titleCase(source || "Host");
+  const usernameName = titleCase(cleanText(username));
+  const emailName = titleCase(cleanText(ownerEmail).split("@")[0]);
+  if (emailName.split(/\s+/).length > usernameName.split(/\s+/).length) {
+    return emailName;
+  }
+  return usernameName || emailName || "Host";
 }
 
 function hostNameFromBookingPageTitle(title?: string | null): string | null {
