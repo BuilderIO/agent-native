@@ -75,6 +75,7 @@ import {
   resolveComposeAttachments,
 } from "../lib/outgoing-email.js";
 import { normalizeSignature } from "../../shared/signature.js";
+import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 
@@ -418,14 +419,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   if (view === "snoozed" || view === "scheduled") {
     let emails = await getSyntheticEmailsForView(email, view);
     if (q) {
-      const query = q.toLowerCase();
-      emails = emails.filter(
-        (message) =>
-          message.subject.toLowerCase().includes(query) ||
-          message.snippet.toLowerCase().includes(query) ||
-          message.from.name.toLowerCase().includes(query) ||
-          message.from.email.toLowerCase().includes(query) ||
-          message.body.toLowerCase().includes(query),
+      emails = emails.filter((message) =>
+        emailMessageMatchesSearch(message, q),
       );
     }
     return { emails };
@@ -583,15 +578,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
   // Full-text search
   if (q) {
-    const query = q.toLowerCase();
-    emails = emails.filter(
-      (e) =>
-        e.subject.toLowerCase().includes(query) ||
-        e.snippet.toLowerCase().includes(query) ||
-        e.from.name.toLowerCase().includes(query) ||
-        e.from.email.toLowerCase().includes(query) ||
-        e.body.toLowerCase().includes(query),
-    );
+    emails = emails.filter((e) => emailMessageMatchesSearch(e, q));
   }
 
   // Filter out snoozed emails. Skip when searching so snoozed hits surface too.
