@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import {
+  VISUAL_INDENT,
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
@@ -120,6 +121,22 @@ describe("VisualEditor markdown round-tripping", () => {
       const json = editor.getJSON();
       expect(JSON.stringify(json)).not.toContain('"codeBlock"');
       expect(JSON.stringify(json)).toContain('"bulletList"');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("renders Notion-pulled plain indents as visual indentation, not blockquotes", () => {
+    const editor = createMarkdownEditor(
+      ["Deck", "\tpublish vs Fusion discussion topic"].join("\n"),
+    );
+
+    try {
+      const json = editor.getJSON();
+      expect(JSON.stringify(json)).not.toContain('"blockquote"');
+      expect(JSON.stringify(json)).toContain(
+        `${VISUAL_INDENT}publish vs Fusion discussion topic`,
+      );
     } finally {
       editor.destroy();
     }
