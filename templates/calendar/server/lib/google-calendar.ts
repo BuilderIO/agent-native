@@ -665,6 +665,7 @@ export async function getFreeBusy(
   calendarIds: string[],
   forEmail?: string,
   timeZone?: string,
+  accountEmail?: string,
 ): Promise<{
   calendars: Record<
     string,
@@ -687,9 +688,25 @@ export async function getFreeBusy(
 
   const { clients, errors } = await getClientsWithErrors(forEmail);
   if (clients.length === 0) return { calendars: {}, errors };
+  const selectedAccount = accountEmail?.trim().toLowerCase();
+  const client = selectedAccount
+    ? clients.find((entry) => entry.email.toLowerCase() === selectedAccount)
+    : clients[0];
+  if (!client) {
+    return {
+      calendars: {},
+      errors: [
+        ...errors,
+        {
+          email: accountEmail ?? "google",
+          error: "Selected Google account is not connected.",
+        },
+      ],
+    };
+  }
 
   try {
-    const response = await calendarFreeBusy(clients[0].accessToken, {
+    const response = await calendarFreeBusy(client.accessToken, {
       timeMin,
       timeMax,
       timeZone,
@@ -733,7 +750,7 @@ export async function getFreeBusy(
       errors: [
         ...errors,
         {
-          email: forEmail ?? "google",
+          email: accountEmail ?? forEmail ?? "google",
           error: error?.message || "Unable to load Google free/busy data",
         },
       ],

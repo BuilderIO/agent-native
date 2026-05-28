@@ -36,14 +36,23 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
+    let preset: typeof schema.assetGenerationPresets.$inferSelect | null = null;
     if (args.presetId) {
-      const [preset] = await db
+      const [row] = await db
         .select()
         .from(schema.assetGenerationPresets)
         .where(eq(schema.assetGenerationPresets.id, args.presetId))
         .limit(1);
+      preset = row ?? null;
       if (!preset || preset.libraryId !== args.libraryId) {
         throw new Error("Generation preset does not belong to this library.");
+      }
+      if (
+        args.collectionId &&
+        preset.collectionId &&
+        preset.collectionId !== args.collectionId
+      ) {
+        throw new Error("Generation preset belongs to a different collection.");
       }
     }
     const assetIds = [...new Set(args.assetIds ?? [])];
@@ -85,7 +94,7 @@ export default defineAction({
     const session = {
       id: nanoid(),
       libraryId: args.libraryId,
-      collectionId: args.collectionId ?? null,
+      collectionId: args.collectionId ?? preset?.collectionId ?? null,
       presetId: args.presetId ?? null,
       title: args.title,
       brief: args.brief ?? null,

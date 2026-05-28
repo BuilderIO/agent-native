@@ -17,6 +17,16 @@ export default defineAction({
       .limit(1);
     if (!preset) throw new Error("Generation preset not found.");
     await assertAccess("asset-library", preset.libraryId, "editor");
+    const [referencingSession] = await db
+      .select({ id: schema.assetGenerationSessions.id })
+      .from(schema.assetGenerationSessions)
+      .where(eq(schema.assetGenerationSessions.presetId, id))
+      .limit(1);
+    if (referencingSession) {
+      throw new Error(
+        "Generation preset is used by an existing handoff session and cannot be deleted.",
+      );
+    }
     await db
       .delete(schema.assetGenerationPresets)
       .where(eq(schema.assetGenerationPresets.id, id));

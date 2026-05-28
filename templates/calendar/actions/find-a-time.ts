@@ -247,6 +247,7 @@ export default defineAction({
         participantEmails,
         ownerEmail,
         timezone,
+        organizerEmail,
       );
       errors.push(...freeBusy.errors);
       for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
