@@ -13,7 +13,6 @@ import type {
   GenerationIntent,
   ImageCategory,
   ImageModel,
-  ImageQualityTier,
   ImageSize,
   StyleStrength,
   StyleBrief,
@@ -402,6 +401,7 @@ export async function generateWithGemini(
 ): Promise<GenerateProviderOutput> {
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey: await getGeminiApiKey() });
+  const model = normalizeGeminiImageModel(input.model);
   const contents: Array<Record<string, unknown>> = [
     { text: input.compiledPrompt },
     ...input.references.map((ref) => ({
@@ -426,7 +426,7 @@ export async function generateWithGemini(
         await new Promise((resolve) => setTimeout(resolve, attempt * 2500));
       }
       const response = await client.models.generateContent({
-        model: input.model,
+        model,
         contents,
         config,
       });
@@ -436,7 +436,7 @@ export async function generateWithGemini(
           return {
             image: Buffer.from(part.inlineData.data, "base64"),
             mimeType: part.inlineData.mimeType || "image/png",
-            model: input.model,
+            model,
             provider: "gemini",
           };
         }
@@ -450,6 +450,16 @@ export async function generateWithGemini(
   throw lastError instanceof Error
     ? lastError
     : new Error("Gemini image generation failed.");
+}
+
+function normalizeGeminiImageModel(model: ImageModel): ImageModel {
+  if (model === "gemini-3.1-flash-image-preview") {
+    return "gemini-3.1-flash-image";
+  }
+  if (model === "gemini-3-pro-image-preview") {
+    return "gemini-3-pro-image";
+  }
+  return model;
 }
 
 export interface StyleAnalysisOutput {
@@ -783,7 +793,9 @@ export async function selectReferences(input: {
         ? undefined
         : input.sourceAssetId,
       ...explicitIds,
-    ].filter((id, index, all): id is string => !!id && all.indexOf(id) === index);
+    ].filter(
+      (id, index, all): id is string => !!id && all.indexOf(id) === index,
+    );
     const rows = await db
       .select()
       .from(schema.assets)
