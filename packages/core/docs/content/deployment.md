@@ -233,8 +233,8 @@ These must be set before promoting an app to a real prod deploy. Missing values 
 
 | Variable                       | Description                                                                                                                                                                                   |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACCESS_TOKEN`                 | Single shared token for simple production deploys (alternative to Better Auth).                                                                                                               |
-| `ACCESS_TOKENS`                | Comma-separated list of access tokens.                                                                                                                                                        |
+| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients that cannot use OAuth. Does not enable browser auth or make the app private.                                                                   |
+| `ACCESS_TOKENS`                | Comma-separated static bearer fallbacks for MCP/connect clients. Does not enable browser auth or make the app private.                                                                        |
 | `AUTH_SKIP_EMAIL_VERIFICATION` | Skip email verification for QA accounts. Local dev/test skips by default; hosted deploys must set this explicitly. **Disables a real security control** — only use on hosted QA environments. |
 | `GOOGLE_CLIENT_ID`             | Google OAuth client ID. Auto-enables "Sign in with Google" in Better Auth.                                                                                                                    |
 | `GOOGLE_CLIENT_SECRET`         | Google OAuth client secret.                                                                                                                                                                   |

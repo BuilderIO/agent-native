@@ -20,7 +20,7 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
 | **`AUTH_MODE=local`**     | Explicit escape hatch. `getSession()` always returns `{ email: "local@localhost" }`. Set via `.env` or the onboarding page's "Use locally" button. |
 | **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
-| **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Simple token-based auth for production deployments.                                                                           |
+| **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
@@ -35,7 +35,7 @@ client, and complete authorization-code + PKCE at
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
 stored hashed and rotate. Keep `ACCESS_TOKEN` and `agent-native connect` for
-local stdio proxying, fallback clients, and simple private deployments. The CLI
+local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `agent-native connect --token <token>` when a
 client needs explicit bearer headers.

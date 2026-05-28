@@ -370,10 +370,22 @@ describe("server/auth", () => {
       ).toBe("https://fallback.example/_agent-native/google/callback");
     });
 
-    it("mounts auth when ACCESS_TOKEN is set in production", async () => {
+    it("uses Better Auth, not token-only browser auth, when ACCESS_TOKEN is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("DEBUG", "1");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -381,16 +393,32 @@ describe("server/auth", () => {
       const result = await autoMountAuth(app);
 
       expect(result).toBe(true);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("1 access token(s)"),
-      );
+      const paths = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((path: unknown): path is string => typeof path === "string");
+      expect(paths).toContain("/_agent-native/auth/ba");
+      const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
+      expect(allLogs).toContain("Better Auth");
+      expect(allLogs).not.toContain("access token");
       logSpy.mockRestore();
     });
 
-    it("renders a clearer access-token login page with mounted auth paths", async () => {
+    it("does not render an access-token login page when ACCESS_TOKEN is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/demo");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -406,23 +434,20 @@ describe("server/auth", () => {
       expect((result as Response).status).toBe(401);
 
       const html = await (result as Response).text();
-      expect(html).toContain("This app is private");
-      expect(html).toContain("not your deploy provider account token");
-      expect(html).toContain('var configuredBasePath = "/demo";');
-      expect(html).toContain("__anPath('/_agent-native/auth/login')");
-      expect(html).toContain("__anPath('/_agent-native/auth/session')");
-      expect(html).toContain("The token was accepted, but the browser");
+      expect(html).toContain("Create account");
+      expect(html).not.toContain("This app is private");
+      expect(html).not.toContain("Private deployment");
+      expect(html).not.toContain("ACCESS_TOKEN");
     });
 
-    it("infers mounted workspace auth paths when APP_BASE_PATH is absent", async () => {
+    it("custom auth without loginHtml does not render an access-token page", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-      delete process.env.APP_BASE_PATH;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
-      await autoMountAuth(app);
+      await autoMountAuth(app, {
+        getSession: async () => null,
+      });
 
       const guard = app.use.mock.calls
         .map((call: any[]) => call[0])
@@ -433,8 +458,10 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
 
       const html = await (result as Response).text();
-      expect(html).toContain('var configuredBasePath = "/starter";');
-      expect(html).toContain("__anPath('/_agent-native/auth/login')");
+      expect(html).toContain("Sign in is not configured");
+      expect(html).not.toContain("This app is private");
+      expect(html).not.toContain("Private deployment");
+      expect(html).not.toContain("ACCESS_TOKEN");
     });
 
     it("recognizes auth routes under APP_BASE_PATH in the global guard", async () => {
@@ -1396,11 +1423,23 @@ describe("server/auth", () => {
       });
     });
 
-    it("supports multiple ACCESS_TOKENS", async () => {
+    it("does not enable token-only browser auth when ACCESS_TOKENS is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -1408,26 +1447,9 @@ describe("server/auth", () => {
       const result = await autoMountAuth(app);
 
       expect(result).toBe(true);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("3 access token(s)"),
-      );
-      logSpy.mockRestore();
-    });
-
-    it("deduplicates tokens across ACCESS_TOKEN and ACCESS_TOKENS", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "shared");
-      vi.stubEnv("ACCESS_TOKENS", "shared,unique1,unique2");
-      vi.stubEnv("DEBUG", "1");
-      const { autoMountAuth } = await import("./auth.js");
-
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("3 access token(s)"),
-      );
+      const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
+      expect(allLogs).toContain("Better Auth");
+      expect(allLogs).not.toContain("access token");
       logSpy.mockRestore();
     });
 

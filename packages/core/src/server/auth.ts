@@ -653,20 +653,6 @@ function getAccessTokens(): string[] {
   return tokens;
 }
 
-function safeTokenMatch(input: string, tokens: string[]): boolean {
-  const inputBuf = Buffer.from(input);
-  for (const token of tokens) {
-    const tokenBuf = Buffer.from(token);
-    if (
-      inputBuf.length === tokenBuf.length &&
-      crypto.timingSafeEqual(inputBuf, tokenBuf)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function getBearerSessionToken(event: H3Event): string | undefined {
   const auth = getHeader(event, "authorization");
   if (!auth) return undefined;
@@ -2000,44 +1986,16 @@ function stripAppBasePath(pathname: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Login page HTML (ACCESS_TOKEN mode)
+// Fallback login page HTML (custom auth with no login page configured)
 // ---------------------------------------------------------------------------
 
-function inferWorkspaceBasePathFromRequest(requestPath?: string): string {
-  if (
-    process.env.AGENT_NATIVE_WORKSPACE !== "1" &&
-    process.env.VITE_AGENT_NATIVE_WORKSPACE !== "1"
-  ) {
-    return "";
-  }
-  if (!requestPath || !requestPath.startsWith("/")) return "";
-  const firstSegment = requestPath.split(/[/?#]/)[1];
-  if (!firstSegment) return "";
-  const reservedRootPaths = new Set([
-    "_agent-native",
-    ".well-known",
-    "api",
-    "login",
-    "signup",
-    "apps",
-    "new-app",
-    "approval",
-    "extensions",
-  ]);
-  if (reservedRootPaths.has(firstSegment)) return "";
-  if (!isValidWorkspaceAppIdFormat(firstSegment)) return "";
-  return `/${firstSegment}`;
-}
-
-function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
-  const configuredBasePath =
-    getAppBasePath() || inferWorkspaceBasePathFromRequest(options.requestPath);
+function getCustomAuthRequiredHtml(): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Private app</title>
+<title>Authentication required</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -2050,18 +2008,10 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     --text: #f4f4f5;
     --muted: #a1a1aa;
     --subtle: #71717a;
-    --error: #fca5a5;
-    --error-bg: rgba(127,29,29,0.18);
-    --success: #86efac;
-    --success-bg: rgba(20,83,45,0.2);
-    --info: #c4b5fd;
-    --info-bg: rgba(76,29,149,0.18);
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background:
-      radial-gradient(circle at top left, rgba(63,63,70,0.24), transparent 32rem),
-      linear-gradient(180deg, #111114 0%, var(--bg) 58%);
+    background: linear-gradient(180deg, #111114 0%, var(--bg) 58%);
     color: var(--text);
     display: flex;
     align-items: center;
@@ -2105,107 +2055,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     font-size: 0.9375rem;
     line-height: 1.55;
   }
-  label {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-    margin-bottom: 0.375rem;
-  }
-  label span:last-child {
-    color: var(--subtle);
-    font-size: 0.75rem;
-  }
-  .input-wrap { position: relative; }
-  input {
-    width: 100%;
-    min-height: 2.75rem;
-    padding: 0.625rem 0.75rem;
-    background: #0f0f12;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 0.9375rem;
-    outline: none;
-  }
-  input:focus {
-    border-color: var(--border-strong);
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
-  }
-  input::placeholder { color: #52525b; }
-  button {
-    width: 100%;
-    min-height: 2.75rem;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    background: var(--text);
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
-  }
-  button:hover:not(:disabled) { background: #e4e4e7; transform: translateY(-1px); }
-  button:disabled { opacity: 0.55; cursor: wait; }
   .hint {
-    margin-top: 0.75rem;
-    color: var(--subtle);
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg {
-    display: none;
-    margin-top: 0.875rem;
-    padding: 0.75rem;
-    border-radius: 8px;
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg.show { display: block; }
-  .msg.error {
-    color: var(--error);
-    background: var(--error-bg);
-    border: 1px solid rgba(248,113,113,0.22);
-  }
-  .msg.success {
-    color: var(--success);
-    background: var(--success-bg);
-    border: 1px solid rgba(74,222,128,0.18);
-  }
-  .msg.info {
-    color: var(--info);
-    background: var(--info-bg);
-    border: 1px solid rgba(167,139,250,0.2);
-  }
-  details {
     margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-  }
-  summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 0.8125rem;
-    font-weight: 600;
-  }
-  details p {
-    margin-top: 0.75rem;
     color: var(--subtle);
     font-size: 0.8125rem;
-    line-height: 1.5;
-  }
-  code {
-    color: #e4e4e7;
-    background: var(--panel-soft);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.075rem 0.25rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.78rem;
+    line-height: 1.45;
   }
   @media (max-width: 480px) {
     .card { padding: 1.5rem; }
@@ -2215,118 +2069,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
 </head>
 <body>
 <div class="card">
-  <div class="eyebrow">Private deployment</div>
-  <h1>This app is private</h1>
-  <p class="intro">Enter the shared app access token to continue. This is the value configured for this app, not your deploy provider account token.</p>
-  <form id="form">
-    <label for="token"><span>App ACCESS_TOKEN</span><span>Required</span></label>
-    <div class="input-wrap">
-      <input id="token" type="password" autocomplete="current-password" autofocus placeholder="Paste the shared app token" />
-    </div>
-    <button id="submit" type="submit">Continue</button>
-    <p class="hint">If someone sent you this app, ask them for the shared app token. If you own the deploy, use the exact value saved as <code>ACCESS_TOKEN</code> or one of <code>ACCESS_TOKENS</code>.</p>
-    <p class="msg error" id="msg" role="alert"></p>
-  </form>
-  <details>
-    <summary>Where do I find this?</summary>
-    <p>Create or copy the app's shared token from your deployment environment variables. The key should be <code>ACCESS_TOKEN</code> for one token or <code>ACCESS_TOKENS</code> for a comma-separated list. Redeploy after changing it.</p>
-  </details>
+  <div class="eyebrow">Authentication required</div>
+  <h1>Sign in is not configured</h1>
+  <p class="intro">This route requires an authenticated session, but this app's custom auth plugin did not provide a sign-in page.</p>
+  <p class="hint">If this route should be public, add it to the auth plugin's public route configuration. Otherwise configure a custom sign-in page for this app.</p>
 </div>
-<script>
-  var configuredBasePath = ${JSON.stringify(configuredBasePath)};
-  function __anBasePath() {
-    if (
-      configuredBasePath &&
-      (window.location.pathname === configuredBasePath ||
-        window.location.pathname.indexOf(configuredBasePath + '/') === 0)
-    ) {
-      return configuredBasePath;
-    }
-    var marker = '/_agent-native';
-    var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
-  }
-  function __anPath(path) {
-    return __anBasePath() + path;
-  }
-  function setMessage(kind, text) {
-    var msg = document.getElementById('msg');
-    msg.textContent = text;
-    msg.className = 'msg ' + kind + ' show';
-  }
-  function clearMessage() {
-    var msg = document.getElementById('msg');
-    msg.textContent = '';
-    msg.className = 'msg error';
-  }
-  function setBusy(isBusy) {
-    var button = document.getElementById('submit');
-    var input = document.getElementById('token');
-    button.disabled = isBusy;
-    input.disabled = isBusy;
-    button.textContent = isBusy ? 'Checking...' : 'Continue';
-  }
-  async function readJsonSafely(res) {
-    try {
-      return await res.json();
-    } catch (_err) {
-      return null;
-    }
-  }
-  async function verifySession() {
-    var res = await fetch(__anPath('/_agent-native/auth/session'), {
-      method: 'GET',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!res.ok) return false;
-    var data = await readJsonSafely(res);
-    return !!data && !data.error;
-  }
-  document.getElementById('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    var token = document.getElementById('token').value.trim();
-    if (!token) {
-      setMessage('error', 'Paste the shared app token to continue.');
-      return;
-    }
-    clearMessage();
-    setBusy(true);
-    setMessage('info', 'Checking the app token...');
-    try {
-      var res = await fetch(__anPath('/_agent-native/auth/login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ token: token }),
-      });
-      if (!res.ok) {
-        var badTokenMessage = 'That token was not accepted. Use this app\\'s shared ACCESS_TOKEN, not your deploy provider account token.';
-        if (res.status === 404) {
-          badTokenMessage = 'Could not reach this app\\'s auth endpoint. If this app is mounted under a path, confirm APP_BASE_PATH and VITE_APP_BASE_PATH match the deploy path.';
-        }
-        setMessage('error', badTokenMessage);
-        setBusy(false);
-        return;
-      }
-      var hasSession = await verifySession();
-      if (!hasSession) {
-        setMessage('error', 'The token was accepted, but the browser did not keep the session cookie. Try opening the app in a new tab, or check cookie restrictions for this domain.');
-        setBusy(false);
-        return;
-      }
-      setMessage('success', 'Signed in. Opening the app...');
-      window.location.replace(window.location.href);
-    } catch (_err) {
-      setMessage('error', 'Could not contact the auth endpoint. Check the deploy status, then try again.');
-      setBusy(false);
-    }
-  });
-</script>
 </body>
 </html>`;
 }
@@ -2689,8 +2436,6 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  const accessTokens = getAccessTokens();
-
   // Initialize Better Auth. Forward `googleScopes` into the BetterAuthConfig
   // so the social provider requests the broader product scopes (Gmail,
   // Calendar, etc.) up front during the primary sign-in — eliminating the
@@ -2909,22 +2654,6 @@ async function mountBetterAuthRoutes(
       }
 
       const body = await readBody(event);
-
-      // Legacy ACCESS_TOKEN login
-      if (
-        body?.token &&
-        typeof body.token === "string" &&
-        accessTokens.length > 0
-      ) {
-        if (!safeTokenMatch(body.token, accessTokens)) {
-          setResponseStatus(event, 401);
-          return { error: "Invalid token" };
-        }
-        const sessionToken = crypto.randomBytes(32).toString("hex");
-        await addSession(sessionToken, "user");
-        setFrameworkSessionCookie(event, sessionToken);
-        return authLoginResponse(event, sessionToken, "user");
-      }
 
       // Email/password login via Better Auth
       const email = body?.email?.trim?.()?.toLowerCase?.();
@@ -3147,81 +2876,6 @@ async function mountBetterAuthRoutes(
 }
 
 // ---------------------------------------------------------------------------
-// mountTokenOnlyRoutes — ACCESS_TOKEN-only auth (no Better Auth)
-// ---------------------------------------------------------------------------
-
-function mountTokenOnlyRoutes(
-  app: H3App,
-  accessTokens: string[],
-  publicPaths: string[] = [],
-  workspaceAppAudience = resolveWorkspaceAppAudience(),
-  workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(),
-): void {
-  app.use(
-    "/_agent-native/auth/login",
-    defineEventHandler(async (event) => {
-      if (getMethod(event) !== "POST") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-
-      const body = await readBody(event);
-      if (
-        !body?.token ||
-        typeof body.token !== "string" ||
-        !safeTokenMatch(body.token, accessTokens)
-      ) {
-        setResponseStatus(event, 401);
-        return { error: "Invalid token" };
-      }
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, "user");
-      setFrameworkSessionCookie(event, sessionToken);
-      return authLoginResponse(event, sessionToken, "user");
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/logout",
-    defineEventHandler(async (event) => {
-      for (const cookie of getFrameworkSessionCookieValues(event)) {
-        await removeSession(cookie);
-      }
-      const bearerToken = getBearerSessionToken(event);
-      if (bearerToken) await removeSession(bearerToken);
-      clearFrameworkSessionCookies(event);
-      if (isElectronRequest(event)) await clearDesktopSso();
-      return { ok: true };
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/session",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      return session ?? { error: "Not authenticated" };
-    }),
-  );
-
-  _authGuardConfig = {
-    loginHtml: getTokenLoginHtml(),
-    getLoginHtml: (_event, rawPath) =>
-      getTokenLoginHtml({ requestPath: rawPath }),
-    publicPaths,
-    workspaceAppAudience,
-    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
-    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
-  };
-  const guardFn = createAuthGuardFn();
-  _authGuardFn = guardFn;
-  app.use(defineEventHandler(guardFn));
-}
-
-// ---------------------------------------------------------------------------
 // mountAuthFallbackRoutes — minimal auth endpoints when Better Auth init fails
 // ---------------------------------------------------------------------------
 
@@ -3356,7 +3010,6 @@ function mountAuthFallbackRoutes(app: H3App): void {
  * Automatically configure auth based on environment and configuration:
  *
  * - **BYOA (custom getSession)**: Template-provided auth callback handles everything.
- * - **ACCESS_TOKEN/ACCESS_TOKENS**: Simple token-based auth.
  * - **Default**: Better Auth with email/password, social providers, organizations, and JWT.
  *   Users see an onboarding page to create an account on first visit.
  *
@@ -3484,14 +3137,13 @@ export async function autoMountAuth(
       }),
     );
 
-    const byoaLoginHtml = options.loginHtml ?? getTokenLoginHtml();
+    const byoaLoginHtml = options.loginHtml ?? getCustomAuthRequiredHtml();
     _authGuardConfig = {
       loginHtml: byoaLoginHtml,
       ...(options.loginHtml
         ? {}
         : {
-            getLoginHtml: (_event, rawPath) =>
-              getTokenLoginHtml({ requestPath: rawPath }),
+            getLoginHtml: () => getCustomAuthRequiredHtml(),
           }),
       publicPaths,
       workspaceAppAudience,
@@ -3504,23 +3156,6 @@ export async function autoMountAuth(
 
     if (process.env.DEBUG)
       console.log("[agent-native] Auth enabled — custom getSession provider.");
-    return true;
-  }
-
-  // ACCESS_TOKEN-only mode
-  const tokens = getAccessTokens();
-  if (tokens.length > 0) {
-    mountTokenOnlyRoutes(
-      app,
-      tokens,
-      publicPaths,
-      workspaceAppAudience,
-      workspaceAppRouteAccess,
-    );
-    if (process.env.DEBUG)
-      console.log(
-        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-      );
     return true;
   }
 
@@ -3563,5 +3198,9 @@ export async function autoMountAuth(
  * @deprecated Use `autoMountAuth(app, options?)` instead.
  */
 export function mountAuthMiddleware(app: H3App, accessToken: string): void {
-  mountTokenOnlyRoutes(app, [accessToken]);
+  void app;
+  void accessToken;
+  throw new Error(
+    "mountAuthMiddleware(accessToken) has been removed. Use createAuthPlugin() or autoMountAuth() with Better Auth, or a custom getSession provider.",
+  );
 }
