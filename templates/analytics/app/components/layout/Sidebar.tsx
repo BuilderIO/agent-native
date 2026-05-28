@@ -30,6 +30,7 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
+  IconHome,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
