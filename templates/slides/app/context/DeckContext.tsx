@@ -254,6 +254,11 @@ export function deckIdFromPathname(pathname: string): string | null {
   }
 }
 
+function currentOpenDeckIdFromWindow(): string | null {
+  if (typeof window === "undefined") return null;
+  return deckIdFromPathname(window.location.pathname);
+}
+
 export async function includeOpenDeckIfMissing(
   decks: Deck[],
   openDeckId: string | null,
@@ -268,10 +273,7 @@ export async function includeOpenDeckIfMissing(
 }
 
 async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
-  const currentOpenDeckId =
-    typeof window === "undefined"
-      ? null
-      : deckIdFromPathname(window.location.pathname);
+  const currentOpenDeckId = currentOpenDeckIdFromWindow();
   const loaded = await fetchDecksFromAPI();
   if (loaded !== null) {
     return includeOpenDeckIfMissing(loaded, currentOpenDeckId);
@@ -400,6 +402,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
+  const deckBaselineRequestIdRef = useRef(0);
 
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
@@ -431,15 +434,31 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reloadDecks = useCallback(async () => {
+    const requestId = ++deckBaselineRequestIdRef.current;
+    const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     const loaded = await fetchDecksForCurrentRoute();
-    if (loaded === null) return;
+    if (
+      requestId !== deckBaselineRequestIdRef.current ||
+      requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+      loaded === null
+    ) {
+      return;
+    }
     lastExternalUpdateRef.current = Date.now();
     resetDeckBaseline(loaded);
   }, [resetDeckBaseline]);
 
   // Load decks from API on mount
   useEffect(() => {
+    const requestId = ++deckBaselineRequestIdRef.current;
+    const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     fetchDecksForCurrentRoute().then(async (loaded) => {
+      if (
+        requestId !== deckBaselineRequestIdRef.current ||
+        requestedOpenDeckId !== currentOpenDeckIdFromWindow()
+      ) {
+        return;
+      }
       // Initial fetch failed — start empty so the UI can render. The fallback
       // poll will retry shortly; until then `decks` stays empty without
       // triggering the save effect (lastExternalUpdateRef is bumped).

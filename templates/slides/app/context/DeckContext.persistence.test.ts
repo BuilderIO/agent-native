@@ -223,4 +223,78 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() => expect(result.current.canUndo).toBe(true));
   });
+
+  it("ignores stale reload responses after the route changes", async () => {
+    window.history.pushState({}, "", "/");
+    const firstDeck: Deck = {
+      id: "first-deck",
+      title: "First Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    const secondDeck: Deck = {
+      id: "second-deck",
+      title: "Second Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    let firstDeckRequestStarted = false;
+    let resolveFirstDeck: (response: Response) => void = () => {};
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      const href =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+
+      if (href.endsWith("/api/decks")) {
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      }
+
+      if (href.endsWith("/api/decks/first-deck")) {
+        firstDeckRequestStarted = true;
+        return new Promise<Response>((resolve) => {
+          resolveFirstDeck = resolve;
+        });
+      }
+
+      if (href.endsWith("/api/decks/second-deck")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(secondDeck), { status: 200 }),
+        );
+      }
+
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    window.history.pushState({}, "", "/deck/first-deck");
+    let firstReload = Promise.resolve();
+    act(() => {
+      firstReload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(firstDeckRequestStarted).toBe(true));
+
+    window.history.pushState({}, "", "/deck/second-deck");
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
+
+    await act(async () => {
+      resolveFirstDeck(
+        new Response(JSON.stringify(firstDeck), { status: 200 }),
+      );
+      await firstReload;
+    });
+
+    expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
+    expect(result.current.getDeck("first-deck")).toBeUndefined();
+  });
 });
