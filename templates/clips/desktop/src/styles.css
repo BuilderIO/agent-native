@@ -919,6 +919,9 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   gap: 2px;
   padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .readiness-item {

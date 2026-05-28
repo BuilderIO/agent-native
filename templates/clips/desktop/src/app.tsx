@@ -352,22 +352,61 @@ const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
 };
 
+const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
+  camera: "ms-settings:privacy-webcam",
+  microphone: "ms-settings:privacy-microphone",
+  // No dedicated screen-capture privacy page that works on all Windows
+  // versions, so open the top-level Privacy settings page.
+  screen: "ms-settings:privacy",
+  speech: "ms-settings:privacy-speechtyping",
+  accessibility: "ms-settings:easeofaccess",
+  "input-monitoring": "ms-settings:privacy",
+};
+
 function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 }
 
-function openMacosPrivacySettings(pane: MacosPrivacyPane): void {
-  if (!isMacPlatform()) return;
-  invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
-    console.warn(
-      "[clips-tray] native macOS privacy settings open failed; falling back:",
-      nativeErr,
-    );
-    openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
-      console.error("[clips-tray] open macOS privacy settings failed:", err);
-    });
-  });
+function isWindowsPlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    (/Win/i.test(navigator.platform) ||
+      /Win/i.test(
+        (navigator as { userAgentData?: { platform?: string } }).userAgentData
+          ?.platform ?? "",
+      ))
+  );
 }
+
+function openPrivacySettings(pane: MacosPrivacyPane): void {
+  if (isMacPlatform()) {
+    invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
+      console.warn(
+        "[clips-tray] native macOS privacy settings open failed; falling back:",
+        nativeErr,
+      );
+      openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
+        console.error("[clips-tray] open macOS privacy settings failed:", err);
+      });
+    });
+    return;
+  }
+  if (isWindowsPlatform()) {
+    const url = WINDOWS_PRIVACY_URLS[pane];
+    if (url) {
+      openExternal(url).catch((err) => {
+        console.error(
+          "[clips-tray] open Windows privacy settings failed:",
+          err,
+        );
+      });
+    }
+    return;
+  }
+}
+
+// Keep backward-compatible alias so all existing call-sites continue to work.
+const openMacosPrivacySettings = openPrivacySettings;
 
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
@@ -1997,13 +2036,21 @@ export function App() {
         localRecordingMode,
         preAcquiredCameraStream,
       });
-      // Park the popover to its 2×2 pinhole IMMEDIATELY — we want the
-      // popover to vanish the instant the user clicks Start, before the
-      // screen picker has a chance to enumerate windows. Fire-and-forget;
-      // the recording promise was already dispatched above so
-      // getDisplayMedia has already captured the user gesture.
-      invoke("park_popover_offscreen").catch(() => {});
-      emit("clips:popover-visible", false).catch(() => {});
+      // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
+      // doesn't appear in the screen picker window list. The native
+      // Rust recorder used for full-screen doesn't need getDisplayMedia
+      // at all, so parking is always safe on macOS.
+      //
+      // Windows: do NOT park before getDisplayMedia resolves. On Windows,
+      // the WebView2 screen picker UI renders within the popover webview —
+      // shrinking the window to 2×2 makes the picker invisible and the
+      // user can never select a screen. The recorder.ts code parks the
+      // popover itself (line ~2165) AFTER the streams are acquired, which
+      // is the correct time on Windows.
+      if (isMacPlatform()) {
+        invoke("park_popover_offscreen").catch(() => {});
+        emit("clips:popover-visible", false).catch(() => {});
+      }
 
       // No watchdog — the macOS screen picker can stay open indefinitely
       // (a user deciding which window to capture may take 20, 60, 180
@@ -2655,7 +2702,7 @@ function PermissionRecoveryBanner({
         <div className="permission-title">{title}</div>
         <div>{message}</div>
       </div>
-      <div className="permission-actions" aria-label="Open macOS permissions">
+      <div className="permission-actions" aria-label="Open privacy settings">
         {uniquePanes.map((pane) => (
           <button
             type="button"
