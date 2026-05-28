@@ -52,6 +52,7 @@ type SidebarDashboard = {
   name: string;
   subviews?: DashboardSubview[];
   source: "static" | "sql";
+  visibility?: Visibility;
 };
 import {
   Tooltip,
@@ -260,6 +261,24 @@ function SidebarSectionSortMenu({
   );
 }
 
+// --- Visibility types and helpers ---
+
+type Visibility = "private" | "org" | "public";
+
+function VisibilityDot({ visibility }: { visibility: Visibility }) {
+  return (
+    <span
+      className={cn(
+        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+        visibility === "private"
+          ? "bg-muted-foreground/40"
+          : "bg-blue-400",
+      )}
+      aria-label={visibility === "private" ? "Private" : "Shared with org"}
+    />
+  );
+}
+
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
 function SortableRow({
@@ -274,6 +293,8 @@ function SortableRow({
   onRename,
   onArchive,
   onPrefetch,
+  visibility,
+  onSetVisibility,
   children,
 }: {
   id: string;
@@ -290,6 +311,8 @@ function SortableRow({
    *  Delete fires immediately with no confirm (analyses behavior). */
   onArchive?: () => Promise<void> | void;
   onPrefetch?: () => void;
+  visibility?: Visibility;
+  onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
   const {
@@ -681,6 +704,8 @@ function SortableDashboardItem({
       onRename={(name) => onRename(d, name)}
       onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
+      visibility={d.visibility}
+      onSetVisibility={onSetVisibility ? (v) => onSetVisibility(d, v) : undefined}
     >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
@@ -878,11 +903,10 @@ function setStaticDashboardRenames(renames: Record<string, string>): void {
   }
 }
 
-type Visibility = "private" | "org" | "public";
-
 type SqlDashboardListItem = {
   id: string;
   name: string;
+  visibility?: Visibility;
 };
 
 async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
@@ -900,6 +924,10 @@ async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : "Untitled dashboard",
+      visibility:
+        d.visibility === "org" || d.visibility === "public"
+          ? (d.visibility as Visibility)
+          : ("private" as Visibility),
     }));
 }
 
@@ -1270,6 +1298,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       id: d.id,
       name: d.name,
       source: "sql",
+      visibility: d.visibility,
     }));
     const all = [...staticItems, ...sqlItems];
     if (dashboardSortMode === "alphabetical") {
