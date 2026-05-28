@@ -2,7 +2,6 @@ import {
   defineEventHandler,
   getQuery,
   getRouterParam,
-  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -36,6 +35,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "slug is required" };
   }
 
+  // guard:allow-unscoped — public booking OG image, gated by active booking slug
   const [bookingLink] = await getDb()
     .select()
     .from(schema.bookingLinks)
@@ -68,12 +68,11 @@ export default defineEventHandler(async (event: H3Event) => {
   };
   const png = renderBookingOgImagePng(imageInput);
 
-  setResponseHeader(event, "Content-Type", "image/png");
-  setResponseHeader(event, "Content-Length", String(png.byteLength));
-  setResponseHeader(
-    event,
-    "Cache-Control",
-    "public, max-age=300, stale-while-revalidate=86400",
-  );
-  return Buffer.from(png);
+  return new Response(png, {
+    headers: {
+      "Content-Type": "image/png",
+      "Content-Length": String(png.byteLength),
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
+    },
+  });
 });
