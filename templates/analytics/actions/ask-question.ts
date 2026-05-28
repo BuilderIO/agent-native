@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineAction } from "@agent-native/core";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
 const SourceSchema = z.object({
@@ -90,6 +90,32 @@ async function searchGitHub(
   }
 }
 
+async function fetchDashboardCatalog(): Promise<Source[]> {
+  try {
+    const db = getDb();
+    const rows = await (db as any)
+      .select({ id: schema.dashboards.id, title: schema.dashboards.title, kind: schema.dashboards.kind })
+      .from(schema.dashboards)
+      .where(isNull(schema.dashboards.archivedAt));
+
+    if (!rows || rows.length === 0) return [];
+
+    const list = rows
+      .map((r: { id: string; title: string; kind: string }) => `- ${r.title} (id: ${r.id}, type: ${r.kind})`)
+      .join("\n");
+
+    return [
+      {
+        type: "other" as const,
+        title: "Available Dashboards Catalog",
+        excerpt: `The following dashboards exist in the app:\n${list}`,
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export default defineAction({
   description:
     "Search internal sources for a question and create a Knowledge Q&A session.",
@@ -106,16 +132,21 @@ export default defineAction({
       .insert(schema.askSessions)
       .values({ id, question, status: "searching" });
 
-    const ghSources = await searchGitHub(question, process.env.GITHUB_TOKEN);
+    const [ghSources, dashboardSources] = await Promise.all([
+      searchGitHub(question, process.env.GITHUB_TOKEN),
+      fetchDashboardCatalog(),
+    ]);
+
+    const allSources = [...dashboardSources, ...ghSources];
 
     await db
       .update(schema.askSessions)
-      .set({ sourcesJson: JSON.stringify(ghSources), status: "generating" })
+      .set({ sourcesJson: JSON.stringify(allSources), status: "generating" })
       .where(eq(schema.askSessions.id, id));
 
     return {
       sessionId: id,
-      sources: ghSources,
+      sources: allSources,
       followUpSessionId: followUpSessionId ?? null,
     };
   },
