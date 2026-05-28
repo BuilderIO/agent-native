@@ -417,12 +417,24 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     decksRef.current = decks;
   }, [decks]);
 
+  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
+    setDecks(nextDecks);
+    setHistory([
+      {
+        timestamp: Date.now(),
+        label: "Initial state",
+        decks: JSON.parse(JSON.stringify(nextDecks)),
+      },
+    ]);
+    setHistoryIndex(0);
+  }, []);
+
   const reloadDecks = useCallback(async () => {
     const loaded = await fetchDecksForCurrentRoute();
     if (loaded === null) return;
     lastExternalUpdateRef.current = Date.now();
-    setDecks(loaded);
-  }, []);
+    resetDeckBaseline(loaded);
+  }, [resetDeckBaseline]);
 
   // Load decks from API on mount
   useEffect(() => {
@@ -432,18 +444,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // triggering the save effect (lastExternalUpdateRef is bumped).
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      setDecks(initial);
-      setHistory([
-        {
-          timestamp: Date.now(),
-          label: "Initial state",
-          decks: JSON.parse(JSON.stringify(initial)),
-        },
-      ]);
-      setHistoryIndex(0);
+      resetDeckBaseline(initial);
       setLoading(false);
     });
-  }, []);
+  }, [resetDeckBaseline]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
