@@ -6,10 +6,19 @@ export type ImageLibrarySummary = {
   referenceCount?: number | null;
   generatedCount?: number | null;
   videoCount?: number | null;
-  coverAsset?: { thumbnailUrl?: string | null } | null;
+  coverAsset?: LibraryPreviewAsset | null;
+  previewAssets?: LibraryPreviewAsset[] | null;
   styleBrief?: Record<string, unknown> | null;
   settings?: Record<string, unknown> | null;
   updatedAt?: string | null;
+};
+
+export type LibraryPreviewAsset = {
+  id: string;
+  title?: string | null;
+  altText?: string | null;
+  previewUrl?: string | null;
+  thumbnailUrl?: string | null;
 };
 
 const LAST_LIBRARY_KEY = "assets.lastLibraryId";

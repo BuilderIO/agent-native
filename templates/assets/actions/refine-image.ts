@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import generateImage from "./generate-image.js";
-import { getAssetOrThrow } from "./_helpers.js";
+import {
+  getAssetOrThrow,
+  requireGenerationSessionInLibrary,
+} from "./_helpers.js";
 import { parseJson } from "../server/lib/json.js";
 import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 
@@ -11,6 +14,8 @@ export default defineAction({
   schema: z.object({
     assetId: z.string(),
     feedback: z.string().min(1),
+    presetId: z.string().optional(),
+    sessionId: z.string().optional(),
     model: z.enum(IMAGE_MODELS).optional(),
     aspectRatio: z.enum(ASPECT_RATIOS).optional(),
     imageSize: z.enum(IMAGE_SIZES).optional(),
@@ -27,6 +32,8 @@ export default defineAction({
   run: async ({
     assetId,
     feedback,
+    presetId,
+    sessionId,
     model,
     aspectRatio,
     imageSize,
@@ -35,6 +42,9 @@ export default defineAction({
     callerAppId,
   }) => {
     const asset = await getAssetOrThrow(assetId);
+    if (sessionId) {
+      await requireGenerationSessionInLibrary(sessionId, asset.libraryId);
+    }
     const metadata = parseJson<{ category?: any }>(asset.metadata, {});
     const prompt = [
       asset.prompt || "Refine the prior generated image.",
@@ -47,10 +57,12 @@ export default defineAction({
     return generateImage.run({
       libraryId: asset.libraryId,
       collectionId: asset.collectionId ?? undefined,
+      presetId,
+      sessionId,
       prompt,
       aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
       imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,
-      model: (model ?? asset.model ?? "gemini-3.1-flash-image-preview") as any,
+      model: (model ?? asset.model ?? "gemini-3.1-flash-image") as any,
       categories: metadata.category ? [metadata.category] : undefined,
       includeLogo: false,
       groundingMode: "auto",

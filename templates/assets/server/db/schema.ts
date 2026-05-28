@@ -50,6 +50,56 @@ export const assetFolders = table("asset_folders", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const assetGenerationPresets = table("image_generation_presets", {
+  id: text("id").primaryKey(),
+  libraryId: text("library_id").notNull(),
+  collectionId: text("collection_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("style-only"),
+  mediaType: text("media_type").notNull().default("image"),
+  promptTemplate: text("prompt_template"),
+  aspectRatio: text("aspect_ratio").notNull().default("16:9"),
+  imageSize: text("image_size").notNull().default("2K"),
+  model: text("model").notNull().default("gemini-3.1-flash-image"),
+  textPolicy: text("text_policy").notNull().default(""),
+  referencePolicy: text("reference_policy").notNull().default("auto"),
+  settings: text("settings").notNull().default("{}"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const assetGenerationSessions = table("image_generation_sessions", {
+  id: text("id").primaryKey(),
+  libraryId: text("library_id").notNull(),
+  collectionId: text("collection_id"),
+  presetId: text("preset_id"),
+  title: text("title").notNull(),
+  brief: text("brief"),
+  status: text("status").notNull().default("open"),
+  activeAssetId: text("active_asset_id"),
+  feedbackSummary: text("feedback_summary").notNull().default(""),
+  metadata: text("metadata").notNull().default("{}"),
+  createdBy: text("created_by"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const assetGenerationSessionItems = table(
+  "image_generation_session_items",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    assetId: text("asset_id"),
+    generationRunId: text("generation_run_id"),
+    role: text("role").notNull().default("candidate"),
+    note: text("note"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
 export const assets = table("image_assets", {
   id: text("id").primaryKey(),
   libraryId: text("library_id").notNull(),
@@ -83,6 +133,8 @@ export const assetGenerationRuns = table("image_generation_runs", {
   id: text("id").primaryKey(),
   libraryId: text("library_id").notNull(),
   collectionId: text("collection_id"),
+  presetId: text("preset_id"),
+  sessionId: text("session_id"),
   prompt: text("prompt").notNull(),
   compiledPrompt: text("compiled_prompt").notNull(),
   mediaType: text("media_type").notNull().default("image"),
@@ -118,5 +170,8 @@ export const assetGenerationRuns = table("image_generation_runs", {
 export const imageLibraries = assetLibraries;
 export const imageLibraryShares = assetLibraryShares;
 export const imageCollections = assetCollections;
+export const imageGenerationPresets = assetGenerationPresets;
+export const imageGenerationSessions = assetGenerationSessions;
+export const imageGenerationSessionItems = assetGenerationSessionItems;
 export const imageAssets = assets;
 export const imageGenerationRuns = assetGenerationRuns;

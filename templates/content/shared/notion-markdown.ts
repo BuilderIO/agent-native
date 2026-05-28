@@ -1,5 +1,6 @@
-export const VISUAL_INDENT = "\u00A0\u00A0";
-const VISUAL_INDENT_ENTITY = "&nbsp;&nbsp;";
+export const VISUAL_INDENT = "\u2003\u2003";
+const VISUAL_INDENT_ENTITY = "&emsp;&emsp;";
+const LEGACY_VISUAL_INDENTS = ["\u00A0\u00A0", "&nbsp;&nbsp;"];
 
 const LEGACY_TOGGLE_RE = /^(?:[-*]\s+)?(?:▶|▾)\s+(.*)$/;
 const CODE_FENCE_RE = /^```/;
@@ -70,16 +71,19 @@ function normalizeCommonMarkListIndents(markdown: string): string {
 function getLeadingIndent(rawLine: string): { indent: number; text: string } {
   let index = 0;
   let indent = 0;
+  const visualIndents = [
+    VISUAL_INDENT,
+    VISUAL_INDENT_ENTITY,
+    ...LEGACY_VISUAL_INDENTS,
+  ];
 
   while (index < rawLine.length) {
-    if (rawLine.startsWith(VISUAL_INDENT, index)) {
+    const visualIndent = visualIndents.find((value) =>
+      rawLine.startsWith(value, index),
+    );
+    if (visualIndent) {
       indent++;
-      index += VISUAL_INDENT.length;
-      continue;
-    }
-    if (rawLine.startsWith(VISUAL_INDENT_ENTITY, index)) {
-      indent++;
-      index += VISUAL_INDENT_ENTITY.length;
+      index += visualIndent.length;
       continue;
     }
     if (rawLine.startsWith("  ", index)) {
@@ -123,7 +127,7 @@ function normalizeLegacyStructure(markdown: string): string {
 
     if (CODE_FENCE_RE.test(trimmed)) {
       if (!inCodeFence) {
-        closeTogglesTo(indent + 1);
+        closeTogglesTo(indent);
       }
       output.push(`${prefixIndent(indent)}${trimmed}`);
       inCodeFence = !inCodeFence;
@@ -140,7 +144,7 @@ function normalizeLegacyStructure(markdown: string): string {
       continue;
     }
 
-    closeTogglesTo(indent + 1);
+    closeTogglesTo(indent);
 
     const toggleMatch = text.match(LEGACY_TOGGLE_RE);
     if (toggleMatch) {
@@ -182,6 +186,25 @@ export function serializeTagAttributes(
     .map(([key, value]) => `${key}="${escapeHtml(String(value))}"`);
 
   return parts.length ? ` ${parts.join(" ")}` : "";
+}
+
+function addTagAttribute(
+  tag: string,
+  name: string,
+  value: string | number | boolean | null | undefined,
+): string {
+  if (value === undefined || value === null || value === "" || value === 0) {
+    return tag;
+  }
+
+  const close = tag.match(/\s*\/?>\s*$/)?.[0] || ">";
+  const body = tag.slice(0, tag.length - close.length);
+  const attrRe = new RegExp(`\\s${name}=(?:"[^"]*"|'[^']*'|[^\\s>]+)`);
+  const nextAttr = ` ${name}="${escapeHtml(String(value))}"`;
+
+  return attrRe.test(body)
+    ? `${body.replace(attrRe, nextAttr)}${close}`
+    : `${body}${nextAttr}${close}`;
 }
 
 export function indentMarkdown(markdown: string, prefix = "\t"): string {
@@ -391,11 +414,13 @@ function convertHtmlContainerContent(nfm: string): string {
     // Closing tag
     if (HTML_CONTENT_CLOSE.test(trimmed)) {
       if (containerDepth === 1) {
-        output.push(capturedOpen);
-        if (capturedSummary) output.push(capturedSummary);
+        output.push(htmlLineForEditor(capturedOpen));
+        if (capturedSummary) {
+          output.push(stripMarkdownUnsafeHtmlIndent(capturedSummary));
+        }
         const htmlContent = nfmLinesToHtml(capturedContent);
         if (htmlContent) output.push(htmlContent);
-        output.push(line);
+        output.push(stripMarkdownUnsafeHtmlIndent(line));
       } else if (containerDepth > 1) {
         capturedContent.push(line);
       }
@@ -455,6 +480,22 @@ function countLineIndent(line: string): { indent: number; rest: string } {
     }
   }
   return { indent, rest: line.slice(i) };
+}
+
+function stripMarkdownUnsafeHtmlIndent(line: string): string {
+  return countLineIndent(line).rest.trim();
+}
+
+function htmlLineForEditor(line: string, indentOverride?: number): string {
+  const { indent, rest } = countLineIndent(line);
+  const content = rest.trim();
+  const editorIndent = Math.max(0, indentOverride ?? indent);
+
+  if (editorIndent > 0 && /^<details\b/.test(content)) {
+    return addTagAttribute(content, "data-nfm-indent", editorIndent);
+  }
+
+  return content;
 }
 
 /** Convert NFM lines (tab-indented, with optional list markers) to HTML. */
@@ -548,7 +589,7 @@ function nfmLinesToHtml(lines: string[]): string {
     // Use [a-zA-Z] to avoid matching text like "<3"
     if (/^<\/?[a-zA-Z]/.test(content)) {
       closeLists();
-      html.push(content);
+      html.push(htmlLineForEditor(content, Math.max(0, rawDepth)));
       continue;
     }
 
@@ -632,22 +673,28 @@ function convertNfmBlocks(text: string): string {
 
     // Track HTML containers so we don't rewrite their content
     if (
-      /^<(details|callout|columns|column)\b/.test(trimmed) &&
+      /^<(details|callout|columns|column)\b/.test(
+        stripMarkdownUnsafeHtmlIndent(line),
+      ) &&
       !trimmed.endsWith("/>")
     ) {
       htmlDepth++;
-      result.push(line);
+      result.push(htmlLineForEditor(line));
       resetListState();
       continue;
     }
-    if (/^<\/(details|callout|columns|column)>/.test(trimmed)) {
+    if (
+      /^<\/(details|callout|columns|column)>/.test(
+        stripMarkdownUnsafeHtmlIndent(line),
+      )
+    ) {
       htmlDepth = Math.max(0, htmlDepth - 1);
-      result.push(line);
+      result.push(htmlLineForEditor(line));
       resetListState();
       continue;
     }
     if (htmlDepth > 0) {
-      result.push(line);
+      result.push(htmlLineForEditor(line));
       continue;
     }
 
@@ -788,6 +835,15 @@ function sanitizeDetailsOpenTag(line: string, indent: string): string {
   return `${indent}<details${color}>`;
 }
 
+function readDetailsEditorIndent(line: string): number {
+  const attrs = line.trim().match(/^<details\b([^>]*)>/)?.[1] || "";
+  const match = attrs.match(
+    /\sdata-nfm-indent=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/,
+  );
+  const parsed = Number.parseInt(match?.[1] ?? match?.[2] ?? match?.[3] ?? "0");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 8) : 0;
+}
+
 function normalizeDetailsForNotion(markdown: string): string {
   const lines = markdown.split("\n");
   const output: string[] = [];
@@ -823,7 +879,10 @@ function normalizeDetailsForNotion(markdown: string): string {
       const openMatch = line.match(/^([ \t]*)<details\b[^>]*>\s*$/);
       if (openMatch) {
         const parent = currentFrame();
-        const indent = parent ? `${parent.indent}\t` : openMatch[1];
+        const editorIndent = "\t".repeat(readDetailsEditorIndent(line));
+        const indent = parent
+          ? `${parent.indent}\t`
+          : `${openMatch[1]}${editorIndent}`;
         if (parent) parent.childCount++;
         output.push(sanitizeDetailsOpenTag(line, indent));
         stack.push({ indent, childCount: 0 });

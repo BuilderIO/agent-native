@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.21
+
+### Patch Changes
+
+- 5355ff0: Use generated image outputs as Open Graph images for Dispatch thread links.
+
 ## 0.8.20
 
 ### Patch Changes

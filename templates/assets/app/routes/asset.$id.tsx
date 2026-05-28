@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 import {
   sendToAgentChat,
   useActionMutation,
@@ -35,6 +36,10 @@ export default function AssetDetailPage() {
   const { data } = useActionQuery("get-asset", { id: id! }) as any;
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
+  const createSession = useActionMutation("create-generation-session");
+  const prepareSessionContinuation = useActionMutation(
+    "prepare-generation-session-continuation",
+  );
   const asset = data;
 
   if (!asset) {
@@ -56,6 +61,43 @@ export default function AssetDetailPage() {
       submit: true,
       newTab: true,
     });
+  }
+
+  function createHandoff() {
+    createSession.mutate(
+      {
+        libraryId: asset.libraryId,
+        collectionId: asset.collectionId ?? null,
+        presetId: asset.metadata?.presetId ?? null,
+        title: asset.title || "Image handoff",
+        brief:
+          asset.prompt || asset.description || "Continue refining this asset.",
+        activeAssetId: asset.id,
+        assetIds: [asset.id],
+        runIds: asset.generationRunId ? [asset.generationRunId] : [],
+        feedback: "Needs design refinement.",
+      },
+      {
+        onSuccess: (session: any) => {
+          prepareSessionContinuation.mutate(
+            { id: session.id },
+            {
+              onSuccess: (payload: any) => {
+                sendToAgentChat({
+                  message: payload.message,
+                  context: payload.context,
+                  submit: true,
+                  newTab: true,
+                });
+              },
+            },
+          );
+        },
+        onError: (error: Error) => {
+          toast.error(error.message || "Could not create handoff.");
+        },
+      },
+    );
   }
 
   return (
@@ -115,6 +157,12 @@ export default function AssetDetailPage() {
             <IconMessageCircle className="h-4 w-4" />
             {isVideo ? "Make video variation" : "Make variations"}
           </Button>
+          {!isVideo ? (
+            <Button variant="outline" className="gap-2" onClick={createHandoff}>
+              <IconMessageCircle className="h-4 w-4" />
+              Handoff to designer
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             className="gap-2"

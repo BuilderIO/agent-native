@@ -119,7 +119,7 @@ export function CommandPalette({
           </CommandMenu.Item>
         )}
         <CommandMenu.Item
-          onSelect={() => navigate(`/inbox?q=`)}
+          onSelect={() => navigate(`/all?q=`)}
           keywords={["search", "find"]}
         >
           <IconSearch className="h-4 w-4" />

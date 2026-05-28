@@ -195,7 +195,7 @@ function canSoftOpenWebview(
 }
 
 function buildSoftOpenScript(path: string): string {
-  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then((response) => response.ok && response.type !== "opaqueredirect", () => false))()`;
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
 
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(

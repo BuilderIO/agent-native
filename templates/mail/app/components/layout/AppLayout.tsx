@@ -222,7 +222,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     );
   }, [location.pathname, navigate, searchParams]);
   // Remember which view (and label tab) the user was in before searching —
-  // SearchBar always routes searches through /inbox?q=..., so on clear we'd
+  // SearchBar always routes searches through /all?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
   // label-filtered tab back into plain Inbox.
   const preSearchViewRef = useRef<{ view: string; label: string | null }>({

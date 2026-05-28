@@ -20,7 +20,14 @@ import {
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
-import { appApiPath, useChangeVersions } from "@agent-native/core/client";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  agentNativePath,
+  appApiPath,
+  useChangeVersions,
+} from "@agent-native/core/client";
+import { extensionPath } from "@agent-native/core/client/extensions";
+import { commandPaletteKeywords } from "./command-palette-search";
 
 interface SavedConfig {
   id: string;
@@ -32,6 +39,12 @@ interface ExplorerDashboard {
   name: string;
 }
 
+interface ExtensionSearchItem {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 const defaultTools = [
   { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
   {
@@ -40,6 +53,36 @@ const defaultTools = [
     href: "/adhoc/customer-health",
   },
 ];
+
+const loadingRowWidths = ["w-[58%]", "w-[71%]", "w-[84%]"] as const;
+
+function CommandLoadingGroup({
+  heading,
+  rows = 3,
+}: {
+  heading: string;
+  rows?: number;
+}) {
+  return (
+    <CommandGroup heading={heading} forceMount>
+      {Array.from({ length: rows }).map((_, index) => (
+        <CommandItem
+          key={`${heading}-loading-${index}`}
+          disabled
+          forceMount
+          value={`${heading} loading ${index + 1}`}
+        >
+          <Skeleton className="mr-2 h-4 w-4 shrink-0 rounded-sm" />
+          <Skeleton
+            className={`h-4 rounded ${
+              loadingRowWidths[index % loadingRowWidths.length]
+            }`}
+          />
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  );
+}
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
   const token = await getIdToken();
@@ -73,8 +116,38 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   if (!res.ok) return [];
   const data = await res.json();
   return (data.dashboards ?? [])
-    .filter((d: any) => d.name)
-    .map((d: any) => ({ id: d.id, name: d.name }));
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : "Untitled dashboard",
+    }));
+}
+
+async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
+  const res = await fetch(agentNativePath("/_agent-native/extensions"));
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (Array.isArray(data) ? data : [])
+    .filter((extension: any) => {
+      return (
+        extension &&
+        typeof extension.id === "string" &&
+        extension.id.length > 0 &&
+        typeof extension.name === "string" &&
+        extension.name.trim().length > 0
+      );
+    })
+    .map((extension: any) => ({
+      id: extension.id,
+      name: extension.name,
+      description:
+        typeof extension.description === "string"
+          ? extension.description
+          : undefined,
+    }));
 }
 
 function persistThemePreference(theme: "light" | "dark") {
@@ -91,7 +164,7 @@ export function CommandPalette() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const { data: savedCharts = [] } = useQuery({
+  const { data: savedCharts = [], isFetching: savedChartsFetching } = useQuery({
     queryKey: ["explorer-configs-palette"],
     queryFn: fetchSavedConfigs,
     staleTime: 30_000,
@@ -100,7 +173,10 @@ export function CommandPalette() {
 
   const dashboardsSync = useChangeVersions(["dashboards", "action"]);
 
-  const { data: explorerDashboards = [] } = useQuery({
+  const {
+    data: explorerDashboards = [],
+    isFetching: explorerDashboardsFetching,
+  } = useQuery({
     queryKey: ["explorer-dashboards-palette", dashboardsSync],
     queryFn: fetchExplorerDashboards,
     staleTime: 30_000,
@@ -108,9 +184,20 @@ export function CommandPalette() {
     placeholderData: (prev) => prev,
   });
 
-  const { data: sqlDashboards = [] } = useQuery({
-    queryKey: ["sql-dashboards-palette", dashboardsSync],
-    queryFn: fetchSqlDashboards,
+  const { data: sqlDashboards = [], isFetching: sqlDashboardsFetching } =
+    useQuery({
+      queryKey: ["sql-dashboards-palette", dashboardsSync],
+      queryFn: fetchSqlDashboards,
+      staleTime: 30_000,
+      enabled: open,
+      placeholderData: (prev) => prev,
+    });
+
+  const { data: extensions = [], isFetching: extensionsFetching } = useQuery<
+    ExtensionSearchItem[]
+  >({
+    queryKey: ["extensions"],
+    queryFn: fetchExtensions,
     staleTime: 30_000,
     enabled: open,
     placeholderData: (prev) => prev,
@@ -140,11 +227,21 @@ export function CommandPalette() {
     [navigate],
   );
 
+  const asyncGroupsLoading =
+    (explorerDashboardsFetching && explorerDashboards.length === 0) ||
+    (sqlDashboardsFetching && sqlDashboards.length === 0) ||
+    (extensionsFetching && extensions.length === 0) ||
+    (savedChartsFetching && savedCharts.length === 0);
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search dashboards, tools, charts..." />
+      <CommandInput placeholder="Search dashboards, extensions, charts..." />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        {!asyncGroupsLoading && <CommandEmpty>No results found.</CommandEmpty>}
+
+        {explorerDashboardsFetching && explorerDashboards.length === 0 && (
+          <CommandLoadingGroup heading="Explorer Dashboards" rows={2} />
+        )}
 
         {explorerDashboards.length > 0 && (
           <CommandGroup heading="Explorer Dashboards">
@@ -152,6 +249,11 @@ export function CommandPalette() {
               <CommandItem
                 key={`ed-${d.id}`}
                 onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
+                keywords={commandPaletteKeywords(
+                  d.name,
+                  "explorer dashboard",
+                  "dashboard",
+                )}
               >
                 <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
                 {d.name}
@@ -160,15 +262,48 @@ export function CommandPalette() {
           </CommandGroup>
         )}
 
+        {sqlDashboardsFetching && sqlDashboards.length === 0 && (
+          <CommandLoadingGroup heading="SQL Dashboards" rows={3} />
+        )}
+
         {sqlDashboards.length > 0 && (
           <CommandGroup heading="SQL Dashboards">
             {sqlDashboards.map((d) => (
               <CommandItem
                 key={`sql-${d.id}`}
                 onSelect={() => go(`/adhoc/${d.id}`)}
+                keywords={commandPaletteKeywords(
+                  d.name,
+                  "sql dashboard",
+                  "dashboard",
+                )}
               >
                 <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
                 {d.name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {extensionsFetching && extensions.length === 0 && (
+          <CommandLoadingGroup heading="Extensions" rows={3} />
+        )}
+
+        {extensions.length > 0 && (
+          <CommandGroup heading="Extensions">
+            {extensions.map((extension) => (
+              <CommandItem
+                key={`extension-${extension.id}`}
+                onSelect={() => go(extensionPath(extension.id, extension.name))}
+                keywords={commandPaletteKeywords(
+                  extension.name,
+                  extension.description,
+                  "extension",
+                  "tool",
+                )}
+              >
+                <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
+                {extension.name}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -179,6 +314,7 @@ export function CommandPalette() {
             <CommandItem
               key={`dash-${d.id}`}
               onSelect={() => go(`/adhoc/${d.id}`)}
+              keywords={commandPaletteKeywords(d.name, "dashboard")}
             >
               <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
               {d.name}
@@ -188,7 +324,11 @@ export function CommandPalette() {
 
         <CommandGroup heading="Tools">
           {defaultTools.map((t) => (
-            <CommandItem key={`tool-${t.id}`} onSelect={() => go(t.href)}>
+            <CommandItem
+              key={`tool-${t.id}`}
+              onSelect={() => go(t.href)}
+              keywords={commandPaletteKeywords(t.name, "tool")}
+            >
               <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
               {t.name}
             </CommandItem>
@@ -213,12 +353,21 @@ export function CommandPalette() {
           </CommandItem>
         </CommandGroup>
 
+        {savedChartsFetching && savedCharts.length === 0 && (
+          <CommandLoadingGroup heading="Saved Charts" rows={2} />
+        )}
+
         {savedCharts.length > 0 && (
           <CommandGroup heading="Saved Charts">
             {savedCharts.map((c) => (
               <CommandItem
                 key={`chart-${c.id}`}
                 onSelect={() => go(`/adhoc/explorer?config=${c.id}`)}
+                keywords={commandPaletteKeywords(
+                  c.name,
+                  "saved chart",
+                  "chart",
+                )}
               >
                 <IconChartBar className="mr-2 h-4 w-4 text-muted-foreground" />
                 {c.name}

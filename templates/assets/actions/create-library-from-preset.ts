@@ -13,6 +13,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
 import { serializeAsset, serializeLibrary } from "./_helpers.js";
+import { seedDefaultGenerationPresets } from "../server/lib/generation-presets.js";
 import {
   DEFAULT_LIBRARY_PRESET_VERSION,
   getLibraryPreset,
@@ -138,6 +139,7 @@ export default defineAction({
 
     const db = getDb();
     await db.insert(schema.assetLibraries).values(row);
+    await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
 
     const referenceAssets = [];
     const referenceSeedErrors = [];

@@ -71,6 +71,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  chunkAssetUploads,
+  getFailedUploadCount,
+  getSkippedDuplicateCount,
+  getUploadedAssetCount,
+  type AssetUploadResult,
+} from "@/lib/upload-results";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -105,8 +112,17 @@ export default function LibraryPage() {
   const saveGenerated = useActionMutation("save-generated-image");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
-  const extractPalette = useActionMutation("extract-palette-from-references");
+  const createSession = useActionMutation("create-generation-session");
+  const prepareSessionContinuation = useActionMutation(
+    "prepare-generation-session-continuation",
+  );
   const { data: variants } = useVariantState();
+  const { data: presetData } = useActionQuery("list-generation-presets", {
+    libraryId,
+  }) as any;
+  const { data: sessionData } = useActionQuery("list-generation-sessions", {
+    libraryId,
+  }) as any;
   const queryClient = useQueryClient();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
@@ -128,8 +144,26 @@ export default function LibraryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createFolder = useActionMutation("create-folder");
 
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-request-source": "assets-library-ui",
+      },
+      body: JSON.stringify({
+        view: "library",
+        libraryId,
+        activeTab,
+        selectedAssetIds: Array.from(selectedAssetIds),
+      }),
+    }).catch(() => {});
+  }, [activeTab, libraryId, selectedAssetIds]);
+
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
+  const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+  const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
   const assets = serverAssets.filter(
     (asset) => !optimisticallyDeletedAssetIds.has(asset.id),
@@ -255,9 +289,41 @@ export default function LibraryPage() {
       );
   }
 
+  function analyzeBrand() {
+    if (!library) return;
+    const anchorIds = assets
+      .filter(
+        (asset) =>
+          asset.metadata?.isStyleAnchor ||
+          library.settings?.canonicalStyleAssetIds?.includes(asset.id),
+      )
+      .map((asset) => asset.id);
+    sendToAgentChat({
+      message: [
+        "Analyze this Assets library brand.",
+        `Call analyze-collection-style with libraryId: ${library.id}.`,
+        "Update the reusable style brief with palette and visual traits, then summarize what changed.",
+      ].join("\n"),
+      context: [
+        "## Assets library context",
+        `Library: ${library.title} (${library.id})`,
+        `Description: ${library.description || ""}`,
+        `Reference assets: ${references.length}`,
+        `Anchor assets: ${anchorIds.length ? anchorIds.join(", ") : "none"}`,
+        `Current style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
+        customInstructions
+          ? `Custom instructions: ${customInstructions}`
+          : "Custom instructions: none",
+      ].join("\n"),
+      submit: true,
+      newTab: true,
+    });
+  }
+
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length) return;
     const selectedFiles = Array.from(files);
+    const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
     const pending: PendingUpload[] = selectedFiles.map((file, index) => ({
@@ -267,40 +333,101 @@ export default function LibraryPage() {
       folderId: selectedFolderId,
       status: "uploading" as const,
     }));
+    const pendingByFile = new Map(
+      selectedFiles.map((file, index) => [file, pending[index]]),
+    );
+    const removePendingFiles = (uploadedFiles: File[]) => {
+      const completedIds = new Set(
+        uploadedFiles
+          .map((file) => pendingByFile.get(file)?.id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+      setPendingUploads((current) =>
+        current.filter((upload) => !completedIds.has(upload.id)),
+      );
+    };
     setPendingUploads(pending);
     setUploading(true);
     let keepPending = false;
     const toastId = toast.loading(
       `Uploading ${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"}...`,
       {
-        description: "Processing previews and saving them to the library.",
+        description:
+          uploadChunks.length > 1
+            ? `Processing in ${uploadChunks.length} batches.`
+            : "Processing previews and saving them to the library.",
       },
     );
     try {
-      const form = new FormData();
-      form.append("libraryId", libraryId);
-      form.append("category", category);
-      if (selectedFolderId) {
-        form.append("folderId", selectedFolderId);
+      let uploadedCount = 0;
+      let skippedCount = 0;
+      let failedCount = 0;
+      for (const chunk of uploadChunks) {
+        const form = new FormData();
+        form.append("libraryId", libraryId);
+        form.append("category", category);
+        if (selectedFolderId) {
+          form.append("folderId", selectedFolderId);
+        }
+        for (const file of chunk) form.append("files", file);
+        const response = await fetch(`${appBasePath()}/api/assets/upload`, {
+          method: "POST",
+          body: form,
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error || `Upload failed (${response.status})`);
+        }
+        const result = (await response
+          .json()
+          .catch(() => null)) as AssetUploadResult | null;
+        uploadedCount += getUploadedAssetCount(result);
+        skippedCount += getSkippedDuplicateCount(result);
+        failedCount += getFailedUploadCount(result);
+        removePendingFiles(chunk);
       }
-      for (const file of selectedFiles) form.append("files", file);
-      const response = await fetch(`${appBasePath()}/api/assets/upload`, {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error || `Upload failed (${response.status})`);
+      if (failedCount > 0) {
+        toast.warning(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; ${failedCount} failed.`,
+          {
+            id: toastId,
+            description:
+              skippedCount > 0
+                ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
+                : null,
+          },
+        );
+      } else if (uploadedCount > 0 && skippedCount > 0) {
+        toast.success(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`,
+          { id: toastId, description: null },
+        );
+      } else if (uploadedCount > 0) {
+        toast.success(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`,
+          {
+            id: toastId,
+            description: null,
+          },
+        );
+      } else if (skippedCount > 0) {
+        toast.warning(
+          `Skipped ${skippedCount} duplicate asset${
+            skippedCount === 1 ? "" : "s"
+          }.`,
+          {
+            id: toastId,
+            description: "Already in this library.",
+          },
+        );
+      } else {
+        toast.warning("No new assets were uploaded.", {
+          id: toastId,
+          description: null,
+        });
       }
-      const result = (await response.json().catch(() => null)) as {
-        count?: number;
-      } | null;
-      const count = result?.count ?? selectedFiles.length;
-      toast.success(`Uploaded ${count} asset${count === 1 ? "" : "s"}.`, {
-        id: toastId,
-      });
       await refreshLibrary();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Upload failed";
@@ -325,7 +452,7 @@ export default function LibraryPage() {
           setPendingUploads([]);
         }, 12_000);
       } else {
-        toast.error(message, { id: toastId });
+        toast.error(message, { id: toastId, description: null });
       }
     } finally {
       setUploading(false);
@@ -348,6 +475,9 @@ export default function LibraryPage() {
   }
 
   function generate(prompt: string, options: GenerateOptions) {
+    const selectedPreset = options.presetId
+      ? generationPresets.find((preset) => preset.id === options.presetId)
+      : null;
     const context = [
       "## Assets library context",
       `Library: ${library.title} (${library.id})`,
@@ -359,10 +489,13 @@ export default function LibraryPage() {
       customInstructions
         ? `Custom instructions: ${customInstructions}`
         : "Custom instructions: none",
+      selectedPreset
+        ? `Generation preset: ${selectedPreset.title} (${selectedPreset.id}); ${selectedPreset.aspectRatio}; text policy: ${selectedPreset.textPolicy || "none"}`
+        : "Generation preset: none",
       "",
       options.mediaType === "video"
         ? "Use generate-video, then call refresh-generation-run until the run completes and returns a video asset. Use save-generated-asset when the user approves it."
-        : "Use the asset generation actions. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
+        : "Use the asset generation actions. If a generation preset ID is present, pass presetId to generate-image or generate-image-batch. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
     ].join("\n");
     sendToAgentChat({
       message: [
@@ -370,6 +503,7 @@ export default function LibraryPage() {
           ? "Generate 1 video candidate for this library."
           : `Generate ${options.count} image candidate${options.count === 1 ? "" : "s"} for this library.`,
         `Prompt: ${prompt}`,
+        options.presetId ? `Preset ID: ${options.presetId}` : "Preset ID: none",
         `Aspect ratio: ${options.aspectRatio}`,
         options.mediaType === "video"
           ? `Duration: ${options.durationSeconds}s\nResolution: ${options.resolution}`
@@ -386,6 +520,53 @@ export default function LibraryPage() {
       newTab: true,
     });
     setGenerateOpen(false);
+  }
+
+  function continueSession(sessionId: string) {
+    prepareSessionContinuation.mutate(
+      { id: sessionId },
+      {
+        onSuccess: (payload: any) => {
+          sendToAgentChat({
+            message: payload.message,
+            context: payload.context,
+            submit: true,
+            newTab: true,
+          });
+        },
+        onError: (error: Error) => {
+          toast.error(error.message || "Could not prepare handoff.");
+        },
+      },
+    );
+  }
+
+  function createHandoffFromRun(run: any) {
+    const outputIds = outputAssetIds(run);
+    if (!outputIds.length) {
+      toast.error("This run does not have generated assets to hand off.");
+      return;
+    }
+    const prompt = run.originalPrompt || run.prompt || "Generated asset";
+    createSession.mutate(
+      {
+        libraryId,
+        collectionId: run.collectionId ?? null,
+        presetId: run.presetId ?? null,
+        title: prompt.slice(0, 80),
+        brief: prompt,
+        activeAssetId: outputIds[0],
+        assetIds: outputIds,
+        runIds: [run.id],
+        feedback: "Needs design refinement.",
+      },
+      {
+        onSuccess: () => toast.success("Handoff session created."),
+        onError: (error: Error) => {
+          toast.error(error.message || "Could not create handoff.");
+        },
+      },
+    );
   }
 
   if (!library) {
@@ -453,6 +634,7 @@ export default function LibraryPage() {
               onOpenChange={setGenerateOpen}
               onSubmit={generate}
               hasLogo={!!library.canonicalLogoAssetId}
+              presets={generationPresets}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -538,6 +720,13 @@ export default function LibraryPage() {
       ) : null}
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        <BrandSummaryCard
+          library={library}
+          assets={assets}
+          referencesCount={references.length}
+          onGenerate={() => setGenerateOpen(true)}
+        />
+
         <section className="mb-5 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -670,8 +859,34 @@ export default function LibraryPage() {
           </TabsContent>
 
           <TabsContent value="runs">
-            {(data?.runs ?? []).length ? (
+            {(data?.runs ?? []).length || generationSessions.length ? (
               <div className="space-y-3">
+                {generationSessions.length ? (
+                  <section className="rounded-lg border border-border bg-card p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold">
+                          Handoff sessions
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          Shared context for designers to continue a candidate
+                          without the original chat thread.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {generationSessions.slice(0, 4).map((session: any) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          presets={generationPresets}
+                          continuing={prepareSessionContinuation.isPending}
+                          onContinue={() => continueSession(session.id)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 {(data?.runs ?? []).map((run: any) => (
                   <RunCard
                     key={run.id}
@@ -679,6 +894,7 @@ export default function LibraryPage() {
                     rerunning={
                       rerunGeneration.isPending || refreshGeneration.isPending
                     }
+                    onCreateHandoff={() => createHandoffFromRun(run)}
                     onRerun={() =>
                       run.mediaType === "video"
                         ? refreshGeneration.mutate({ runId: run.id })
@@ -749,22 +965,27 @@ export default function LibraryPage() {
                       )}
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => extractPalette.mutate({ libraryId })}
-                  >
-                    Extract
+                  <Button variant="outline" onClick={analyzeBrand}>
+                    {library.settings?.brandAnalysis?.analyzedAt
+                      ? "Refresh brand"
+                      : "Analyze brand"}
                   </Button>
                 </div>
               </div>
-              <div className="rounded-lg border border-border p-4">
-                <h3 className="text-sm font-semibold">Agent usage</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Other agents can call Assets over A2A with this library ID.
-                </p>
-                <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
-                  {library.id}
-                </code>
+              <div className="space-y-4">
+                <GenerationPresetsPanel
+                  libraryId={libraryId}
+                  presets={generationPresets}
+                />
+                <div className="rounded-lg border border-border p-4">
+                  <h3 className="text-sm font-semibold">Agent usage</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Other agents can call Assets over A2A with this library ID.
+                  </p>
+                  <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
+                    {library.id}
+                  </code>
+                </div>
               </div>
             </div>
           </TabsContent>
@@ -776,6 +997,7 @@ export default function LibraryPage() {
 
 type GenerateOptions = {
   mediaType: "image" | "video";
+  presetId?: string;
   count: number;
   aspectRatio: string;
   imageSize: string;
@@ -796,13 +1018,144 @@ type PendingUpload = {
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
 
+function BrandSummaryCard({
+  library,
+  assets,
+  referencesCount,
+  onGenerate,
+}: {
+  library: any;
+  assets: any[];
+  referencesCount: number;
+  onGenerate: () => void;
+}) {
+  const style = library.styleBrief ?? {};
+  const settings = library.settings ?? {};
+  const analysis = settings.brandAnalysis ?? {};
+  const canonicalIds = Array.isArray(settings.canonicalStyleAssetIds)
+    ? settings.canonicalStyleAssetIds.filter(
+        (id: unknown): id is string => typeof id === "string",
+      )
+    : [];
+  const anchors = assets
+    .filter(
+      (asset) =>
+        asset.metadata?.isStyleAnchor === true ||
+        canonicalIds.includes(asset.id),
+    )
+    .slice(0, 4);
+  const palette = Array.isArray(style.palette) ? style.palette.slice(0, 6) : [];
+  const constraints = Array.isArray(style.doNot) ? style.doNot.slice(0, 2) : [];
+  const traits = [style.medium, style.mood, style.texture]
+    .filter((item): item is string => typeof item === "string" && !!item.trim())
+    .slice(0, 3);
+  const analyzedCount =
+    typeof analysis.analyzedImageCount === "number"
+      ? analysis.analyzedImageCount
+      : typeof analysis.referenceCount === "number"
+        ? analysis.referenceCount
+        : referencesCount;
+
+  return (
+    <section className="mb-5 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">Brand summary</h3>
+            <Badge variant={analysis.analyzedAt ? "secondary" : "outline"}>
+              {analysis.analyzedAt ? "Learned" : "Needs analysis"}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {analyzedCount} reference{analyzedCount === 1 ? "" : "s"}
+              {analysis.analyzedAt
+                ? ` · Last analyzed ${formatBrandAnalysisTime(
+                    analysis.analyzedAt,
+                  )}`
+                : ""}
+            </span>
+          </div>
+          <p className="line-clamp-2 max-w-4xl text-sm leading-relaxed text-foreground">
+            {style.description ||
+              "Upload example assets, analyze the brand in Settings, then generate from a prompt with the library look applied."}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {palette.length ? (
+              <div className="flex items-center gap-1.5">
+                {palette.map((color: string) => (
+                  <span
+                    key={color}
+                    className="h-5 w-5 rounded border border-border"
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {traits.map((trait) => (
+              <Badge
+                key={trait}
+                variant="outline"
+                className="max-w-52 truncate"
+              >
+                {trait}
+              </Badge>
+            ))}
+            {constraints.map((constraint: string) => (
+              <Badge
+                key={constraint}
+                variant="outline"
+                className="max-w-64 truncate text-muted-foreground"
+              >
+                Avoid {constraint}
+              </Badge>
+            ))}
+          </div>
+          {anchors.length ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Anchors
+              </span>
+              <div className="flex -space-x-2">
+                {anchors.map((asset) => (
+                  <img
+                    key={asset.id}
+                    src={assetMediaUrl(asset.thumbnailUrl || asset.previewUrl)}
+                    alt=""
+                    className="h-8 w-8 rounded-md border border-background object-cover"
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <Button className="shrink-0 gap-2" onClick={onGenerate}>
+          <IconMessageCircle className="h-4 w-4" />
+          Generate
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function formatBrandAnalysisTime(value: unknown): string {
+  if (typeof value !== "string" || !value) return "unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function RunCard({
   run,
   onRerun,
+  onCreateHandoff,
   rerunning,
 }: {
   run: any;
   onRerun: () => void;
+  onCreateHandoff: () => void;
   rerunning?: boolean;
 }) {
   const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
@@ -861,18 +1214,31 @@ function RunCard({
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0 gap-2"
-          disabled={rerunning}
-          onClick={onRerun}
-        >
-          <IconRefresh className="h-4 w-4" />
-          {mediaType === "video" && run.status !== "completed"
-            ? "Refresh"
-            : "Rerun latest"}
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {outputIds.length ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={onCreateHandoff}
+            >
+              <IconMessageCircle className="h-4 w-4" />
+              Handoff
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={rerunning}
+            onClick={onRerun}
+          >
+            <IconRefresh className="h-4 w-4" />
+            {mediaType === "video" && run.status !== "completed"
+              ? "Refresh"
+              : "Rerun latest"}
+          </Button>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -975,27 +1341,90 @@ function shortId(id: string) {
   return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-4)}` : id;
 }
 
+function outputAssetIds(run: any): string[] {
+  if (Array.isArray(run.output?.assetIds)) {
+    return run.output.assetIds.filter(
+      (id: unknown): id is string => typeof id === "string",
+    );
+  }
+  return run.output?.assetId ? [run.output.assetId] : [];
+}
+
+function SessionCard({
+  session,
+  presets,
+  continuing,
+  onContinue,
+}: {
+  session: any;
+  presets: any[];
+  continuing?: boolean;
+  onContinue: () => void;
+}) {
+  const preset = presets.find((item) => item.id === session.presetId);
+  return (
+    <article className="rounded-lg border border-border bg-background p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="truncate text-sm font-semibold">{session.title}</h4>
+            <Badge variant="outline">{session.status}</Badge>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+            {session.feedbackSummary || session.brief || "No feedback yet."}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          className="shrink-0 gap-2"
+          disabled={continuing}
+          onClick={onContinue}
+        >
+          {continuing ? (
+            <Spinner className="h-4 w-4" />
+          ) : (
+            <IconMessageCircle className="h-4 w-4" />
+          )}
+          Continue
+        </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+        {preset ? <Badge variant="secondary">{preset.title}</Badge> : null}
+        {session.activeAssetId ? (
+          <Badge variant="outline">
+            active {shortId(session.activeAssetId)}
+          </Badge>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 function GeneratePopover({
   open,
   onOpenChange,
   onSubmit,
   hasLogo,
+  presets,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (prompt: string, options: GenerateOptions) => void;
   hasLogo: boolean;
+  presets: any[];
 }) {
   const [prompt, setPrompt] = useState("");
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
+  const [presetId, setPresetId] = useState("none");
   const [count, setCount] = useState(3);
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [imageSize, setImageSize] = useState("2K");
   const [durationSeconds, setDurationSeconds] = useState(8);
   const [resolution, setResolution] = useState("720p");
-  const [model, setModel] = useState("gemini-3.1-flash-image-preview");
+  const [model, setModel] = useState("gemini-3.1-flash-image");
   const [category, setCategory] = useState("hero");
   const [includeLogo, setIncludeLogo] = useState(false);
+  const selectedPreset = presets.find((preset) => preset.id === presetId);
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -1013,6 +1442,38 @@ function GeneratePopover({
           <div>
             <div className="text-sm font-semibold">Generate with chat</div>
           </div>
+          {presets.length ? (
+            <Select
+              value={presetId}
+              onValueChange={(value) => {
+                setPresetId(value);
+                const preset = presets.find((item) => item.id === value);
+                if (!preset) return;
+                setMediaType(preset.mediaType === "video" ? "video" : "image");
+                setAspectRatio(preset.aspectRatio || "16:9");
+                setImageSize(preset.imageSize || "2K");
+                setModel(preset.model || "gemini-3.1-flash-image");
+                setCategory(preset.category || "hero");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Preset" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No preset</SelectItem>
+                {presets.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    {preset.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {selectedPreset?.textPolicy ? (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              {selectedPreset.textPolicy}
+            </p>
+          ) : null}
           <Select
             value={mediaType}
             onValueChange={(value) => {
@@ -1021,7 +1482,7 @@ function GeneratePopover({
               setModel(
                 next === "video"
                   ? "veo-3.1-generate-preview"
-                  : "gemini-3.1-flash-image-preview",
+                  : "gemini-3.1-flash-image",
               );
               setCategory(next === "video" ? "video" : "hero");
               setAspectRatio(next === "video" ? "16:9" : aspectRatio);
@@ -1164,6 +1625,7 @@ function GeneratePopover({
             onClick={() =>
               onSubmit(prompt, {
                 mediaType,
+                presetId: presetId === "none" ? undefined : presetId,
                 count,
                 aspectRatio,
                 imageSize,
@@ -1180,6 +1642,235 @@ function GeneratePopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function GenerationPresetsPanel({
+  libraryId,
+  presets,
+}: {
+  libraryId: string;
+  presets: any[];
+}) {
+  const createPreset = useActionMutation("create-generation-preset");
+  const deletePreset = useActionMutation("delete-generation-preset");
+  const [open, setOpen] = useState(false);
+  const [confirmPresetId, setConfirmPresetId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("social");
+  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [promptTemplate, setPromptTemplate] = useState("");
+  const [textPolicy, setTextPolicy] = useState(
+    "Prefer no embedded text. Keep any requested text short and readable.",
+  );
+
+  function reset() {
+    setTitle("");
+    setCategory("social");
+    setAspectRatio("1:1");
+    setPromptTemplate("");
+    setTextPolicy(
+      "Prefer no embedded text. Keep any requested text short and readable.",
+    );
+  }
+
+  function submit() {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    createPreset.mutate(
+      {
+        libraryId,
+        title: trimmed,
+        category,
+        aspectRatio,
+        imageSize: "2K",
+        promptTemplate: promptTemplate.trim() || undefined,
+        textPolicy,
+        referencePolicy: "auto",
+      },
+      {
+        onSuccess: () => {
+          toast.success("Generation preset created.");
+          reset();
+          setOpen(false);
+        },
+        onError: (error: Error) => {
+          toast.error(error.message || "Could not create preset.");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Generation presets</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Reusable deliverable rules for social images, heroes, and diagrams.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          New
+        </Button>
+      </div>
+      <div className="mt-3 space-y-2">
+        {presets.slice(0, 5).map((preset) => (
+          <div
+            key={preset.id}
+            className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-3"
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate text-sm font-medium">
+                  {preset.title}
+                </span>
+                <Badge variant="outline">{preset.aspectRatio}</Badge>
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                {preset.textPolicy || preset.description || preset.category}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+              aria-label={`Delete ${preset.title}`}
+              onClick={() => setConfirmPresetId(preset.id)}
+            >
+              <IconTrash className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+        {!presets.length ? (
+          <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+            No presets yet.
+          </p>
+        ) : null}
+      </div>
+
+      <AlertDialog
+        open={confirmPresetId !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setConfirmPresetId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete generation preset?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Existing runs keep their captured prompt and settings. New
+              generations will no longer offer this preset.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!confirmPresetId || deletePreset.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!confirmPresetId) return;
+                deletePreset.mutate(
+                  { id: confirmPresetId },
+                  {
+                    onSuccess: () => {
+                      setConfirmPresetId(null);
+                      toast.success("Generation preset deleted.");
+                    },
+                    onError: (error: Error) => {
+                      toast.error(error.message || "Could not delete preset.");
+                    },
+                  },
+                );
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New generation preset</DialogTitle>
+            <DialogDescription>
+              Save the output format, aspect ratio, and text rules for repeated
+              image work.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="preset-title">Name</Label>
+              <Input
+                id="preset-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="LinkedIn announcement"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Category</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IMAGE_CATEGORIES.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {item}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Aspect ratio</Label>
+                <Select value={aspectRatio} onValueChange={setAspectRatio}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASPECT_RATIOS.map((ratio) => (
+                      <SelectItem key={ratio} value={ratio}>
+                        {ratio}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="preset-template">Prompt template</Label>
+              <Textarea
+                id="preset-template"
+                value={promptTemplate}
+                onChange={(event) => setPromptTemplate(event.target.value)}
+                placeholder="Create a social post visual about {{prompt}}..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="preset-text-policy">Text policy</Label>
+              <Textarea
+                id="preset-text-policy"
+                value={textPolicy}
+                onChange={(event) => setTextPolicy(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={!title.trim()} onClick={submit}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

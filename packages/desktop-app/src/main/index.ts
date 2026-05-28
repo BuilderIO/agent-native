@@ -1128,12 +1128,14 @@ function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
       : BrowserWindow.getAllWindows()[0];
-  const isTargetAlreadyFrontmost =
-    Boolean(win && !win.isDestroyed() && win.isVisible() && win.isFocused()) &&
-    activeAppId === binding.app;
+  const isWindowFrontmost = Boolean(
+    win && !win.isDestroyed() && win.isVisible() && win.isFocused(),
+  );
+  const isTargetActive = activeAppId === binding.app;
 
-  if (binding.behavior === "toggle" && isTargetAlreadyFrontmost) {
-    hideMainWindowForShortcut();
+  if (binding.behavior === "toggle" && isTargetActive) {
+    if (isWindowFrontmost) hideMainWindowForShortcut();
+    else focusMainWindow();
     return;
   }
 

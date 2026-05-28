@@ -10,9 +10,11 @@ import { parseJson } from "./json.js";
 import { getObject } from "./storage.js";
 import type {
   AspectRatio,
+  GenerationIntent,
   ImageCategory,
   ImageModel,
   ImageSize,
+  StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
 
@@ -22,11 +24,15 @@ export interface ReferenceForGeneration {
   category?: string;
   mimeType: string;
   data: string;
+  selectionReason?: "subject" | "source" | "anchor" | "scored" | "explicit";
 }
 
 // Keep automatic reference context compact for Gemini. Explicit
 // referenceAssetIds bypass this cap because the caller made a deliberate set.
 export const DEFAULT_GENERATION_REFERENCE_LIMIT = 6;
+const STYLE_ANALYSIS_REFERENCE_LIMIT = 8;
+const STYLE_ANALYSIS_MODEL =
+  process.env.ASSETS_STYLE_ANALYSIS_MODEL || "gemini-2.5-flash";
 
 export interface GenerateProviderInput {
   prompt: string;
@@ -36,6 +42,8 @@ export interface GenerateProviderInput {
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
   groundingMode: "auto" | "off" | "google-search";
+  intent?: GenerationIntent;
+  styleStrength?: StyleStrength;
   runId?: string;
   libraryId?: string;
   collectionId?: string | null;
@@ -208,6 +216,7 @@ export async function generateWithBuilderImageApi(
         callerAppId: input.callerAppId,
         source: input.source,
         groundingMode: input.groundingMode,
+        intent: input.intent,
       },
     }),
     signal: AbortSignal.timeout(90_000),
@@ -392,6 +401,7 @@ export async function generateWithGemini(
 ): Promise<GenerateProviderOutput> {
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey: await getGeminiApiKey() });
+  const model = normalizeGeminiImageModel(input.model);
   const contents: Array<Record<string, unknown>> = [
     { text: input.compiledPrompt },
     ...input.references.map((ref) => ({
@@ -416,7 +426,7 @@ export async function generateWithGemini(
         await new Promise((resolve) => setTimeout(resolve, attempt * 2500));
       }
       const response = await client.models.generateContent({
-        model: input.model,
+        model,
         contents,
         config,
       });
@@ -426,7 +436,7 @@ export async function generateWithGemini(
           return {
             image: Buffer.from(part.inlineData.data, "base64"),
             mimeType: part.inlineData.mimeType || "image/png",
-            model: input.model,
+            model,
             provider: "gemini",
           };
         }
@@ -442,11 +452,119 @@ export async function generateWithGemini(
     : new Error("Gemini image generation failed.");
 }
 
+function normalizeGeminiImageModel(model: ImageModel): ImageModel {
+  if (model === "gemini-3.1-flash-image-preview") {
+    return "gemini-3.1-flash-image";
+  }
+  if (model === "gemini-3-pro-image-preview") {
+    return "gemini-3-pro-image";
+  }
+  return model;
+}
+
+export interface StyleAnalysisOutput {
+  styleBrief: StyleBrief;
+  model: string;
+}
+
+export async function analyzeStyleWithGemini(input: {
+  references: ReferenceForGeneration[];
+  previous?: StyleBrief;
+}): Promise<StyleAnalysisOutput> {
+  const refs = input.references.slice(0, STYLE_ANALYSIS_REFERENCE_LIMIT);
+  if (!refs.length) {
+    return { styleBrief: input.previous ?? {}, model: STYLE_ANALYSIS_MODEL };
+  }
+
+  const { GoogleGenAI } = await import("@google/genai");
+  const client = new GoogleGenAI({ apiKey: await getGeminiApiKey() });
+  const response = await client.models.generateContent({
+    model: STYLE_ANALYSIS_MODEL,
+    contents: [
+      {
+        text: [
+          "Analyze these brand/style reference images for a reusable image generation style brief.",
+          "Return only compact JSON with keys: description, medium, mood, subjectMatter, texture, composition, lighting, typographyPolicy, doNot.",
+          "Use specific trait-locking phrases that can be reused across future image prompts.",
+          "Do not name brands, artists, studios, franchises, or copyrighted works unless they appear as user-provided brand identity.",
+          "Keep doNot as an array of short constraints. Omit uncertain fields instead of guessing.",
+          input.previous?.description
+            ? `Existing style description to preserve unless contradicted: ${input.previous.description}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      },
+      ...refs.map((ref) => ({
+        inlineData: { mimeType: ref.mimeType, data: ref.data },
+      })),
+    ],
+    config: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  const text =
+    response.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part.text)
+      .filter(Boolean)
+      .join("\n") ?? "";
+  const parsed = parseJson<Record<string, unknown>>(
+    extractJsonObject(text),
+    {},
+  );
+  return {
+    styleBrief: sanitizeStyleBrief(parsed),
+    model: STYLE_ANALYSIS_MODEL,
+  };
+}
+
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
+  return "{}";
+}
+
+function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
+  const stringField = (key: string) => {
+    const raw = value[key];
+    return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+  };
+  const doNot = Array.isArray(value.doNot)
+    ? value.doNot.filter(
+        (item): item is string => typeof item === "string" && !!item.trim(),
+      )
+    : undefined;
+  return {
+    description: stringField("description"),
+    medium: stringField("medium"),
+    mood: stringField("mood"),
+    subjectMatter: stringField("subjectMatter"),
+    texture: stringField("texture"),
+    composition: stringField("composition"),
+    lighting: stringField("lighting"),
+    typographyPolicy: stringField("typographyPolicy"),
+    doNot: doNot?.length ? doNot.map((item) => item.trim()) : undefined,
+  };
+}
+
 async function generateWithManualImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
+  }
+  if (input.intent === "restyle" || input.intent === "edit") {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "Restyle and edit runs need Builder-managed image generation or a Gemini API key because the OpenAI fallback cannot attach source images in this pipeline yet.",
+    });
   }
   return generateWithOpenAI(input);
 }
@@ -576,6 +694,9 @@ function toBuilderReferenceRole(role: string) {
       return "product";
     case "diagram_reference":
       return "composition";
+    case "subject_reference":
+    case "edit_target":
+      return "source";
     case "generated":
       return "source";
     default:
@@ -591,8 +712,11 @@ export function compilePrompt(input: {
   referenceCount: number;
   includeLogo: boolean;
   category?: ImageCategory;
+  intent?: GenerationIntent;
+  styleStrength?: StyleStrength;
 }): string {
   const style = input.styleBrief;
+  const intent = input.intent ?? "generate";
   const palette = style.palette?.length
     ? `\nPalette to preserve: ${style.palette.join(", ")}.`
     : "";
@@ -610,9 +734,24 @@ export function compilePrompt(input: {
     ? `\nLibrary custom instructions:\n${input.customInstructions.trim()}\n`
     : "";
   const referenceInstruction =
-    input.referenceCount > 0
-      ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
-      : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+    intent === "edit"
+      ? "Use the attached image as the edit target. Preserve all unchanged areas, geometry, camera, dimensions, and identity as closely as the model allows."
+      : intent === "restyle"
+        ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
+        : input.referenceCount > 0
+          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
+          : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+
+  if (intent === "edit") {
+    return `Edit the attached image for the "${input.libraryTitle}" asset library.
+
+${referenceInstruction}
+
+Make only this change:
+${input.prompt}
+
+Do not reimagine the image, change its aspect ratio, add new text, or alter unrelated subjects. Return the full image.`;
+  }
 
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
 
@@ -620,6 +759,10 @@ ${referenceInstruction}
 
 Style brief:
 ${style.description || "Infer the style from the references."}${palette}
+${style.medium ? `\nMedium: ${style.medium}.` : ""}
+${style.mood ? `\nMood: ${style.mood}.` : ""}
+${style.subjectMatter ? `\nSubject matter: ${style.subjectMatter}.` : ""}
+${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
 ${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}
@@ -637,14 +780,22 @@ export async function selectReferences(input: {
   categories?: ImageCategory[];
   referenceAssetIds?: string[];
   sourceAssetId?: string;
+  subjectAssetId?: string;
+  intent?: GenerationIntent;
   limit?: number;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
-  const explicitIds = [...new Set(input.referenceAssetIds ?? [])];
+  let explicitIds = [...new Set(input.referenceAssetIds ?? [])];
   if (explicitIds.length) {
-    if (input.sourceAssetId && !explicitIds.includes(input.sourceAssetId)) {
-      explicitIds.unshift(input.sourceAssetId);
-    }
+    explicitIds = [
+      input.subjectAssetId,
+      input.sourceAssetId === input.subjectAssetId
+        ? undefined
+        : input.sourceAssetId,
+      ...explicitIds,
+    ].filter(
+      (id, index, all): id is string => !!id && all.indexOf(id) === index,
+    );
     const rows = await db
       .select()
       .from(schema.assets)
@@ -665,17 +816,35 @@ export async function selectReferences(input: {
             asset.status !== "archived" &&
             asset.status !== "failed",
         ),
+      (asset) =>
+        asset.id === input.subjectAssetId
+          ? input.intent === "edit"
+            ? "edit_target"
+            : "subject_reference"
+          : undefined,
+      () => "explicit",
     );
   }
-  const filters = [eq(schema.assets.libraryId, input.libraryId)];
+  const [library] = await db
+    .select({ settings: schema.assetLibraries.settings })
+    .from(schema.assetLibraries)
+    .where(eq(schema.assetLibraries.id, input.libraryId))
+    .limit(1);
   const rows = await db
     .select()
     .from(schema.assets)
-    .where(filters.length === 1 ? filters[0] : and(...filters));
+    .where(eq(schema.assets.libraryId, input.libraryId));
 
   const categories = new Set(input.categories ?? []);
+  const intent = input.intent ?? "generate";
   const limit = input.limit ?? DEFAULT_GENERATION_REFERENCE_LIMIT;
-  const scored = rows
+  const settings = parseJson<{
+    canonicalStyleAssetIds?: string[];
+  }>(library?.settings, {});
+  const canonicalStyleAssetIds = Array.isArray(settings.canonicalStyleAssetIds)
+    ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
+    : [];
+  const candidates = rows
     .filter(
       (asset) =>
         asset.mimeType.startsWith("image/") &&
@@ -683,9 +852,20 @@ export async function selectReferences(input: {
         asset.status !== "failed",
     )
     .map((asset) => {
-      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
+      const metadata = parseJson<{
+        category?: string;
+        isStyleAnchor?: boolean;
+        intent?: string;
+      }>(asset.metadata, {});
       let score = 0;
-      if (asset.id === input.sourceAssetId) score += 100;
+      const isSubject = asset.id === input.subjectAssetId;
+      const isSource = asset.id === input.sourceAssetId;
+      const isAnchor =
+        metadata.isStyleAnchor === true ||
+        canonicalStyleAssetIds.includes(asset.id);
+      if (isSubject) score += 120;
+      if (isSource) score += 100;
+      if (isAnchor) score += 30;
       if (asset.collectionId && asset.collectionId === input.collectionId)
         score += 20;
       if (
@@ -695,38 +875,91 @@ export async function selectReferences(input: {
         score += 10;
       if (asset.role !== "generated") score += 4;
       if (asset.role === "logo_reference") score += 3;
-      return { asset, metadata, score };
+      if (asset.role === "product_reference") score += 3;
+      if (intent === "restyle" && asset.role === "style_reference") score += 5;
+      if (intent === "restyle" && asset.role === "generated") score -= 4;
+      return { asset, metadata, score, isAnchor, isSubject, isSource };
     })
-    .sort(
-      (a, b) =>
-        b.score - a.score || b.asset.createdAt.localeCompare(a.asset.createdAt),
+    .filter(
+      (item) =>
+        item.isSubject ||
+        item.isSource ||
+        item.isAnchor ||
+        item.metadata.intent !== "subject",
     );
-  const source = input.sourceAssetId
-    ? scored.find((item) => item.asset.id === input.sourceAssetId)
-    : undefined;
-  const remainingLimit = Math.max(0, limit - (source ? 1 : 0));
-  const pool = scored
-    .filter((item) => item.asset.id !== source?.asset.id)
-    .slice(0, Math.max(remainingLimit * 4, remainingLimit));
-  const sampled = sampleWeighted(pool, remainingLimit);
-  const selected = source ? [source, ...sampled] : sampled;
 
-  return loadReferenceData(selected.map((item) => item.asset));
+  const byId = new Map(candidates.map((item) => [item.asset.id, item]));
+  const selected: typeof candidates = [];
+  const selectedIds = new Set<string>();
+  const push = (item: (typeof candidates)[number] | undefined) => {
+    if (!item || selectedIds.has(item.asset.id)) return;
+    selected.push(item);
+    selectedIds.add(item.asset.id);
+  };
+
+  push(input.subjectAssetId ? byId.get(input.subjectAssetId) : undefined);
+  if (intent === "edit") {
+    return loadReferenceData(
+      selected.map((item) => item.asset),
+      () => "edit_target",
+      () => "subject",
+    );
+  }
+  push(input.sourceAssetId ? byId.get(input.sourceAssetId) : undefined);
+
+  const anchorLimit =
+    intent === "restyle"
+      ? Math.min(4, Math.max(1, Math.ceil(limit * 0.6)))
+      : Math.max(1, Math.ceil(limit * 0.6));
+  const anchorIds = [
+    ...canonicalStyleAssetIds,
+    ...candidates
+      .filter((item) => item.metadata.isStyleAnchor === true)
+      .sort(compareReferenceCandidates)
+      .map((item) => item.asset.id),
+  ];
+  for (const id of [...new Set(anchorIds)].slice(0, anchorLimit)) {
+    push(byId.get(id));
+  }
+
+  const remainingLimit = Math.max(0, limit - selected.length);
+  const fill = candidates
+    .filter((item) => !selectedIds.has(item.asset.id))
+    .sort(compareReferenceCandidates)
+    .slice(0, remainingLimit);
+  for (const item of fill) push(item);
+
+  return loadReferenceData(
+    selected.map((item) => item.asset),
+    (asset) =>
+      asset.id === input.subjectAssetId
+        ? "subject_reference"
+        : asset.id === input.sourceAssetId
+          ? undefined
+          : undefined,
+    (asset) => {
+      if (asset.id === input.subjectAssetId) return "subject";
+      if (asset.id === input.sourceAssetId) return "source";
+      const item = byId.get(asset.id);
+      return item?.isAnchor ? "anchor" : "scored";
+    },
+  );
 }
 
-function sampleWeighted<T extends { score: number }>(
-  items: T[],
-  limit: number,
-): T[] {
-  if (limit <= 0) return [];
-  return items
-    .map((item) => ({
-      item,
-      key: Math.random() ** (1 / Math.max(1, item.score + 1)),
-    }))
-    .sort((a, b) => b.key - a.key)
-    .slice(0, limit)
-    .map(({ item }) => item);
+type ReferenceCandidate = {
+  asset: { id: string; createdAt: string };
+  score: number;
+};
+
+export function compareReferenceCandidates(
+  a: ReferenceCandidate,
+  b: ReferenceCandidate,
+): number {
+  return (
+    b.score - a.score ||
+    b.asset.createdAt.localeCompare(a.asset.createdAt) ||
+    a.asset.id.localeCompare(b.asset.id)
+  );
 }
 
 async function loadReferenceData(
@@ -737,6 +970,11 @@ async function loadReferenceData(
     objectKey: string;
     metadata: string;
   }>,
+  roleForAsset?: (asset: { id: string; role: string }) => string | undefined,
+  reasonForAsset?: (asset: {
+    id: string;
+    role: string;
+  }) => ReferenceForGeneration["selectionReason"] | undefined,
 ) {
   const refs: ReferenceForGeneration[] = [];
   for (const asset of selected) {
@@ -745,10 +983,11 @@ async function loadReferenceData(
     const metadata = parseJson<{ category?: string }>(asset.metadata, {});
     refs.push({
       id: asset.id,
-      role: asset.role,
+      role: roleForAsset?.(asset) ?? asset.role,
       category: metadata.category,
       mimeType: asset.mimeType,
       data: bytes.toString("base64"),
+      selectionReason: reasonForAsset?.(asset),
     });
   }
   return refs;

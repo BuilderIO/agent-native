@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  compareReferenceCandidates,
   compilePrompt,
   generateWithManagedImageProvider,
 } from "./generation.js";
@@ -44,7 +45,7 @@ const baseInput: GenerateProviderInput = {
   prompt: "A clean product hero image",
   compiledPrompt: "A clean product hero image",
   references: [],
-  model: "gemini-3.1-flash-image-preview",
+  model: "gemini-3.1-flash-image",
   aspectRatio: "16:9",
   imageSize: "2K",
   groundingMode: "auto",
@@ -143,6 +144,34 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
+    resolveBuilderAuthHeaderMock.mockResolvedValue(null);
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        intent: "restyle",
+        references: [
+          {
+            id: "subject-1",
+            role: "subject_reference",
+            mimeType: "image/png",
+            data: Buffer.from([1]).toString("base64"),
+          },
+        ],
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        requiredCredential: "GEMINI_API_KEY",
+        message: expect.stringContaining("Restyle and edit runs need"),
+      }),
+    );
+  });
+
   it("reports transient Builder outages as retryable provider failures", async () => {
     const fetchMock = mockBuilderFailure(503, {
       error: { message: "Provider warming up" },
@@ -228,5 +257,101 @@ describe("compilePrompt", () => {
     expect(prompt).not.toContain("Use the 0 attached reference images");
     expect(prompt).toContain("Rounded tactile 3D miniatures.");
     expect(prompt).toContain("Keep the result brand-safe.");
+  });
+
+  it("includes generation preset instructions in the compiled prompt", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Product Launch",
+      styleBrief: {
+        description: "Editorial product imagery.",
+      },
+      customInstructions:
+        "Generation preset: Social image.\nText policy: Keep visible text to 5 words or fewer.",
+      prompt: "Create a square social post visual about a launch.",
+      referenceCount: 2,
+      includeLogo: false,
+      category: "social",
+    });
+
+    expect(prompt).toContain("Generation preset: Social image.");
+    expect(prompt).toContain("Keep visible text to 5 words or fewer.");
+    expect(prompt).toContain("social post visual");
+  });
+
+  it("renders distilled style fields in generation prompts", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "Clean editorial product photography.",
+        medium: "macro photo-real product render",
+        mood: "calm and assured",
+        subjectMatter: "developer tools in realistic workspaces",
+        texture: "soft matte surfaces",
+      },
+      prompt: "A hero image",
+      referenceCount: 3,
+      includeLogo: false,
+      category: "hero",
+    });
+
+    expect(prompt).toContain("Medium: macro photo-real product render.");
+    expect(prompt).toContain("Mood: calm and assured.");
+    expect(prompt).toContain(
+      "Subject matter: developer tools in realistic workspaces.",
+    );
+    expect(prompt).toContain(
+      "Texture/material treatment: soft matte surfaces.",
+    );
+  });
+
+  it("puts subject preservation first for restyle prompts", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "High contrast editorial images.",
+      },
+      prompt: "Apply the campaign look",
+      referenceCount: 4,
+      includeLogo: false,
+      category: "hero",
+      intent: "restyle",
+      styleStrength: "strong",
+    });
+
+    expect(prompt).toContain("The first attached image is the subject");
+    expect(prompt).toContain("Apply the library look with strong strength");
+    expect(prompt).toContain("Apply the campaign look");
+  });
+
+  it("uses a constrained full-image revision prompt for edits", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Northstar",
+      styleBrief: {
+        description: "High contrast editorial images.",
+      },
+      prompt: "Make the background navy",
+      referenceCount: 1,
+      includeLogo: false,
+      intent: "edit",
+    });
+
+    expect(prompt).toContain("Use the attached image as the edit target");
+    expect(prompt).toContain("Make only this change:");
+    expect(prompt).toContain("Make the background navy");
+    expect(prompt).toContain("Preserve all unchanged areas");
+    expect(prompt).not.toContain("Style brief:");
+  });
+});
+
+describe("compareReferenceCandidates", () => {
+  it("orders references deterministically by score, created date, and id", () => {
+    const sorted = [
+      { asset: { id: "b", createdAt: "2026-05-20T00:00:00.000Z" }, score: 5 },
+      { asset: { id: "c", createdAt: "2026-05-21T00:00:00.000Z" }, score: 5 },
+      { asset: { id: "a", createdAt: "2026-05-21T00:00:00.000Z" }, score: 5 },
+      { asset: { id: "z", createdAt: "2026-05-22T00:00:00.000Z" }, score: 4 },
+    ].sort(compareReferenceCandidates);
+
+    expect(sorted.map((item) => item.asset.id)).toEqual(["a", "c", "b", "z"]);
   });
 });

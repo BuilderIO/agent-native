@@ -16,6 +16,7 @@ import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarFreeBusy,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
@@ -656,6 +657,105 @@ export async function listEvents(
   );
 
   return { events: allResults.flat(), errors };
+}
+
+export async function getFreeBusy(
+  timeMin: string,
+  timeMax: string,
+  calendarIds: string[],
+  forEmail?: string,
+  timeZone?: string,
+  accountEmail?: string,
+): Promise<{
+  calendars: Record<
+    string,
+    {
+      busy: Array<{ start: string; end: string }>;
+      errors?: Array<{ domain?: string; reason?: string }>;
+    }
+  >;
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const ids = Array.from(
+    new Set(
+      calendarIds
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0)
+        .map((id) => id.toLowerCase()),
+    ),
+  );
+  if (ids.length === 0) return { calendars: {}, errors: [] };
+
+  const { clients, errors } = await getClientsWithErrors(forEmail);
+  if (clients.length === 0) return { calendars: {}, errors };
+  const selectedAccount = accountEmail?.trim().toLowerCase();
+  const client = selectedAccount
+    ? clients.find((entry) => entry.email.toLowerCase() === selectedAccount)
+    : clients[0];
+  if (!client) {
+    return {
+      calendars: {},
+      errors: [
+        ...errors,
+        {
+          email: accountEmail ?? "google",
+          error: "Selected Google account is not connected.",
+        },
+      ],
+    };
+  }
+
+  try {
+    const response = await calendarFreeBusy(client.accessToken, {
+      timeMin,
+      timeMax,
+      timeZone,
+      items: ids.map((id) => ({ id })),
+    });
+    const calendars = (response.calendars ?? {}) as Record<
+      string,
+      {
+        busy?: Array<{ start: string; end: string }>;
+        errors?: Array<{ domain?: string; reason?: string }>;
+      }
+    >;
+    const normalized: Record<
+      string,
+      {
+        busy: Array<{ start: string; end: string }>;
+        errors?: Array<{ domain?: string; reason?: string }>;
+      }
+    > = {};
+    const calendarErrors: Array<{ email: string; error: string }> = [];
+
+    for (const id of ids) {
+      const calendar = calendars[id] ?? calendars[id.toLowerCase()];
+      const calendarError = calendar?.errors
+        ?.map((error) => error.reason || error.domain)
+        .filter(Boolean)
+        .join(", ");
+      normalized[id] = {
+        busy: calendar?.busy ?? [],
+        errors: calendar?.errors,
+      };
+      if (calendarError) {
+        calendarErrors.push({ email: id, error: calendarError });
+      }
+    }
+
+    return { calendars: normalized, errors: [...errors, ...calendarErrors] };
+  } catch (error: any) {
+    return {
+      calendars: {},
+      errors: [
+        ...errors,
+        {
+          email: accountEmail ?? forEmail ?? "google",
+          error: error?.message || "Unable to load Google free/busy data",
+        },
+      ],
+    };
+  }
 }
 
 export async function listOverlayEvents(

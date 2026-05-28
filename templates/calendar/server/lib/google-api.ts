@@ -358,6 +358,22 @@ export function calendarListEvents(
   );
 }
 
+export function calendarFreeBusy(
+  accessToken: string,
+  body: {
+    timeMin: string;
+    timeMax: string;
+    timeZone?: string;
+    items: Array<{ id: string }>;
+  },
+) {
+  return googleFetch(`${CALENDAR_BASE}/freeBusy`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export function calendarInsertEvent(
   accessToken: string,
   calendarId: string,

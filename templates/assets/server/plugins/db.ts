@@ -204,6 +204,84 @@ export default runMigrations(
       sql: `ALTER TABLE image_libraries
             ADD COLUMN IF NOT EXISTS archived_at TEXT`,
     },
+    {
+      version: 25,
+      sql: `CREATE TABLE IF NOT EXISTS image_generation_presets (
+    id TEXT PRIMARY KEY,
+    library_id TEXT NOT NULL,
+    collection_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'style-only',
+    media_type TEXT NOT NULL DEFAULT 'image',
+    prompt_template TEXT,
+    aspect_ratio TEXT NOT NULL DEFAULT '16:9',
+    image_size TEXT NOT NULL DEFAULT '2K',
+    model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image',
+    text_policy TEXT NOT NULL DEFAULT '',
+    reference_policy TEXT NOT NULL DEFAULT 'auto',
+    settings TEXT NOT NULL DEFAULT '{}',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    {
+      version: 26,
+      sql: `CREATE TABLE IF NOT EXISTS image_generation_sessions (
+    id TEXT PRIMARY KEY,
+    library_id TEXT NOT NULL,
+    collection_id TEXT,
+    preset_id TEXT,
+    title TEXT NOT NULL,
+    brief TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    active_asset_id TEXT,
+    feedback_summary TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    {
+      version: 27,
+      sql: `CREATE TABLE IF NOT EXISTS image_generation_session_items (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    asset_id TEXT,
+    generation_run_id TEXT,
+    role TEXT NOT NULL DEFAULT 'candidate',
+    note TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    {
+      version: 28,
+      sql: `CREATE INDEX IF NOT EXISTS image_generation_presets_library_idx
+            ON image_generation_presets (library_id, sort_order, updated_at)`,
+    },
+    {
+      version: 29,
+      sql: `CREATE INDEX IF NOT EXISTS image_generation_sessions_library_idx
+            ON image_generation_sessions (library_id, updated_at)`,
+    },
+    {
+      version: 30,
+      sql: `CREATE INDEX IF NOT EXISTS image_generation_session_items_session_idx
+            ON image_generation_session_items (session_id, sort_order, created_at)`,
+    },
+    {
+      version: 31,
+      sql: `ALTER TABLE image_generation_runs
+            ADD COLUMN IF NOT EXISTS preset_id TEXT`,
+    },
+    {
+      version: 32,
+      sql: `ALTER TABLE image_generation_runs
+            ADD COLUMN IF NOT EXISTS session_id TEXT`,
+    },
   ],
   // Preserve the legacy migration table name so existing Images deployments do
   // not rerun historical additive migrations after the app slug becomes Assets.

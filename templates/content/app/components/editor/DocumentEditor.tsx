@@ -26,10 +26,12 @@ import {
 import { CommentsSidebar } from "./CommentsSidebar";
 import { useComments } from "@/hooks/use-comments";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
+import { IconLock } from "@tabler/icons-react";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
   normalizeTitleText,
@@ -77,6 +79,28 @@ function DocumentEditorSkeleton() {
   );
 }
 
+function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
+      <div className="flex max-w-sm flex-col items-center text-center">
+        <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
+          <IconLock size={22} />
+        </div>
+        <h1 className="text-2xl font-semibold tracking-normal">
+          Document unavailable
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          This page may have been deleted, or it has not been shared with your
+          account.
+        </p>
+        <Button className="mt-6" variant="outline" onClick={onOpenHome}>
+          Go to documents
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Outer wrapper: gates the editor on the document fetch so collab + comments
  * only mount once we know the doc exists. Otherwise an invalid id triggers
@@ -86,12 +110,9 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const { data: document, isError } = useDocument(documentId);
   const navigate = useNavigate();
 
-  // If the page id in the URL points at a deleted/inaccessible document,
-  // bounce back to the landing page instead of rendering a dead-end empty
-  // state that the user has to escape by editing the URL by hand.
-  useEffect(() => {
-    if (isError && !document) navigate("/", { replace: true });
-  }, [isError, document, navigate]);
+  if (isError && !document) {
+    return <DocumentUnavailable onOpenHome={() => navigate("/")} />;
+  }
 
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".

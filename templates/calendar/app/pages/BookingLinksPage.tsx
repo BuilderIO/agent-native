@@ -186,13 +186,14 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     link.durations && link.durations.length > 0
       ? link.durations
       : [link.duration];
+  const primaryDuration = durations[0] ?? link.duration;
 
   return {
     id: link.id,
     title: link.title,
     slug: link.slug,
     description: link.description || "",
-    duration: link.duration,
+    duration: primaryDuration,
     durations,
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
@@ -1421,7 +1422,7 @@ export default function BookingLinksPage({
                                       id: link.id,
                                       title: link.title,
                                       slug: link.slug,
-                                      duration: link.duration,
+                                      duration: durations[0] ?? link.duration,
                                       durations: link.durations,
                                       description: link.description,
                                       customFields: link.customFields,

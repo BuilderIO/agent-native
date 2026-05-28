@@ -2,12 +2,34 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { absoluteUrl, parseJson } from "../server/lib/json.js";
-import type { ImageAssetMetadata, StyleBrief } from "../shared/api.js";
+import type {
+  GenerationPresetSummary,
+  GenerationSessionSummary,
+  ImageAssetMetadata,
+  StyleBrief,
+} from "../shared/api.js";
 
 export async function requireLibrary(id: string) {
   const access = await resolveAccess("asset-library", id);
   if (!access) throw new Error("Asset library not found or not accessible.");
   return access.resource;
+}
+
+export async function requireGenerationSessionInLibrary(
+  sessionId: string,
+  libraryId: string,
+) {
+  const db = getDb();
+  const [session] = await db
+    .select()
+    .from(schema.assetGenerationSessions)
+    .where(eq(schema.assetGenerationSessions.id, sessionId))
+    .limit(1);
+  if (!session) throw new Error("Generation session not found.");
+  if (session.libraryId !== libraryId) {
+    throw new Error("Generation session does not belong to this library.");
+  }
+  return session;
 }
 
 function isDirectMediaKey(key: string | null | undefined): key is string {
@@ -83,6 +105,8 @@ export function serializeGenerationRun(row: any) {
       : [];
   return {
     ...row,
+    presetId: row.presetId ?? metadata.presetId ?? null,
+    sessionId: row.sessionId ?? metadata.sessionId ?? null,
     originalPrompt: row.prompt,
     userPrompt: row.prompt,
     referenceAssetIds,
@@ -111,6 +135,46 @@ export function serializeGenerationRun(row: any) {
           : null,
       creditsCharged: metadata.creditsCharged ?? null,
     },
+  };
+}
+
+export function serializeGenerationPreset(row: any): GenerationPresetSummary {
+  return {
+    id: row.id,
+    libraryId: row.libraryId,
+    collectionId: row.collectionId ?? null,
+    title: row.title,
+    description: row.description ?? null,
+    category: row.category,
+    mediaType: row.mediaType ?? "image",
+    promptTemplate: row.promptTemplate ?? null,
+    aspectRatio: row.aspectRatio,
+    imageSize: row.imageSize,
+    model: row.model,
+    textPolicy: row.textPolicy ?? "",
+    referencePolicy: row.referencePolicy ?? "auto",
+    settings: parseJson<Record<string, unknown>>(row.settings, {}),
+    sortOrder: Number(row.sortOrder ?? 0),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeGenerationSession(row: any): GenerationSessionSummary {
+  return {
+    id: row.id,
+    libraryId: row.libraryId,
+    collectionId: row.collectionId ?? null,
+    presetId: row.presetId ?? null,
+    title: row.title,
+    brief: row.brief ?? null,
+    status: row.status ?? "open",
+    activeAssetId: row.activeAssetId ?? null,
+    feedbackSummary: row.feedbackSummary ?? "",
+    metadata: parseJson<Record<string, unknown>>(row.metadata, {}),
+    createdBy: row.createdBy ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

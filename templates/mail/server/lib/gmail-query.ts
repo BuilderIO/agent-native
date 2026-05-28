@@ -15,6 +15,16 @@ export const VIEW_QUERIES: Record<string, string> = {
   all: "",
 };
 
+const BARE_EMAIL_ADDRESS_RE = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+
+export function gmailSearchClause(q: string | undefined): string {
+  const trimmed = q?.trim();
+  if (!trimmed) return "";
+  if (!BARE_EMAIL_ADDRESS_RE.test(trimmed)) return trimmed;
+
+  return `{from:${trimmed} to:${trimmed} cc:${trimmed} bcc:${trimmed} deliveredto:${trimmed} ${trimmed}}`;
+}
+
 export function gmailLabelSearchClause(label: string): string {
   const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
   if (!value) return "";
@@ -60,16 +70,16 @@ export function buildGmailEmailSearchQuery({
   q?: string;
   label?: string;
 }): string {
-  const trimmedQuery = q?.trim();
+  const searchClause = gmailSearchClause(q);
 
   if (label) {
     const labelClause = gmailAppLabelSearchClause(label);
     const viewClause = viewSearchClauseForLabelTab(view, label);
-    return [viewClause, labelClause, trimmedQuery].filter(Boolean).join(" ");
+    return [viewClause, labelClause, searchClause].filter(Boolean).join(" ");
   }
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
-  return [viewQuery, trimmedQuery].filter(Boolean).join(" ");
+  return [viewQuery, searchClause].filter(Boolean).join(" ");
 }
 
 function threadKey(message: EmailMessage): string {

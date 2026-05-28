@@ -6,11 +6,26 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Delete an asset library and its collections, assets, generation runs, folders, and shares. Requires admin access.",
+    "Delete an asset library and its collections, assets, generation presets, generation sessions, generation runs, folders, and shares. Requires admin access.",
   schema: z.object({ id: z.string() }),
   run: async ({ id }) => {
     await assertAccess("asset-library", id, "admin");
     const db = getDb();
+    const sessions = await db
+      .select({ id: schema.assetGenerationSessions.id })
+      .from(schema.assetGenerationSessions)
+      .where(eq(schema.assetGenerationSessions.libraryId, id));
+    for (const session of sessions) {
+      await db
+        .delete(schema.assetGenerationSessionItems)
+        .where(eq(schema.assetGenerationSessionItems.sessionId, session.id));
+    }
+    await db
+      .delete(schema.assetGenerationSessions)
+      .where(eq(schema.assetGenerationSessions.libraryId, id));
+    await db
+      .delete(schema.assetGenerationPresets)
+      .where(eq(schema.assetGenerationPresets.libraryId, id));
     await db.delete(schema.assets).where(eq(schema.assets.libraryId, id));
     await db
       .delete(schema.assetGenerationRuns)

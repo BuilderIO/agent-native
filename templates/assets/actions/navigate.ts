@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Assets UI. Views: create, libraries, library, asset, extensions, audit, settings. Use libraryId, assetId, or extensionId where appropriate.",
+    "Navigate the Assets UI. Views: create, libraries, library, asset, generation-session, generation-run, extensions, audit, settings. Use libraryId, assetId, sessionId, runId, or extensionId where appropriate.",
   schema: z.object({
     view: z
       .enum([
@@ -13,6 +13,8 @@ export default defineAction({
         "library",
         "asset",
         "image",
+        "generation-session",
+        "generation-run",
         "extensions",
         "audit",
         "settings",
@@ -20,6 +22,12 @@ export default defineAction({
       .optional(),
     libraryId: z.string().optional(),
     assetId: z.string().optional(),
+    sessionId: z.string().optional(),
+    runId: z.string().optional(),
+    presetId: z.string().optional(),
+    activeTab: z
+      .enum(["references", "generated", "runs", "settings"])
+      .optional(),
     extensionId: z.string().optional(),
     path: z.string().optional(),
   }),

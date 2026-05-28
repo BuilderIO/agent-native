@@ -194,7 +194,10 @@ function stripBuilderIds(html: string): string {
 
 interface SlideEditorProps {
   slide: Slide;
-  onUpdateSlide: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -647,6 +650,28 @@ export default function SlideEditor({
   useEffect(() => {
     onUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  const inlineEditDraftRef = useRef<{
+    slideId: string;
+    content: string;
+  } | null>(null);
+  const previousSlideIdRef = useRef(slide.id);
+
+  const readCurrentSlideContentHtml = useCallback(() => {
+    const slideContent = containerRef.current?.querySelector(
+      ".slide-content",
+    ) as HTMLElement | null;
+    return slideContent ? stripBuilderIds(slideContent.innerHTML) : null;
+  }, []);
+
+  const captureInlineEditDraft = useCallback(
+    (slideId = slide.id) => {
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        inlineEditDraftRef.current = { slideId, content: html };
+      }
+    },
+    [readCurrentSlideContentHtml, slide.id],
+  );
 
   /** Exit edit mode, saving changes to slide.content */
   const exitInlineEdit = useCallback(() => {
@@ -655,49 +680,62 @@ export default function SlideEditor({
       el.contentEditable = "false";
       el.removeAttribute("data-editing-block");
 
-      const slideContent = containerRef.current?.querySelector(
-        ".slide-content",
-      ) as HTMLElement | null;
-      if (slideContent) {
-        const html = stripBuilderIds(slideContent.innerHTML);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
         onUpdateSlideRef.current({ content: html });
       }
+      inlineEditDraftRef.current = null;
       return null;
     });
-  }, []);
+  }, [readCurrentSlideContentHtml]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
-  const enterInlineEdit = useCallback((el: HTMLElement) => {
-    el.contentEditable = "true";
-    el.setAttribute("data-editing-block", "true");
-    // Don't override the selection. The browser's native double-click
-    // word-select (or single-click caret) is already on the element from the
-    // user's gesture; re-selecting from JS clobbers it. focus() on an
-    // element that already contains the selection preserves it in modern
-    // browsers, so it's safe to keep for keyboard delivery.
-    el.focus({ preventScroll: true });
-    setEditingEl(el);
-  }, []);
+  const enterInlineEdit = useCallback(
+    (el: HTMLElement) => {
+      el.contentEditable = "true";
+      el.setAttribute("data-editing-block", "true");
+      captureInlineEditDraft(slide.id);
+      // Don't override the selection. The browser's native double-click
+      // word-select (or single-click caret) is already on the element from the
+      // user's gesture; re-selecting from JS clobbers it. focus() on an
+      // element that already contains the selection preserves it in modern
+      // browsers, so it's safe to keep for keyboard delivery.
+      el.focus({ preventScroll: true });
+      setEditingEl(el);
+    },
+    [captureInlineEditDraft, slide.id],
+  );
 
   // Exit edit mode when switching slides — save pending content first so
   // typing isn't lost when the user clicks a different slide in the sidebar.
   useEffect(() => {
+    const previousSlideId = previousSlideIdRef.current;
+    if (previousSlideId === slide.id) return;
+
+    const draft = inlineEditDraftRef.current;
     setEditingEl((el) => {
       if (el) {
         el.contentEditable = "false";
         el.removeAttribute("data-editing-block");
-        // Save whatever was typed before the slide switched.
-        const slideContent = containerRef.current?.querySelector(
-          ".slide-content",
-        ) as HTMLElement | null;
-        if (slideContent) {
-          const html = stripBuilderIds(slideContent.innerHTML);
-          onUpdateSlideRef.current({ content: html });
-        }
       }
       return null;
     });
+
+    if (draft?.slideId === previousSlideId) {
+      onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
+      inlineEditDraftRef.current = null;
+    }
+
+    previousSlideIdRef.current = slide.id;
   }, [slide.id]);
+
+  useEffect(() => {
+    if (!editingEl) return;
+    const editingSlideId = slide.id;
+    const handleInput = () => captureInlineEditDraft(editingSlideId);
+    editingEl.addEventListener("input", handleInput);
+    return () => editingEl.removeEventListener("input", handleInput);
+  }, [captureInlineEditDraft, editingEl, slide.id]);
 
   // Global keyboard handling while inline-editing
   useEffect(() => {

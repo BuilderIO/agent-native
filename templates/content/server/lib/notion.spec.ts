@@ -36,6 +36,32 @@ describe("normalizeNfmForStorage", () => {
     );
   });
 
+  it("does not capture same-indent siblings inside legacy toggles", () => {
+    expect(
+      normalizeNfmForStorage("▶ agents doing\nFramework share skills"),
+    ).toBe(
+      [
+        "<details>",
+        "<summary>agents doing</summary>",
+        "</details>",
+        "Framework share skills",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps sibling legacy toggles as separate details blocks", () => {
+    expect(normalizeNfmForStorage("▶ one\n▶ two")).toBe(
+      [
+        "<details>",
+        "<summary>one</summary>",
+        "</details>",
+        "<details>",
+        "<summary>two</summary>",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
   it("normalizes visual indents without touching fenced code", () => {
     expect(
       normalizeNfmForStorage(
@@ -155,6 +181,40 @@ describe("resolveNotionMarkdownResponse", () => {
       "> - access: amplitude, fullstory, sigma, jira",
     );
     expect(editorMarkdown).not.toMatch(/^ {4,}- /m);
+  });
+
+  it("hydrates indented toggle subtrees without creating code-block HTML", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          object: "page_markdown",
+          id: "child-block",
+          markdown:
+            "<details>\n<summary>agents doing</summary>\n\tChild\n</details>",
+          truncated: false,
+          unknown_block_ids: [],
+        } satisfies NotionPageMarkdown),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await resolveNotionMarkdownResponse("token", {
+      object: "page_markdown",
+      id: "page-id",
+      markdown: 'Skill functionality\n\t<unknown id="child-block"/>',
+      truncated: false,
+      unknown_block_ids: ["child-block"],
+    });
+    const editorMarkdown = parseNfmForEditor(result.markdown);
+
+    expect(result.markdown).toContain("\t<details>");
+    expect(editorMarkdown).toContain('<details data-nfm-indent="1">');
+    expect(editorMarkdown).toContain("<summary>agents doing</summary>");
+    expect(editorMarkdown).not.toMatch(/^\t<details/m);
+    expect(editorMarkdown).not.toMatch(/^ {4}<details/m);
   });
 });
 

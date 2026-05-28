@@ -21,9 +21,9 @@ Picture your inbox, calendar, or analytics dashboard. Now picture an agent panel
 
 That's the experience agent-native is designed for. Now here's why most products don't get there.
 
-## Why most "AI apps" fall short {#the-ladder}
+## Why most "AI apps" fall short (The Ladder Principle) {#the-ladder}
 
-There's a progression most teams climb, and most stop one rung too early.
+There's a progression most teams climb, much like a ladder, and most stop one rung too early.
 
 ### Rung 1 — a single LLM call (the anti-pattern) {#rung-one}
 
