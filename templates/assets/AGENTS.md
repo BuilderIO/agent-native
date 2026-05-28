@@ -65,7 +65,7 @@ agent-native apps over A2A.
 | `get-asset`                                                                          | Read one image or video asset                              |
 | `update-asset` / `delete-asset` / `delete-assets`                                    | Move, describe, retag, save, archive, or delete assets     |
 | `open-asset-picker`                                                                  | Open the MCP App / iframe picker for image or video choice |
-| `analyze-collection-style`                                                           | Run vision brand analysis for a collection                 |
+| `analyze-collection-style`                                                           | Run vision brand analysis for a library or collection      |
 | `generate-image`                                                                     | Generate one candidate                                     |
 | `generate-image-batch`                                                               | Generate many candidates in parallel                       |
 | `edit-image` / `restyle-image`                                                       | Chat-driven edits/restyles using subject and style refs    |
@@ -76,7 +76,7 @@ agent-native apps over A2A.
 | `save-generated-asset` / `save-generated-image`                                      | Promote a candidate to saved                               |
 | `export-asset` / `export-image`                                                      | Return preview/download URLs for another app               |
 | `match-library`                                                                      | Pick a library for a free-text use case                    |
-| `extract-palette-from-references`                                                    | Write dominant colors into the style brief                 |
+| `extract-palette-from-references`                                                    | Legacy color-only palette extraction                       |
 | `list-audit-runs`                                                                    | Admin audit feed for generated image runs                  |
 | `get-audit-run`                                                                      | Inspect one run, its prompts, refs, outputs, lineage       |
 | `export-audit-csv`                                                                   | Export audit runs for design/governance review             |
