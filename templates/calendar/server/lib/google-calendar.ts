@@ -489,6 +489,30 @@ export async function getConnectedAccounts(
   return accounts.map((a) => a.accountId);
 }
 
+export async function getPrimaryAccountPhotoUrl(
+  forEmail?: string,
+): Promise<string | undefined> {
+  if (!forEmail) return undefined;
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const account = accounts.find((a) => a.accountId === forEmail) ?? accounts[0];
+  if (!account) return undefined;
+
+  const tokens = account.tokens as unknown as GoogleTokens;
+  const cachedPhotoUrl = optionalString(tokens.photoUrl);
+  if (cachedPhotoUrl) return cachedPhotoUrl;
+
+  try {
+    const accessToken = await getValidAccessToken(
+      account.accountId,
+      tokens,
+      forEmail,
+    );
+    return resolveAccountPhotoUrl(accessToken);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {

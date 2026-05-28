@@ -8,10 +8,23 @@ export interface BookingOgImageInput {
   username?: string | null;
   ownerEmail?: string | null;
   bookingPageTitle?: string | null;
+  profileImageDataUrl?: string | null;
 }
 
 const WIDTH = 1200;
 const HEIGHT = 630;
+const BRAND_BLUE = "#00B5FF";
+const BRAND_MINT = "#48FFE4";
+const BG = "#000000";
+const SURFACE = "#0a0a0a";
+const BORDER = "#1f1f1f";
+const FG = "#ededed";
+const MUTED = "#a0a0a0";
+
+const LOGO_MARK = `
+  <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
+  <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#brand)"/>
+`;
 
 function escapeSvg(value: string): string {
   return value
@@ -86,6 +99,11 @@ function initialsFor(name: string): string {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
+function validProfileImageDataUrl(value: string | null | undefined): string {
+  const dataUrl = cleanText(value);
+  return /^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl) ? dataUrl : "";
+}
+
 function wrapText(value: string, maxChars: number, maxLines: number): string[] {
   const words = value.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -146,66 +164,64 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     displayNameFromIdentifier(input.username, input.ownerEmail);
   const title = displayTitle(input, inferredHost);
   const titleLines = wrapText(title, title.length > 34 ? 23 : 28, 2);
-  const description = cleanText(input.description);
-  const descriptionLines = description
-    ? wrapText(description, 52, 2)
-    : [`Pick a time with ${inferredHost}`];
   const duration = durationLabel(input);
   const initials = initialsFor(inferredHost);
+  const profileImageDataUrl = validProfileImageDataUrl(
+    input.profileImageDataUrl,
+  );
+  const titleFontSize = titleLines.length > 1 ? 66 : 82;
+  const titleLineHeight = titleLines.length > 1 ? 76 : 92;
+  const durationY = titleLines.length > 1 ? 214 : 150;
+  const avatarContent = profileImageDataUrl
+    ? `<image x="910" y="106" width="172" height="172" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
+    : `<circle cx="996" cy="192" r="72" fill="url(#brand)" fill-opacity="0.2"/>
+       <text x="996" y="212" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
+  <title>Agent-Native Calendar booking link</title>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#050505"/>
-      <stop offset="0.56" stop-color="#0a0d0f"/>
-      <stop offset="1" stop-color="#020202"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#00d1ff"/>
-      <stop offset="1" stop-color="#7cffc4"/>
+    <linearGradient id="brand" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
+      <stop stop-color="${BRAND_BLUE}"/>
+      <stop offset="1" stop-color="${BRAND_MINT}"/>
     </linearGradient>
     <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.055" stroke-width="1"/>
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
     </pattern>
+    <mask id="avatarMask">
+      <rect width="${WIDTH}" height="${HEIGHT}" fill="black"/>
+      <circle cx="996" cy="192" r="78" fill="white"/>
+    </mask>
   </defs>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
-  <path d="M0 518 C190 456 294 460 482 506 C702 560 866 546 1200 438 L1200 630 L0 630 Z" fill="#ffffff" fill-opacity="0.035"/>
-  <path d="M80 78 H1120" stroke="#ffffff" stroke-opacity="0.11"/>
-  <g transform="translate(80 112)">
-    <rect x="0" y="0" width="58" height="58" rx="16" fill="url(#accent)"/>
-    <text x="29" y="38" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="22" font-weight="800" fill="#020202">AN</text>
-    <text x="78" y="25" font-family="Inter, Arial, system-ui, sans-serif" font-size="28" font-weight="800" fill="#ffffff">Agent-Native</text>
-    <text x="78" y="51" font-family="Inter, Arial, system-ui, sans-serif" font-size="20" font-weight="600" fill="#94a3b8">Calendar</text>
+  <rect x="64" y="64" width="1072" height="502" rx="28" fill="${BG}" fill-opacity="0.72" stroke="${BORDER}" stroke-width="1"/>
+  <path d="M80 154 H1120" stroke="${BORDER}"/>
+  <g transform="translate(80 86)">
+    <g transform="scale(0.62)">
+      ${LOGO_MARK}
+    </g>
+    <text x="90" y="31" font-family="Inter, Arial, system-ui, sans-serif" font-size="28" font-weight="800" fill="${FG}">Agent-Native</text>
+    <text x="91" y="58" font-family="Inter, Arial, system-ui, sans-serif" font-size="18" font-weight="600" fill="${MUTED}">Calendar</text>
   </g>
-  <g transform="translate(904 112)">
-    <circle cx="92" cy="92" r="86" fill="#0e1113" stroke="#ffffff" stroke-opacity="0.14" stroke-width="2"/>
-    <circle cx="92" cy="92" r="64" fill="url(#accent)" fill-opacity="0.18"/>
-    <text x="92" y="112" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeSvg(initials)}</text>
+  <g>
+    <circle cx="996" cy="192" r="86" fill="${SURFACE}" stroke="${BORDER}" stroke-width="2"/>
+    ${avatarContent}
+    <circle cx="996" cy="192" r="78" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
   </g>
-  <g transform="translate(80 342)">
+  <g transform="translate(80 348)">
     ${textBlock({
       lines: titleLines,
       x: 0,
       y: 0,
-      fontSize: titleLines.length > 1 ? 66 : 78,
-      lineHeight: titleLines.length > 1 ? 76 : 88,
+      fontSize: titleFontSize,
+      lineHeight: titleLineHeight,
       weight: 800,
-      fill: "#f8fafc",
+      fill: FG,
     })}
-    ${textBlock({
-      lines: descriptionLines,
-      x: 2,
-      y: titleLines.length > 1 ? 174 : 116,
-      fontSize: 29,
-      lineHeight: 40,
-      weight: 500,
-      fill: "#94a3b8",
-    })}
-    <g transform="translate(0 ${titleLines.length > 1 ? 250 : 192})">
-      <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="#ffffff" fill-opacity="0.09" stroke="#ffffff" stroke-opacity="0.16"/>
-      <circle cx="31" cy="-5" r="8" fill="#7cffc4"/>
-      <text x="54" y="4" font-family="Inter, Arial, system-ui, sans-serif" font-size="27" font-weight="700" fill="#ffffff">${escapeSvg(duration)}</text>
+    <g transform="translate(0 ${durationY})">
+      <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="${SURFACE}" stroke="${BORDER}"/>
+      <circle cx="31" cy="-5" r="8" fill="${BRAND_MINT}"/>
+      <text x="54" y="4" font-family="Inter, Arial, system-ui, sans-serif" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
     </g>
   </g>
 </svg>`;

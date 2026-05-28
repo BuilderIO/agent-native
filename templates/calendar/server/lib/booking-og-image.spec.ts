@@ -17,6 +17,8 @@ describe("booking OG image", () => {
     expect(svg).toContain("Calendar");
     expect(svg).toContain("Meet Steve Sewell");
     expect(svg).toContain("30 min meeting");
+    expect(svg).toContain('fill="#000000"');
+    expect(svg).not.toContain("Pick a time");
   });
 
   it("renders a PNG image", () => {
@@ -31,5 +33,19 @@ describe("booking OG image", () => {
     expect(Array.from(png.slice(0, 8))).toEqual([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]);
+  });
+
+  it("renders a profile image when provided", () => {
+    const svg = renderBookingOgImageSvg({
+      title: "Meeting",
+      duration: 30,
+      username: "steve",
+      bookingPageTitle: "Meet Steve Sewell",
+      profileImageDataUrl:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    });
+
+    expect(svg).toContain("<image");
+    expect(svg).toContain('mask="url(#avatarMask)"');
   });
 });
