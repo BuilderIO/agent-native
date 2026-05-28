@@ -19,6 +19,12 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   should be updated when the user wants durable generation behavior.
 - Generate 2-4 candidates for open-ended requests. Use `generate-image-batch`
   with stable `slotId`s so the UI can show live slots.
+- For repeatable deliverables, call `list-generation-presets` and pass the
+  selected `presetId` to `generate-image`, `generate-image-batch`,
+  `refine-image`, or `rerun-generation-run`.
+- For designer handoff, preserve `sessionId` and call
+  `update-generation-session` after each new candidate so the active asset,
+  feedback, and run lineage stay resumable.
 - Show previews in chat. In Assets, use `/asset/<assetId>/embed`; from another
   app, preserve the returned preview/download URLs exactly.
 - Iterate with `refine-image --assetId`. Do not throw away a successful image
@@ -44,6 +50,12 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 
 After generation, reply with asset IDs and previews. Ask whether to save,
 iterate, or produce another direction.
+
+When the user says a designer should pick up the work, create a generation
+session with `create-generation-session`, including the active `assetId`,
+relevant `runId`s, `presetId`, and the feedback summary. Use
+`prepare-generation-session-continuation` to open a new chat with the handoff
+context preloaded.
 
 Every generation is audit logged automatically. When a reviewer asks how images
 are performing, use `navigate --view audit`, `list-audit-runs`, or

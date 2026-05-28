@@ -336,6 +336,35 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("renders indented Notion toggle blocks as toggles instead of code", () => {
+    const editor = createMarkdownEditor(
+      [
+        "Skill functionality",
+        "\t<details>",
+        "\t<summary>agents doing</summary>",
+        "\t</details>",
+        "Framework share skills across apps",
+      ].join("\n"),
+    );
+
+    try {
+      const json = editor.getJSON();
+      const serializedJson = JSON.stringify(json);
+      const markdown = (editor.storage as any).markdown.getMarkdown();
+      const stored = serializeEditorToNfm(markdown);
+
+      expect(serializedJson).toContain('"notionToggle"');
+      expect(serializedJson).not.toContain('"codeBlock"');
+      expect(json.content?.[1]?.attrs?.summary).toBe("agents doing");
+      expect(json.content?.[1]?.attrs?.indent).toBe(1);
+      expect(stored).toContain("\t<details>");
+      expect(stored).toContain("\t<summary>agents doing</summary>");
+      expect(stored).not.toContain("```");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("serializes resized images with a persisted width attribute", () => {
     const editor = createFullEditor();
 

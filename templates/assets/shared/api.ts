@@ -38,6 +38,18 @@ export const IMAGE_MODELS = [
 
 export const ASSET_MEDIA_TYPES = ["image", "video"] as const;
 
+export const GENERATION_PRESET_REFERENCE_POLICIES = [
+  "auto",
+  "collection",
+  "explicit",
+] as const;
+
+export const GENERATION_SESSION_STATUSES = [
+  "open",
+  "approved",
+  "archived",
+] as const;
+
 export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16"] as const;
 
 export const VIDEO_DURATIONS = [4, 6, 8] as const;
@@ -71,6 +83,10 @@ export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 export type VideoModel = (typeof VIDEO_MODELS)[number];
+export type GenerationPresetReferencePolicy =
+  (typeof GENERATION_PRESET_REFERENCE_POLICIES)[number];
+export type GenerationSessionStatus =
+  (typeof GENERATION_SESSION_STATUSES)[number];
 
 export interface StyleBrief {
   description?: string;
@@ -125,6 +141,8 @@ export interface AssetVariantState {
   runId: string;
   libraryId: string;
   collectionId?: string | null;
+  presetId?: string | null;
+  sessionId?: string | null;
   prompt: string;
   slots: Array<{
     slotId: string;
@@ -138,3 +156,39 @@ export interface AssetVariantState {
 }
 
 export type ImageVariantState = AssetVariantState;
+
+export interface GenerationPresetSummary {
+  id: string;
+  libraryId: string;
+  collectionId?: string | null;
+  title: string;
+  description?: string | null;
+  category: ImageCategory;
+  mediaType: AssetMediaType;
+  promptTemplate?: string | null;
+  aspectRatio: AspectRatio;
+  imageSize: ImageSize;
+  model: ImageModel;
+  textPolicy: string;
+  referencePolicy: GenerationPresetReferencePolicy;
+  settings: Record<string, unknown>;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GenerationSessionSummary {
+  id: string;
+  libraryId: string;
+  collectionId?: string | null;
+  presetId?: string | null;
+  title: string;
+  brief?: string | null;
+  status: GenerationSessionStatus;
+  activeAssetId?: string | null;
+  feedbackSummary: string;
+  metadata: Record<string, unknown>;
+  createdBy?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}

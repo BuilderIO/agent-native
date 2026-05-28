@@ -3,6 +3,10 @@ import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import getLibrary from "./get-library.js";
 import getAsset from "./get-asset.js";
+import getGenerationSession from "./get-generation-session.js";
+import getGenerationRun from "./get-generation-run.js";
+import listGenerationPresets from "./list-generation-presets.js";
+import listGenerationSessions from "./list-generation-sessions.js";
 import listAuditRuns from "./list-audit-runs.js";
 
 export default defineAction({
@@ -24,9 +28,26 @@ export default defineAction({
     const nav = navigation as any;
     if (nav?.libraryId) {
       screen.library = await getLibrary.run({ id: nav.libraryId });
+      screen.generationPresets = await listGenerationPresets.run({
+        libraryId: nav.libraryId,
+      });
+      screen.generationSessions = await listGenerationSessions.run({
+        libraryId: nav.libraryId,
+        limit: 20,
+      });
     }
     if (nav?.assetId) {
       screen.asset = await getAsset.run({ id: nav.assetId });
+    }
+    if (nav?.sessionId) {
+      screen.generationSession = await getGenerationSession.run({
+        id: nav.sessionId,
+      });
+    }
+    if (nav?.runId) {
+      screen.generationRun = await getGenerationRun.run({
+        runId: nav.runId,
+      });
     }
     if (nav?.view === "audit") {
       screen.audit = await listAuditRuns.run({ limit: 20 });

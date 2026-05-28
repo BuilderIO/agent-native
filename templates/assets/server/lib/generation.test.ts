@@ -229,4 +229,23 @@ describe("compilePrompt", () => {
     expect(prompt).toContain("Rounded tactile 3D miniatures.");
     expect(prompt).toContain("Keep the result brand-safe.");
   });
+
+  it("includes generation preset instructions in the compiled prompt", () => {
+    const prompt = compilePrompt({
+      libraryTitle: "Product Launch",
+      styleBrief: {
+        description: "Editorial product imagery.",
+      },
+      customInstructions:
+        "Generation preset: Social image.\nText policy: Keep visible text to 5 words or fewer.",
+      prompt: "Create a square social post visual about a launch.",
+      referenceCount: 2,
+      includeLogo: false,
+      category: "social",
+    });
+
+    expect(prompt).toContain("Generation preset: Social image.");
+    expect(prompt).toContain("Keep visible text to 5 words or fewer.");
+    expect(prompt).toContain("social post visual");
+  });
 });

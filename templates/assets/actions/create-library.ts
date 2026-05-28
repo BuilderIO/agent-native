@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { serializeLibrary } from "./_helpers.js";
+import { seedDefaultGenerationPresets } from "../server/lib/generation-presets.js";
 
 export default defineAction({
   description:
@@ -53,7 +54,9 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     };
-    await getDb().insert(schema.assetLibraries).values(row);
+    const db = getDb();
+    await db.insert(schema.assetLibraries).values(row);
+    await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
     return serializeLibrary(row);
   },
 });

@@ -20,6 +20,13 @@ agent-native apps over A2A.
   reference images with attribution metadata plus textual guidance; they
   intentionally do not bundle copyrighted screenshots or exact studio/brand
   looks.
+- Use generation presets for repeatable deliverables inside a library, such as
+  social images, blog heroes, and diagrams. Pass `presetId` to generation
+  actions so aspect ratio, text policy, prompt template, and reference policy
+  stay attached to the run.
+- Use generation sessions as designer handoffs. A session groups the brief,
+  preset, candidates, run IDs, feedback, and active asset so another person can
+  continue from the same context without needing the original chat thread.
 - For multiple images, prefer `generate-image-batch` with stable slot IDs.
 - For videos, call `generate-video`, then call `refresh-generation-run` until
   the run is `completed` and returns a video asset.
@@ -33,42 +40,55 @@ agent-native apps over A2A.
 
 ## Actions
 
-| Action                                            | Purpose                                                    |
-| ------------------------------------------------- | ---------------------------------------------------------- |
-| `list-libraries`                                  | List accessible asset libraries                            |
-| `create-library`                                  | Create a new asset library                                 |
-| `list-library-presets`                            | List built-in editable style library presets               |
-| `create-library-from-preset`                      | Create an asset library from a built-in style preset       |
-| `get-library`                                     | Read a library with collections, assets, and runs          |
-| `update-library`                                  | Update metadata, instructions, style brief, logo, cover    |
-| `delete-library`                                  | Delete a library and children                              |
-| `create-collection` / `update-collection`         | Manage category-specific collections                       |
-| `create-folder` / `update-folder`                 | Organize assets into folders                               |
-| `delete-folder`                                   | Delete a folder and move children/assets safely            |
-| `list-assets` / `search-assets`                   | Browse and search image/video assets                       |
-| `get-asset`                                       | Read one image or video asset                              |
-| `update-asset` / `delete-asset` / `delete-assets` | Move, describe, retag, save, archive, or delete assets     |
-| `open-asset-picker`                               | Open the MCP App / iframe picker for image or video choice |
-| `generate-image`                                  | Generate one candidate                                     |
-| `generate-image-batch`                            | Generate many candidates in parallel                       |
-| `generate-video`                                  | Start one async Veo video candidate                        |
-| `refresh-generation-run`                          | Poll/complete async video runs                             |
-| `rerun-generation-run`                            | Re-run a prior prompt/settings with latest library context |
-| `refine-image`                                    | Iterate on an existing image from feedback                 |
-| `save-generated-asset` / `save-generated-image`   | Promote a candidate to saved                               |
-| `export-asset` / `export-image`                   | Return preview/download URLs for another app               |
-| `match-library`                                   | Pick a library for a free-text use case                    |
-| `extract-palette-from-references`                 | Write dominant colors into the style brief                 |
-| `list-audit-runs`                                 | Admin audit feed for generated image runs                  |
-| `get-audit-run`                                   | Inspect one run, its prompts, refs, outputs, lineage       |
-| `export-audit-csv`                                | Export audit runs for design/governance review             |
-| `is-audit-admin`                                  | Check whether the Audit log nav should be visible          |
-| `view-screen`                                     | Read current UI context and pending variants               |
-| `navigate`                                        | Navigate the UI                                            |
+| Action                                                                               | Purpose                                                    |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `list-libraries`                                                                     | List accessible asset libraries                            |
+| `create-library`                                                                     | Create a new asset library                                 |
+| `list-library-presets`                                                               | List built-in editable style library presets               |
+| `create-library-from-preset`                                                         | Create an asset library from a built-in style preset       |
+| `get-library`                                                                        | Read a library with collections, assets, and runs          |
+| `update-library`                                                                     | Update metadata, instructions, style brief, logo, cover    |
+| `delete-library`                                                                     | Delete a library and children                              |
+| `create-collection` / `update-collection`                                            | Manage category-specific collections                       |
+| `list-generation-presets`                                                            | List reusable deliverable presets for a library            |
+| `create-generation-preset` / `update-generation-preset` / `delete-generation-preset` | Manage social/blog/diagram generation presets              |
+| `list-generation-sessions` / `get-generation-session`                                | Browse creative handoff sessions                           |
+| `create-generation-session` / `update-generation-session`                            | Create/update designer handoff context                     |
+| `prepare-generation-session-continuation`                                            | Build chat context to continue a handoff session           |
+| `create-folder` / `update-folder`                                                    | Organize assets into folders                               |
+| `delete-folder`                                                                      | Delete a folder and move children/assets safely            |
+| `list-assets` / `search-assets`                                                      | Browse and search image/video assets                       |
+| `get-asset`                                                                          | Read one image or video asset                              |
+| `update-asset` / `delete-asset` / `delete-assets`                                    | Move, describe, retag, save, archive, or delete assets     |
+| `open-asset-picker`                                                                  | Open the MCP App / iframe picker for image or video choice |
+| `generate-image`                                                                     | Generate one candidate                                     |
+| `generate-image-batch`                                                               | Generate many candidates in parallel                       |
+| `generate-video`                                                                     | Start one async Veo video candidate                        |
+| `refresh-generation-run`                                                             | Poll/complete async video runs                             |
+| `rerun-generation-run`                                                               | Re-run a prior prompt/settings with latest library context |
+| `refine-image`                                                                       | Iterate on an existing image from feedback                 |
+| `save-generated-asset` / `save-generated-image`                                      | Promote a candidate to saved                               |
+| `export-asset` / `export-image`                                                      | Return preview/download URLs for another app               |
+| `match-library`                                                                      | Pick a library for a free-text use case                    |
+| `extract-palette-from-references`                                                    | Write dominant colors into the style brief                 |
+| `list-audit-runs`                                                                    | Admin audit feed for generated image runs                  |
+| `get-audit-run`                                                                      | Inspect one run, its prompts, refs, outputs, lineage       |
+| `export-audit-csv`                                                                   | Export audit runs for design/governance review             |
+| `is-audit-admin`                                                                     | Check whether the Audit log nav should be visible          |
+| `view-screen`                                                                        | Read current UI context and pending variants               |
+| `navigate`                                                                           | Navigate the UI                                            |
 
 ## Generation Playbook
 
 - Role-tag references: style, logo, product, diagram, video, prior candidate.
+- For social, blog hero, diagram, or other repeatable requests, first look for
+  a generation preset with `list-generation-presets`; pass its `presetId` to
+  `generate-image`, `generate-image-batch`, `refine-image`, or
+  `rerun-generation-run`.
+- If a designer needs to improve someone else's result, create or update a
+  generation session with the active `assetId`, relevant `runId`s, `presetId`,
+  feedback, and brief. Then use `prepare-generation-session-continuation` to
+  open a new chat preloaded with all context.
 - Use a small relevant subset by default. Automatic selection samples up to 6
   current references. Pass `referenceAssetIds` only when the exact references
   must be preserved.

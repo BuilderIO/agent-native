@@ -22,6 +22,12 @@ or generated image/video assets that another app can reference by ID and URL.
 - Use unattended actions when the agent already knows what to do:
   `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
   `generate-video`, `refresh-generation-run`, and `export-asset`.
+- Use generation presets when the user asks for a repeatable output format
+  like social image, blog hero, or diagram. Call `list-generation-presets` for
+  the library and pass `presetId` through generation/refinement actions.
+- Use generation sessions when another person needs to continue improving a
+  candidate. Sessions carry the brief, preset, active asset, feedback, and run
+  IDs without requiring the original chat thread.
 - Use browser/deep-link fallback when the host cannot render MCP Apps inline.
   Surface the returned picker link instead of inventing a separate UI.
 
@@ -33,8 +39,12 @@ or generated image/video assets that another app can reference by ID and URL.
    library is editable and reusable like any other library.
 2. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
-3. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-4. Use `refine-image` for feedback on an existing asset.
+3. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
+4. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+5. Use `refine-image` for feedback on an existing asset.
+6. If a designer will take over, call `create-generation-session` or
+   `update-generation-session`, then `prepare-generation-session-continuation`
+   when they want a chat preloaded with the session context.
 
 ## Video Workflows
 
@@ -51,6 +61,7 @@ or generated image/video assets that another app can reference by ID and URL.
   Assets app-skill manifest, or pass `--into <path>` for editable source.
 - For A2A or MCP callers, include exact `assetId`, `runId`, media type, and
   URLs in the final response so the caller can attach or embed the media.
+  Include `presetId` and `sessionId` when present.
 
 ## Don't
 

@@ -11,6 +11,8 @@ export default defineAction({
   schema: z.object({
     assetId: z.string(),
     feedback: z.string().min(1),
+    presetId: z.string().optional(),
+    sessionId: z.string().optional(),
     model: z.enum(IMAGE_MODELS).optional(),
     aspectRatio: z.enum(ASPECT_RATIOS).optional(),
     imageSize: z.enum(IMAGE_SIZES).optional(),
@@ -27,6 +29,8 @@ export default defineAction({
   run: async ({
     assetId,
     feedback,
+    presetId,
+    sessionId,
     model,
     aspectRatio,
     imageSize,
@@ -47,6 +51,8 @@ export default defineAction({
     return generateImage.run({
       libraryId: asset.libraryId,
       collectionId: asset.collectionId ?? undefined,
+      presetId,
+      sessionId,
       prompt,
       aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
       imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,

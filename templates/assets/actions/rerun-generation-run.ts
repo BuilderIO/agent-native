@@ -15,6 +15,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional variant slot ID for the new generation"),
+    sessionId: z
+      .string()
+      .optional()
+      .describe("Optional session to attach the rerun result to"),
     source: z.enum(["chat", "ui", "a2a"]).default("chat"),
     callerAppId: z
       .string()
@@ -24,7 +28,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({ runId, slotId, source, callerAppId }) => {
+  run: async ({ runId, slotId, sessionId, source, callerAppId }) => {
     const db = getDb();
     const [run] = await db
       .select()
@@ -49,6 +53,8 @@ export default defineAction({
     return generateImage.run({
       libraryId: run.libraryId,
       collectionId: run.collectionId ?? undefined,
+      presetId: run.presetId ?? undefined,
+      sessionId: sessionId ?? run.sessionId ?? undefined,
       prompt: run.prompt,
       aspectRatio: run.aspectRatio as any,
       imageSize: run.imageSize as any,

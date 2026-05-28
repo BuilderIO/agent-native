@@ -15,6 +15,8 @@ export default defineAction({
   schema: z.object({
     libraryId: z.string(),
     collectionId: z.string().optional(),
+    presetId: z.string().optional(),
+    sessionId: z.string().optional(),
     slots: z
       .array(
         z.object({
@@ -29,7 +31,7 @@ export default defineAction({
       )
       .min(1)
       .max(12),
-    model: z.enum(IMAGE_MODELS).default("gemini-3.1-flash-image-preview"),
+    model: z.enum(IMAGE_MODELS).optional(),
     includeLogo: z.coerce.boolean().default(false),
     groundingMode: z.enum(["auto", "off", "google-search"]).default("auto"),
     source: z.enum(["chat", "ui", "a2a"]).default("chat"),
@@ -49,9 +51,11 @@ export default defineAction({
           generateImage.run({
             libraryId: base.libraryId,
             collectionId: base.collectionId,
+            presetId: base.presetId,
+            sessionId: base.sessionId,
             prompt: slot.prompt,
-            aspectRatio: slot.aspectRatio ?? "16:9",
-            imageSize: slot.imageSize ?? "2K",
+            aspectRatio: slot.aspectRatio,
+            imageSize: slot.imageSize,
             model: base.model,
             categories: slot.categories,
             referenceAssetIds: slot.referenceAssetIds,
