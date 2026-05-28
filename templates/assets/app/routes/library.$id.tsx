@@ -116,7 +116,6 @@ export default function LibraryPage() {
   const prepareSessionContinuation = useActionMutation(
     "prepare-generation-session-continuation",
   );
-  const extractPalette = useActionMutation("extract-palette-from-references");
   const { data: variants } = useVariantState();
   const { data: presetData } = useActionQuery("list-generation-presets", {
     libraryId,
@@ -290,6 +289,37 @@ export default function LibraryPage() {
       );
   }
 
+  function analyzeBrand() {
+    if (!library) return;
+    const anchorIds = assets
+      .filter(
+        (asset) =>
+          asset.metadata?.isStyleAnchor ||
+          library.settings?.canonicalStyleAssetIds?.includes(asset.id),
+      )
+      .map((asset) => asset.id);
+    sendToAgentChat({
+      message: [
+        "Analyze this Assets library brand.",
+        `Call analyze-collection-style with libraryId: ${library.id}.`,
+        "Update the reusable style brief with palette and visual traits, then summarize what changed.",
+      ].join("\n"),
+      context: [
+        "## Assets library context",
+        `Library: ${library.title} (${library.id})`,
+        `Description: ${library.description || ""}`,
+        `Reference assets: ${references.length}`,
+        `Anchor assets: ${anchorIds.length ? anchorIds.join(", ") : "none"}`,
+        `Current style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
+        customInstructions
+          ? `Custom instructions: ${customInstructions}`
+          : "Custom instructions: none",
+      ].join("\n"),
+      submit: true,
+      newTab: true,
+    });
+  }
+
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length) return;
     const selectedFiles = Array.from(files);
@@ -366,18 +396,22 @@ export default function LibraryPage() {
             description:
               skippedCount > 0
                 ? `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`
-                : undefined,
+                : null,
           },
         );
       } else if (uploadedCount > 0 && skippedCount > 0) {
         toast.success(
           `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}; skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"}.`,
-          { id: toastId },
+          { id: toastId, description: null },
         );
       } else if (uploadedCount > 0) {
-        toast.success(`Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`, {
-          id: toastId,
-        });
+        toast.success(
+          `Uploaded ${uploadedCount} asset${uploadedCount === 1 ? "" : "s"}.`,
+          {
+            id: toastId,
+            description: null,
+          },
+        );
       } else if (skippedCount > 0) {
         toast.warning(
           `Skipped ${skippedCount} duplicate asset${
@@ -389,7 +423,10 @@ export default function LibraryPage() {
           },
         );
       } else {
-        toast.warning("No new assets were uploaded.", { id: toastId });
+        toast.warning("No new assets were uploaded.", {
+          id: toastId,
+          description: null,
+        });
       }
       await refreshLibrary();
     } catch (e) {
@@ -415,7 +452,7 @@ export default function LibraryPage() {
           setPendingUploads([]);
         }, 12_000);
       } else {
-        toast.error(message, { id: toastId });
+        toast.error(message, { id: toastId, description: null });
       }
     } finally {
       setUploading(false);
@@ -683,6 +720,13 @@ export default function LibraryPage() {
       ) : null}
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        <BrandSummaryCard
+          library={library}
+          assets={assets}
+          referencesCount={references.length}
+          onGenerate={() => setGenerateOpen(true)}
+        />
+
         <section className="mb-5 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -921,11 +965,10 @@ export default function LibraryPage() {
                       )}
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => extractPalette.mutate({ libraryId })}
-                  >
-                    Extract
+                  <Button variant="outline" onClick={analyzeBrand}>
+                    {library.settings?.brandAnalysis?.analyzedAt
+                      ? "Refresh brand"
+                      : "Analyze brand"}
                   </Button>
                 </div>
               </div>
@@ -974,6 +1017,135 @@ type PendingUpload = {
 };
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
+
+function BrandSummaryCard({
+  library,
+  assets,
+  referencesCount,
+  onGenerate,
+}: {
+  library: any;
+  assets: any[];
+  referencesCount: number;
+  onGenerate: () => void;
+}) {
+  const style = library.styleBrief ?? {};
+  const settings = library.settings ?? {};
+  const analysis = settings.brandAnalysis ?? {};
+  const canonicalIds = Array.isArray(settings.canonicalStyleAssetIds)
+    ? settings.canonicalStyleAssetIds.filter(
+        (id: unknown): id is string => typeof id === "string",
+      )
+    : [];
+  const anchors = assets
+    .filter(
+      (asset) =>
+        asset.metadata?.isStyleAnchor === true ||
+        canonicalIds.includes(asset.id),
+    )
+    .slice(0, 4);
+  const palette = Array.isArray(style.palette) ? style.palette.slice(0, 6) : [];
+  const constraints = Array.isArray(style.doNot) ? style.doNot.slice(0, 2) : [];
+  const traits = [style.medium, style.mood, style.texture]
+    .filter((item): item is string => typeof item === "string" && !!item.trim())
+    .slice(0, 3);
+  const analyzedCount =
+    typeof analysis.analyzedImageCount === "number"
+      ? analysis.analyzedImageCount
+      : typeof analysis.referenceCount === "number"
+        ? analysis.referenceCount
+        : referencesCount;
+
+  return (
+    <section className="mb-5 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">Brand summary</h3>
+            <Badge variant={analysis.analyzedAt ? "secondary" : "outline"}>
+              {analysis.analyzedAt ? "Learned" : "Needs analysis"}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {analyzedCount} reference{analyzedCount === 1 ? "" : "s"}
+              {analysis.analyzedAt
+                ? ` · Last analyzed ${formatBrandAnalysisTime(
+                    analysis.analyzedAt,
+                  )}`
+                : ""}
+            </span>
+          </div>
+          <p className="line-clamp-2 max-w-4xl text-sm leading-relaxed text-foreground">
+            {style.description ||
+              "Upload example assets, analyze the brand in Settings, then generate from a prompt with the library look applied."}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {palette.length ? (
+              <div className="flex items-center gap-1.5">
+                {palette.map((color: string) => (
+                  <span
+                    key={color}
+                    className="h-5 w-5 rounded border border-border"
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {traits.map((trait) => (
+              <Badge
+                key={trait}
+                variant="outline"
+                className="max-w-52 truncate"
+              >
+                {trait}
+              </Badge>
+            ))}
+            {constraints.map((constraint: string) => (
+              <Badge
+                key={constraint}
+                variant="outline"
+                className="max-w-64 truncate text-muted-foreground"
+              >
+                Avoid {constraint}
+              </Badge>
+            ))}
+          </div>
+          {anchors.length ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Anchors
+              </span>
+              <div className="flex -space-x-2">
+                {anchors.map((asset) => (
+                  <img
+                    key={asset.id}
+                    src={assetMediaUrl(asset.thumbnailUrl || asset.previewUrl)}
+                    alt=""
+                    className="h-8 w-8 rounded-md border border-background object-cover"
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <Button className="shrink-0 gap-2" onClick={onGenerate}>
+          <IconMessageCircle className="h-4 w-4" />
+          Generate
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function formatBrandAnalysisTime(value: unknown): string {
+  if (typeof value !== "string" || !value) return "unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
 
 function RunCard({
   run,
