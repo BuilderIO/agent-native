@@ -11,6 +11,8 @@
 
 [build.environment]
   NITRO_PRESET = "netlify"
+  AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
+  VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 
 # SSR pages: keep browsers fresh, let the CDN serve stale while revalidating.
 [[headers]]

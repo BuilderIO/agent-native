@@ -23,7 +23,7 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { useEffect, useRef, useMemo, useState } from "react";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
@@ -551,6 +551,148 @@ const CustomTable = BaseTable.extend({
   },
 });
 
+const NotionTableHeader = TableHeader.extend({
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "td",
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+        class: "notion-table-header-cell",
+      }),
+      0,
+    ];
+  },
+});
+
+function getNodeChildren(node: ProseMirrorNode | null | undefined) {
+  const children: ProseMirrorNode[] = [];
+  node?.forEach((child) => children.push(child));
+  return children;
+}
+
+function isTableHeaderNode(cell: ProseMirrorNode | undefined) {
+  return cell?.type.name === "tableHeader";
+}
+
+function normalizeTableHeaderCells(
+  table: ProseMirrorNode,
+  tableCellType: ProseMirrorNode["type"],
+  tableHeaderType: ProseMirrorNode["type"],
+) {
+  const rows = getNodeChildren(table);
+  if (rows.length === 0) return table;
+
+  const firstRowCells = getNodeChildren(rows[0]);
+  const hasHeaderRow =
+    firstRowCells.length > 0 && firstRowCells.every(isTableHeaderNode);
+  const hasHeaderColumn = rows.every((row) =>
+    isTableHeaderNode(getNodeChildren(row)[0]),
+  );
+  let changed = false;
+
+  const normalizedRows = rows.map((row, rowIndex) => {
+    const cells = getNodeChildren(row);
+    let rowChanged = false;
+    const normalizedCells = cells.map((cell, columnIndex) => {
+      const targetType =
+        (hasHeaderRow && rowIndex === 0) ||
+        (hasHeaderColumn && columnIndex === 0)
+          ? tableHeaderType
+          : tableCellType;
+
+      if (cell.type === targetType) return cell;
+
+      changed = true;
+      rowChanged = true;
+      return targetType.create(cell.attrs, cell.content, cell.marks);
+    });
+
+    return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
+  });
+
+  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+}
+
+const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
+
+function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
+  const tableCellType = state.schema.nodes.tableCell;
+  const tableHeaderType = state.schema.nodes.tableHeader;
+  if (!tableCellType || !tableHeaderType) return null;
+
+  let transaction = state.tr;
+  let changed = false;
+
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "table") return true;
+
+    const normalizedTable = normalizeTableHeaderCells(
+      node,
+      tableCellType,
+      tableHeaderType,
+    );
+    if (normalizedTable !== node) {
+      transaction = transaction.replaceWith(
+        pos,
+        pos + node.nodeSize,
+        normalizedTable,
+      );
+      changed = true;
+    }
+
+    return false;
+  });
+
+  return changed
+    ? transaction.setMeta(normalizeTableHeadersPluginKey, true)
+    : null;
+}
+
+function dispatchNormalizeTableHeaders(view: EditorView) {
+  const transaction = buildNormalizeTableHeadersTransaction(view.state);
+  if (transaction) {
+    view.dispatch(transaction);
+  }
+}
+
+const NormalizeTableHeaders = Extension.create({
+  name: "normalizeTableHeaders",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableHeadersPluginKey,
+        appendTransaction(transactions, _oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableHeadersPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          return buildNormalizeTableHeadersTransaction(newState);
+        },
+        view(view) {
+          let destroyed = false;
+
+          queueMicrotask(() => {
+            if (!destroyed) {
+              dispatchNormalizeTableHeaders(view);
+            }
+          });
+
+          return {
+            destroy() {
+              destroyed = true;
+            },
+          };
+        },
+      }),
+    ];
+  },
+});
+
 interface VisualEditorProps {
   documentId?: string;
   content: string;
@@ -1021,8 +1163,9 @@ export function createVisualEditorExtensions({
       HTMLAttributes: { class: "notion-table" },
     }),
     TableRow,
-    TableHeader,
+    NotionTableHeader,
     TableCell,
+    NormalizeTableHeaders,
     ...notionEditorExtensions,
     DragHandle,
     TypographyReplacements,

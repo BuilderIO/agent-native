@@ -287,6 +287,10 @@ Related tables (`document_versions`, `document_comments`, `document_sync_links`)
 
 **Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals or dropdowns with absolute/fixed positioning — use the shadcn primitives instead.
 
+### Inline Tables
+
+Inline editor tables are intentionally Notion-like: newly inserted tables have no header row, every cell has the same visual treatment, and row/column controls live on edge/selection overlays rather than persistent plus/minus toolbars. The right-edge and bottom-edge handles append on click and resize row/column count on drag; the thin selected row/column markers open row and column menus.
+
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
