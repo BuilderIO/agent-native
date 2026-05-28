@@ -126,6 +126,154 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("renders markdown table header cells as plain table cells", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableHeader",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "A" }],
+                      },
+                    ],
+                  },
+                  {
+                    type: "tableHeader",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "B" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableCell",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "1" }],
+                      },
+                    ],
+                  },
+                  {
+                    type: "tableCell",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "2" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    try {
+      expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
+      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("normalizes table header cells to the first row and first column only", async () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableHeader",
+                    content: [{ type: "paragraph" }],
+                  },
+                  {
+                    type: "tableHeader",
+                    content: [{ type: "paragraph" }],
+                  },
+                ],
+              },
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableHeader",
+                    content: [{ type: "paragraph" }],
+                  },
+                  {
+                    type: "tableHeader",
+                    content: [{ type: "paragraph" }],
+                  },
+                ],
+              },
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableHeader",
+                    content: [{ type: "paragraph" }],
+                  },
+                  {
+                    type: "tableCell",
+                    content: [{ type: "paragraph" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const table = editor.getJSON().content?.[0] as any;
+      const rows = table?.content ?? [];
+      expect(rows[0].content?.map((cell) => cell.type)).toEqual([
+        "tableHeader",
+        "tableHeader",
+      ]);
+      expect(rows[1].content?.map((cell) => cell.type)).toEqual([
+        "tableHeader",
+        "tableCell",
+      ]);
+      expect(rows[2].content?.map((cell) => cell.type)).toEqual([
+        "tableHeader",
+        "tableCell",
+      ]);
+      expect(
+        editor.view.dom.querySelectorAll(".notion-table-header-cell"),
+      ).toHaveLength(4);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("renders Notion-pulled plain indents as visual indentation, not blockquotes", () => {
     const editor = createMarkdownEditor(
       ["Deck", "\tpublish vs Fusion discussion topic"].join("\n"),
