@@ -440,8 +440,10 @@ export async function getAuthStatus(
     if (!tokens) continue;
     const email = account.accountId;
     let photoUrl: string | undefined;
+    const accountDisplayName = (account as { displayName?: string | null })
+      .displayName;
     let displayName =
-      account.displayName ?? getAccountDisplayName(account.accountId);
+      accountDisplayName ?? getAccountDisplayName(account.accountId);
     try {
       const accessToken = await getValidAccessToken(email, tokens);
       const identity = await resolveGoogleSenderIdentity({
