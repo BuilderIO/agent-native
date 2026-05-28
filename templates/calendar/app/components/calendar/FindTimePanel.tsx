@@ -23,7 +23,12 @@ import type {
 } from "@shared/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
@@ -139,6 +144,13 @@ function blockPosition(block: FindTimeBusyBlock, day: Date, timezone: string) {
   return { top, height };
 }
 
+function isTextEntryTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName);
+}
+
 interface FindTimePanelProps {
   date: string;
   timezone: string;
@@ -177,6 +189,32 @@ export function FindTimePanel({
   useEffect(() => {
     setAnchorDate(parseDateOnly(date));
   }, [date]);
+
+  useEffect(() => {
+    if (!isTakeover) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isTextEntryTarget(event.target)
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key !== "j" && key !== "k") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setAnchorDate((current) => addDays(current, key === "j" ? 7 : -7));
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isTakeover]);
 
   const weekStart = useMemo(() => startOfWeek(anchorDate), [anchorDate]);
   const days = useMemo(
@@ -220,8 +258,15 @@ export function FindTimePanel({
     staleTime: 30_000,
   });
   const result = findTime.data as FindTimeResult | undefined;
-  const participants = result?.participants ?? [];
-  const visibleSlots = result?.slots.slice(0, 10) ?? [];
+  const resultWeekStart = result?.range.from
+    ? dateTimePartsInTimezone(result.range.from, timezone)?.date
+    : undefined;
+  const isWeekLoading =
+    findTime.isLoading ||
+    (findTime.isFetching && resultWeekStart !== params.date);
+  const displayResult = isWeekLoading ? undefined : result;
+  const participants = displayResult?.participants ?? [];
+  const visibleSlots = displayResult?.slots.slice(0, 10) ?? [];
   const participantColor = useMemo(() => {
     const map = new Map<string, string>();
     participants.forEach((participant, index) => {
@@ -292,18 +337,18 @@ export function FindTimePanel({
         </div>
       )}
 
-      {result?.message && (
+      {displayResult?.message && (
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <IconAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{result.message}</span>
+          <span>{displayResult.message}</span>
         </div>
       )}
 
-      {result?.errors && result.errors.length > 0 && (
+      {displayResult?.errors && displayResult.errors.length > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <IconAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            {result.errors
+            {displayResult.errors
               .slice(0, 2)
               .map((error) => `${error.email}: ${error.error}`)
               .join("; ")}
@@ -370,13 +415,13 @@ export function FindTimePanel({
                 const dayStart = gridBoundary(day, 0, timezone);
                 const dayEnd = gridBoundary(addDays(day, 1), 0, timezone);
                 const dayBusy =
-                  result?.busy.filter((block) => {
+                  displayResult?.busy.filter((block) => {
                     const start = parseISO(block.start);
                     const end = parseISO(block.end);
                     return start < dayEnd && end > dayStart;
                   }) ?? [];
                 const daySlots =
-                  result?.slots.filter((slot) => {
+                  displayResult?.slots.filter((slot) => {
                     const parts = dateTimePartsInTimezone(slot.start, timezone);
                     return parts?.date === format(day, "yyyy-MM-dd");
                   }) ?? [];
@@ -399,7 +444,7 @@ export function FindTimePanel({
                       ),
                     )}
 
-                    {findTime.isLoading &&
+                    {isWeekLoading &&
                       Array.from({ length: 3 }).map((_, i) => (
                         <Skeleton
                           key={i}
@@ -408,7 +453,7 @@ export function FindTimePanel({
                         />
                       ))}
 
-                    {!findTime.isLoading &&
+                    {!isWeekLoading &&
                       daySlots.slice(0, 16).map((slot) => {
                         const parts = dateTimePartsInTimezone(
                           slot.start,
@@ -446,7 +491,7 @@ export function FindTimePanel({
                         );
                       })}
 
-                    {!findTime.isLoading &&
+                    {!isWeekLoading &&
                       dayBusy.map((block, index) => {
                         const position = blockPosition(block, day, timezone);
                         if (!position) return null;
@@ -499,7 +544,7 @@ export function FindTimePanel({
             <div className="text-xs font-medium text-muted-foreground">
               Suggested Times
             </div>
-            {findTime.isLoading ? (
+            {isWeekLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-8 w-full" />
                 <Skeleton className="h-8 w-full" />
@@ -573,7 +618,7 @@ export function FindTimePanel({
             </div>
           )}
 
-          {findTime.isFetching && !findTime.isLoading && (
+          {findTime.isFetching && !isWeekLoading && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               Refreshing
@@ -609,11 +654,15 @@ export function FindTimeTakeover({
         <header className="flex h-14 shrink-0 items-center border-b border-border px-4 pr-12 md:px-6">
           <div className="min-w-0">
             <DialogTitle className="truncate text-base">{title}</DialogTitle>
-            {subtitle ? (
-              <p className="mt-1 truncate text-xs text-muted-foreground">
-                {subtitle}
-              </p>
-            ) : null}
+            <DialogDescription
+              className={cn(
+                "mt-1 truncate text-xs text-muted-foreground",
+                !subtitle && "sr-only",
+              )}
+            >
+              {subtitle ||
+                "Review shared availability and choose a meeting time."}
+            </DialogDescription>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">

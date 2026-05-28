@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import pLimit from "p-limit";
+import { assertAccess } from "@agent-native/core/sharing";
 import generateImage from "./generate-image.js";
+import { requireGenerationSessionInLibrary } from "./_helpers.js";
 import {
   ASPECT_RATIOS,
   IMAGE_CATEGORIES,
@@ -44,6 +46,10 @@ export default defineAction({
   }),
   parallelSafe: true,
   run: async ({ slots, ...base }) => {
+    await assertAccess("asset-library", base.libraryId, "editor");
+    if (base.sessionId) {
+      await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+    }
     const limit = pLimit(4);
     const results = await Promise.allSettled(
       slots.map((slot) =>

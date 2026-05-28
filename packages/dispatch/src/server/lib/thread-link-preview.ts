@@ -1,5 +1,5 @@
 import type { ChatThread } from "@agent-native/core/server";
-import { getThread } from "@agent-native/core/server";
+import { getRequestContext, getThread } from "@agent-native/core/server";
 
 export interface ThreadLinkPreview {
   title: string;
@@ -150,8 +150,11 @@ export async function loadThreadLinkPreview(
 ): Promise<ThreadLinkPreview | null> {
   const id = threadId?.trim();
   if (!id) return null;
+  const viewerEmail = getRequestContext()?.userEmail?.trim();
+  if (!viewerEmail) return null;
   const thread = await getThread(id).catch(() => null);
   if (!thread) return null;
+  if (thread.ownerEmail !== viewerEmail) return null;
   const title = thread.title.trim() || "Agent-Native thread";
   return {
     title,

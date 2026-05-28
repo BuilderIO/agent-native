@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -99,7 +100,10 @@ type ImageGenerationConfig = {
 
 export default function CreatePage() {
   const navigate = useNavigate();
-  const { data } = useActionQuery("list-libraries", {});
+  const { data, isLoading: librariesLoading } = useActionQuery(
+    "list-libraries",
+    {},
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const libraries = ((data as any)?.libraries ?? []) as ImageLibrarySummary[];
 
@@ -111,6 +115,7 @@ export default function CreatePage() {
     >
       <HomeGeneratePanel
         libraries={libraries}
+        librariesLoading={librariesLoading}
         onRequestNewLibrary={() => setCreateOpen(true)}
       />
 
@@ -123,6 +128,37 @@ export default function CreatePage() {
         }}
       />
     </PageShell>
+  );
+}
+
+function LibrarySectionSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Loading libraries">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="size-4 rounded-sm" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="overflow-hidden rounded-lg border bg-card"
+          >
+            <Skeleton className="aspect-[16/8] rounded-none" />
+            <div className="space-y-3 p-3">
+              <Skeleton className="h-4 w-2/3" />
+              <div className="flex gap-2">
+                <Skeleton className="h-5 w-14 rounded-full" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -397,9 +433,11 @@ async function readInlineTextContextFiles(files: File[]) {
 
 function HomeGeneratePanel({
   libraries,
+  librariesLoading,
   onRequestNewLibrary,
 }: {
   libraries: ImageLibrarySummary[];
+  librariesLoading: boolean;
   onRequestNewLibrary: () => void;
 }) {
   const navigate = useNavigate();
@@ -407,7 +445,10 @@ function HomeGeneratePanel({
     "get-image-generation-config",
     {},
   ) as { data?: ImageGenerationConfig };
-  const { data: presetData } = useActionQuery("list-library-presets", {});
+  const { data: presetData, isLoading: presetsLoading } = useActionQuery(
+    "list-library-presets",
+    {},
+  );
   const createFromPreset = useActionMutation("create-library-from-preset");
   const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
   const [createdLibrary, setCreatedLibrary] =
@@ -423,6 +464,8 @@ function HomeGeneratePanel({
     return sorted;
   }, [createdLibrary, libraries]);
   const popularLibraries = sortedLibraries.slice(0, 3);
+  const librariesAreaLoading =
+    librariesLoading || (!popularLibraries.length && presetsLoading);
   const [libraryId, setLibraryId] = useState<string>(
     () => loadLastLibraryId() ?? "",
   );
@@ -863,62 +906,70 @@ function HomeGeneratePanel({
       </section>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconPhotoPlus size={16} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">
-              {popularLibraries.length ? "Popular libraries" : "Default styles"}
-            </h2>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/libraries">
-              View all
-              <IconArrowUpRight size={15} className="ml-1.5" />
-            </Link>
-          </Button>
-        </div>
-
-        {popularLibraries.length ? (
-          <div className="grid gap-3 md:grid-cols-3">
-            {popularLibraries.map((library) => (
-              <LibraryCard
-                key={library.id}
-                library={library}
-                to={`/library/${library.id}`}
-                selected={selectedLibrary?.id === library.id}
-                compact
-              />
-            ))}
-          </div>
+        {librariesAreaLoading ? (
+          <LibrarySectionSkeleton />
         ) : (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-5">
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Start with a default style
-                </h3>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Create a library from a preset, then generate from the prompt
-                  above.
-                </p>
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <IconPhotoPlus size={16} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">
+                  {popularLibraries.length
+                    ? "Popular libraries"
+                    : "Default styles"}
+                </h2>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onRequestNewLibrary}
-                className="gap-2"
-              >
-                <IconPhotoPlus className="h-4 w-4" />
-                Custom library
+              <Button asChild variant="outline" size="sm">
+                <Link to="/libraries">
+                  View all
+                  <IconArrowUpRight size={15} className="ml-1.5" />
+                </Link>
               </Button>
             </div>
-            <LibraryPresetGrid
-              presets={presets}
-              creatingId={creatingPresetId}
-              onCreate={createPresetLibrary}
-            />
-          </div>
+
+            {popularLibraries.length ? (
+              <div className="grid gap-3 md:grid-cols-3">
+                {popularLibraries.map((library) => (
+                  <LibraryCard
+                    key={library.id}
+                    library={library}
+                    to={`/library/${library.id}`}
+                    selected={selectedLibrary?.id === library.id}
+                    compact
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed bg-muted/20 p-5">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">
+                      Start with a default style
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Create a library from a preset, then generate from the
+                      prompt above.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onRequestNewLibrary}
+                    className="gap-2"
+                  >
+                    <IconPhotoPlus className="h-4 w-4" />
+                    Custom library
+                  </Button>
+                </div>
+                <LibraryPresetGrid
+                  presets={presets}
+                  creatingId={creatingPresetId}
+                  onCreate={createPresetLibrary}
+                />
+              </div>
+            )}
+          </>
         )}
       </section>
 

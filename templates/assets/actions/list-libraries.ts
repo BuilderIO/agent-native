@@ -5,9 +5,49 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { serializeAsset, serializeLibrary } from "./_helpers.js";
 
+function isImageAsset(asset: typeof schema.assets.$inferSelect): boolean {
+  return (
+    asset.mediaType !== "video" &&
+    !asset.mimeType?.toLowerCase().startsWith("video/")
+  );
+}
+
+function previewPriority(asset: typeof schema.assets.$inferSelect): number {
+  if (asset.status === "reference") return 0;
+  if (asset.status === "saved") return 1;
+  if (asset.role === "generated") return 2;
+  return 3;
+}
+
+function sortPreviewAssets(
+  assets: Array<typeof schema.assets.$inferSelect>,
+): Array<typeof schema.assets.$inferSelect> {
+  return [...assets].sort((a, b) => {
+    const priorityDelta = previewPriority(a) - previewPriority(b);
+    if (priorityDelta) return priorityDelta;
+    const dateDelta =
+      Date.parse(b.updatedAt ?? "") - Date.parse(a.updatedAt ?? "");
+    if (Number.isFinite(dateDelta) && dateDelta) return dateDelta;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function uniqueAssets(
+  assets: Array<typeof schema.assets.$inferSelect | undefined>,
+): Array<typeof schema.assets.$inferSelect> {
+  const seen = new Set<string>();
+  const unique: Array<typeof schema.assets.$inferSelect> = [];
+  for (const asset of assets) {
+    if (!asset || seen.has(asset.id)) continue;
+    seen.add(asset.id);
+    unique.push(asset);
+  }
+  return unique;
+}
+
 export default defineAction({
   description:
-    "List asset libraries accessible to the current user, including counts and cover thumbnails.",
+    "List asset libraries accessible to the current user, including counts and preview thumbnails.",
   schema: z.object({
     compact: z.coerce.boolean().optional(),
   }),
@@ -38,10 +78,12 @@ export default defineAction({
       : [];
     const libraries = rows.map((row) => {
       const libAssets = assets.filter((asset) => asset.libraryId === row.id);
+      const imageAssets = sortPreviewAssets(libAssets.filter(isImageAsset));
       const cover =
-        libAssets.find((asset) => asset.id === row.coverAssetId) ??
-        libAssets.find((asset) => asset.status === "saved") ??
-        libAssets[0];
+        imageAssets.find((asset) => asset.id === row.coverAssetId) ??
+        imageAssets.find((asset) => asset.status === "saved") ??
+        imageAssets[0];
+      const previewAssets = uniqueAssets([cover, ...imageAssets]).slice(0, 4);
       const base = serializeLibrary(row);
       return compact
         ? { id: base.id, title: base.title, description: base.description }
@@ -59,6 +101,7 @@ export default defineAction({
                 asset.mimeType?.startsWith("video/"),
             ).length,
             coverAsset: cover ? serializeAsset(cover) : null,
+            previewAssets: previewAssets.map(serializeAsset),
           };
     });
     return { count: libraries.length, libraries };

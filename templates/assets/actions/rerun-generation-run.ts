@@ -5,6 +5,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
 import generateImage from "./generate-image.js";
+import { requireGenerationSessionInLibrary } from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -37,6 +38,10 @@ export default defineAction({
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
     await assertAccess("asset-library", run.libraryId, "editor");
+    const resolvedSessionId = sessionId ?? run.sessionId ?? undefined;
+    if (resolvedSessionId) {
+      await requireGenerationSessionInLibrary(resolvedSessionId, run.libraryId);
+    }
 
     const metadata = parseJson<{
       settingsUsed?: {
@@ -54,7 +59,7 @@ export default defineAction({
       libraryId: run.libraryId,
       collectionId: run.collectionId ?? undefined,
       presetId: run.presetId ?? undefined,
-      sessionId: sessionId ?? run.sessionId ?? undefined,
+      sessionId: resolvedSessionId,
       prompt: run.prompt,
       aspectRatio: run.aspectRatio as any,
       imageSize: run.imageSize as any,

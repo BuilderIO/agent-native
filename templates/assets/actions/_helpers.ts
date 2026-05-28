@@ -15,6 +15,23 @@ export async function requireLibrary(id: string) {
   return access.resource;
 }
 
+export async function requireGenerationSessionInLibrary(
+  sessionId: string,
+  libraryId: string,
+) {
+  const db = getDb();
+  const [session] = await db
+    .select()
+    .from(schema.assetGenerationSessions)
+    .where(eq(schema.assetGenerationSessions.id, sessionId))
+    .limit(1);
+  if (!session) throw new Error("Generation session not found.");
+  if (session.libraryId !== libraryId) {
+    throw new Error("Generation session does not belong to this library.");
+  }
+  return session;
+}
+
 function isDirectMediaKey(key: string | null | undefined): key is string {
   return Boolean(
     key &&

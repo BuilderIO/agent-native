@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import generateImage from "./generate-image.js";
-import { getAssetOrThrow } from "./_helpers.js";
+import {
+  getAssetOrThrow,
+  requireGenerationSessionInLibrary,
+} from "./_helpers.js";
 import { parseJson } from "../server/lib/json.js";
 import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 
@@ -39,6 +42,9 @@ export default defineAction({
     callerAppId,
   }) => {
     const asset = await getAssetOrThrow(assetId);
+    if (sessionId) {
+      await requireGenerationSessionInLibrary(sessionId, asset.libraryId);
+    }
     const metadata = parseJson<{ category?: any }>(asset.metadata, {});
     const prompt = [
       asset.prompt || "Refine the prior generated image.",

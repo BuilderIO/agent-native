@@ -110,6 +110,19 @@ export interface ImageLibrarySummary {
   archivedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  referenceCount?: number;
+  generatedCount?: number;
+  videoCount?: number;
+  coverAsset?: ImageAssetPreview | null;
+  previewAssets?: ImageAssetPreview[];
+}
+
+export interface ImageAssetPreview {
+  id: string;
+  title?: string | null;
+  altText?: string | null;
+  previewUrl?: string | null;
+  thumbnailUrl?: string | null;
 }
 
 export interface AssetFolderSummary {

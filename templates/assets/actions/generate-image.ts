@@ -33,7 +33,10 @@ import {
   type AssetVariantState,
   type StyleBrief,
 } from "../shared/api.js";
-import { serializeAsset } from "./_helpers.js";
+import {
+  requireGenerationSessionInLibrary,
+  serializeAsset,
+} from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -78,20 +81,24 @@ export default defineAction({
       .where(eq(schema.assetLibraries.id, args.libraryId))
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
-    const [session] = args.sessionId
-      ? await db
-          .select()
-          .from(schema.assetGenerationSessions)
-          .where(eq(schema.assetGenerationSessions.id, args.sessionId))
-          .limit(1)
-      : [null];
-    if (args.sessionId && !session) {
-      throw new Error("Generation session not found.");
+    const session = args.sessionId
+      ? await requireGenerationSessionInLibrary(args.sessionId, args.libraryId)
+      : null;
+    if (
+      session?.presetId &&
+      args.presetId &&
+      args.presetId !== session.presetId
+    ) {
+      throw new Error("Generation preset does not match this session.");
     }
-    if (session && session.libraryId !== args.libraryId) {
-      throw new Error("Generation session does not belong to this library.");
+    if (
+      session?.collectionId &&
+      args.collectionId &&
+      args.collectionId !== session.collectionId
+    ) {
+      throw new Error("Collection does not match this session.");
     }
-    const resolvedPresetId = args.presetId ?? session?.presetId ?? undefined;
+    const resolvedPresetId = session?.presetId ?? args.presetId ?? undefined;
     const [preset] = resolvedPresetId
       ? await db
           .select()
@@ -106,6 +113,16 @@ export default defineAction({
       throw new Error("Generation preset does not belong to this library.");
     }
     if (
+      session?.collectionId &&
+      preset?.collectionId &&
+      preset.collectionId !== session.collectionId
+    ) {
+      throw new Error(
+        "Generation preset belongs to a different session collection.",
+      );
+    }
+    if (
+      !session?.collectionId &&
       args.collectionId &&
       preset?.collectionId &&
       preset.collectionId !== args.collectionId
@@ -113,9 +130,9 @@ export default defineAction({
       throw new Error("Generation preset belongs to a different collection.");
     }
     const resolvedCollectionId =
-      args.collectionId ??
       session?.collectionId ??
       preset?.collectionId ??
+      args.collectionId ??
       undefined;
     const [collection] = resolvedCollectionId
       ? await db
@@ -251,6 +268,8 @@ export default defineAction({
       runId,
       libraryId: args.libraryId,
       collectionId: resolvedCollectionId ?? null,
+      presetId: preset?.id ?? null,
+      sessionId: session?.id ?? null,
       prompt: args.prompt,
       slotId,
       status: "pending",
@@ -383,6 +402,8 @@ export default defineAction({
         runId,
         libraryId: args.libraryId,
         collectionId: resolvedCollectionId ?? null,
+        presetId: preset?.id ?? null,
+        sessionId: session?.id ?? null,
         prompt: args.prompt,
         slotId,
         status: "ready",
@@ -417,6 +438,8 @@ export default defineAction({
         runId,
         libraryId: args.libraryId,
         collectionId: resolvedCollectionId ?? null,
+        presetId: preset?.id ?? null,
+        sessionId: session?.id ?? null,
         prompt: args.prompt,
         slotId,
         status: "failed",
@@ -447,6 +470,8 @@ async function upsertVariantSlot(input: {
   runId: string;
   libraryId: string;
   collectionId?: string | null;
+  presetId?: string | null;
+  sessionId?: string | null;
   prompt: string;
   slotId: string;
   status: "pending" | "ready" | "failed";
@@ -463,16 +488,24 @@ async function upsertVariantSlot(input: {
       | null);
   const previous = (legacyCurrent ?? null) as AssetVariantState | null;
   const state: AssetVariantState =
-    previous?.libraryId === input.libraryId
+    previous?.libraryId === input.libraryId &&
+    (previous.sessionId ?? null) === (input.sessionId ?? null)
       ? previous
       : {
           runId: input.runId,
           libraryId: input.libraryId,
           collectionId: input.collectionId,
+          presetId: input.presetId ?? null,
+          sessionId: input.sessionId ?? null,
           prompt: input.prompt,
           slots: [],
           updatedAt: nowIso(),
         };
+  state.runId = input.runId;
+  state.collectionId = input.collectionId ?? null;
+  state.presetId = input.presetId ?? null;
+  state.sessionId = input.sessionId ?? null;
+  state.prompt = input.prompt;
   const nextSlot = {
     slotId: input.slotId,
     status: input.status,
