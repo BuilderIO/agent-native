@@ -7,7 +7,7 @@ description: "Expose your agent-native app as a remote MCP server so Claude, Cha
 
 Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server. This lets external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, VS Code GitHub Copilot, and Windsurf discover and call your app's actions directly — no extra code needed.
 
-If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to a hosted agent-native app, start with [External Agents](/docs/external-agents). It documents the one-command `agent-native connect https://mail.agent-native.com` flow, standard remote MCP OAuth for Claude Code, bearer fallback config for older clients, manual remote MCP setup for hosts we do not write directly, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
+If your goal is to connect Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to hosted agent-native apps, start with [External Agents](/docs/external-agents). It documents the recommended single Dispatch connector at `https://dispatch.agent-native.com/_agent-native/mcp`, direct per-app URLs for isolated app access, standard remote MCP OAuth, fallback config for older clients, MCP Apps inline UIs, and deep links back into the UI. This page is the lower-level MCP server reference.
 
 ## Overview {#overview}
 
@@ -72,11 +72,114 @@ POST https://your-app.example.com/_agent-native/mcp
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app HTML. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app resource. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart, not a separate plain HTML implementation. The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts can find the same `ui://` resource. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+
+### MCP App embed bridge {#mcp-app-embed-bridge}
+
+`embedApp()` is the low-level URL-first MCP App helper. It reads the action
+result's open link, asks the app-only `create_embed_session` tool to mint a
+route-scoped session, then launches the resulting app route. Standard hosts
+hydrate the signed route by navigating the MCP App frame itself. Claude web
+uses a single-frame transplant path that fetches the signed app HTML and
+hydrates it inside Claude's MCP App iframe because Claude does not reliably
+allow app-owned child iframes or external frame navigation. ChatGPT web keeps
+the signed app URL in a controlled route iframe for stable `window.openai`
+host APIs and bounded height control.
+For normal action authoring, use `embedRoute()` when the action's
+`link` and `mcpApp` should come from the same pure route builder. The route
+itself should derive state from the URL and normal app data fetching.
+Same-app `open_app({ embed: true })` returns a server-minted `embedStartUrl`
+so the resource can launch without a second iframe-originated tool call. The
+server moves that ticket-bearing URL into hidden metadata and strips it from
+model-visible structured content and normal open-link metadata. Custom actions
+can return the same field when they already know the target route.
+
+The outer MCP resource reports a bounded inline height to the host and the app
+route scrolls internally. `embedApp({ height })` defaults to a `560px` shell,
+clamps to `320-900px`, and subtracts `44px` for the wrapper toolbar before
+sizing the route viewport. Do not rely on host auto-resize measuring the full
+document; in ChatGPT and Claude this can make a normal full-app route appear as
+a huge chat artifact. Host conversations also keep already-rendered iframes, so
+after changing the resource shell or `ui://` version, test a fresh tool call
+rather than re-measuring an old frame.
+
+If a user reopens an older chat after a one-time embed start ticket expires,
+the start route returns a small refresh page and posts
+`agentNative.embedSessionExpired` to the wrapper. `embedApp()` clears the stale
+start URL and asks the app-only `create_embed_session` tool for a fresh ticket
+when it still has the original app route.
+
+Default direct embeds talk to the MCP Apps host through standard `ui/*`
+JSON-RPC messages:
+
+| Type                      | Payload shape                      |
+| ------------------------- | ---------------------------------- |
+| `ui/update-model-context` | `{ content?, structuredContent? }` |
+| `ui/message`              | `{ role: "user", content }`        |
+| `ui/open-link`            | `{ url }`                          |
+| `ui/request-display-mode` | `{ mode }`                         |
+
+Claude's transplanted route uses the same `ui/*` bridge after hydration. Test
+Claude against deployed/preview URLs or a local production build served with
+`agent-native start`; raw Vite dev modules can be app-auth protected and fail
+dynamic imports from Claude's resource origin.
+
+The ChatGPT controlled-frame path and any explicit `embedMode: "iframe"` /
+`renderMode: "iframe"` diagnostic path use the wrapper-to-route postMessage
+relay:
+
+| Direction       | Type                                     | Payload shape                                 |
+| --------------- | ---------------------------------------- | --------------------------------------------- |
+| wrapper → route | `agentNative.mcpHostContext`             | `{ context, capabilities, version }`          |
+| route → wrapper | `agentNative.mcpHost.updateModelContext` | `{ requestId, content?, structuredContent? }` |
+| route → wrapper | `agentNative.mcpHost.openLink`           | `{ requestId, url }`                          |
+| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                         |
+| wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }`          |
+
+`embedApp()` includes the MCP request origin in the resource CSP so the
+launcher can fetch and, when explicitly requested, frame the signed first-party
+route. Dispatch's `open_app` resource adds the exact origins for apps granted
+through Dispatch, which keeps the one-connector path narrow while still letting
+Claude/ChatGPT inline target app routes. Pass additional domains only for
+custom third-party frames or assets.
+
+Leave standard `_meta.ui.domain` unset by default. Its format is host-specific:
+Claude expects Claude content-domain hashes, while ChatGPT reads the separate
+`openai/widgetDomain` compatibility field. App URLs belong in CSP sources and
+open-link targets, not portable `ui.domain` metadata.
+
+Extension detail routes render their extension iframe from `srcDoc` when the
+route is already inside an MCP chat embed. That avoids a second
+`/_agent-native/extensions/:id/render` frame navigation being rejected by chat
+host ancestry checks, while keeping the same sandbox flags and postMessage
+extension bridge.
+
+Host-mediated open links keep the iframe from choosing its own browser target.
+Model context updates are opt-in and hidden from the user-facing transcript.
+`ui/message` is the portable way for an embedded app button to ask the host to
+post a visible user message and continue the chat. In agent-native routes,
+`sendToAgentChat()` uses `ui/update-model-context` plus `ui/message` when
+called from a submitted MCP App embed. Hidden context is sent through model
+context, while `ui/message` contains only the visible prompt. `submit: false`
+remains an in-route draft/prefill path.
+Display mode requests are best-effort: a host can honor, ignore, or reject the
+request. Embedded routes must remain functional in the default inline mode.
 
 ## Tools {#tools}
 
-All actions registered in your app are exposed as MCP tools. The mapping is direct:
+Stdio/code developer clients can see all connected app actions as MCP tools
+when they explicitly request the full catalog. Chat-style app hosts, including
+OAuth callers that request `mcp:apps` and generic authenticated remote
+HTTP/static-token callers, get a compact app-host catalog by default:
+app-facing builtins (`list_apps`, `open_app`, `ask_app`, and app-only
+`create_embed_session`) plus rare actions marked `mcpApp.compactCatalog: true`.
+Their `resources/list` is compact too, normally advertising only the generic
+`open_app` embed resource. `publicAgent.expose` remains the opt-in for safe
+read/ingest tools outside that compact app catalog. This keeps ChatGPT/Claude
+app-host discovery small while preserving the full developer surface for local
+agents.
+
+The mapping is direct:
 
 | Action property    | MCP tool property |
 | ------------------ | ----------------- |
@@ -84,7 +187,7 @@ All actions registered in your app are exposed as MCP tools. The mapping is dire
 | `tool.parameters`  | `inputSchema`     |
 | Action name        | Tool name         |
 
-When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri` and `_meta["ui/resourceUri"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
+When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri`, `_meta["ui/resourceUri"]`, and `_meta["openai/outputTemplate"]`, and the corresponding `ui://` resource is returned as `text/html;profile=mcp-app`.
 
 ### The `ask-agent` tool {#ask-agent}
 
@@ -119,14 +222,14 @@ The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-tok
 For OAuth-capable MCP hosts, configure the remote server URL with no static headers:
 
 ```bash
-claude mcp add --transport http agent-native-mail https://mail.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
 ```
 
 The first unauthenticated MCP request receives:
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
 ```
 
 Discovery endpoints:

@@ -19,8 +19,6 @@ export interface NavigationState {
   provider?: string;
   status?: string;
   issue?: string;
-  demo?: string;
-  demoStatus?: string;
   askQuestion?: string;
   limit?: number;
   priority?: string;
@@ -31,6 +29,7 @@ export interface NavigationState {
   selectedKnowledgeId?: string;
   reviewItemId?: string;
   settingsSection?: string;
+  extensionId?: string;
   _ts?: number;
 }
 
@@ -52,8 +51,6 @@ export function useNavigationState() {
       provider: params.get("provider") || undefined,
       status: params.get("status") || undefined,
       issue: params.get("issue") || undefined,
-      demo: params.get("demo") || undefined,
-      demoStatus: params.get("demoStatus") || undefined,
       askQuestion: params.get("ask") || undefined,
       limit: parseLimit(params.get("limit")),
       priority: params.get("priority") || undefined,
@@ -61,6 +58,7 @@ export function useNavigationState() {
       selectedKnowledgeId: params.get("knowledgeId") || undefined,
       reviewItemId: params.get("reviewItemId") || undefined,
       settingsSection: params.get("section") || undefined,
+      extensionId: extensionIdFromPath(localPathname),
     };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -109,10 +107,6 @@ export function useNavigationState() {
     if (navCommand.provider) params.set("provider", navCommand.provider);
     if (navCommand.status) params.set("status", navCommand.status);
     if (navCommand.issue) params.set("issue", navCommand.issue);
-    if (navCommand.demo) params.set("demo", navCommand.demo);
-    if (navCommand.demoStatus) {
-      params.set("demoStatus", navCommand.demoStatus);
-    }
     if (navCommand.askQuestion) params.set("ask", navCommand.askQuestion);
     if (navCommand.limit) params.set("limit", String(navCommand.limit));
     if (navCommand.priority) params.set("priority", navCommand.priority);
@@ -138,7 +132,12 @@ export function useNavigationState() {
     }
 
     const path = routerPath(
-      navCommand.path || pathFromNavView(navCommand.view, navCommand.captureId),
+      navCommand.path ||
+        pathFromNavView(
+          navCommand.view,
+          navCommand.captureId,
+          navCommand.extensionId,
+        ),
     );
     navigate(`${path}${params.size ? `?${params.toString()}` : ""}`);
     qc.setQueryData(["navigate-command"], null);
@@ -150,8 +149,15 @@ export function useNavigationState() {
  * command that only carries a `captureId`) resolves to the Search surface,
  * since Brain has no standalone capture-detail route.
  */
-function pathFromNavView(view?: string, captureId?: string): string {
+function pathFromNavView(
+  view?: string,
+  captureId?: string,
+  extensionId?: string,
+): string {
   if (view === "capture" || (!view && captureId)) return "/search";
+  if (view === "extensions" && extensionId) {
+    return `/extensions/${encodeURIComponent(extensionId)}`;
+  }
   return pathFromView(view);
 }
 
@@ -171,4 +177,9 @@ function routerPath(path: string): string {
     result = result.slice(basePath.length) || "/";
   }
   return result;
+}
+
+function extensionIdFromPath(pathname: string): string | undefined {
+  const match = pathname.match(/^\/extensions\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }

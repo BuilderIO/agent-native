@@ -1272,18 +1272,23 @@ export function normalizeGranolaNote(note: GranolaNote) {
         : undefined) ??
       note.created_at ??
       nowIso(),
-    sourceUrl: note.web_url,
     metadata: {
       provider: "granola",
       granolaNoteId: note.id,
-      owner: note.owner,
-      attendees: note.attendees,
-      calendarEvent: note.calendar_event,
-      folders: note.folder_membership,
-      sourceUrl: note.web_url,
       createdAt: note.created_at,
       updatedAt: note.updated_at,
-      transcriptSegments: Array.isArray(note.transcript) ? note.transcript : [],
+      scheduledStartTime:
+        typeof calendar.scheduled_start_time === "string"
+          ? calendar.scheduled_start_time
+          : undefined,
+      attendeesCount: Array.isArray(note.attendees)
+        ? note.attendees.length
+        : undefined,
+      transcriptSegmentCount: Array.isArray(note.transcript)
+        ? note.transcript.length
+        : undefined,
+      hasOwner: Boolean(note.owner),
+      hasFolders: Boolean(note.folder_membership),
     },
   };
 }

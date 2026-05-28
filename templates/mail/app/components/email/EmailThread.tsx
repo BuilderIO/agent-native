@@ -35,6 +35,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { getResolvedTheme } from "@/lib/theme";
 import { appApiPath } from "@/lib/api-path";
+import {
+  decodeHtmlEntities,
+  processHtmlImages,
+} from "@/lib/email-image-policy";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -2436,74 +2441,10 @@ function emailHasDesignedBackground(html: string): boolean {
   return false;
 }
 
-// Known tracking pixel domains (partial matches against hostname)
-const TRACKER_DOMAINS = [
-  "open.convertkit-",
-  "pixel.mailchimp.com",
-  "list-manage.com/track",
-  "t.sendinblue.com",
-  "t.sidekickopen",
-  "t.semail.",
-  "tracking.tldrnewsletter.com",
-  "links.iterable.com",
-  "email.mg.",
-  "trk.klclick",
-  "beacon.krxd.net",
-  "r.sup.sh", // Superhuman
-  "t.superhuman.com",
-  "track.hubspot",
-  "track.customer.io",
-  "ct.sendgrid.net",
-  "sendgrid.net/wf/open",
-  "mandrillapp.com/track",
-  "mailgun.org/track",
-  "go.pardot.com",
-  "analytics.google.com",
-  "google-analytics.com",
-  "bat.bing.com",
-  "facebook.com/tr",
-  "connect.facebook.net",
-  "ad.doubleclick.net",
-  "demdex.net",
-  "omtrdc.net",
-  "ml.klaviyo.com",
-  "trk.klaviyo.com",
-];
-
-function isTrackingUrl(src: string): boolean {
-  try {
-    const url = new URL(src);
-    const full = url.hostname + url.pathname;
-    return TRACKER_DOMAINS.some((d) => full.includes(d));
-  } catch {
-    return false;
-  }
-}
-
 type SanitizedEmailHtml = {
   headHtml: string;
   bodyHtml: string;
 };
-
-function decodeHtmlEntities(value: string): string {
-  let decoded = value;
-  for (let i = 0; i < 3; i++) {
-    const next = decoded
-      .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
-        String.fromCodePoint(Number.parseInt(hex, 16)),
-      )
-      .replace(/&#(\d+);?/g, (_, dec: string) =>
-        String.fromCodePoint(Number.parseInt(dec, 10)),
-      )
-      .replace(/&colon;?/gi, ":")
-      .replace(/&tab;?/gi, "\t")
-      .replace(/&newline;?/gi, "\n")
-      .replace(/&amp;?/gi, "&");
-    if (next === decoded) break;
-    decoded = next;
-  }
-  return decoded;
-}
 
 function isSafeEmailUrl(value: string, kind: "link" | "image"): boolean {
   const decoded = decodeHtmlEntities(value).trim();
@@ -2586,55 +2527,6 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   };
 }
 
-/** Strip images from HTML based on policy. Returns [processedHtml, imageCount]. */
-function processHtmlImages(
-  html: string,
-  policy: "show" | "block-trackers" | "block-all",
-): [string, number] {
-  if (policy === "show") return [html, 0];
-
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const images = doc.querySelectorAll("img");
-  let blocked = 0;
-
-  images.forEach((img) => {
-    const src = img.getAttribute("src") || "";
-    if (!src || src.startsWith("data:") || src.startsWith("cid:")) return;
-
-    if (policy === "block-all") {
-      img.removeAttribute("src");
-      img.setAttribute("data-blocked-src", src);
-      blocked++;
-    } else if (policy === "block-trackers" && isTrackingUrl(src)) {
-      img.remove();
-      blocked++;
-    }
-  });
-
-  // Also strip tracking pixel style tags (1x1 images via CSS background)
-  if (policy === "block-trackers" || policy === "block-all") {
-    doc.querySelectorAll('img[width="1"][height="1"]').forEach((img) => {
-      img.remove();
-      blocked++;
-    });
-    doc.querySelectorAll('img[width="0"]').forEach((img) => {
-      img.remove();
-      blocked++;
-    });
-    doc
-      .querySelectorAll(
-        'img[style*="display:none"], img[style*="display: none"]',
-      )
-      .forEach((img) => {
-        img.remove();
-        blocked++;
-      });
-  }
-
-  return [doc.body.innerHTML, blocked];
-}
-
 function HtmlEmailBody({
   html,
   senderEmail,
@@ -2657,6 +2549,7 @@ function HtmlEmailBody({
   const IFRAME_BG = hasDesignedBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
+  const isEmbedded = isMcpEmbedSurface();
 
   const imagePolicy = settings?.imagePolicy ?? "show";
   const trustedSenders = settings?.trustedSenders ?? [];
@@ -2669,17 +2562,29 @@ function HtmlEmailBody({
   const [showImagesForThread, setShowImagesForThread] = useState(false);
 
   // Determine effective policy for this email
-  const effectivePolicy =
-    isTrusted || showImagesForThread
+  const effectivePolicy = isEmbedded
+    ? "block-all"
+    : isTrusted || showImagesForThread
       ? imagePolicy === "block-all"
         ? "block-trackers" // trusted senders still get tracker blocking if policy isn't "show"
         : imagePolicy
       : imagePolicy;
 
-  const [processedHtml, blockedCount] = useMemo(
-    () => processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy),
-    [sanitizedHtml.bodyHtml, effectivePolicy],
-  );
+  const processedEmailHtml = useMemo(() => {
+    const [headHtml, headBlockedCount] = processHtmlImages(
+      sanitizedHtml.headHtml,
+      effectivePolicy,
+    );
+    const [bodyHtml, bodyBlockedCount] = processHtmlImages(
+      sanitizedHtml.bodyHtml,
+      effectivePolicy,
+    );
+    return {
+      headHtml,
+      bodyHtml,
+      blockedCount: headBlockedCount + bodyBlockedCount,
+    };
+  }, [sanitizedHtml.headHtml, sanitizedHtml.bodyHtml, effectivePolicy]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2775,10 +2680,10 @@ function HtmlEmailBody({
 <html>
 <head>
   <meta charset="utf-8">
-  ${sanitizedHtml.headHtml}
+  ${processedEmailHtml.headHtml}
   <style>${iframeCss}  </style>
 </head>
-<body>${processedHtml}</body>
+<body>${processedEmailHtml.bodyHtml}</body>
 </html>`);
     doc.close();
 
@@ -3260,8 +3165,8 @@ function HtmlEmailBody({
       images.forEach((img) => img.removeEventListener("load", resize));
     };
   }, [
-    processedHtml,
-    sanitizedHtml.headHtml,
+    processedEmailHtml.bodyHtml,
+    processedEmailHtml.headHtml,
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
@@ -3331,7 +3236,7 @@ function HtmlEmailBody({
     // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedHtml]);
+  }, [searchTerm, processedEmailHtml.bodyHtml]);
 
   // Update which mark is "active" and scroll it into view
   useEffect(() => {
@@ -3355,27 +3260,37 @@ function HtmlEmailBody({
   }, [activeLocalIdx, searchTerm]);
 
   const showBanner =
-    effectivePolicy === "block-all" && blockedCount > 0 && !showImagesForThread;
+    effectivePolicy === "block-all" &&
+    processedEmailHtml.blockedCount > 0 &&
+    (isEmbedded || !showImagesForThread);
 
   return (
     <div>
       {showBanner && (
         <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-accent/60 text-[12px] text-muted-foreground">
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-          <span>Images blocked.</span>
-          <button
-            onClick={() => setShowImagesForThread(true)}
-            className="text-primary hover:text-primary/80 font-medium transition-colors"
-          >
-            Show images
-          </button>
-          {senderEmail && (
-            <button
-              onClick={handleAlwaysTrust}
-              className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
-            >
-              Always from {senderEmail.split("@")[1]}
-            </button>
+          <span>
+            {isEmbedded
+              ? "Remote images hidden in this embed."
+              : "Images blocked."}
+          </span>
+          {!isEmbedded && (
+            <>
+              <button
+                onClick={() => setShowImagesForThread(true)}
+                className="text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                Show images
+              </button>
+              {senderEmail && (
+                <button
+                  onClick={handleAlwaysTrust}
+                  className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
+                >
+                  Always from {senderEmail.split("@")[1]}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

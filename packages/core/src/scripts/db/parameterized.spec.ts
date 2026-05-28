@@ -189,6 +189,40 @@ describe("db scripts parameterized SQL", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects raw db-exec writes to app identity tables", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await expect(
+      dbExec([
+        "--sql",
+        "INSERT INTO app_users (id, email, role) VALUES (?, ?, ?)",
+        "--args",
+        JSON.stringify(["user-1", "ada@example.com", "admin"]),
+      ]),
+    ).rejects.toThrow("Sensitive identity/access-control table");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects raw db-exec writes to privilege columns", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await expect(
+      dbExec([
+        "--sql",
+        "UPDATE profiles SET is_admin = 1 WHERE id = ?",
+        "--args",
+        JSON.stringify(["profile-1"]),
+      ]),
+    ).rejects.toThrow("Sensitive identity/access-control column");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects db-patch against credential tables", async () => {
     const execute = vi.fn();
     mockSqliteClient(execute);
@@ -209,6 +243,29 @@ describe("db scripts parameterized SQL", () => {
         "new",
       ]),
     ).rejects.toThrow("Sensitive framework table");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects db-patch against privilege columns", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbPatch } = await import("./patch.js");
+
+    await expect(
+      dbPatch([
+        "--table",
+        "profiles",
+        "--column",
+        "role",
+        "--where",
+        "id = 'profile-1'",
+        "--find",
+        "member",
+        "--replace",
+        "admin",
+      ]),
+    ).rejects.toThrow("Sensitive identity/access-control column");
     expect(execute).not.toHaveBeenCalled();
   });
 

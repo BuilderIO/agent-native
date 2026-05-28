@@ -124,7 +124,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "brain",
     label: "Brain",
-    hint: "Cited company memory from Slack, meetings, transcripts, and decisions",
+    hint: "Cited company knowledge from Slack, meetings, transcripts, and decisions",
     icon: "Brain",
     color: "#8B5CF6",
     colorRgb: "139 92 246",
@@ -275,21 +275,21 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "embedding"],
     core: true,
   },
   {
-    name: "images",
-    label: "Images",
-    hint: "Brand image libraries — generate on-brand heroes, diagrams, product shots, and slide art",
+    name: "assets",
+    label: "Assets",
+    hint: "Digital asset manager — upload, organize, search, and generate on-brand images and videos",
     icon: "Photo",
     color: "#0F766E",
     colorRgb: "15 118 110",
     devPort: 8100,
-    prodUrl: "https://images.agent-native.com",
+    prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
-    hidden: true,
     defaultAgent: true,
+    core: true,
   },
   {
     name: "starter",
@@ -303,6 +303,18 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
+    hidden: true,
+  },
+  {
+    name: "workbench",
+    label: "Workbench",
+    hint: "Visual command center for AI-assisted work — review PRs, monitor agent runs, build mini-tools",
+    icon: "LayoutDashboard",
+    color: "#475569",
+    colorRgb: "71 85 105",
+    devPort: 8104,
+    prodUrl: "https://workbench.agent-native.com",
+    defaultMode: "prod",
     hidden: true,
   },
   {
@@ -331,8 +343,11 @@ export function coreTemplates(): TemplateMeta[] {
 
 /** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
-  // Tolerate the legacy "video" alias.
+  // Tolerate legacy / renamed aliases.
   if (name === "video") name = "videos";
+  if (name === "image" || name === "images" || name === "asset") {
+    name = "assets";
+  }
   return TEMPLATES.find((t) => t.name === name);
 }
 

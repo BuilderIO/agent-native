@@ -29,6 +29,13 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
       return null;
     }),
+    resolveBuilderCredentials: vi.fn(async () => ({
+      privateKey: credentialState.builderPrivateKey,
+      publicKey: credentialState.builderPublicKey,
+      userId: credentialState.builderUserId,
+      orgName: credentialState.builderOrgName,
+      orgKind: null,
+    })),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
@@ -119,10 +126,16 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
-  it("short-circuits with missing-credentials when resolveBuilderAuthHeader returns null", async () => {
-    const { resolveBuilderAuthHeader } =
+  it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
+    const { resolveBuilderCredentials } =
       await import("../../server/credential-provider.js");
-    vi.mocked(resolveBuilderAuthHeader).mockResolvedValueOnce(null);
+    vi.mocked(resolveBuilderCredentials).mockResolvedValueOnce({
+      privateKey: null,
+      publicKey: "space-test",
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
 
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -174,6 +187,8 @@ describe("createBuilderEngine", () => {
     expect(init.headers["Content-Type"]).toBe("application/json");
     expect(init.headers["x-builder-api-key"]).toBe("space-test");
     expect(init.headers["x-builder-user-id"]).toBe("builder-user-123");
+    expect(init.headers["x-client-name"]).toBe("@agent-native/core");
+    expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
@@ -588,7 +603,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("caps configured gateway timeouts below the 60s serverless function limit", async () => {
+  it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
@@ -603,13 +618,13 @@ describe("createBuilderEngine", () => {
 
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
-    await vi.advanceTimersByTimeAsync(55_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("55s");
+    expect(stop?.error).toContain("45s");
   });
 
   it("maps mid-stream rate_limited into a retryable error stop", async () => {

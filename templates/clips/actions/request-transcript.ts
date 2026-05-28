@@ -22,9 +22,10 @@
  * `save-browser-transcript`. If this action finds a ready native transcript,
  * it preserves that result and only kicks off title generation.
  *
- * Fetches the recording's videoUrl, POSTs to the provider with
- * response_format=verbose_json and timestamp_granularities[]=segment, and
- * writes the result to `recording_transcripts` with status='ready'.
+ * Fetches the recording media, extracts audio-only bytes, POSTs to the
+ * provider with response_format=verbose_json and
+ * timestamp_granularities[]=segment, and writes the result to
+ * `recording_transcripts` with status='ready'.
  *
  * Usage:
  *   pnpm action request-transcript --recordingId=<id>
@@ -60,6 +61,14 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import {
+  AudioOnlyExtractionError,
+  assertAudioHasAudibleSignal,
+  isNoExtractableAudioError,
+  prepareAudioOnlyTranscriptionMedia,
+  type AudioOnlyTranscriptionMedia,
+} from "./lib/audio-only-transcription.js";
+import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -80,9 +89,17 @@ type TranscriptionProvider = {
   apiKey: string;
 };
 
+type RecordingMediaRow = {
+  videoUrl: string | null;
+  videoFormat?: "webm" | "mp4" | null;
+  hasAudio?: boolean | null;
+};
+
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
+const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
+  "Transcribe only words spoken in the audio. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 
@@ -127,6 +144,68 @@ function rootCause(err: Error): Error {
   return cause instanceof Error ? rootCause(cause) : err;
 }
 
+function recordingFallbackMimeType(
+  rec: Pick<RecordingMediaRow, "videoFormat">,
+): string {
+  return rec.videoFormat === "mp4" ? "video/mp4" : "video/webm";
+}
+
+function pickSourceMimeType(
+  actual: string | null | undefined,
+  fallback: string,
+): string {
+  const base = (actual ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!base || base === "application/octet-stream") return fallback;
+  return actual ?? fallback;
+}
+
+async function loadRecordingMediaBlob({
+  recordingId,
+  videoUrl,
+  fallbackMimeType,
+}: {
+  recordingId: string;
+  videoUrl: string;
+  fallbackMimeType: string;
+}): Promise<{ blob: Blob; sourceMimeType: string }> {
+  const isLocalBlob =
+    videoUrl.startsWith("/api/video/") ||
+    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
+  if (isLocalBlob) {
+    const stash = await readAppState(`recording-blob-${recordingId}`);
+    const b64 = typeof stash?.data === "string" ? stash.data : null;
+    if (!b64) throw new Error("recording-blob app-state missing");
+    const bytes = Buffer.from(b64, "base64");
+    const mime =
+      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
+    return {
+      blob: new Blob([bytes], { type: mime }),
+      sourceMimeType: pickSourceMimeType(mime, fallbackMimeType),
+    };
+  }
+
+  let resolvedVideoUrl = videoUrl;
+  if (resolvedVideoUrl.startsWith("/")) {
+    const port = process.env.NITRO_PORT || process.env.PORT || "3000";
+    const origin =
+      process.env.PUBLIC_URL ??
+      process.env.NITRO_PUBLIC_URL ??
+      `http://localhost:${port}`;
+    resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
+  }
+  const vidRes = await fetch(resolvedVideoUrl);
+  if (!vidRes.ok) {
+    throw new Error(
+      `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
+    );
+  }
+  const blob = await vidRes.blob();
+  return {
+    blob,
+    sourceMimeType: pickSourceMimeType(blob.type, fallbackMimeType),
+  };
+}
+
 function isRecentlyPendingTranscript(transcript: {
   status: string | null;
   updatedAt: string | null;
@@ -157,15 +236,6 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
-function providerTranscriptText(
-  text: string | null | undefined,
-  segments: Array<{ text: string }>,
-): string {
-  return (
-    text?.trim() || segments.map((segment) => segment.text.trim()).join(" ")
-  ).trim();
-}
-
 async function failEmptyProviderTranscript({
   db,
   recordingId,
@@ -185,6 +255,8 @@ async function failEmptyProviderTranscript({
     ownerEmail,
     status: "failed",
     failureReason: reason,
+    segmentsJson: "[]",
+    fullText: "",
     now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
@@ -193,6 +265,62 @@ async function failEmptyProviderTranscript({
     status: "failed" as const,
     failureReason: reason,
   };
+}
+
+async function failAudioOnlyPreparation({
+  db,
+  recordingId,
+  ownerEmail,
+  err,
+  now,
+}: {
+  db: ReturnType<typeof getDb>;
+  recordingId: string;
+  ownerEmail: string;
+  err: unknown;
+  now: string;
+}): Promise<
+  | {
+      recordingId: string;
+      status: "failed";
+      failureReason: string;
+    }
+  | NonNullable<Awaited<ReturnType<typeof preserveReadyTranscriptIfAvailable>>>
+> {
+  const reason =
+    err instanceof AudioOnlyExtractionError
+      ? err.message
+      : `Failed to prepare audio-only media for transcription: ${
+          (err as Error)?.message ?? String(err)
+        }`;
+
+  const preserved = await preserveReadyTranscriptIfAvailable({
+    db,
+    recordingId,
+    ownerEmail,
+  });
+  if (preserved) return preserved;
+
+  await upsertTranscriptRow(db, {
+    recordingId,
+    ownerEmail,
+    status: "failed",
+    failureReason: reason,
+    segmentsJson: "[]",
+    fullText: "",
+    now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+
+  if (isNoExtractableAudioError(err)) {
+    return {
+      recordingId,
+      status: "failed" as const,
+      failureReason: reason,
+    };
+  }
+
+  throw new Error(reason);
 }
 
 async function transcriptCleanupEnabled(): Promise<boolean> {
@@ -516,6 +644,41 @@ export default defineAction({
 
     const userEmail = getRequestUserEmail() ?? ownerEmail;
     let builderError: string | null = null;
+    let audioMediaPromise: Promise<AudioOnlyTranscriptionMedia> | null = null;
+    let audioSignalPromise: Promise<void> | null = null;
+
+    const getAudioMedia = (
+      rec: RecordingMediaRow,
+    ): Promise<AudioOnlyTranscriptionMedia> => {
+      const videoUrl = rec.videoUrl;
+      if (!videoUrl) throw new Error("Recording has no videoUrl");
+      if (rec.hasAudio === false) {
+        throw new AudioOnlyExtractionError(
+          "NO_AUDIO_TRACK",
+          "No speech was detected because this recording was saved without audio.",
+        );
+      }
+      audioMediaPromise ??= (async () => {
+        const fallbackMimeType = recordingFallbackMimeType(rec);
+        const media = await loadRecordingMediaBlob({
+          recordingId: args.recordingId,
+          videoUrl,
+          fallbackMimeType,
+        });
+        return prepareAudioOnlyTranscriptionMedia({
+          blob: media.blob,
+          recordingId: args.recordingId,
+          sourceMimeType: media.sourceMimeType,
+        });
+      })();
+      return audioMediaPromise;
+    };
+    const ensureAudioHasSignal = (
+      media: AudioOnlyTranscriptionMedia,
+    ): Promise<void> => {
+      audioSignalPromise ??= assertAudioHasAudibleSignal(media);
+      return audioSignalPromise;
+    };
 
     const [existingNativeTranscript] = await db
       .select({
@@ -575,6 +738,8 @@ export default defineAction({
       const [rec] = await db
         .select({
           videoUrl: schema.recordings.videoUrl,
+          videoFormat: schema.recordings.videoFormat,
+          hasAudio: schema.recordings.hasAudio,
           title: schema.recordings.title,
         })
         .from(schema.recordings)
@@ -599,68 +764,28 @@ export default defineAction({
         throw new Error(reason);
       }
 
-      let videoBlob: Blob;
+      let audioMedia: AudioOnlyTranscriptionMedia;
       try {
-        const isLocalBlob =
-          rec.videoUrl.startsWith("/api/video/") ||
-          (rec.videoUrl.startsWith("/api/uploads/") &&
-            rec.videoUrl.endsWith("/blob"));
-        if (isLocalBlob) {
-          const stash = await readAppState(
-            `recording-blob-${args.recordingId}`,
-          );
-          const b64 = typeof stash?.data === "string" ? stash.data : null;
-          if (!b64) throw new Error("recording-blob app-state missing");
-          const bytes = Buffer.from(b64, "base64");
-          const mime =
-            typeof stash?.mimeType === "string" ? stash.mimeType : "video/webm";
-          videoBlob = new Blob([bytes], { type: mime });
-        } else {
-          let videoUrl = rec.videoUrl;
-          if (videoUrl.startsWith("/")) {
-            const port = process.env.NITRO_PORT || process.env.PORT || "3000";
-            const origin =
-              process.env.PUBLIC_URL ??
-              process.env.NITRO_PUBLIC_URL ??
-              `http://localhost:${port}`;
-            videoUrl = `${origin}${videoUrl}`;
-          }
-          const vidRes = await fetch(videoUrl);
-          if (!vidRes.ok) {
-            throw new Error(
-              `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
-            );
-          }
-          videoBlob = await vidRes.blob();
-        }
+        audioMedia = await getAudioMedia(rec);
+        await ensureAudioHasSignal(audioMedia);
       } catch (err) {
-        const reason = `Failed to fetch video: ${(err as Error).message}`;
-        const preserved = await preserveReadyTranscriptIfAvailable({
+        return failAudioOnlyPreparation({
           db,
           recordingId: args.recordingId,
           ownerEmail,
-        });
-        if (preserved) return preserved;
-        await upsertTranscriptRow(db, {
-          recordingId: args.recordingId,
-          ownerEmail,
-          status: "failed",
-          failureReason: reason,
+          err,
           now,
         });
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        throw new Error(reason);
       }
 
       try {
         const startedAt = Date.now();
-        const audioBytes = new Uint8Array(await videoBlob.arrayBuffer());
-        const mimeType = videoBlob.type || "video/webm";
         const builderResult = await transcribeWithBuilder({
-          audioBytes,
-          mimeType,
+          audioBytes: audioMedia.audioBytes,
+          mimeType: audioMedia.mimeType,
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
+          instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
         });
 
         const segments = (builderResult.segments ?? [])
@@ -670,7 +795,11 @@ export default defineAction({
             text: s.text.trim(),
           }))
           .filter((segment) => segment.text);
-        const fullText = providerTranscriptText(builderResult.text, segments);
+        const normalizedTranscript = normalizeProviderTranscript(
+          builderResult.text,
+          segments,
+        );
+        const fullText = normalizedTranscript.fullText;
 
         const preserved = await preserveReadyTranscriptIfAvailable({
           db,
@@ -695,7 +824,7 @@ export default defineAction({
           status: "ready",
           failureReason: null,
           language: builderResult.language ?? "en",
-          segmentsJson: JSON.stringify(segments),
+          segmentsJson: JSON.stringify(normalizedTranscript.segments),
           fullText,
           now,
         });
@@ -725,12 +854,12 @@ export default defineAction({
 
         const elapsedMs = Date.now() - startedAt;
         console.log(
-          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${segments.length} segments)`,
+          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
         );
         return {
           recordingId: args.recordingId,
           status: "ready" as const,
-          segments: segments.length,
+          segments: normalizedTranscript.segments.length,
           provider: "builder",
         };
       } catch (err) {
@@ -816,10 +945,15 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    // Load the recording's videoUrl.
+    // Load the recording's media URL and prepare audio-only bytes. We never
+    // send video frames to a transcription provider; screen-only recordings
+    // without speech should become an empty/no-speech transcript instead of a
+    // visual narration.
     const [rec] = await db
       .select({
         videoUrl: schema.recordings.videoUrl,
+        videoFormat: schema.recordings.videoFormat,
+        hasAudio: schema.recordings.hasAudio,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
       })
@@ -845,71 +979,28 @@ export default defineAction({
       throw new Error(reason);
     }
 
-    // Resolve the video bytes. Two paths:
-    //  1. Dev fallback — finalize-recording stashed the assembled blob in
-    //     application_state under `recording-blob-:id`. Read it directly
-    //     instead of round-tripping through HTTP (avoids the localhost-port
-    //     guess and works under any port / host). Covers both the current
-    //     `/api/video/:id` shape and the legacy `/api/uploads/:id/blob`.
-    //  2. Production — videoUrl is an absolute URL on a real provider
-    //     (Builder.io / R2 / S3). Fetch it normally.
-    let videoBlob: Blob;
+    let audioMedia: AudioOnlyTranscriptionMedia;
     try {
-      const isLocalBlob =
-        rec.videoUrl.startsWith("/api/video/") ||
-        (rec.videoUrl.startsWith("/api/uploads/") &&
-          rec.videoUrl.endsWith("/blob"));
-      if (isLocalBlob) {
-        const stash = await readAppState(`recording-blob-${args.recordingId}`);
-        const b64 = typeof stash?.data === "string" ? stash.data : null;
-        if (!b64) throw new Error("recording-blob app-state missing");
-        const bytes = Buffer.from(b64, "base64");
-        const mime =
-          typeof stash?.mimeType === "string" ? stash.mimeType : "video/webm";
-        videoBlob = new Blob([bytes], { type: mime });
-      } else {
-        let videoUrl = rec.videoUrl;
-        if (videoUrl.startsWith("/")) {
-          const port = process.env.NITRO_PORT || process.env.PORT || "3000";
-          const origin =
-            process.env.PUBLIC_URL ??
-            process.env.NITRO_PUBLIC_URL ??
-            `http://localhost:${port}`;
-          videoUrl = `${origin}${videoUrl}`;
-        }
-        const vidRes = await fetch(videoUrl);
-        if (!vidRes.ok) {
-          throw new Error(
-            `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
-          );
-        }
-        videoBlob = await vidRes.blob();
-      }
+      audioMedia = await getAudioMedia(rec);
+      await ensureAudioHasSignal(audioMedia);
     } catch (err) {
-      const reason = `Failed to fetch video: ${(err as Error).message}`;
-      const preserved = await preserveReadyTranscriptIfAvailable({
+      return failAudioOnlyPreparation({
         db,
         recordingId: args.recordingId,
         ownerEmail,
-      });
-      if (preserved) return preserved;
-      await upsertTranscriptRow(db, {
-        recordingId: args.recordingId,
-        ownerEmail,
-        status: "failed",
-        failureReason: reason,
+        err,
         now,
       });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      throw new Error(reason);
     }
 
     // Post to the provider. Groq accepts the OpenAI-compatible form shape.
     const form = new FormData();
     form.append(
       "file",
-      videoBlob,
-      `${args.recordingId}.${videoBlob.type.includes("mp4") ? "mp4" : "webm"}`,
+      new Blob([audioMedia.audioBytes as BlobPart], {
+        type: audioMedia.mimeType,
+      }),
+      audioMedia.filename,
     );
     form.append("model", provider.model);
     form.append("response_format", "verbose_json");
@@ -942,7 +1033,11 @@ export default defineAction({
           text: s.text.trim(),
         }))
         .filter((segment) => segment.text);
-      const fullText = providerTranscriptText(data.text, segments);
+      const normalizedTranscript = normalizeProviderTranscript(
+        data.text,
+        segments,
+      );
+      const fullText = normalizedTranscript.fullText;
 
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
@@ -967,7 +1062,7 @@ export default defineAction({
         status: "ready",
         failureReason: null,
         language: data.language ?? "en",
-        segmentsJson: JSON.stringify(segments),
+        segmentsJson: JSON.stringify(normalizedTranscript.segments),
         fullText,
         now,
       });
@@ -997,12 +1092,12 @@ export default defineAction({
 
       const elapsedMs = Date.now() - startedAt;
       console.log(
-        `Transcribed recording ${args.recordingId} via ${provider.name} (${provider.model}) in ${elapsedMs}ms (${segments.length} segments)`,
+        `Transcribed recording ${args.recordingId} via ${provider.name} (${provider.model}) in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
       );
       return {
         recordingId: args.recordingId,
         status: "ready" as const,
-        segments: segments.length,
+        segments: normalizedTranscript.segments.length,
         provider: provider.name,
       };
     } catch (err) {

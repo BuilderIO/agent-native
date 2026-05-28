@@ -71,8 +71,15 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
+const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store, no-cache, max-age=0, must-revalidate",
+  pragma: "no-cache",
+  expires: "0",
+};
 
 function normalizeOrigin(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -111,6 +118,66 @@ export function shouldEagerStartWorkspaceApps(
     env.WORKSPACE_EAGER === "1" ||
     env.WORKSPACE_EAGER === "true"
   );
+}
+
+/**
+ * Whether the gateway should spawn the rest of the apps in the background
+ * after the default app boots. Lazy spawn already covers correctness — this
+ * is purely a UX optimization so the second/third/Nth app the user clicks
+ * into is already warm instead of paying the Vite + esbuild prebundle cost
+ * on demand.
+ *
+ * Defaults to ON in lazy mode. Off when the user passed --no-prewarm /
+ * WORKSPACE_NO_PREWARM=1, or when eager mode is already starting every app
+ * up front (in which case prewarm would be redundant).
+ */
+export function shouldPrewarmWorkspaceApps(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (args.includes("--no-prewarm")) return false;
+  if (env.WORKSPACE_NO_PREWARM === "1" || env.WORKSPACE_NO_PREWARM === "true") {
+    return false;
+  }
+  // Eager mode starts every app immediately; prewarm has nothing to do.
+  if (shouldEagerStartWorkspaceApps(args, env)) return false;
+  return true;
+}
+
+/**
+ * How many apps to prewarm in parallel. Each Vite spawn briefly maxes out a
+ * CPU core during esbuild prebundling, so booting all 9 templates at once on
+ * a 4-core laptop just produces a thundering herd. Default 2 — gentle on
+ * laptops, fast enough that all apps finish within a few cold-spawn windows.
+ * Override via --prewarm-concurrency=N or WORKSPACE_PREWARM_CONCURRENCY=N.
+ */
+export function workspacePrewarmConcurrency(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const flag = args.find((arg) => arg.startsWith("--prewarm-concurrency="));
+  const raw = flag
+    ? flag.slice("--prewarm-concurrency=".length)
+    : env.WORKSPACE_PREWARM_CONCURRENCY;
+  if (!raw) return 2;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return 2;
+  return Math.floor(parsed);
+}
+
+/**
+ * How long the prewarm queue waits after the gateway is ready before kicking
+ * off background spawns. Lets the default app's prebundle get first dibs on
+ * CPU. Override via WORKSPACE_PREWARM_DELAY_MS (mostly for tests).
+ */
+export function workspacePrewarmDelayMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env.WORKSPACE_PREWARM_DELAY_MS;
+  if (raw === undefined) return 1_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 1_000;
+  return Math.floor(parsed);
 }
 
 function readBooleanEnv(value: string | undefined): boolean | undefined {
@@ -352,6 +419,41 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
+function probeHttpReady(
+  app: Pick<WorkspaceApp, "id" | "port">,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let req: http.ClientRequest;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      resolve(ok);
+    };
+    req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: app.port,
+        method: "GET",
+        path: `/${app.id}`,
+        headers: {
+          accept: "text/html",
+          host: `127.0.0.1:${app.port}`,
+        },
+      },
+      (res) => {
+        res.resume();
+        finish(true);
+      },
+    );
+    req.setTimeout(timeoutMs, () => finish(false));
+    req.once("error", () => finish(false));
+    req.end();
+  });
+}
+
 function firstHeaderValue(
   value: string | string[] | number | undefined,
 ): string | undefined {
@@ -409,7 +511,13 @@ function renderStartingApp(app: WorkspaceApp): string {
       pre { max-height: min(46vh, 360px); overflow: auto; margin-top: 20px; padding: 14px 16px; border-radius: 8px; background: var(--code-bg); color: var(--code-fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; word-break: break-word; }
       @keyframes load { 0% { transform: translateX(-105%); } 100% { transform: translateX(245%); } }
     </style>
-    <script>setTimeout(() => window.location.reload(), ${JSON.stringify(refreshScriptDelay)});</script>
+    <script>
+      (() => {
+        const reload = () => window.location.reload();
+        setTimeout(reload, ${JSON.stringify(refreshScriptDelay)});
+        setInterval(reload, ${JSON.stringify(Math.max(refreshScriptDelay, 3_000))});
+      })();
+    </script>
   </head>
   <body>
     <main class="${failure ? "failed" : ""}">
@@ -509,6 +617,10 @@ export async function runWorkspaceDev(
   const usePollingFileWatcher = pollingMode === "enable";
   const proxyReadyTimeoutMs = Number(
     env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+  );
+  const proxyResponseTimeoutMs = Number(
+    env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+      DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
   );
   let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
@@ -694,6 +806,7 @@ export async function runWorkspaceDev(
           ...env,
           APP_NAME: app.id,
           AGENT_NATIVE_WORKSPACE: "1",
+          AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
@@ -704,6 +817,7 @@ export async function runWorkspaceDev(
           ),
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
+          VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
           VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
@@ -807,8 +921,8 @@ export async function runWorkspaceDev(
     if (app.installing || app.ready || app.restartTimer) return;
     const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
     const message =
-      `Timed out waiting ${timeout} for /${app.id} to accept ` +
-      `connections on 127.0.0.1:${app.port}.`;
+      `Timed out waiting ${timeout} for /${app.id} to return ` +
+      `an HTTP response on 127.0.0.1:${app.port}.`;
     const output = [message, app.outputTail?.trim()]
       .filter(Boolean)
       .join("\n\nLast child output:\n");
@@ -859,9 +973,21 @@ export async function runWorkspaceDev(
     return false;
   }
 
+  async function waitForHttpReady(
+    app: WorkspaceApp,
+    deadline: number,
+  ): Promise<boolean> {
+    while (Date.now() < deadline) {
+      const timeoutMs = Math.min(1_000, Math.max(1, deadline - Date.now()));
+      if (await probeHttpReady(app, timeoutMs)) return true;
+      await new Promise((r) => setTimeout(r, PROXY_READY_RETRY_DELAY_MS));
+    }
+    return false;
+  }
+
   function ensureReadinessProbe(app: WorkspaceApp): void {
     if (app.ready || app.readinessProbe || app.installing) return;
-    app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+    app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
       .then((ready) => {
         if (ready) {
           app.ready = true;
@@ -884,7 +1010,7 @@ export async function runWorkspaceDev(
 
     if (!app.ready && wantsHtml(req)) {
       ensureReadinessProbe(app);
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
       if (req.method === "HEAD") {
         res.end();
         return;
@@ -893,8 +1019,19 @@ export async function runWorkspaceDev(
       return;
     }
 
+    const serveStartingPage = () => {
+      res.writeHead(200, STARTING_APP_RESPONSE_HEADERS);
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(renderStartingApp(app));
+    };
+
     const dispatch = () => {
       const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
+      let settled = false;
+      let responseTimer: NodeJS.Timeout;
       const proxyReq = http.request(
         {
           hostname: "127.0.0.1",
@@ -904,13 +1041,42 @@ export async function runWorkspaceDev(
           headers,
         },
         (proxyRes) => {
+          if (settled) {
+            proxyRes.resume();
+            return;
+          }
+          settled = true;
+          clearTimeout(responseTimer);
           app.ready = true;
           res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
           proxyRes.pipe(res);
         },
       );
+      responseTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        app.ready = false;
+        proxyReq.destroy();
+        ensureReadinessProbe(app);
+        if (res.headersSent) {
+          res.end();
+          return;
+        }
+        if (wantsHtml(req)) {
+          serveStartingPage();
+          return;
+        }
+        res.writeHead(504, { "content-type": "text/plain" });
+        res.end(
+          `App "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+        );
+      }, proxyResponseTimeoutMs);
+      responseTimer.unref();
 
       proxyReq.on("error", (err) => {
+        clearTimeout(responseTimer);
+        if (settled) return;
+        settled = true;
         if (res.headersSent) {
           res.end();
           return;
@@ -931,14 +1097,14 @@ export async function runWorkspaceDev(
 
     // Cold path: hold non-HTML requests open while the child server boots.
     // Node keeps the request body paused until pipe() attaches.
-    void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
+    void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
           failAppStartupTimeout(app);
           if (!res.headersSent) {
             res.writeHead(502, { "content-type": "text/plain" });
             res.end(
-              `App "${app.id}" is not ready yet: connect ECONNREFUSED 127.0.0.1:${app.port}`,
+              `App "${app.id}" is not ready yet: no HTTP response from 127.0.0.1:${app.port}`,
             );
           } else {
             res.end();
@@ -1039,6 +1205,62 @@ export async function runWorkspaceDev(
     setInterval(() => {
       void syncApps().catch(() => {});
     }, 2_000).unref();
+  }
+
+  /**
+   * Background-spawn every app that wasn't started by `startWorkspaceProcesses`.
+   * The lazy proxy still handles correctness (an on-demand request always
+   * starts its target app); this is purely so the first navigation into a
+   * non-default app doesn't pay the cold Vite + esbuild prebundle cost.
+   *
+   * Fires after a short delay so the default app's prebundle gets first dibs
+   * on CPU. Concurrency-limited to avoid hammering a small dev machine —
+   * each Vite spawn briefly maxes out a core during prebundling.
+   */
+  async function prewarmRemainingApps(): Promise<void> {
+    const concurrency = workspacePrewarmConcurrency(args, env);
+    const delayMs = workspacePrewarmDelayMs(env);
+
+    const queue = apps
+      .filter((app) => app.id !== defaultApp)
+      .filter((app) => !(app.process && !app.process.killed))
+      .map((app) => app.id);
+
+    if (queue.length === 0) return;
+
+    stdout.write(
+      `[workspace] Prewarming ${queue.length} app(s) in the background ` +
+        `(concurrency ${concurrency}; pass --no-prewarm to disable)\n`,
+    );
+
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    if (shuttingDown) return;
+
+    let next = 0;
+    async function worker(): Promise<void> {
+      while (!shuttingDown && next < queue.length) {
+        const id = queue[next++];
+        const app = appById.get(id);
+        if (!app) continue;
+        // Another path (a real request, a restart, etc.) may have started
+        // this app already — skip without consuming a worker slot needlessly.
+        if (app.process && !app.process.killed) continue;
+        startApp(app);
+        ensureReadinessProbe(app);
+        // Wait for the upstream to answer HTTP before pulling the next
+        // app off the queue. This is what actually limits *concurrent
+        // prebundling* (not just concurrent spawning) and keeps CPU pressure
+        // sane. proxyReadyTimeoutMs caps any single stuck app.
+        await waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).catch(
+          () => false,
+        );
+      }
+    }
+
+    const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
   function openBrowser(url: string): void {
@@ -1146,13 +1368,27 @@ export async function runWorkspaceDev(
         `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
       );
       stdout.write(`[workspace] Gateway: ${gatewayUrl}\n`);
-      stdout.write(`[workspace] Mode: ${eager ? "eager" : "lazy"}\n`);
+      const prewarming = shouldPrewarmWorkspaceApps(args, env);
+      stdout.write(
+        `[workspace] Mode: ${
+          eager ? "eager" : prewarming ? "lazy+prewarm" : "lazy"
+        }\n`,
+      );
       for (const app of apps) {
         stdout.write(
           `[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}\n`,
         );
       }
       startWorkspaceProcesses();
+      if (prewarming) {
+        void prewarmRemainingApps().catch((err) => {
+          stderr.write(
+            `[workspace] Prewarm error: ${
+              err instanceof Error ? err.message : String(err)
+            }\n`,
+          );
+        });
+      }
       openBrowser(
         redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl,
       );

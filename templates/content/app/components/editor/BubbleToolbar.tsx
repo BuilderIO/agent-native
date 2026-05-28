@@ -1,5 +1,6 @@
 import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
+import { NodeSelection, type EditorState } from "@tiptap/pm/state";
 import {
   IconBold,
   IconItalic,
@@ -10,6 +11,7 @@ import {
   IconH1,
   IconH2,
   IconH3,
+  IconH4,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -22,6 +24,27 @@ import {
 interface BubbleToolbarProps {
   editor: Editor;
   onComment?: (quotedText: string, offsetTop: number) => void;
+}
+
+const MEDIA_NODE_TYPES = new Set(["image", "video", "audio"]);
+
+function selectionIncludesMedia(state: EditorState, from: number, to: number) {
+  if (
+    state.selection instanceof NodeSelection &&
+    MEDIA_NODE_TYPES.has(state.selection.node.type.name)
+  ) {
+    return true;
+  }
+
+  let includesMedia = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (MEDIA_NODE_TYPES.has(node.type.name)) {
+      includesMedia = true;
+      return false;
+    }
+    return !includesMedia;
+  });
+  return includesMedia;
 }
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
@@ -97,6 +120,12 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
       isActive: () => editor.isActive("heading", { level: 3 }),
     },
+    {
+      icon: IconH4,
+      title: "Heading 4",
+      action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+      isActive: () => editor.isActive("heading", { level: 4 }),
+    },
     { type: "divider" as const },
     {
       icon: IconLink,
@@ -141,7 +170,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       shouldShow={({ editor, state, from, to }) => {
         if (!editor.isFocused) return false;
         const isSelection = from !== to;
-        return isSelection;
+        if (!isSelection) return false;
+        return !selectionIncludesMedia(state, from, to);
       }}
     >
       {showLinkInput ? (

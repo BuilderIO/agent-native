@@ -1,17 +1,20 @@
 # Agent-Native Brain
 
-Brain is clean company chat backed by cited institutional memory. People ask
+Brain is clean company chat backed by cited institutional knowledge. People ask
 questions in the Ask route; Brain answers from approved company knowledge with
 links back to the Slack thread, meeting, transcript, issue, or webhook capture
 that supports the answer. Sources, Review, and Knowledge are the admin/support
-surfaces for connecting data, approving proposals, and inspecting cited memory.
+surfaces for connecting data, approving proposals, and inspecting cited knowledge.
 
 Brain ingests approved Slack channels, Clips recordings, Granola Team-space
-notes, GitHub issues/PRs, and generic transcript/webhook payloads, then
-distills them into reviewable SQL-backed knowledge with source links.
+notes, GitHub issues/PRs, and generic transcript/webhook payloads. Transcript
+style captures pass through a pre-storage privacy filter first, so Brain stores
+the company-relevant capture text rather than the full raw call transcript or
+provider payload. It then distills imported captures into reviewable SQL-backed
+knowledge with source links.
 
 The product direction is intentionally Glean-shaped, but the shipped V1 is not a
-full enterprise search replacement. Brain starts with open-source company memory
+full enterprise search replacement. Brain starts with open-source company knowledge
 over reviewed knowledge, then expands toward broader, permission-aware
 workspace search.
 
@@ -40,46 +43,42 @@ workspace search.
 ## Product Shape
 
 - **Full-page company chat:** the Ask route is the main surface. It runs
-  `AgentChatSurface` in page mode and keeps `get-brain-health` setup, source
-  health, review count, Load demo, and Run eval secondary to the chat. Keep this route on
-  `AgentChatSurface` so Brain uses the same composer UX as the agent sidebar
-  and Agent-Native Code.
-- **Repeatable first-run demo:** seed product-decision sources, run the trust
-  eval, and ask a cited question before connecting a real workspace.
-- **Search and drill-in:** the Search route uses `search-everything` across
+  `AgentChatSurface` in page mode and only surfaces setup/review attention when
+  action is needed. Keep this route on `AgentChatSurface` so Brain uses the
+  same composer UX as the agent sidebar and Agent-Native Code.
+- **Demo and evals stay out of the product UI:** seed product-decision sources
+  and run trust evals from actions/CLI/docs, not as prominent Ask-page controls.
+- **Search and drill-in:** the hidden Search route uses `search-everything` across
   knowledge, raw captures, and source records, then agents can open exact
   records with `get-knowledge` or `get-capture`. Cross-app expansion is exposed
   as delegation guidance, not as hidden reads from other apps.
 - **Review queue:** the Review route lists pending/approved/rejected proposals,
-  lets reviewers edit proposed memory text, inspect evidence/source links, and
+  lets reviewers edit proposed knowledge text, inspect evidence/source links, and
   approve or reject. Reviewers can publish approved proposals as shared
-  `context/company-brain/...` workspace context when the memory should be
+  `context/company-brain/...` workspace context when the knowledge should be
   ambient for Dispatch and other apps.
-- **Source setup:** the Sources route configures Slack, Clips, Granola, GitHub,
-  generic webhook, and manual sources; reviews captures; queues distillation;
-  and shows reusable workspace connection grants/readiness beside Brain source
-  records. Sources are org-shared by default so approved memory benefits the
-  whole workspace. Slack rollout should stay in the pilot loop: test the
-  connection, sample narrowly, review captures, distill/propose durable memory,
-  then approve before broad sync.
-- **Ops and settings:** Ops tracks queued, processing, stale, failed, and done
-  distillation work. Settings controls assistant identity, source posture,
-  default publish tier, company-memory approval, citations, redaction, and
-  connector notifications.
+- **Source setup:** the Sources route leads with configured sources and one
+  clear Add source action. Provider catalog, source filtering, health checks,
+  and maintenance syncs live under Advanced. Sources are org-shared by default
+  so approved knowledge benefits the whole workspace.
+- **Ops and settings:** Ops stays available as an advanced/debug route for
+  queued, processing, stale, failed, and done distillation work. Settings
+  controls assistant identity, source posture, default publish tier,
+  company-knowledge approval, citations, redaction, and connector notifications.
 
 ## Brain vs Dispatch
 
-Brain is the company-memory specialist. It ingests approved sources, reviews
+Brain is the company-knowledge specialist. It ingests approved sources, reviews
 captures, distills durable facts and decisions, and answers from citations.
 
 Dispatch is the workspace control plane. It owns central messaging, the shared
 secrets vault, cross-app A2A routing, recurring jobs, approvals, and the
 distribution and approval of workspace-wide resources. In a workspace, Dispatch
 can route questions to Brain and grant Brain shared provider credentials, but
-Brain remains the place where company memory is ingested, reviewed, searched,
+Brain remains the place where company knowledge is ingested, reviewed, searched,
 and cited. Brain exposes
 read-only, citation-backed retrieval as its public A2A capability so Dispatch
-and sibling apps can ask company-memory questions. That is not anonymous data
+and sibling apps can ask company-knowledge questions. That is not anonymous data
 access: Brain's A2A agent card can be discovered publicly, but actual retrieval
 stays behind the authenticated A2A/action boundary and uses the same review,
 redaction, citation, and source-access rules as in-app Brain searches.
@@ -101,7 +100,7 @@ pnpm --filter brain build
 ## Core Flow
 
 1. Check `get-brain-health` for the next first-run step, source freshness,
-   pending proposals, queue issues, and the last retrieval/demo eval score.
+   pending proposals, queue issues, and the last retrieval eval score.
 2. Create a source with `create-source`.
 3. Run `sync-source` for Slack/Granola/GitHub sources, import a transcript with
    `import-transcript`, import raw text with `import-capture`, or POST a signed
@@ -129,7 +128,7 @@ pnpm --filter brain build
 
 ## Agent Retrieval Pattern
 
-Agents should treat Brain as cited company memory, not a guess engine:
+Agents should treat Brain as cited company knowledge, not a guess engine:
 
 - Start with `search-everything` for broad questions so knowledge, raw captures,
   and sources can all be considered. Inspect `federatedCoverage` before
@@ -152,7 +151,7 @@ Agents should treat Brain as cited company memory, not a guess engine:
 
 ## Privacy And Gating
 
-Brain is scoped to company memory, not personal surveillance:
+Brain is scoped to company knowledge, not personal surveillance:
 
 - Slack sync reads only configured channels and rejects DMs/MPIMs.
 - Granola sync reads Team-space notes exposed by Granola's API, not private
@@ -338,8 +337,11 @@ pnpm --filter brain action create-source \
 ```
 
 Brain persists Granola cursors in the source cursor JSON and normalizes note
-summary, transcript, attendees, calendar metadata, and `web_url` into raw
-captures.
+summary, transcript, attendees, calendar metadata, and `web_url` into imported
+captures. Before SQL insert, the sanitizer filters the title/body down to
+company-relevant content and strips raw transcript segments, attendees, owner,
+and calendar objects from metadata. Safe linkage such as `sourceUrl`, connector,
+sync run id, and note timestamps remains available for review/citations.
 
 ## GitHub Source Config
 
@@ -466,6 +468,31 @@ directly. Generic sources use the same payload shape for transcripts, customer
 research, meeting exports, or any bounded capture that should enter the review
 and distillation pipeline.
 
+Transcript payloads from Clips, generic webhooks, Granola, and
+`import-transcript` are sanitized before they are saved. The default model is
+the Brain agent model, but Settings can specify a cheaper model override for
+this filtering pass. The model sanitizer receives `AGENTS.md`, including the
+capture sanitization rules, so privacy policy tweaks can be made in instructions.
+Recruiting and candidate-evaluation content is always stripped. If no model is
+available, Brain falls back to a conservative deterministic filter that keeps
+only likely company-relevant lines and redacts obvious contact details, secrets,
+recruiting signals, and links.
+
+After enabling or tightening the filter, re-run it on already imported
+transcript captures:
+
+```bash
+pnpm --filter brain action resanitize-captures \
+  --sourceId <source-id> \
+  --limit 25 \
+  --dryRun true
+```
+
+Non-dry-run resanitization skips captures that already have knowledge or
+proposals citing their current text, so evidence quotes do not silently drift.
+After reviewing the dry-run preview, re-distill affected captures or pass
+`--allowCitationDrift true` only for an intentional repair.
+
 ## Data
 
 Brain stores data in portable SQL through Drizzle:
@@ -494,8 +521,8 @@ pnpm --filter brain action run-demo-eval
 ```
 
 The eval checks product-decision recall, citation presence, supersede links,
-proposal gating, PII redaction, and personal-content exclusion. The Ask page
-also exposes **Load demo** and **Run eval** controls for template demos.
+proposal gating, PII redaction, and personal-content exclusion. Keep these
+demo/eval controls in actions and docs rather than the Ask-page product UI.
 
 Run the real-channel-style retrieval eval:
 

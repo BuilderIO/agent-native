@@ -16,7 +16,7 @@ The framework uses [Better Auth](https://better-auth.com)'s organizations plugin
 - **Active organization** — the session tracks which org the user is currently working in (`session.orgId`). Switching orgs changes the data they see.
 - **Data isolation** — SQL queries are automatically scoped to the active org via `org_id` columns. Data tagged with one org is invisible to users in another org, including the agent.
 
-All first-party templates (Mail, Calendar, Content, Brain, Slides, Video, Analytics, Clips, Design, Forms, and Dispatch) are multi-tenant out of the box. If you're building on any of these, your app already supports teams with no extra work.
+All first-party templates (Mail, Calendar, Content, Brain, Assets, Slides, Video, Analytics, Clips, Design, Forms, and Dispatch) are multi-tenant out of the box. If you're building on any of these, your app already supports teams with no extra work.
 
 ## Organizations and members {#organizations-and-members}
 
@@ -54,15 +54,15 @@ For full details on how scoping works at the SQL level, see [Security & Data Sco
 
 ## Adding multi-tenancy to a new table {#new-tables}
 
-When you add a new domain table, include `organization_id` to make it tenant-aware:
+When you add a new domain table, use the framework's dialect-agnostic schema helpers and include ownership columns to make it tenant-aware:
 
 ```typescript
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
 
-export const projects = sqliteTable("projects", {
+export const projects = table("projects", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  organizationId: text("organization_id").notNull(),
+  ...ownableColumns(),
   // ... other columns
 });
 ```

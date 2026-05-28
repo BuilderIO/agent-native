@@ -1,9 +1,10 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -39,11 +40,19 @@ const SlidesSchema = z.preprocess(
   z.array(SlideSchema),
 );
 
+function deckDeepLink(deckId: string): string {
+  return buildDeepLink({
+    app: "slides",
+    view: "editor",
+    params: { deckId },
+  });
+}
+
 export default defineAction({
   description:
-    "Create an empty deck, or atomically replace all slides in an existing deck. " +
-    "For AI-generated decks, create the deck with slides: [] and then use add-slide so progress appears live. " +
-    "Use non-empty slides here only for imports or intentional bulk replacement. " +
+    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
+    "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
     "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, and slide count.",
   schema: z.object({
@@ -68,6 +77,16 @@ export default defineAction({
       .optional()
       .describe("Optional design system ID to link to the deck"),
   }),
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Deck preview",
+      description: "Open the generated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      height: 680,
+    }),
+  },
   http: false,
   run: async ({
     title,
@@ -133,6 +152,8 @@ export default defineAction({
         title,
         slideCount: slides.length,
         url: getDeckUrl(deckId),
+        deepLink: deckDeepLink(deckId),
+        slides,
       };
     }
 
@@ -183,6 +204,20 @@ export default defineAction({
       title,
       slideCount: slides.length,
       url: getDeckUrl(id),
+      deepLink: deckDeepLink(id),
+      slides,
+    };
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : undefined;
+    if (!id) return null;
+    return {
+      url: deckDeepLink(id),
+      label: "Open deck in Slides",
+      view: "editor",
     };
   },
 });

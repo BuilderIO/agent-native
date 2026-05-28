@@ -67,7 +67,9 @@ export const getAnalysis = defineEventHandler(async (event) => {
       ownerEmail: a.ownerEmail,
       orgId: a.orgId,
       visibility: a.visibility,
-      keptAt: a.keptAt,
+      role: a.role,
+      canEdit: a.canEdit,
+      canManage: a.canManage,
     };
   } catch (err: any) {
     const status = err?.statusCode ?? 500;

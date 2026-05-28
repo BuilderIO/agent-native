@@ -1,4 +1,8 @@
-import { AgentActionStopError, defineAction } from "@agent-native/core";
+import {
+  AgentActionStopError,
+  defineAction,
+  embedApp,
+} from "@agent-native/core";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -100,6 +104,16 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Saved analysis",
+      description: "Open the saved analysis in the real Analytics UI.",
+      iframeTitle: "Agent-Native Analytics",
+      openLabel: "Open analysis",
+      height: 680,
+    }),
+  },
   run: async (args) => {
     const runCtx = getRequestRunContext();
     if (
@@ -127,6 +141,9 @@ export default defineAction({
       id: args.id,
       analysisId: args.id,
       name: args.name,
+      description: args.description,
+      resultMarkdown: args.resultMarkdown,
+      resultData: args.resultData,
       urlPath: `/analyses/${args.id}`,
       deepLink: buildDeepLink({
         app: "analytics",

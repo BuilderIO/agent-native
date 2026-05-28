@@ -90,6 +90,12 @@ export interface ActionMcpAppCsp {
   baseUriDomains?: string[];
 }
 
+export type ActionMcpAppCspBuilder = (ctx: {
+  actionName: string;
+  appId?: string;
+  requestOrigin?: string;
+}) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
+
 export interface ActionMcpAppPermissions {
   camera?: Record<string, never>;
   microphone?: Record<string, never>;
@@ -98,8 +104,13 @@ export interface ActionMcpAppPermissions {
 }
 
 export interface ActionMcpAppResourceMeta {
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
@@ -126,8 +137,13 @@ export interface ActionMcpAppResourceConfig {
   mimeType?: typeof MCP_APP_MIME_TYPE;
   /** Extra resource/content metadata. `ui` is merged with the fields below. */
   _meta?: Record<string, unknown>;
-  csp?: ActionMcpAppCsp;
+  csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
   permissions?: ActionMcpAppPermissions;
+  /**
+   * Host-specific sandbox domain hint. Do not set this to the app's normal
+   * production URL; app origins belong in CSP/open-link metadata. ChatGPT uses
+   * the separate `openai/widgetDomain` compatibility field.
+   */
   domain?: string;
   prefersBorder?: boolean;
 }
@@ -139,6 +155,13 @@ export interface ActionMcpAppConfig {
    * action and the app iframe can call it back through the host bridge.
    */
   visibility?: Array<"model" | "app">;
+  /**
+   * Rare escape hatch for MCP Apps chat hosts. By default OAuth callers with
+   * `mcp:apps` see the generic app tools (`open_app`, `list_apps`, etc.) so
+   * hosts do not ingest every action-specific UI resource. Set this only when
+   * this specific action must stay visible in that compact catalog.
+   */
+  compactCatalog?: boolean;
 }
 
 /** Schema definition for a single action parameter (legacy JSON schema style). */
@@ -173,7 +196,7 @@ interface DefineActionWithSchema<
     args: StandardSchemaV1.InferOutput<TSchema>,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
-  /** If true, the framework will NOT emit a screen-refresh poll event after a
+  /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
@@ -228,7 +251,7 @@ interface DefineActionWithParams<
   schema?: never;
   run: (args: InferParams<TParams>) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
-  /** If true, the framework will NOT emit a screen-refresh poll event after a
+  /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, the agent may execute this action concurrently with other
@@ -319,7 +342,7 @@ export function defineAction(options: any) {
   // Auto-infer readOnly from http.method === "GET" unless explicitly set.
   // GET actions are idempotent reads; their completion should NOT trigger a
   // screen refresh. Everything else is assumed to mutate — the dispatcher
-  // emits a poll event on success so the UI auto-refetches its queries.
+  // emits a change event on success so the UI auto-refetches its queries.
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
     httpConfig !== false &&

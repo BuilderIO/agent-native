@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { and, asc, eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description: "List all comments on a slide, ordered by creation time.",
@@ -15,11 +15,17 @@ export default defineAction({
     const { deckId, slideId } = args;
     await assertAccess("deck", deckId, "viewer");
 
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT * FROM slide_comments WHERE deck_id = ? AND slide_id = ? ORDER BY created_at ASC`,
-      args: [deckId, slideId],
-    });
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.slideComments)
+      .where(
+        and(
+          eq(schema.slideComments.deckId, deckId),
+          eq(schema.slideComments.slideId, slideId),
+        ),
+      )
+      .orderBy(asc(schema.slideComments.createdAt));
     return { comments: rows };
   },
 });

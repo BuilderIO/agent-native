@@ -85,6 +85,7 @@ import {
   RecorderEngine,
   NO_MIC_DEVICE_ID,
   type DisplaySurface,
+  type RecorderFinalizeResult,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
@@ -274,6 +275,7 @@ function permissionGuidance(
   message: string,
   opts?: { mode?: RecordingMode; micDeviceId?: string | null },
 ): string | null {
+  if (isUploadFailureError(message)) return null;
   if (!isPermissionError(message)) return null;
   if (isPolicyPermissionError(message)) {
     if (opts?.mode === "screen") {
@@ -325,6 +327,7 @@ function permissionSettingsUrl(
   message: string,
   mode?: RecordingMode,
 ): string | null {
+  if (isUploadFailureError(message)) return null;
   if (!isMacPlatform() || isPolicyPermissionError(message)) return null;
   if (isScreenPermissionError(message)) return MAC_SCREEN_RECORDING_PREF_URL;
   if (isCameraPermissionError(message)) return MAC_CAMERA_PREF_URL;
@@ -368,14 +371,44 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
 }
 
 function getRecordingErrorTitle(error: string): string {
-  if (/upload failed|chunk/i.test(error)) return "Upload failed";
+  if (isUploadSizeError(error)) return "Video is too large";
+  if (isUploadFailureError(error)) return "Upload failed";
   if (isScreenPermissionError(error)) return "Screen recording needs access";
   if (isCameraPermissionError(error)) return "Camera needs access";
   if (isMicrophonePermissionError(error)) return "Microphone needs access";
   return "Couldn't start recording";
 }
 
+function isUploadSizeError(error: string): boolean {
+  return /too large to upload|too large for clips|limit is \d|file is too large|file size/i.test(
+    error,
+  );
+}
+
+function uploadTooLargeMessage(size: number, detail?: string): string {
+  return `Video is too large to upload (${
+    detail ?? formatMb(size)
+  }, limit is ${formatMb(MAX_UPLOAD_BYTES)}). Choose a video under ${formatMb(
+    MAX_UPLOAD_BYTES,
+  )}, or trim/export a smaller copy and upload again.`;
+}
+
+function isUploadFailureError(error: string): boolean {
+  return (
+    isUploadSizeError(error) ||
+    /upload failed|chunk|reset-chunks|re-upload/i.test(error)
+  );
+}
+
 function friendlyRecordingErrorMessage(error: string): string {
+  if (isUploadSizeError(error)) {
+    return `This video is too large for Clips to upload directly. Choose a video under ${formatMb(
+      MAX_UPLOAD_BYTES,
+    )}, or trim/export a smaller copy and upload again.`;
+  }
+  if (isUploadFailureError(error)) {
+    return "The video could not finish uploading. Retry the upload before starting over.";
+  }
   if (isPolicyPermissionError(error)) {
     return "This recorder is embedded somewhere that blocks capture permissions.";
   }
@@ -390,9 +423,6 @@ function friendlyRecordingErrorMessage(error: string): string {
   }
   if (isMicrophonePermissionError(error)) {
     return "Clips could not start the microphone. Allow microphone access, then try again.";
-  }
-  if (/upload failed|chunk/i.test(error)) {
-    return "The recording could not finish uploading. Check video storage, then try again.";
   }
   if (error.length > 220) {
     return "Something blocked the recorder before it could start.";
@@ -482,19 +512,26 @@ function RecordingErrorCard({
   error,
   mode,
   micDeviceId,
+  canRetryUpload,
   onTryAgain,
 }: {
   error: string;
   mode: RecordingMode;
   micDeviceId: string | null;
+  canRetryUpload: boolean;
   onTryAgain: () => void;
 }) {
-  const guidance = permissionGuidance(error, { mode, micDeviceId });
-  const permissionError = isPermissionError(error);
-  const policyError = isPolicyPermissionError(error);
+  const uploadFailure = isUploadFailureError(error);
+  const guidance = uploadFailure
+    ? null
+    : permissionGuidance(error, { mode, micDeviceId });
+  const permissionError = !uploadFailure && isPermissionError(error);
+  const policyError = !uploadFailure && isPolicyPermissionError(error);
   const embeddedScreenError =
-    isEmbeddedWindow() && isScreenPermissionError(error);
-  const settings = getModePermissionLabels(mode, micDeviceId);
+    !uploadFailure && isEmbeddedWindow() && isScreenPermissionError(error);
+  const settings = permissionError
+    ? getModePermissionLabels(mode, micDeviceId)
+    : [];
   const directUrl = directRecorderUrl();
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
@@ -502,7 +539,7 @@ function RecordingErrorCard({
   return (
     <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
       <div className="border-b border-border p-6">
-        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
           <IconAlertTriangle className="h-5 w-5" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
@@ -537,7 +574,7 @@ function RecordingErrorCard({
       <div className="space-y-3 p-6">
         <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
           <IconRefresh className="h-4 w-4" />
-          Try again
+          {canRetryUpload ? "Retry upload" : "Try again"}
         </Button>
         {(policyError || embeddedScreenError) && (
           <Button
@@ -731,10 +768,15 @@ export default function RecordRoute() {
 
   const showRecordingErrorToast = useCallback((message: string) => {
     const pendingOpts = pendingStartOptsRef.current;
-    const guidance = permissionGuidance(message, pendingOpts ?? undefined);
-    const settingsUrl = permissionSettingsUrl(message, pendingOpts?.mode);
+    const uploadFailure = isUploadFailureError(message);
+    const guidance = uploadFailure
+      ? null
+      : permissionGuidance(message, pendingOpts ?? undefined);
+    const settingsUrl = uploadFailure
+      ? null
+      : permissionSettingsUrl(message, pendingOpts?.mode);
     const friendlyMessage = friendlyRecordingErrorMessage(message);
-    toast.error("Couldn't start recording", {
+    toast.error(uploadFailure ? "Upload failed" : "Couldn't start recording", {
       description: guidance ?? friendlyMessage,
       duration: guidance ? 20_000 : 10_000,
       action: settingsUrl
@@ -1011,11 +1053,11 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Upload a local video file as a Clip.
   // Reads metadata via a hidden <video>, creates the recording row, then
-  // streams the file to /api/uploads/:id/chunk in 5MB slices (the chunk
-  // route caps at 6MB) with isFinal=1 on the last slice. Mirrors the
-  // recorder's upload pipeline so finalize-recording handles it identically.
+  // streams the file to /api/uploads/:id/chunk in slices small enough for
+  // Netlify's effective binary function payload limit. Mirrors the recorder's
+  // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024; // 5 MiB; chunk route allows up to 6.
+  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
 
   const probeVideoMetadata = useCallback(
     (
@@ -1099,12 +1141,14 @@ export default function RecordRoute() {
           stderrTail: string[];
           elapsedMs: number;
         } | null = null;
+        let uploadTooLargeDetail: string | undefined;
 
         if (file.size > COMPRESS_THRESHOLD_BYTES) {
           setUiState("compressing");
           const compression = await compressBlobIfTooLarge(file, mimeType, {
             width: meta.width,
             height: meta.height,
+            durationMs: meta.durationMs,
             signal: abort.signal,
             onProgress: ({ stage, progress }) => {
               if (stage === "encoding" && typeof progress === "number") {
@@ -1146,19 +1190,17 @@ export default function RecordRoute() {
               compressionError,
             );
           }
-          if (uploadBlob.size > MAX_UPLOAD_BYTES) {
-            const detail = compression.compressed
-              ? `${formatMb(uploadBlob.size)} after compression`
-              : `${formatMb(uploadBlob.size)}`;
-            throw new Error(
-              `Video is too large to upload (${detail}, limit is ${formatMb(
-                MAX_UPLOAD_BYTES,
-              )}). Try a shorter recording or lower the screen resolution / frame rate.`,
-            );
+          if (uploadBlob.size > MAX_UPLOAD_BYTES && compression.compressed) {
+            uploadTooLargeDetail = `${formatMb(uploadBlob.size)} after compression`;
           }
           setCompressionProgress(null);
-          setUiState("uploading");
         }
+        if (uploadBlob.size > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            uploadTooLargeMessage(uploadBlob.size, uploadTooLargeDetail),
+          );
+        }
+        setUiState("uploading");
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
@@ -1242,11 +1284,13 @@ export default function RecordRoute() {
           });
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
-            throw new Error(
+            const error = new Error(
               `Upload failed at chunk ${i + 1}/${totalChunks}: ${
                 text || chunkRes.statusText
               }`,
             );
+            (error as Error & { status?: number }).status = chunkRes.status;
+            throw error;
           }
           if (isFinal) {
             finalChunkResult =
@@ -1280,7 +1324,13 @@ export default function RecordRoute() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
         const aborted = err instanceof Error && err.name === "AbortError";
-        if (createdId) {
+        const status =
+          err instanceof Error
+            ? (err as Error & { status?: number }).status
+            : undefined;
+        const serverRejectedTooLarge =
+          status === 413 || isUploadSizeError(message);
+        if (createdId && !serverRejectedTooLarge) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1291,11 +1341,15 @@ export default function RecordRoute() {
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
-          toast.error("Upload failed", {
-            description:
-              "The clip was marked failed in your library. You can remove it from the card menu.",
-            duration: 12_000,
-          });
+          toast.error(
+            isUploadSizeError(message) ? "Video is too large" : "Upload failed",
+            {
+              description: createdId
+                ? "The clip was marked failed in your library. You can remove it from the card menu."
+                : friendlyRecordingErrorMessage(message),
+              duration: 12_000,
+            },
+          );
         }
       } finally {
         if (fileUploadAbortRef.current === abort) {
@@ -1329,6 +1383,37 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
   // -------------------------------------------------------------------------
+  const finishSavedRecording = useCallback(
+    async (recordingId: string, result: RecorderFinalizeResult) => {
+      // Recording is fully saved — clear refs so that if anything below throws
+      // and the user clicks "Try again", doCancel() won't trash a good recording.
+      pendingRef.current = null;
+      engineRef.current = null;
+      setCameraStream(null);
+      setPreviewStream(null);
+      setCompressionProgress(null);
+      setUiState("complete");
+      if (result.waitingForStorage) {
+        toast.info("Recording is ready to upload", {
+          description:
+            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+          duration: 12_000,
+        });
+      } else {
+        toast.success("Recording saved");
+      }
+
+      await writeAppState("navigate", {
+        view: "recording",
+        recordingId,
+      }).catch(() => {});
+      setTimeout(() => {
+        navigate(`/r/${recordingId}`);
+      }, 50);
+    },
+    [navigate],
+  );
+
   const doStop = useCallback(async () => {
     const engine = engineRef.current;
     const pending = pendingRef.current;
@@ -1380,30 +1465,7 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
-      // Recording is fully saved — clear refs so that if anything below throws
-      // and the user clicks "Try again", doCancel() won't trash a good recording.
-      pendingRef.current = null;
-      engineRef.current = null;
-      setCameraStream(null);
-      setPreviewStream(null);
-      setUiState("complete");
-      if (stopResult.waitingForStorage) {
-        toast.info("Recording is ready to upload", {
-          description:
-            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
-          duration: 12_000,
-        });
-      } else {
-        toast.success("Recording saved");
-      }
-
-      await writeAppState("navigate", {
-        view: "recording",
-        recordingId: pending.id,
-      });
-      setTimeout(() => {
-        navigate(`/r/${pending.id}`);
-      }, 50);
+      await finishSavedRecording(pending.id, stopResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       // Distinguish user-initiated cancel from real failure. When the user
@@ -1438,10 +1500,41 @@ export default function RecordRoute() {
         duration: 12_000,
       });
     }
-  }, [navigate, liveTranscription]);
+  }, [finishSavedRecording, liveTranscription]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
+
+  const retryFailedUpload = useCallback(async () => {
+    const engine = engineRef.current;
+    const pending = pendingRef.current;
+    if (!engine || !pending || !engine.canRetryUpload()) return;
+
+    setError(null);
+    setCompressionProgress(null);
+    setUiState("uploading");
+    try {
+      const retryResult = await engine.retryUpload();
+      await finishSavedRecording(pending.id, retryResult);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Upload failed";
+      fetch(pending.abortUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: message }),
+      }).catch(() => {});
+      setCompressionProgress(null);
+      setError(message);
+      setUiState("error");
+      toast.error("Upload failed", {
+        description: message,
+        duration: 12_000,
+      });
+    }
+  }, [finishSavedRecording]);
 
   const requestStop = useCallback(() => {
     const engine = engineRef.current;
@@ -1645,6 +1738,7 @@ export default function RecordRoute() {
     uiState === "compressing";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
+  const rememberedRecorderOptions = pendingStartOptsRef.current;
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
   // sidebar back-affordance. Surface a back arrow whenever there's nothing in
@@ -1700,8 +1794,14 @@ export default function RecordRoute() {
                 ) : storageConfigured ? (
                   <PreRecordPanel
                     onStart={startFlow}
-                    initialMode={initialRecorderOptions.mode}
-                    initialDisplaySurface={initialRecorderOptions.surface}
+                    initialMode={
+                      rememberedRecorderOptions?.mode ??
+                      initialRecorderOptions.mode
+                    }
+                    initialDisplaySurface={
+                      rememberedRecorderOptions?.displaySurface ??
+                      initialRecorderOptions.surface
+                    }
                     onUpload={uploadFile}
                     cameraSize={cameraSize}
                     onCameraSizeChange={setCameraSize}
@@ -1877,10 +1977,15 @@ export default function RecordRoute() {
               error={error}
               mode={recordingMode}
               micDeviceId={pendingStartOptsRef.current?.micDeviceId ?? null}
+              canRetryUpload={!!engineRef.current?.canRetryUpload()}
               onTryAgain={() => {
-                // Re-run the same flow with the current mode/surface — users
-                // expect "Try again" to retry, not to wipe their selections.
-                void restart();
+                if (engineRef.current?.canRetryUpload()) {
+                  void retryFailedUpload();
+                } else {
+                  // Re-run the same flow with the current mode/surface — users
+                  // expect "Try again" to retry, not to wipe their selections.
+                  void restart();
+                }
               }}
             />
           )}

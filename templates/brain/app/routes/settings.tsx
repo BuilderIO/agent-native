@@ -66,12 +66,12 @@ const sourcePolicyOptions = [
   {
     value: "strict",
     label: "Strict",
-    description: "Answer from approved memory and citations only.",
+    description: "Answer from approved knowledge and citations only.",
   },
   {
     value: "balanced",
     label: "Balanced",
-    description: "Prefer approved memory, then identify source gaps.",
+    description: "Prefer approved knowledge, then identify source gaps.",
   },
   {
     value: "exploratory",
@@ -126,7 +126,7 @@ export default function SettingsRoute() {
       <PageHeader
         eyebrow="Customize"
         title="Customize Brain"
-        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into memory."
+        description="Name the assistant, shape its voice, and set the policies it follows when turning company sources into knowledge."
         actions={
           <Button
             size="sm"
@@ -183,7 +183,7 @@ export default function SettingsRoute() {
               </CardTitle>
               <CardDescription>
                 The default voice and source posture for answers and distilled
-                memory proposals.
+                knowledge proposals.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
@@ -289,7 +289,7 @@ export default function SettingsRoute() {
               <div className="grid gap-4">
                 <SettingSwitch
                   label="Require approval for company knowledge"
-                  description="Queue company-wide memory candidates for human review before publishing."
+                  description="Queue company-wide knowledge candidates for human review before publishing."
                   checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
                   onChange={(checked) =>
                     update("requireApprovalForCompanyKnowledge", checked)
@@ -317,6 +317,50 @@ export default function SettingsRoute() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
+              <SettingSwitch
+                label="Sanitize transcript captures before storage"
+                description="Filter Granola, Clips, webhook, and manual transcript imports down to company-relevant content before saving."
+                checked={settings.captureSanitizationEnabled !== false}
+                onChange={(checked) =>
+                  update("captureSanitizationEnabled", checked)
+                }
+              />
+              {settings.captureSanitizationEnabled !== false ? (
+                <div className="grid gap-4 rounded-md border border-border p-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="capture-sanitization-model">
+                      Sanitization model
+                    </Label>
+                    <Input
+                      id="capture-sanitization-model"
+                      value={settings.captureSanitizationModel ?? ""}
+                      placeholder="Default agent model or a cheaper flash model"
+                      onChange={(event) =>
+                        update("captureSanitizationModel", event.target.value)
+                      }
+                    />
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Optional override for the pre-save filtering pass.
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="capture-sanitization-instructions">
+                      Sanitization instructions
+                    </Label>
+                    <Textarea
+                      id="capture-sanitization-instructions"
+                      value={settings.captureSanitizationInstructions ?? ""}
+                      onChange={(event) =>
+                        update(
+                          "captureSanitizationInstructions",
+                          event.target.value,
+                        )
+                      }
+                      className="min-h-24 resize-y leading-6"
+                    />
+                  </div>
+                </div>
+              ) : null}
               <SettingSwitch
                 label="Auto-redact emails"
                 description="Remove email addresses from distilled knowledge unless they are essential evidence."
@@ -382,6 +426,14 @@ export default function SettingsRoute() {
               <PolicyRow
                 label="Redaction"
                 value={settings.autoRedactEmails ? "enabled" : "disabled"}
+              />
+              <PolicyRow
+                label="Pre-save filter"
+                value={
+                  settings.captureSanitizationEnabled === false
+                    ? "disabled"
+                    : "enabled"
+                }
               />
             </CardContent>
           </Card>

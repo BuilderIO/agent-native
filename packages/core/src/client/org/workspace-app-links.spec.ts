@@ -10,16 +10,20 @@ describe("org switcher app links", () => {
   it("lists the default app suite with Dispatch pinned", () => {
     const apps = defaultOrgAppLinks();
 
-    expect(apps).toHaveLength(10);
+    expect(apps).toHaveLength(11);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
       name: "Dispatch",
+      icon: "MessageCircle",
       isDispatch: true,
       href: "https://dispatch.agent-native.com/overview",
     });
+    expect(apps.find((app) => app.id === "brain")?.icon).toBe("Brain");
+    expect(apps.find((app) => app.id === "analytics")?.icon).toBe("BarChart2");
     expect(apps.map((app) => app.id)).toEqual(
       expect.arrayContaining([
         "analytics",
+        "assets",
         "brain",
         "calendar",
         "clips",
@@ -49,6 +53,7 @@ describe("org switcher app links", () => {
     );
 
     expect(apps?.map((app) => app.id)).toEqual(["dispatch", "mail"]);
+    expect(apps?.map((app) => app.icon)).toEqual(["MessageCircle", "Mail"]);
     expect(apps?.[0]?.href).toBe("http://127.0.0.1:8080/dispatch/overview");
     expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail");
     expect(dispatchAppsHref(apps ?? [])).toBe(

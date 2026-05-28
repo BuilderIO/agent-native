@@ -25,8 +25,27 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 import { agentNativePath } from "./api-path.js";
+import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
+
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+function defaultActionQueryRetry(
+  failureCount: number,
+  error: unknown,
+): boolean {
+  if (isAuthFailure(error)) return false;
+  return failureCount < 3;
+}
 
 // ---------------------------------------------------------------------------
 // Action type registry — augmented by generated code
@@ -81,6 +100,7 @@ async function actionFetch<T>(
   method: string,
   params?: Record<string, any>,
 ): Promise<T> {
+  ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -222,6 +242,7 @@ export function useActionQuery<
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     queryFn: () => actionFetch<R>(actionName, "GET", params),
+    retry: defaultActionQueryRetry,
     ...options,
   });
 }

@@ -8,6 +8,11 @@
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM"],
     "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true

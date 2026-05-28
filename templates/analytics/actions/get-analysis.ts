@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -15,6 +15,16 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Analysis preview",
+      description: "Open the saved analysis in the real Analytics UI.",
+      iframeTitle: "Agent-Native Analytics",
+      openLabel: "Open analysis",
+      height: 680,
+    }),
+  },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
     const a = result as { id?: string; error?: string };
@@ -50,6 +60,9 @@ export default defineAction({
       ownerEmail: a.ownerEmail,
       orgId: a.orgId,
       visibility: a.visibility,
+      role: a.role,
+      canEdit: a.canEdit,
+      canManage: a.canManage,
     };
   },
 });

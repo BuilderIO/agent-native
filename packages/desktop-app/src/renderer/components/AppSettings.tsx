@@ -1,4 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   IconX,
   IconPlus,
@@ -16,10 +23,24 @@ import {
   IconFolder,
   IconFolderPlus,
   IconAlertCircle,
+  IconKeyboard,
 } from "@tabler/icons-react";
 import type { AppConfig } from "@shared/app-registry";
 import type { UpdateStatus } from "@shared/ipc-channels";
-import { generateAppId } from "@shared/app-registry";
+import {
+  generateAppId,
+  getDesktopTemplateGatewayAppUrl,
+  isDefaultDesktopTemplateDevTarget,
+} from "@shared/app-registry";
+import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  type DesktopShortcutBehavior,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpsertRequest,
+} from "@shared/desktop-shortcuts";
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
 
@@ -54,9 +75,19 @@ function inferPortFromUrl(url: string): number {
 
 function appUrlForRemotePairing(app: AppConfig): string {
   if ((app.mode ?? "prod") === "dev") {
-    return app.devUrl || (app.devPort ? `http://localhost:${app.devPort}` : "");
+    return (
+      effectiveDevUrlForDisplay(app) ||
+      (app.devPort ? `http://localhost:${app.devPort}` : "")
+    );
   }
   return app.url || app.devUrl || "";
+}
+
+function effectiveDevUrlForDisplay(app: AppConfig): string {
+  if (isDefaultDesktopTemplateDevTarget(app)) {
+    return getDesktopTemplateGatewayAppUrl(app.id) || app.devUrl || "";
+  }
+  return app.devUrl || "";
 }
 
 function defaultRemoteRelayUrl(apps: AppConfig[]): string {
@@ -209,6 +240,141 @@ function updateStatusCopy(status: UpdateStatus | null): {
   };
 }
 
+interface ShortcutDraft {
+  id?: string;
+  accelerator: string;
+  app: string;
+  view: string;
+  behavior: DesktopShortcutBehavior;
+  enabled: boolean;
+}
+
+function defaultShortcutDraft(apps: AppConfig[]): ShortcutDraft {
+  const firstEnabledApp = apps.find((app) => app.enabled !== false) ?? null;
+  return {
+    accelerator: "",
+    app: firstEnabledApp?.id ?? "",
+    view: "",
+    behavior: "toggle",
+    enabled: true,
+  };
+}
+
+function shortcutDraftFromBinding(
+  binding: DesktopShortcutBinding,
+): ShortcutDraft {
+  return {
+    id: binding.id,
+    accelerator: binding.accelerator,
+    app: binding.app,
+    view: binding.view ?? "",
+    behavior: binding.behavior,
+    enabled: binding.enabled,
+  };
+}
+
+function shortcutRequestFromDraft(
+  draft: ShortcutDraft,
+): DesktopShortcutUpsertRequest {
+  return {
+    id: draft.id,
+    accelerator: draft.accelerator,
+    app: draft.app,
+    view: draft.view.trim() || undefined,
+    behavior: draft.behavior,
+    enabled: draft.enabled,
+  };
+}
+
+function shortcutKeyFromEvent(event: ReactKeyboardEvent): {
+  accelerator?: string;
+  error?: string;
+} {
+  const modifierKeys = new Set(["Alt", "Control", "Meta", "Shift"]);
+  if (modifierKeys.has(event.key)) return {};
+
+  const parts: string[] = [];
+  if (event.metaKey) parts.push("Command");
+  if (event.ctrlKey) parts.push("Control");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+
+  if (!parts.length) return { error: "Use at least one modifier plus a key." };
+
+  const key = event.key === " " ? "Space" : event.key;
+  return normalizeDesktopShortcutAccelerator([...parts, key].join("+"));
+}
+
+function ShortcutRecorder({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <div className="settings-shortcut-recorder-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`settings-shortcut-recorder${recording ? " settings-shortcut-recorder--recording" : ""}`}
+        onClick={() => {
+          setError(null);
+          setRecording(true);
+          requestAnimationFrame(() => buttonRef.current?.focus());
+        }}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          if (event.key === "Backspace" || event.key === "Delete") {
+            onChange("");
+            setRecording(false);
+            setError(null);
+            return;
+          }
+          const next = shortcutKeyFromEvent(event);
+          if (!next.accelerator) {
+            if (next.error) setError(next.error);
+            return;
+          }
+          onChange(next.accelerator);
+          setError(null);
+          setRecording(false);
+        }}
+        onKeyUp={(event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        <IconKeyboard size={14} />
+        <span>
+          {recording
+            ? "Press shortcut"
+            : value
+              ? formatDesktopShortcutAccelerator(
+                  value,
+                  window.electronAPI?.platform,
+                )
+              : "Record shortcut"}
+        </span>
+      </button>
+      {error && <span className="settings-shortcut-error">{error}</span>}
+    </div>
+  );
+}
+
 function SoftwareUpdateCard() {
   const status = useUpdateStatus();
   const copy = updateStatusCopy(status);
@@ -347,6 +513,18 @@ export default function AppSettings({
   const [providerLoadMessage, setProviderLoadMessage] = useState<string | null>(
     null,
   );
+  const [showShortcutSettings, setShowShortcutSettings] = useState(false);
+  const [shortcutSettings, setShortcutSettings] =
+    useState<DesktopShortcutSettings | null>(null);
+  const [shortcutDraft, setShortcutDraft] = useState<ShortcutDraft>(() =>
+    defaultShortcutDraft(apps),
+  );
+  const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
+  const [shortcutSaving, setShortcutSaving] = useState(false);
+  const shortcutTargetApps = useMemo(
+    () => apps.filter((app) => app.enabled !== false),
+    [apps],
+  );
 
   // Load frame settings
   useEffect(() => {
@@ -370,6 +548,35 @@ export default function AppSettings({
   useEffect(() => {
     void refreshProviderSettings();
   }, [refreshProviderSettings]);
+
+  const refreshShortcutSettings = useCallback(async () => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.loadBindings) return;
+    try {
+      const settings = await api.loadBindings();
+      setShortcutSettings(settings);
+      setShortcutMessage(null);
+    } catch (err) {
+      setShortcutMessage(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showShortcutSettings) return;
+    void refreshShortcutSettings();
+  }, [refreshShortcutSettings, showShortcutSettings]);
+
+  useEffect(() => {
+    setShortcutDraft((current) => {
+      if (
+        current.app &&
+        apps.some((app) => app.id === current.app && app.enabled !== false)
+      ) {
+        return current;
+      }
+      return { ...current, app: defaultShortcutDraft(apps).app };
+    });
+  }, [apps]);
 
   const refreshRemoteStatus = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -434,6 +641,54 @@ export default function AppSettings({
       setRemotePairing(false);
     }
   }, [remotePairUrl]);
+
+  const shortcutRegistrations = useMemo(() => {
+    const map = new Map<string, DesktopShortcutRegistration>();
+    for (const registration of shortcutSettings?.registrations ?? []) {
+      map.set(registration.id, registration);
+    }
+    return map;
+  }, [shortcutSettings]);
+
+  const handleShortcutSave = useCallback(async () => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.upsertBinding) return;
+    setShortcutSaving(true);
+    setShortcutMessage(null);
+    try {
+      const result = await api.upsertBinding(
+        shortcutRequestFromDraft(shortcutDraft),
+      );
+      setShortcutSettings(result.settings);
+      if (result.ok) {
+        setShortcutDraft(defaultShortcutDraft(apps));
+      }
+      setShortcutMessage(result.error ?? null);
+    } catch (err) {
+      setShortcutMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setShortcutSaving(false);
+    }
+  }, [apps, shortcutDraft]);
+
+  const handleShortcutRemove = useCallback(async (id: string) => {
+    const api = window.electronAPI?.shortcuts;
+    if (!api?.removeBinding) return;
+    const result = await api.removeBinding(id);
+    setShortcutSettings(result.settings);
+    setShortcutMessage(result.error ?? null);
+  }, []);
+
+  const handleShortcutToggle = useCallback(
+    async (binding: DesktopShortcutBinding, enabled: boolean) => {
+      const api = window.electronAPI?.shortcuts;
+      if (!api?.upsertBinding) return;
+      const result = await api.upsertBinding({ ...binding, enabled });
+      setShortcutSettings(result.settings);
+      setShortcutMessage(result.error ?? null);
+    },
+    [],
+  );
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
@@ -520,6 +775,12 @@ export default function AppSettings({
 
   const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
   const remoteCopy = remoteStatusCopy(remoteStatus);
+  const normalizedShortcut = normalizeDesktopShortcutAccelerator(
+    shortcutDraft.accelerator,
+  );
+  const shortcutDraftValid =
+    Boolean(normalizedShortcut.accelerator) &&
+    shortcutTargetApps.some((app) => app.id === shortcutDraft.app);
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -681,7 +942,7 @@ export default function AppSettings({
                       <span className="settings-app-name">{app.name}</span>
                       <span className="settings-app-url">
                         {app.mode === "dev" && app.devUrl
-                          ? app.devUrl
+                          ? effectiveDevUrlForDisplay(app)
                           : app.url || app.devUrl}
                       </span>
                     </div>
@@ -766,6 +1027,207 @@ export default function AppSettings({
                   </div>
                 )}
               </div>
+
+              <button
+                type="button"
+                className="settings-disclosure settings-disclosure--nested"
+                onClick={() => setShowShortcutSettings((value) => !value)}
+              >
+                {showShortcutSettings ? (
+                  <IconChevronDown size={14} />
+                ) : (
+                  <IconChevronRight size={14} />
+                )}
+                <IconKeyboard size={14} />
+                <span>Keyboard launch shortcuts</span>
+              </button>
+
+              {showShortcutSettings && (
+                <div className="settings-section settings-shortcut-section">
+                  <div className="settings-shortcut-form">
+                    <ShortcutRecorder
+                      value={shortcutDraft.accelerator}
+                      onChange={(accelerator) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          accelerator,
+                        }))
+                      }
+                    />
+                    <select
+                      value={shortcutDraft.app}
+                      onChange={(event) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          app: event.target.value,
+                        }))
+                      }
+                      aria-label="Shortcut target app"
+                    >
+                      {shortcutTargetApps.length === 0 ? (
+                        <option value="" disabled>
+                          No enabled apps
+                        </option>
+                      ) : null}
+                      {shortcutTargetApps.map((app) => (
+                        <option key={app.id} value={app.id}>
+                          {app.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={shortcutDraft.view}
+                      onChange={(event) =>
+                        setShortcutDraft((current) => ({
+                          ...current,
+                          view: event.target.value,
+                        }))
+                      }
+                      placeholder="view, optional"
+                      aria-label="Shortcut target view"
+                    />
+                    <div className="settings-mode-toggle">
+                      <button
+                        type="button"
+                        className={`settings-mode-btn${shortcutDraft.behavior === "toggle" ? " settings-mode-btn--active" : ""}`}
+                        onClick={() =>
+                          setShortcutDraft((current) => ({
+                            ...current,
+                            behavior: "toggle",
+                          }))
+                        }
+                      >
+                        Toggle
+                      </button>
+                      <button
+                        type="button"
+                        className={`settings-mode-btn${shortcutDraft.behavior === "show" ? " settings-mode-btn--active" : ""}`}
+                        onClick={() =>
+                          setShortcutDraft((current) => ({
+                            ...current,
+                            behavior: "show",
+                          }))
+                        }
+                      >
+                        Show
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--primary settings-shortcut-save"
+                      onClick={handleShortcutSave}
+                      disabled={!shortcutDraftValid || shortcutSaving}
+                    >
+                      <IconCheck size={14} />
+                      {shortcutDraft.id ? "Save" : "Add"}
+                    </button>
+                    {shortcutDraft.id && (
+                      <button
+                        type="button"
+                        className="settings-btn settings-btn--ghost settings-shortcut-cancel"
+                        onClick={() =>
+                          setShortcutDraft(defaultShortcutDraft(apps))
+                        }
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+
+                  {shortcutMessage && (
+                    <div className="settings-shortcut-message">
+                      {shortcutMessage}
+                    </div>
+                  )}
+
+                  <div className="settings-shortcut-list">
+                    {(shortcutSettings?.bindings ?? []).length === 0 ? (
+                      <div className="settings-shortcut-empty">
+                        No desktop shortcuts configured.
+                      </div>
+                    ) : (
+                      shortcutSettings?.bindings.map((binding) => {
+                        const targetApp = apps.find(
+                          (app) => app.id === binding.app,
+                        );
+                        const registration = shortcutRegistrations.get(
+                          binding.id,
+                        );
+                        return (
+                          <div
+                            key={binding.id}
+                            className="settings-shortcut-row"
+                          >
+                            <div className="settings-shortcut-main">
+                              <span className="settings-shortcut-keys">
+                                {formatDesktopShortcutAccelerator(
+                                  binding.accelerator,
+                                  window.electronAPI?.platform,
+                                )}
+                              </span>
+                              <span className="settings-shortcut-target">
+                                {targetApp?.name ?? binding.app}
+                                {binding.view ? ` / ${binding.view}` : ""}
+                              </span>
+                              {registration?.error && binding.enabled && (
+                                <span className="settings-shortcut-warning">
+                                  <IconAlertCircle size={12} />
+                                  {registration.error}
+                                </span>
+                              )}
+                            </div>
+                            <div className="settings-shortcut-actions">
+                              <span
+                                className={`settings-shortcut-status${registration?.registered ? " settings-shortcut-status--ok" : ""}`}
+                              >
+                                {binding.enabled
+                                  ? registration?.registered
+                                    ? "Active"
+                                    : "Inactive"
+                                  : "Off"}
+                              </span>
+                              <button
+                                type="button"
+                                className="settings-icon-btn"
+                                onClick={() =>
+                                  setShortcutDraft(
+                                    shortcutDraftFromBinding(binding),
+                                  )
+                                }
+                                title="Edit shortcut"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="settings-icon-btn settings-icon-btn--danger"
+                                onClick={() => handleShortcutRemove(binding.id)}
+                                title="Remove shortcut"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                              <label className="settings-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={binding.enabled}
+                                  onChange={(event) =>
+                                    handleShortcutToggle(
+                                      binding,
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span className="settings-toggle-track" />
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Add / Reset */}
               <div className="settings-section">

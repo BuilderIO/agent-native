@@ -113,7 +113,10 @@ export default defineAction({
       description: updated?.description,
       startMs: updated?.startMs,
       endMs: updated?.endMs,
-      password: updated?.password,
+      // Don't echo the plaintext password back in the response; the caller
+      // just supplied it, and any MCP host that proxies the action result
+      // would otherwise see it in the structured content.
+      hasPassword: Boolean(updated?.password),
       expiresAt: updated?.expiresAt,
     };
   },

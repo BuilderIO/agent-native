@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createServer } from "node:net";
 import { verifyAuth } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import type { MCPConfig } from "./build-server.js";
 import * as orgDirectory from "./org-directory.js";
 import * as a2aClient from "../a2a/client.js";
 import * as callerAuth from "../a2a/caller-auth.js";
+import * as embedSession from "../server/embed-session.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -16,6 +19,8 @@ function resetEnv() {
   delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+  delete process.env.APP_BASE_PATH;
+  delete process.env.VITE_APP_BASE_PATH;
 }
 
 beforeEach(resetEnv);
@@ -120,6 +125,23 @@ function baseConfig(over: Partial<MCPConfig> = {}): MCPConfig {
   };
 }
 
+async function reserveUnusedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  const port =
+    address && typeof address === "object" && typeof address.port === "number"
+      ? address.port
+      : 0;
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  return port;
+}
+
 describe("open_app — same-app / standalone keeps a relative deep link", () => {
   it("returns a relative /_agent-native/open path for the current app", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig());
@@ -132,6 +154,184 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
       "/_agent-native/open?app=mail&view=inbox&threadId=abc&agentSidebar=closed",
     );
     expect(result.url.startsWith("/")).toBe(true);
+  });
+
+  it("can return a direct same-origin app path for full-app embeds", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      path: "/extensions/ext_123",
+      params: { tab: "settings" },
+      embed: true,
+    });
+    expect(result.url).toBe("/extensions/ext_123?tab=settings");
+    expect(result.embed).toBe(true);
+  });
+
+  it("uses a direct app route for embedded view links", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: true,
+    });
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embedStartUrl).toBeUndefined();
+    expect(result.deepLinkUrl).toBeUndefined();
+    expect(result.embed).toBe(true);
+  });
+
+  it("mints a same-app embed start URL for authenticated MCP app callers", async () => {
+    const createTicket = vi
+      .spyOn(embedSession, "createEmbedSessionTicket")
+      .mockResolvedValue({
+        ticket: "ticket-123",
+        ticketHash: "hash-123",
+        expiresAt: 123456,
+      });
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+
+    const result: any = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      () =>
+        tools.open_app.run({
+          app: "mail",
+          view: "inbox",
+          params: { threadId: "abc" },
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embedStartUrl).toBe(
+      "https://mail.example.com/_agent-native/embed/start?ticket=ticket-123",
+    );
+    expect(result.embedTargetPath).toBe(
+      "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+    );
+    expect(result.embedExpiresAt).toBe(123456);
+    expect(createTicket).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-123",
+      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      scope: "minimal",
+    });
+  });
+
+  it("requests the default app viewport for full-app MCP App embeds", () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const resource = tools.open_app.mcpApp?.resource;
+    const html =
+      typeof resource?.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource?.html;
+
+    expect(html).toContain("--agent-native-shell-height: 560px");
+    expect(html).toContain("--agent-native-viewport-height: 516px");
+  });
+
+  it("accepts string embed:true from MCP clients that stringify arguments", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      view: "inbox",
+      params: { threadId: "abc" },
+      embed: "true",
+    });
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embed).toBe(true);
+  });
+
+  it("promotes embed and chrome from params for hosts that nest open options", async () => {
+    const createTicket = vi
+      .spyOn(embedSession, "createEmbedSessionTicket")
+      .mockResolvedValue({
+        ticket: "ticket-params",
+        ticketHash: "hash-params",
+        expiresAt: 987654,
+      });
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+
+    const result: any = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      () =>
+        tools.open_app.run({
+          app: "mail",
+          view: "inbox",
+          params: {
+            embed: true,
+            chrome: "minimal",
+            threadId: "abc",
+          },
+        }),
+    );
+
+    expect(result.url).toBe("/inbox?threadId=abc");
+    expect(result.embed).toBe(true);
+    expect(result.embedStartUrl).toBe(
+      "https://mail.example.com/_agent-native/embed/start?ticket=ticket-params",
+    );
+    expect(createTicket).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-123",
+      targetPath: "/inbox?threadId=abc&__an_mcp_chat_bridge=1",
+      scope: "minimal",
+    });
+  });
+
+  it("prefixes direct same-app paths with the configured app base path", async () => {
+    process.env.APP_BASE_PATH = "/mail";
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({
+      app: "mail",
+      path: "/extensions/ext_123",
+      params: { tab: "settings" },
+      embed: true,
+    });
+    expect(result.url).toBe("/mail/extensions/ext_123?tab=settings");
+    expect(result.embed).toBe(true);
+  });
+
+  it("defaults to the app's home page when neither view nor path is given", async () => {
+    // Bare `open_app({app:"mail"})` should land on `/`, not throw — otherwise
+    // hosts (ChatGPT/Claude) waste a turn on the model's first-attempt retry
+    // when it omits view/path on initial call. See PR #884 chrome agent
+    // findings: "first open_app({app:'dispatch'}) returns parameter error".
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    const result: any = await tools.open_app.run({ app: "mail" });
+    expect(result.url).toMatch(/^\/$/);
+    expect(result.app).toBe("mail");
+  });
+
+  it("still rejects open_app calls without an app id", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig());
+    await expect(tools.open_app.run({} as any)).rejects.toThrow(
+      /requires 'app'/,
+    );
+  });
+});
+
+describe("create_embed_session", () => {
+  it("is write-scoped because the embed ticket becomes a browser session", () => {
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+    expect(tools.create_embed_session.readOnly).toBe(false);
+  });
+
+  it("requires an authenticated MCP caller", async () => {
+    const tools = getBuiltinCrossAppTools(baseConfig(), {
+      origin: "https://mail.example.com",
+    });
+    await expect(
+      tools.create_embed_session.run({ path: "/inbox" }),
+    ).rejects.toThrow(/authenticated MCP caller/);
   });
 });
 
@@ -153,6 +353,7 @@ describe("list_apps — reports the live request origin for the current app", ()
   });
 
   it("falls back to probed values when no request origin is known (stdio standalone)", async () => {
+    process.env.PORT = String(await reserveUnusedPort());
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "content" }));
     const result: any = await tools.list_apps.run({});
     expect(result.apps).toHaveLength(1);

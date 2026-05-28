@@ -25,6 +25,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  backfillEngineMessagesToolResults,
+  stringifyToolUseInputForGateway,
+  unmatchedToolResultReplayText,
+} from "./engine/translate-anthropic.js";
+import {
   resolveEngine,
   registerBuiltinEngines,
   getStoredModelForEngine,
@@ -69,6 +74,7 @@ import {
 } from "../shared/reasoning-effort.js";
 import { isAgentActionStopError } from "../action.js";
 import { preUploadImageAttachments } from "../file-upload/pre-upload-attachments.js";
+import { extensionIdFromPathname } from "../extensions/path.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -263,7 +269,7 @@ export interface ActionEntry {
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
-  /** If true, completion does NOT trigger a screen-refresh poll event.
+  /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** If true, this action can run concurrently with other same-turn
@@ -840,10 +846,35 @@ export function buildUserContentWithAttachments(opts: {
   return userContent;
 }
 
+function coerceStructuredToolResultWire(part: {
+  toolCallId?: unknown;
+  content?: unknown;
+}): { toolCallId: string; content: string } {
+  const toolCallId =
+    typeof part.toolCallId === "string"
+      ? part.toolCallId.trim()
+      : part.toolCallId === undefined || part.toolCallId === null
+        ? ""
+        : String(part.toolCallId).trim();
+  let content = "";
+  if (typeof part.content === "string") {
+    content = part.content;
+  } else if (part.content !== undefined && part.content !== null) {
+    try {
+      content = JSON.stringify(part.content);
+    } catch {
+      content = String(part.content);
+    }
+  }
+  return { toolCallId, content };
+}
+
 export function structuredHistoryToEngineMessages(
   history: AgentChatStructuredMessage[] | undefined,
 ): EngineMessage[] | null {
   if (!Array.isArray(history)) return null;
+
+  const toolUseById = new Map<string, { name: string; input: unknown }>();
 
   const messages: EngineMessage[] = [];
   for (const message of history) {
@@ -879,29 +910,61 @@ export function structuredHistoryToEngineMessages(
               ? part.toolName
               : "";
         if (!id || !name) continue;
+        const input = part.input ?? part.args ?? {};
+        toolUseById.set(id, { name, input });
         content.push({
           type: "tool-call",
           id,
           name,
-          input: part.input ?? part.args ?? {},
+          input,
         });
         continue;
       }
 
       if (part.type === "tool-result" && message.role === "user") {
-        if (
-          typeof part.toolCallId !== "string" ||
-          typeof part.content !== "string"
-        ) {
+        const wire = coerceStructuredToolResultWire(part);
+        const lookup =
+          wire.toolCallId.length > 0
+            ? toolUseById.get(wire.toolCallId)
+            : undefined;
+        const toolName =
+          typeof part.toolName === "string" && part.toolName.trim().length > 0
+            ? part.toolName
+            : lookup?.name;
+        if (!toolName?.trim()) {
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId:
+                wire.toolCallId.length > 0 ? wire.toolCallId : "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
           continue;
         }
+        if (!wire.toolCallId) {
+          // Named tool but no id — cannot emit a valid paired `tool-result`.
+          content.push({
+            type: "text",
+            text: unmatchedToolResultReplayText({
+              toolCallId: "(missing)",
+              content: wire.content,
+              isError: part.isError,
+            }),
+          });
+          continue;
+        }
+        const toolInput =
+          typeof part.toolInput === "string" && part.toolInput.length > 0
+            ? part.toolInput
+            : stringifyToolUseInputForGateway(lookup?.input);
         content.push({
           type: "tool-result",
-          toolCallId: part.toolCallId,
-          ...(typeof part.toolName === "string"
-            ? { toolName: part.toolName }
-            : {}),
-          content: part.content,
+          toolCallId: wire.toolCallId,
+          toolName,
+          toolInput,
+          content: wire.content,
           ...(part.isError ? { isError: true } : {}),
         });
       }
@@ -912,7 +975,9 @@ export function structuredHistoryToEngineMessages(
     }
   }
 
-  return messages.length > 0 ? messages : null;
+  return messages.length > 0
+    ? backfillEngineMessagesToolResults(messages)
+    : null;
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -1582,6 +1647,7 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      const wireToolInput = JSON.stringify(toolCall.input ?? {});
       toolCallHistory.push({
         name: toolCall.name,
         input: normalizeToolCallInputForHistory(toolCall.input),
@@ -1607,6 +1673,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1642,6 +1709,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
         };
       }
@@ -1665,6 +1733,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1681,6 +1750,7 @@ export async function runAgentLoop(opts: {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
+          toolInput: wireToolInput,
           content: result,
           isError: true,
         };
@@ -1755,19 +1825,18 @@ export async function runAgentLoop(opts: {
 
       // Auto-refresh the UI after a successful mutating tool call. Any action
       // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a poll event with source:"action" and
+      // useDbSync listener sees a change event with source:"action" and
       // invalidates ["action"] queries so list-* / get-* refetch. This makes
       // refresh after agent writes reliable without the model needing to
       // remember to call `refresh-screen` itself.
       if (!isError && actionEntry.readOnly !== true) {
         try {
-          const { recordChange } = await import("../server/poll.js");
+          const { notifyActionChange } =
+            await import("../server/action-change.js");
           const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
           const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          recordChange({
-            source: "action",
-            type: "change",
-            key: toolCall.name,
+          await notifyActionChange({
+            actionName: toolCall.name,
             ...(owner ? { owner } : {}),
             ...(orgId ? { orgId } : {}),
           });
@@ -1795,6 +1864,7 @@ export async function runAgentLoop(opts: {
         type: "tool-result" as const,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        toolInput: wireToolInput,
         content: result,
         ...(isError ? { isError } : {}),
       };
@@ -2139,6 +2209,10 @@ export function createProductionAgentHandler(
         if (url && (url.pathname || url.search || url.hash)) {
           const lines: string[] = [];
           if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+          const extensionId = url.pathname
+            ? extensionIdFromPathname(url.pathname)
+            : null;
+          if (extensionId) lines.push(`extensionId: ${extensionId}`);
           if (url.search) lines.push(`search: ${url.search}`);
           if (url.hash) lines.push(`hash: ${url.hash}`);
           if (url.searchParams && Object.keys(url.searchParams).length > 0) {
@@ -2189,8 +2263,12 @@ export function createProductionAgentHandler(
       if (options.skipFilesContext) return filesContext;
       if (history.length === 0) {
         try {
-          const { resourceListAccessible, SHARED_OWNER, resourceGet } =
-            await import("../resources/store.js");
+          const {
+            resourceListAccessible,
+            SHARED_OWNER,
+            WORKSPACE_OWNER,
+            resourceGet,
+          } = await import("../resources/store.js");
           const {
             getResourceKind,
             parseCustomAgentProfile,
@@ -2198,8 +2276,13 @@ export function createProductionAgentHandler(
             parseSkillMetadata,
           } = await import("../resources/metadata.js");
           const ownerEmail = getRequestUserEmail();
+          const orgId = getRequestOrgId();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(ownerEmail);
+          const allResources = await resourceListAccessible(
+            ownerEmail,
+            undefined,
+            { userEmail: ownerEmail, orgId },
+          );
 
           if (allResources.length > 0) {
             const fileLines: string[] = [];
@@ -2207,7 +2290,12 @@ export function createProductionAgentHandler(
             const agentLines: string[] = [];
             const jobLines: string[] = [];
             for (const r of allResources) {
-              const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+              const scope =
+                r.owner === WORKSPACE_OWNER
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
               const kind = getResourceKind(r.path);
               if (kind === "file") {
                 fileLines.push(`  ${r.path} (${scope})`);
@@ -2224,7 +2312,10 @@ export function createProductionAgentHandler(
                 kind === "agent" ||
                 kind === "remote-agent"
               ) {
-                const full = await resourceGet(r.id);
+                const full = await resourceGet(r.id, {
+                  userEmail: ownerEmail,
+                  orgId,
+                });
                 if (!full) continue;
                 if (kind === "skill") {
                   const skill = parseSkillMetadata(full.content, r.path);

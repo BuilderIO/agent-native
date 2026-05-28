@@ -5,12 +5,14 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ClipboardEvent } from "react";
 import { useNavigate } from "react-router";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
+import { useDocumentSyncStatus } from "@/hooks/use-notion";
 import {
   useCollaborativeDoc,
   generateTabId,
@@ -29,6 +31,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import {
+  normalizeTitleText,
+  stripMarkdownHeadingPrefixFromTitlePaste,
+} from "./title-text";
 
 const TAB_ID = generateTabId();
 
@@ -106,6 +112,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
+  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -121,6 +128,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
   const canEdit = document.canEdit ?? true;
+  const notionSyncedToCurrentDocument = Boolean(
+    syncStatus?.lastSyncedAt &&
+    syncStatus.lastPushedLocalUpdatedAt === document.updatedAt,
+  );
+  const forceExternalContentSync = notionSyncedToCurrentDocument;
 
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
@@ -190,12 +202,35 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     const serverTitle = document.title;
     const lastSaved = lastSavedRef.current;
     if (serverTitle !== lastSaved.title) {
-      if (localTitle === lastSaved.title) {
+      if (localTitle === lastSaved.title || forceExternalContentSync) {
         setLocalTitle(serverTitle);
         lastSavedRef.current = { ...lastSavedRef.current, title: serverTitle };
       }
     }
-  }, [document, localTitle]);
+  }, [document, forceExternalContentSync, localTitle]);
+
+  // Pick up external body changes. Explicit Notion pulls are allowed to
+  // overwrite local editor state even when this tab previously edited the Yjs
+  // document; clear any pending save so the pre-pull body cannot be written
+  // back over the fresh Notion content.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    const serverContent = document.content;
+    const lastSaved = lastSavedRef.current;
+    if (serverContent !== lastSaved.content) {
+      if (localContent === lastSaved.content || forceExternalContentSync) {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        setLocalContent(serverContent);
+        lastSavedRef.current = {
+          ...lastSavedRef.current,
+          content: serverContent,
+        };
+      }
+    }
+  }, [document, forceExternalContentSync, localContent]);
 
   // When polling/SSE refetches confirm that the server now matches the local
   // editor state, acknowledge it as saved. This keeps later agent/action
@@ -349,6 +384,53 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     setPendingComment({ quotedText, offsetTop });
   }, []);
 
+  const focusTitleEnd = useCallback(() => {
+    const textarea = titleInputRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, []);
+
+  const joinFirstBodyBlockToTitle = useCallback(
+    (text: string) => {
+      const trimmed = text.replace(/\s+/g, " ").trim();
+      if (trimmed) {
+        const currentTitle = localTitleRef.current.trim();
+        const nextTitle = currentTitle ? `${currentTitle} ${trimmed}` : trimmed;
+        handleTitleChange(nextTitle);
+      }
+      requestAnimationFrame(focusTitleEnd);
+    },
+    [focusTitleEnd, handleTitleChange],
+  );
+
+  const handleTitlePaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canEdit) return;
+
+      const pastedText = event.clipboardData.getData("text/plain");
+      if (!pastedText) return;
+
+      event.preventDefault();
+
+      const textarea = event.currentTarget;
+      const selectionStart = textarea.selectionStart;
+      const selectionEnd = textarea.selectionEnd;
+      const pastedTitle = normalizeTitleText(
+        stripMarkdownHeadingPrefixFromTitlePaste(pastedText),
+      );
+      const nextTitle = `${localTitle.slice(0, selectionStart)}${pastedTitle}${localTitle.slice(selectionEnd)}`;
+      const nextCaret = selectionStart + pastedTitle.length;
+
+      handleTitleChange(nextTitle);
+      requestAnimationFrame(() => {
+        titleInputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      });
+    },
+    [canEdit, handleTitleChange, localTitle],
+  );
+
   // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
     if (canEdit && !collabLoading && shouldFocusTitleRef.current) {
@@ -369,19 +451,25 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       scrollContainerRef={scrollContainerRef}
     />
   );
+  const exportTitle = isInitializedRef.current ? localTitle : document.title;
+  const exportContent = isInitializedRef.current
+    ? localContent
+    : document.content;
 
   return (
-    <div className="relative flex-1 flex min-h-0">
+    <div className="relative flex-1 flex min-h-0" data-document-print-root>
       <div className="flex-1 flex flex-col min-h-0">
         <DocumentToolbar
           documentId={documentId}
-          documentTitle={localTitle || document.title}
+          documentTitle={exportTitle}
+          documentContent={exportContent}
           activeUsers={activeUsers}
           agentPresent={agentPresent}
           agentActive={agentActive}
           isSaving={isSaving}
           currentUserEmail={session?.email}
           canEdit={canEdit}
+          hideFromSearch={document.hideFromSearch}
         />
 
         <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
@@ -389,6 +477,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         <div
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
+          data-document-print-scroll
         >
           <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-8 sm:px-8 md:px-16 md:pt-16 group/title">
             <div className="mb-1">
@@ -411,8 +500,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               wrap="soft"
               value={localTitle}
               onChange={(e) =>
-                handleTitleChange(e.target.value.replace(/\s*\r?\n\s*/g, " "))
+                handleTitleChange(normalizeTitleText(e.target.value))
               }
+              onPaste={handleTitlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -447,9 +537,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               content={document.content}
               onChange={handleContentChange}
               ydoc={canEdit ? ydoc : null}
+              awareness={canEdit ? awareness : null}
               user={currentUser}
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}
+              onJoinTitle={joinFirstBodyBlockToTitle}
+              forceExternalContentSync={forceExternalContentSync}
             />
           </div>
         </div>

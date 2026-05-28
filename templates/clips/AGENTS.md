@@ -63,7 +63,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ## Data Sources
 
-All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions. This is the summary:
+All structured data lives in SQL via Drizzle ORM — **dialect-agnostic** across supported providers. See `server/db/schema.ts` for full column definitions. This is the summary:
 
 Team / tenant data lives in the framework's `organizations` / `org_members` / `org_invitations` tables (managed by `packages/core/src/org/`). Clips-specific data (spaces, folders, recordings, etc.) hangs off `organization_id` FKs that hold those org ids.
 
@@ -371,7 +371,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 4. **Edits are non-destructive.** Never re-encode on edit. Every trim/cut/split/blur/speed change is appended to `recordings.edits_json`. The player applies edits live; `export-video` only renders when the user explicitly exports. See `video-editing`.
 5. **View-counting rule.** A view counts when the viewer hits **≥ 5 seconds** OR **≥ 75% completion** OR scrubs to the end. `shouldCountView` in `server/lib/recordings.ts` is the canonical check — always go through it.
 6. **Use the framework sharing system.** Never write custom share tables for recordings. `registerShareableResource({ type: "recording", ... })` is already wired in `server/db/index.ts`. Compose with the auto-mounted actions. Add password + `expiresAt` as **additional** checks in the share-resolution path, not replacements. See `video-sharing`.
-7. **SQL must be dialect-agnostic.** The target is Neon Postgres. Use Drizzle operators only. No SQLite-specific functions (`datetime('now')`, `|| ''`), no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
+7. **SQL must be dialect-agnostic.** Use Drizzle operators only. No SQLite-specific or Postgres-specific functions (`datetime('now')`, `|| ''`, casts, JSON dialect helpers), no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
 8. **Screen context is auto-included.** Check `<current-screen>` in the user's message before running `view-screen` — you usually don't need to call it.
 9. **Trigger refresh after mutations.** `writeAppState("refresh-signal", { ts: Date.now() })` — `useDbSync` invalidates the affected query keys. Most actions do this automatically.
 10. **Scoping.** All list/get actions filter via `accessFilter(schema.recordings, schema.recordingShares)`. Write actions guard via `assertAccess("recording", id, "editor")` (or `"admin"` for delete).

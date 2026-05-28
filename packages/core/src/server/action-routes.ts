@@ -16,7 +16,7 @@ import {
 import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
-import { recordChange } from "./poll.js";
+import { notifyActionChange } from "./action-change.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -214,11 +214,9 @@ export function mountActionRoutes(
                   : method === "GET";
               if (!isReadOnly) {
                 try {
-                  recordChange({
-                    source: "action",
-                    type: "change",
-                    key: name,
-                    owner: userEmail,
+                  await notifyActionChange({
+                    actionName: name,
+                    ...(userEmail ? { owner: userEmail } : {}),
                   });
                 } catch {
                   // ignore

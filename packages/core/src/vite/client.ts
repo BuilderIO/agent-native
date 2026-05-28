@@ -7,6 +7,12 @@ import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  MCP_EMBED_STATIC_ASSET_HEADERS,
+  mcpEmbedStaticAssetRouteRules,
+} from "../shared/mcp-embed-headers.js";
 
 import { fileURLToPath } from "url";
 
@@ -412,6 +418,8 @@ export interface NitroOptions {
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
+  /** Additional hostnames allowed to access the dev server. */
+  allowedHosts?: NonNullable<NonNullable<UserConfig["server"]>["allowedHosts"]>;
   /** Vite log level. Workspace child apps default to "warn" so only the gateway URL is advertised. */
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
@@ -614,6 +622,58 @@ function baseRedirectGuard(): Plugin {
         ) {
           // Rewrite to the base path so Vite serves the app directly
           req.url = base;
+        }
+        next();
+      });
+    },
+  };
+}
+
+function embedDevFrameHeaders(): Plugin {
+  return {
+    name: "agent-native-embed-dev-frame-headers",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const origin = String(req.headers.origin ?? "");
+        if (isMcpEmbedCorsOrigin(origin)) {
+          res.setHeader("Access-Control-Allow-Origin", origin);
+          res.setHeader("Vary", "Origin");
+          res.setHeader(
+            "Access-Control-Allow-Methods",
+            "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+          );
+          res.setHeader(
+            "Access-Control-Allow-Headers",
+            MCP_EMBED_CORS_ALLOW_HEADERS,
+          );
+          for (const [name, value] of Object.entries(
+            MCP_EMBED_STATIC_ASSET_HEADERS,
+          )) {
+            if (name === "Access-Control-Allow-Origin") continue;
+            res.setHeader(name, value);
+          }
+          if (req.method === "OPTIONS") {
+            res.statusCode = 204;
+            res.end();
+            return;
+          }
+        }
+
+        const cookieHeader = String(req.headers.cookie ?? "");
+        let hasEmbedMarker = /\ban_embed_session=/.test(cookieHeader);
+        try {
+          const url = new URL(req.url ?? "/", "http://agent-native.local");
+          hasEmbedMarker =
+            hasEmbedMarker || url.searchParams.has("__an_embed_token");
+        } catch {
+          // Malformed URLs should continue through Vite's normal handling.
+        }
+        if (hasEmbedMarker) {
+          res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+          res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          res.setHeader("Referrer-Policy", "no-referrer");
         }
         next();
       });
@@ -958,6 +1018,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     server: {
       host: "::",
       port: options.port ?? 8080,
+      allowedHosts: options.allowedHosts ?? [
+        ".ngrok-free.dev",
+        ".ngrok-free.app",
+        ".ngrok.io",
+      ],
       fs: {
         allow: [
           ".",
@@ -1051,6 +1116,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
       fullReloadOnOptimizeDep504(),
+      embedDevFrameHeaders(),
       baseRedirectGuard(),
       portExposer(),
       silenceConnectionResets(),
@@ -1063,6 +1129,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
             nitroVitePlugin({
               serverDir: "./server",
               ...(options.nitro ?? {}),
+              routeRules: {
+                ...mcpEmbedStaticAssetRouteRules(appBasePath),
+                ...((options.nitro as { routeRules?: Record<string, any> })
+                  ?.routeRules ?? {}),
+              },
             } as any),
           ]),
       reactPluginInstance,

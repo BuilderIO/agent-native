@@ -44,7 +44,29 @@ describe("eventBlocksAvailability", () => {
     ).toBe(false);
   });
 
-  it("does not block time for attendee events where the host is not attending", () => {
+  it("blocks time when the host tentatively accepted the event", () => {
+    expect(
+      eventBlocksAvailability(event({ responseStatus: "tentative" })),
+    ).toBe(true);
+  });
+
+  it("blocks time when the host has not responded to the event", () => {
+    expect(
+      eventBlocksAvailability(
+        event({
+          attendees: [
+            {
+              email: "host@example.com",
+              responseStatus: "needsAction",
+              self: true,
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks time when the host response cannot be identified", () => {
     expect(
       eventBlocksAvailability(
         event({
@@ -54,7 +76,7 @@ describe("eventBlocksAvailability", () => {
           organizer: { email: "organizer@example.com" },
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("blocks time for accepted self attendee events", () => {

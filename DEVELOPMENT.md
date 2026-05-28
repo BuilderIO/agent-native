@@ -60,7 +60,7 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `calendar`, `content`, `forms`, `issues`, `macros`, `mail`, `recruiting`, `slides`, `starter`, `videos`
+Templates: `analytics`, `brain`, `calendar`, `calls`, `clips`, `code`, `content`, `design`, `dispatch`, `forms`, `images`, `issues`, `macros`, `mail`, `meeting-notes`, `migration`, `recruiting`, `scheduling`, `slides`, `starter`, `videos`, `voice`
 
 Each template uses the same scripts:
 
@@ -75,13 +75,13 @@ pnpm typecheck    # type-check
 
 Templates read from `.env` in their own directory. Key variables:
 
-| Variable               | Purpose                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `DATABASE_URL`         | Database connection string (see below)                        |
-| `ANTHROPIC_API_KEY`    | API key for Claude (required for agent chat)                  |
-| `ACCESS_TOKEN`         | Enables auth in production mode; without it, auth is bypassed |
-| `GOOGLE_CLIENT_ID`     | Google OAuth client ID (for Gmail, Calendar integrations)     |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret                                    |
+| Variable               | Purpose                                                          |
+| ---------------------- | ---------------------------------------------------------------- |
+| `DATABASE_URL`         | Database connection string (see below)                           |
+| `ANTHROPIC_API_KEY`    | API key for Claude (required for agent chat)                     |
+| `ACCESS_TOKEN`         | Static bearer fallback for MCP/connect clients; not browser auth |
+| `GOOGLE_CLIENT_ID`     | Google OAuth client ID (for Gmail, Calendar integrations)        |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret                                       |
 
 ### Database options
 

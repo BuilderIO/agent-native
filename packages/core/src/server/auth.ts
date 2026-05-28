@@ -13,6 +13,9 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { EMBED_START_PATH } from "../shared/embed-auth.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { resolveEmbedSessionFromRequest } from "./embed-session.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -63,7 +66,11 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
+import {
+  getOnboardingHtml,
+  getResetPasswordHtml,
+  type OnboardingHtmlOptions,
+} from "./onboarding-html.js";
 import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
@@ -94,6 +101,7 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
@@ -260,7 +268,8 @@ export interface AuthOptions {
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
- * When `APP_NAME` is set, suffix the cookie so each app gets its own slot.
+ * When an isolated app slug is resolved, suffix the cookie so each app gets
+ * its own slot.
  *
  * Workspace exception: in workspace mode (`AGENT_NATIVE_WORKSPACE=1`),
  * every app shares the same origin AND the same DB, and cross-app SSO is
@@ -271,41 +280,27 @@ export interface AuthOptions {
  * exchange relies on — see `desktop-exchange` and `oauthCallbackResponse`)
  * is recognised by every app in the workspace.
  *
- * Cross-subdomain exception: when `COOKIE_DOMAIN` is set (e.g.
- * `.agent-native.com` for first-party deploys where each app is its own
- * subdomain — mail.agent-native.com, calendar.agent-native.com, …),
- * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so
- * the cookie is shared across every subdomain. Signing into one app
- * signs the user into all of them. Per-app suffixes would defeat the
- * shared cookie since each subdomain reads a different name.
+ * Cross-subdomain exception: when `COOKIE_DOMAIN` is set for a custom domain,
+ * use the unsuffixed `an_session` and emit `Domain=<COOKIE_DOMAIN>` so the
+ * cookie is shared across every subdomain. First-party `*.agent-native.com`
+ * apps are deliberately excluded from that behavior by default because each
+ * hosted app has its own auth database; they use Dispatch identity federation
+ * instead of a shared browser cookie.
  */
-const APP_NAME_SLUG = (process.env.APP_NAME || "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "_")
-  .replace(/^_+|_+$/g, "");
-const IS_WORKSPACE_MODE = process.env.AGENT_NATIVE_WORKSPACE === "1";
+const AUTH_COOKIE_NAMESPACE = resolveAuthCookieNamespace();
 
 /**
  * When set, the framework session cookie is shared across every subdomain
- * matching this domain (e.g. `.agent-native.com`). Reads `COOKIE_DOMAIN`.
- * Returns undefined when unset so cookies stay scoped to the origin host.
+ * matching this domain. Returns undefined when unset or deliberately ignored
+ * for first-party hosted apps, so cookies stay scoped to the origin host.
  */
 export function getCookieDomain(): string | undefined {
-  const raw = process.env.COOKIE_DOMAIN;
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed || undefined;
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieDomain;
 }
 
-const HAS_COOKIE_DOMAIN = !!getCookieDomain();
-
-export const COOKIE_NAME = HAS_COOKIE_DOMAIN
-  ? "an_session"
-  : IS_WORKSPACE_MODE
-    ? "an_session_workspace"
-    : APP_NAME_SLUG
-      ? `an_session_${APP_NAME_SLUG}`
-      : "an_session";
+export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
+export const BETTER_AUTH_COOKIE_PREFIX =
+  AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
@@ -351,23 +346,36 @@ function getCookieValues(event: H3Event, name: string): string[] {
 }
 
 export function getFrameworkSessionCookieValues(event: H3Event): string[] {
-  return getCookieValues(event, COOKIE_NAME);
+  return getFrameworkSessionCookieEntries(event).map((entry) => entry.value);
+}
+
+function getFrameworkSessionCookieEntries(
+  event: H3Event,
+): Array<{ name: string; value: string }> {
+  const entries: Array<{ name: string; value: string }> = [];
+  const seenValues = new Set<string>();
+
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    for (const value of getCookieValues(event, name)) {
+      if (seenValues.has(value)) continue;
+      seenValues.add(value);
+      entries.push({ name, value });
+    }
+  }
+
+  return entries;
 }
 
 function frameworkSessionCookieNamesToClear(): string[] {
-  const names = new Set([COOKIE_NAME]);
-  if (APP_NAME_SLUG) names.add(`an_session_${APP_NAME_SLUG}`);
-  return [...names];
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
-  // Clear host-only cookies first. When COOKIE_DOMAIN was introduced, stale
-  // host-only `an_session` cookies could shadow the new domain cookie because
-  // browsers send older same-path duplicates first.
+  // Clear host-only cookies first. Then clear any configured domain scope so
+  // stale shared cookies stop shadowing isolated app sessions.
   deleteCookie(event, name, { path: "/" });
-  const domainAttrs = cookieDomainAttrs();
-  if (domainAttrs.domain) {
-    deleteCookie(event, name, { path: "/", ...domainAttrs });
+  for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
+    deleteCookie(event, name, { path: "/", domain });
   }
 }
 
@@ -380,9 +388,12 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const cookie of getFrameworkSessionCookieValues(event)) {
-    const email = await getSessionEmail(cookie);
-    if (email) return { email, token: cookie };
+  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+    const email = await getSessionEmail(value);
+    if (email) {
+      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      return { email, token: value };
+    }
   }
   return null;
 }
@@ -642,20 +653,6 @@ function getAccessTokens(): string[] {
   return tokens;
 }
 
-function safeTokenMatch(input: string, tokens: string[]): boolean {
-  const inputBuf = Buffer.from(input);
-  for (const token of tokens) {
-    const tokenBuf = Buffer.from(token);
-    if (
-      inputBuf.length === tokenBuf.length &&
-      crypto.timingSafeEqual(inputBuf, tokenBuf)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function getBearerSessionToken(event: H3Event): string | undefined {
   const auth = getHeader(event, "authorization");
   if (!auth) return undefined;
@@ -847,6 +844,48 @@ interface AuthGuardConfig {
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+function getRequestHost(event: H3Event): string | undefined {
+  return (
+    getHeader(event, "x-forwarded-host") ??
+    getHeader(event, "host") ??
+    undefined
+  );
+}
+
+function getOnboardingHtmlOptions(
+  options: AuthOptions,
+  event?: H3Event,
+  rawPath?: string,
+): OnboardingHtmlOptions {
+  return {
+    googleOnly: options.googleOnly,
+    marketing: options.marketing,
+    googleSignInNotice: options.googleSignInNotice,
+    googleAuthMode: options.googleAuthMode,
+    requestHost: event ? getRequestHost(event) : undefined,
+    requestPath: rawPath,
+  };
+}
+
+function getAuthOnboardingHtml(
+  options: AuthOptions,
+  event?: H3Event,
+  rawPath?: string,
+): string {
+  return getOnboardingHtml(getOnboardingHtmlOptions(options, event, rawPath));
+}
+
+function getOnboardingLoginHtmlConfig(
+  options: AuthOptions,
+): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml"> {
+  if (options.loginHtml) return { loginHtml: options.loginHtml };
+  return {
+    loginHtml: getAuthOnboardingHtml(options),
+    getLoginHtml: (event, rawPath) =>
+      getAuthOnboardingHtml(options, event, rawPath),
+  };
+}
 
 function resolveWorkspaceAppAudience(
   options: Pick<AuthOptions, "workspaceAppAudience"> = {},
@@ -1094,7 +1133,14 @@ function applyCorsHeaders(event: H3Event): {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+    [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-Request-Source",
+      "X-Agent-Native-CSRF",
+      EMBED_TARGET_HEADER,
+    ].join(","),
   );
   return { hasOrigin: true, allowed: true };
 }
@@ -1216,7 +1262,7 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
     // session-lost popup case) — when a session IS present, the normal
     // guard runs and the callback handler cross-checks the state owner
     // against the session.
-    const hasSession = Boolean(getCookie(event, COOKIE_NAME));
+    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
       verifyBuilderCallbackStateAndGetOwner(state) ||
@@ -1276,7 +1322,7 @@ function createAuthGuardFn(): (
     // returns to the same deep link). It must bypass the guard's blanket
     // 401-for-/_agent-native/* so an external-agent "Open in … →" link
     // clicked in any browser/webview lands correctly.
-    if (p === "/_agent-native/open") {
+    if (p === "/_agent-native/open" || p === EMBED_START_PATH) {
       return;
     }
 
@@ -1487,8 +1533,12 @@ function createAuthGuardFn(): (
     }
 
     return new Response(loginHtml, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      status: 401,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
     });
   };
 }
@@ -1673,12 +1723,13 @@ async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
  *
  * Resolution chain:
  * 1. ACCESS_TOKEN → check legacy cookie-based token sessions
- * 2. BYOA custom getSession → delegate to template callback
- * 3. Bearer legacy session → check Authorization: Bearer against sessions
- * 4. Better Auth → check session via Better Auth API (cookie or Bearer)
- * 5. Legacy cookie → check an_session cookie in legacy sessions table
- * 6. Desktop SSO broker (Electron loopback only)
- * 7. Mobile _session query param → promote to cookie
+ * 2. Embed session → short-lived token minted by /_agent-native/embed/start
+ * 3. BYOA custom getSession → delegate to template callback
+ * 4. Bearer legacy session → check Authorization: Bearer against sessions
+ * 5. Better Auth → check session via Better Auth API (cookie or Bearer)
+ * 6. Legacy cookie → check an_session cookie in legacy sessions table
+ * 7. Desktop SSO broker (Electron loopback only)
+ * 8. Mobile _session query param → promote to cookie
  *
  * Returns `null` for unauthenticated requests. There is no dev-mode bypass:
  * local development uses the same Better Auth signup flow as production. The
@@ -1709,7 +1760,20 @@ async function resolveSessionUncached(
     if (cookieSession) return cookieSession;
   }
 
-  // 2. BYOA custom getSession
+  // 2. MCP App embed session. This is a short-lived browser session minted
+  // from a one-time ticket that was scoped to the authenticated MCP caller.
+  // It lets an inline MCP App iframe load the real app without reusing the
+  // MCP bearer token as a browser cookie.
+  const embedSession = await resolveEmbedSessionFromRequest(event);
+  if (embedSession) {
+    return {
+      email: embedSession.email,
+      token: embedSession.token,
+      ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+    };
+  }
+
+  // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) return session;
@@ -1726,12 +1790,12 @@ async function resolveSessionUncached(
     if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
-    // 3. Bearer legacy session. Desktop/native clients can persist a session
+    // 4. Bearer legacy session. Desktop/native clients can persist a session
     // token outside the WebView cookie jar and attach it to all app requests.
     const bearerSession = await getBearerLegacySession(event);
     if (bearerSession) return bearerSession;
 
-    // 4. Better Auth session (cookie or Bearer token)
+    // 5. Better Auth session (cookie or Bearer token)
     try {
       const ba = getBetterAuthSync();
       if (ba) {
@@ -1746,11 +1810,11 @@ async function resolveSessionUncached(
       console.error("[auth] ba.api.getSession error:", e);
     }
 
-    // 5. Legacy cookie fallback (for sessions created before migration)
+    // 6. Legacy cookie fallback (for sessions created before migration)
     const cookieSession = await getLegacyCookieSession(event);
     if (cookieSession) return cookieSession;
 
-    // 6. Desktop SSO broker fallback.
+    // 7. Desktop SSO broker fallback.
     // Each template in the Electron desktop app has its own database, so
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
@@ -1765,7 +1829,7 @@ async function resolveSessionUncached(
     }
   }
 
-  // 7. Mobile WebView bridge — _session query param
+  // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
 
@@ -1922,44 +1986,16 @@ function stripAppBasePath(pathname: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Login page HTML (ACCESS_TOKEN mode)
+// Fallback login page HTML (custom auth with no login page configured)
 // ---------------------------------------------------------------------------
 
-function inferWorkspaceBasePathFromRequest(requestPath?: string): string {
-  if (
-    process.env.AGENT_NATIVE_WORKSPACE !== "1" &&
-    process.env.VITE_AGENT_NATIVE_WORKSPACE !== "1"
-  ) {
-    return "";
-  }
-  if (!requestPath || !requestPath.startsWith("/")) return "";
-  const firstSegment = requestPath.split(/[/?#]/)[1];
-  if (!firstSegment) return "";
-  const reservedRootPaths = new Set([
-    "_agent-native",
-    ".well-known",
-    "api",
-    "login",
-    "signup",
-    "apps",
-    "new-app",
-    "approval",
-    "extensions",
-  ]);
-  if (reservedRootPaths.has(firstSegment)) return "";
-  if (!isValidWorkspaceAppIdFormat(firstSegment)) return "";
-  return `/${firstSegment}`;
-}
-
-function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
-  const configuredBasePath =
-    getAppBasePath() || inferWorkspaceBasePathFromRequest(options.requestPath);
+function getCustomAuthRequiredHtml(): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Private app</title>
+<title>Authentication required</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -1972,18 +2008,10 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     --text: #f4f4f5;
     --muted: #a1a1aa;
     --subtle: #71717a;
-    --error: #fca5a5;
-    --error-bg: rgba(127,29,29,0.18);
-    --success: #86efac;
-    --success-bg: rgba(20,83,45,0.2);
-    --info: #c4b5fd;
-    --info-bg: rgba(76,29,149,0.18);
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background:
-      radial-gradient(circle at top left, rgba(63,63,70,0.24), transparent 32rem),
-      linear-gradient(180deg, #111114 0%, var(--bg) 58%);
+    background: linear-gradient(180deg, #111114 0%, var(--bg) 58%);
     color: var(--text);
     display: flex;
     align-items: center;
@@ -2027,107 +2055,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     font-size: 0.9375rem;
     line-height: 1.55;
   }
-  label {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-    margin-bottom: 0.375rem;
-  }
-  label span:last-child {
-    color: var(--subtle);
-    font-size: 0.75rem;
-  }
-  .input-wrap { position: relative; }
-  input {
-    width: 100%;
-    min-height: 2.75rem;
-    padding: 0.625rem 0.75rem;
-    background: #0f0f12;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 0.9375rem;
-    outline: none;
-  }
-  input:focus {
-    border-color: var(--border-strong);
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
-  }
-  input::placeholder { color: #52525b; }
-  button {
-    width: 100%;
-    min-height: 2.75rem;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    background: var(--text);
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
-  }
-  button:hover:not(:disabled) { background: #e4e4e7; transform: translateY(-1px); }
-  button:disabled { opacity: 0.55; cursor: wait; }
   .hint {
-    margin-top: 0.75rem;
-    color: var(--subtle);
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg {
-    display: none;
-    margin-top: 0.875rem;
-    padding: 0.75rem;
-    border-radius: 8px;
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg.show { display: block; }
-  .msg.error {
-    color: var(--error);
-    background: var(--error-bg);
-    border: 1px solid rgba(248,113,113,0.22);
-  }
-  .msg.success {
-    color: var(--success);
-    background: var(--success-bg);
-    border: 1px solid rgba(74,222,128,0.18);
-  }
-  .msg.info {
-    color: var(--info);
-    background: var(--info-bg);
-    border: 1px solid rgba(167,139,250,0.2);
-  }
-  details {
     margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-  }
-  summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 0.8125rem;
-    font-weight: 600;
-  }
-  details p {
-    margin-top: 0.75rem;
     color: var(--subtle);
     font-size: 0.8125rem;
-    line-height: 1.5;
-  }
-  code {
-    color: #e4e4e7;
-    background: var(--panel-soft);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.075rem 0.25rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.78rem;
+    line-height: 1.45;
   }
   @media (max-width: 480px) {
     .card { padding: 1.5rem; }
@@ -2137,118 +2069,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
 </head>
 <body>
 <div class="card">
-  <div class="eyebrow">Private deployment</div>
-  <h1>This app is private</h1>
-  <p class="intro">Enter the shared app access token to continue. This is the value configured for this app, not your deploy provider account token.</p>
-  <form id="form">
-    <label for="token"><span>App ACCESS_TOKEN</span><span>Required</span></label>
-    <div class="input-wrap">
-      <input id="token" type="password" autocomplete="current-password" autofocus placeholder="Paste the shared app token" />
-    </div>
-    <button id="submit" type="submit">Continue</button>
-    <p class="hint">If someone sent you this app, ask them for the shared app token. If you own the deploy, use the exact value saved as <code>ACCESS_TOKEN</code> or one of <code>ACCESS_TOKENS</code>.</p>
-    <p class="msg error" id="msg" role="alert"></p>
-  </form>
-  <details>
-    <summary>Where do I find this?</summary>
-    <p>Create or copy the app's shared token from your deployment environment variables. The key should be <code>ACCESS_TOKEN</code> for one token or <code>ACCESS_TOKENS</code> for a comma-separated list. Redeploy after changing it.</p>
-  </details>
+  <div class="eyebrow">Authentication required</div>
+  <h1>Sign in is not configured</h1>
+  <p class="intro">This route requires an authenticated session, but this app's custom auth plugin did not provide a sign-in page.</p>
+  <p class="hint">If this route should be public, add it to the auth plugin's public route configuration. Otherwise configure a custom sign-in page for this app.</p>
 </div>
-<script>
-  var configuredBasePath = ${JSON.stringify(configuredBasePath)};
-  function __anBasePath() {
-    if (
-      configuredBasePath &&
-      (window.location.pathname === configuredBasePath ||
-        window.location.pathname.indexOf(configuredBasePath + '/') === 0)
-    ) {
-      return configuredBasePath;
-    }
-    var marker = '/_agent-native';
-    var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
-  }
-  function __anPath(path) {
-    return __anBasePath() + path;
-  }
-  function setMessage(kind, text) {
-    var msg = document.getElementById('msg');
-    msg.textContent = text;
-    msg.className = 'msg ' + kind + ' show';
-  }
-  function clearMessage() {
-    var msg = document.getElementById('msg');
-    msg.textContent = '';
-    msg.className = 'msg error';
-  }
-  function setBusy(isBusy) {
-    var button = document.getElementById('submit');
-    var input = document.getElementById('token');
-    button.disabled = isBusy;
-    input.disabled = isBusy;
-    button.textContent = isBusy ? 'Checking...' : 'Continue';
-  }
-  async function readJsonSafely(res) {
-    try {
-      return await res.json();
-    } catch (_err) {
-      return null;
-    }
-  }
-  async function verifySession() {
-    var res = await fetch(__anPath('/_agent-native/auth/session'), {
-      method: 'GET',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!res.ok) return false;
-    var data = await readJsonSafely(res);
-    return !!data && !data.error;
-  }
-  document.getElementById('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    var token = document.getElementById('token').value.trim();
-    if (!token) {
-      setMessage('error', 'Paste the shared app token to continue.');
-      return;
-    }
-    clearMessage();
-    setBusy(true);
-    setMessage('info', 'Checking the app token...');
-    try {
-      var res = await fetch(__anPath('/_agent-native/auth/login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ token: token }),
-      });
-      if (!res.ok) {
-        var badTokenMessage = 'That token was not accepted. Use this app\\'s shared ACCESS_TOKEN, not your deploy provider account token.';
-        if (res.status === 404) {
-          badTokenMessage = 'Could not reach this app\\'s auth endpoint. If this app is mounted under a path, confirm APP_BASE_PATH and VITE_APP_BASE_PATH match the deploy path.';
-        }
-        setMessage('error', badTokenMessage);
-        setBusy(false);
-        return;
-      }
-      var hasSession = await verifySession();
-      if (!hasSession) {
-        setMessage('error', 'The token was accepted, but the browser did not keep the session cookie. Try opening the app in a new tab, or check cookie restrictions for this domain.');
-        setBusy(false);
-        return;
-      }
-      setMessage('success', 'Signed in. Opening the app...');
-      window.location.replace(window.location.href);
-    } catch (_err) {
-      setMessage('error', 'Could not contact the auth endpoint. Check the deploy status, then try again.');
-      setBusy(false);
-    }
-  });
-</script>
 </body>
 </html>`;
 }
@@ -2611,8 +2436,6 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  const accessTokens = getAccessTokens();
-
   // Initialize Better Auth. Forward `googleScopes` into the BetterAuthConfig
   // so the social provider requests the broader product scopes (Gmail,
   // Calendar, etc.) up front during the primary sign-in — eliminating the
@@ -2630,6 +2453,11 @@ async function mountBetterAuthRoutes(
       const reqPath = event.url?.pathname ?? event.path ?? "";
       const isResetPassword =
         reqPath.includes("reset-password") && getMethod(event) === "POST";
+      const isSendVerificationEmail =
+        reqPath.includes("send-verification-email") &&
+        getMethod(event) === "POST";
+      const authRequest = toWebRequest(event);
+      let requestForAuth = authRequest;
 
       // Pre-read the body for reset-password so we can auto-verify the
       // user's email after they save the new password. CRUCIAL: clone
@@ -2642,7 +2470,7 @@ async function mountBetterAuthRoutes(
       let resetUserId: string | undefined;
       if (isResetPassword) {
         try {
-          const cloned = (event.req as Request).clone();
+          const cloned = authRequest.clone();
           const body = (await cloned.json().catch(() => undefined)) as
             | { token?: string }
             | undefined;
@@ -2669,7 +2497,37 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(toWebRequest(event));
+      // The signup wrapper sanitizes callbackURL before calling Better Auth,
+      // but the resend endpoint is exposed directly so users can request a
+      // fresh link while unauthenticated. Keep that path equally strict:
+      // only same-origin relative return paths survive into the email.
+      if (isSendVerificationEmail) {
+        try {
+          const body = (await authRequest
+            .clone()
+            .json()
+            .catch(() => undefined)) as Record<string, unknown> | undefined;
+          if (body && typeof body.callbackURL === "string") {
+            const callbackURL = safeReturnPath(body.callbackURL);
+            if (callbackURL !== body.callbackURL) {
+              const headers = new Headers(authRequest.headers);
+              headers.delete("content-length");
+              headers.set("content-type", "application/json");
+              requestForAuth = new Request(authRequest.url, {
+                method: authRequest.method,
+                headers,
+                body: JSON.stringify({ ...body, callbackURL }),
+                duplex: "half",
+              } as RequestInit & { duplex: "half" });
+            }
+          }
+        } catch {
+          // Let Better Auth handle malformed bodies and return its normal
+          // validation error.
+        }
+      }
+
+      const response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
@@ -2796,22 +2654,6 @@ async function mountBetterAuthRoutes(
       }
 
       const body = await readBody(event);
-
-      // Legacy ACCESS_TOKEN login
-      if (
-        body?.token &&
-        typeof body.token === "string" &&
-        accessTokens.length > 0
-      ) {
-        if (!safeTokenMatch(body.token, accessTokens)) {
-          setResponseStatus(event, 401);
-          return { error: "Invalid token" };
-        }
-        const sessionToken = crypto.randomBytes(32).toString("hex");
-        await addSession(sessionToken, "user");
-        setFrameworkSessionCookie(event, sessionToken);
-        return authLoginResponse(event, sessionToken, "user");
-      }
 
       // Email/password login via Better Auth
       const email = body?.email?.trim?.()?.toLowerCase?.();
@@ -3020,91 +2862,9 @@ async function mountBetterAuthRoutes(
 
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
-  const loginHtml =
-    options.loginHtml ??
-    getOnboardingHtml({
-      googleOnly: options.googleOnly,
-      marketing: options.marketing,
-      googleSignInNotice: options.googleSignInNotice,
-      googleAuthMode: options.googleAuthMode,
-    });
+  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
   _authGuardConfig = {
-    loginHtml,
-    publicPaths,
-    workspaceAppAudience,
-    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
-    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
-  };
-  const guardFn = createAuthGuardFn();
-  _authGuardFn = guardFn;
-  app.use(defineEventHandler(guardFn));
-}
-
-// ---------------------------------------------------------------------------
-// mountTokenOnlyRoutes — ACCESS_TOKEN-only auth (no Better Auth)
-// ---------------------------------------------------------------------------
-
-function mountTokenOnlyRoutes(
-  app: H3App,
-  accessTokens: string[],
-  publicPaths: string[] = [],
-  workspaceAppAudience = resolveWorkspaceAppAudience(),
-  workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(),
-): void {
-  app.use(
-    "/_agent-native/auth/login",
-    defineEventHandler(async (event) => {
-      if (getMethod(event) !== "POST") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-
-      const body = await readBody(event);
-      if (
-        !body?.token ||
-        typeof body.token !== "string" ||
-        !safeTokenMatch(body.token, accessTokens)
-      ) {
-        setResponseStatus(event, 401);
-        return { error: "Invalid token" };
-      }
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, "user");
-      setFrameworkSessionCookie(event, sessionToken);
-      return authLoginResponse(event, sessionToken, "user");
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/logout",
-    defineEventHandler(async (event) => {
-      for (const cookie of getFrameworkSessionCookieValues(event)) {
-        await removeSession(cookie);
-      }
-      const bearerToken = getBearerSessionToken(event);
-      if (bearerToken) await removeSession(bearerToken);
-      clearFrameworkSessionCookies(event);
-      if (isElectronRequest(event)) await clearDesktopSso();
-      return { ok: true };
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/session",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      return session ?? { error: "Not authenticated" };
-    }),
-  );
-
-  _authGuardConfig = {
-    loginHtml: getTokenLoginHtml(),
-    getLoginHtml: (_event, rawPath) =>
-      getTokenLoginHtml({ requestPath: rawPath }),
+    ...loginHtmlConfig,
     publicPaths,
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -3250,7 +3010,6 @@ function mountAuthFallbackRoutes(app: H3App): void {
  * Automatically configure auth based on environment and configuration:
  *
  * - **BYOA (custom getSession)**: Template-provided auth callback handles everything.
- * - **ACCESS_TOKEN/ACCESS_TOKENS**: Simple token-based auth.
  * - **Default**: Better Auth with email/password, social providers, organizations, and JWT.
  *   Users see an onboarding page to create an account on first visit.
  *
@@ -3292,14 +3051,9 @@ export async function autoMountAuth(
         options.marketing ||
         options.googleSignInNotice
       ) {
-        _authGuardConfig.loginHtml =
-          options.loginHtml ??
-          getOnboardingHtml({
-            googleOnly: options.googleOnly,
-            marketing: options.marketing,
-            googleSignInNotice: options.googleSignInNotice,
-            googleAuthMode: options.googleAuthMode,
-          });
+        const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+        _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
+        _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
       if (options.publicPaths) {
         _authGuardConfig.publicPaths = [
@@ -3383,14 +3137,13 @@ export async function autoMountAuth(
       }),
     );
 
-    const byoaLoginHtml = options.loginHtml ?? getTokenLoginHtml();
+    const byoaLoginHtml = options.loginHtml ?? getCustomAuthRequiredHtml();
     _authGuardConfig = {
       loginHtml: byoaLoginHtml,
       ...(options.loginHtml
         ? {}
         : {
-            getLoginHtml: (_event, rawPath) =>
-              getTokenLoginHtml({ requestPath: rawPath }),
+            getLoginHtml: () => getCustomAuthRequiredHtml(),
           }),
       publicPaths,
       workspaceAppAudience,
@@ -3403,23 +3156,6 @@ export async function autoMountAuth(
 
     if (process.env.DEBUG)
       console.log("[agent-native] Auth enabled — custom getSession provider.");
-    return true;
-  }
-
-  // ACCESS_TOKEN-only mode
-  const tokens = getAccessTokens();
-  if (tokens.length > 0) {
-    mountTokenOnlyRoutes(
-      app,
-      tokens,
-      publicPaths,
-      workspaceAppAudience,
-      workspaceAppRouteAccess,
-    );
-    if (process.env.DEBUG)
-      console.log(
-        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-      );
     return true;
   }
 
@@ -3436,16 +3172,9 @@ export async function autoMountAuth(
     // CRITICAL: Even if Better Auth fails, register the auth guard so
     // unauthenticated users can't access the app. They'll see the login
     // page but won't be able to sign in until the DB is available.
-    const loginHtml =
-      options.loginHtml ??
-      getOnboardingHtml({
-        googleOnly: options.googleOnly,
-        marketing: options.marketing,
-        googleSignInNotice: options.googleSignInNotice,
-        googleAuthMode: options.googleAuthMode,
-      });
+    const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
     _authGuardConfig = {
-      loginHtml,
+      ...loginHtmlConfig,
       publicPaths,
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -3469,5 +3198,9 @@ export async function autoMountAuth(
  * @deprecated Use `autoMountAuth(app, options?)` instead.
  */
 export function mountAuthMiddleware(app: H3App, accessToken: string): void {
-  mountTokenOnlyRoutes(app, [accessToken]);
+  void app;
+  void accessToken;
+  throw new Error(
+    "mountAuthMiddleware(accessToken) has been removed. Use createAuthPlugin() or autoMountAuth() with Better Auth, or a custom getSession provider.",
+  );
 }

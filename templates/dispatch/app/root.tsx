@@ -1,11 +1,14 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import {
-  focusAgentChat,
-  agentNativePath,
-  appPath,
-} from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -107,6 +110,7 @@ function DbSyncSetup() {
       "list-agent-thread-sources",
       "search-agent-threads",
       "get-agent-thread-debug",
+      "list-mcp-app-access",
       "get-dispatch-settings",
       "list-connected-agents",
       "list-vault-secrets",
@@ -127,10 +131,11 @@ function DbSyncSetup() {
 }
 
 /**
- * Reads ?thread=<id> from the URL on mount and opens that thread
- * in the agent sidebar via the chat-command application-state mechanism.
+ * Reads ?thread=<id> from the URL on mount and opens that thread in the
+ * full-page chat route.
  */
 function useThreadDeepLink() {
+  const navigate = useNavigate();
   const handled = useRef(false);
   useEffect(() => {
     if (handled.current) return;
@@ -139,28 +144,24 @@ function useThreadDeepLink() {
     if (!threadId) return;
     handled.current = true;
 
-    // Write a chat-command to application-state so the sidebar opens this thread
-    fetch(agentNativePath("/_agent-native/application-state/chat-command"), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        command: "open-thread",
-        threadId,
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-
-    // Open the sidebar
-    focusAgentChat();
-
-    // Clean the ?thread= param from the URL without a navigation
     params.delete("thread");
-    const next =
-      window.location.pathname +
-      (params.toString() ? `?${params.toString()}` : "") +
-      window.location.hash;
-    window.history.replaceState({}, "", next);
-  }, []);
+    navigate(
+      {
+        pathname: "/chat",
+        search: params.toString() ? `?${params.toString()}` : "",
+        hash: window.location.hash,
+      },
+      {
+        replace: true,
+        state: {
+          dispatchThread: {
+            id: `${Date.now()}-${threadId}`,
+            threadId,
+          },
+        },
+      },
+    );
+  }, [navigate]);
 }
 
 function ThemeToggleItem() {

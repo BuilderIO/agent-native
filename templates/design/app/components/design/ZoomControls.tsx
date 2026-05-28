@@ -28,6 +28,8 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const roundedZoom = Math.round(zoom);
+  const zoomLabel = `${roundedZoom}%`;
 
   const handleZoomIn = useCallback(() => {
     const next = ZOOM_PRESETS.find((p) => p > zoom);
@@ -44,9 +46,9 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
   }, [onZoomChange]);
 
   const handleStartEdit = useCallback(() => {
-    setEditValue(String(zoom));
+    setEditValue(String(roundedZoom));
     setIsEditing(true);
-  }, [zoom]);
+  }, [roundedZoom]);
 
   const handleCommitEdit = useCallback(() => {
     const parsed = parseInt(editValue, 10);
@@ -103,7 +105,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
               onClick={handleStartEdit}
               className="flex items-center gap-0.5 px-1.5 h-6 text-xs text-foreground tabular-nums hover:bg-accent rounded"
             >
-              {zoom}%
+              {zoomLabel}
               <IconChevronDown className="w-3 h-3 opacity-50" />
             </button>
           </DropdownMenuTrigger>

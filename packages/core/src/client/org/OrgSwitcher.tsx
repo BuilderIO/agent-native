@@ -4,17 +4,37 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconApps,
   IconArrowUpRight,
+  IconBrain,
+  IconBrandJira,
+  IconBrush,
   IconBuilding,
+  IconCalendar,
+  IconCalendarTime,
+  IconChartBar,
   IconCheck,
   IconChevronRight,
+  IconClipboardList,
+  IconCode,
+  IconFileText,
   IconLoader2,
   IconLogout,
+  IconMail,
   IconMessageCircle,
+  IconMicrophone,
+  IconNote,
+  IconPhone,
+  IconPhoto,
   IconPlus,
+  IconPresentation,
+  IconScreenShare,
   IconSelector,
   IconSettings,
+  IconStack2,
   IconUser,
   IconUserPlus,
+  IconUsers,
+  IconVideo,
+  IconWorld,
 } from "@tabler/icons-react";
 import {
   useOrg,
@@ -75,6 +95,34 @@ const APP_SUBMENU_CONTENT_CLASS =
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/team";
 
+const APP_ICON_MAP: Record<string, typeof IconApps> = {
+  Mail: IconMail,
+  CalendarDays: IconCalendar,
+  FileText: IconFileText,
+  BarChart2: IconChartBar,
+  GalleryHorizontal: IconPresentation,
+  Video: IconVideo,
+  BrandJira: IconBrandJira,
+  ClipboardList: IconClipboardList,
+  Users: IconUsers,
+  Code: IconCode,
+  MessageCircle: IconMessageCircle,
+  ScreenShare: IconScreenShare,
+  Brush: IconBrush,
+  Brain: IconBrain,
+  Phone: IconPhone,
+  Note: IconNote,
+  Microphone: IconMicrophone,
+  CalendarTime: IconCalendarTime,
+  Globe: IconWorld,
+  Photo: IconPhoto,
+};
+
+function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {
+  if (app.icon) return APP_ICON_MAP[app.icon] ?? IconStack2;
+  return app.isDispatch ? IconMessageCircle : IconStack2;
+}
+
 function organizationSettingsPath(path: string): string {
   return `${path.replace(/#.*$/, "")}#workspace-settings`;
 }
@@ -86,7 +134,7 @@ function AppMenuLink({
   app: OrgSwitcherAppLink;
   onNavigate: () => void;
 }) {
-  const Icon = app.isDispatch ? IconMessageCircle : IconApps;
+  const Icon = appMenuIcon(app);
   return (
     <a
       href={app.href}

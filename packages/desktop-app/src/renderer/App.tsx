@@ -12,6 +12,7 @@ import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import { getTabDisplayTitle } from "./lib/tab-title.js";
 import {
   CODE_AGENTS_SURFACE_ID,
   MIGRATION_APP_ID,
@@ -22,6 +23,9 @@ export interface Tab {
   id: string;
   appId: string;
   title: string;
+  urlOpenNonce?: number;
+  urlPath?: string;
+  urlOpenSoft?: boolean;
 }
 
 let nextTabId = 1;
@@ -30,14 +34,43 @@ function createTab(app: AppDefinition | AppConfig): Tab {
   return {
     id: `tab-${nextTabId++}`,
     appId: app.id,
-    title: app.name,
+    title: getTabDisplayTitle(undefined, app.name),
   };
+}
+
+function safeDesktopOpenPath(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return undefined;
+  if (trimmed.startsWith("/\\")) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
+  if (/^\/[a-z][a-z0-9+.-]*:/i.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 // Per-app tab state: appId → { tabs, activeTabId }
 interface AppTabState {
   tabs: Tab[];
   activeTabId: string;
+}
+
+function findTabAppId(
+  tabsByApp: Record<string, AppTabState>,
+  tabId: string,
+): string | undefined {
+  for (const [appId, appState] of Object.entries(tabsByApp)) {
+    if (appState.tabs.some((tab) => tab.id === tabId)) return appId;
+  }
+  return undefined;
+}
+
+function markAppMounted(prev: Set<string>, appId: string): Set<string> {
+  if (!appId || appId === CODE_AGENTS_SURFACE_ID || prev.has(appId)) {
+    return prev;
+  }
+  const next = new Set(prev);
+  next.add(appId);
+  return next;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -83,6 +116,8 @@ export default function App() {
     runId?: string;
     nonce: number;
   }>();
+  const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
+    useState<DesktopOpenRequest | null>(null);
 
   // Load apps from persistent store
   useEffect(() => {
@@ -179,27 +214,119 @@ export default function App() {
     setApps(newApps);
   }, []);
 
-  const handleAddApp = useCallback(async (app: AppConfig) => {
-    if (window.electronAPI?.appConfig) {
-      const updated = await window.electronAPI.appConfig.add(app);
-      setApps(updated);
-    } else {
-      setApps((prev) => [...prev, app]);
-    }
-    setActiveSidebarAppId(app.id);
-    setShowAddApp(false);
-  }, []);
+  const activateApp = useCallback(
+    (appId: string, options: { ensureTab?: boolean } = {}) => {
+      if (!appId) return;
+      const { ensureTab = true } = options;
+      const app = enabledApps.find((candidate) => candidate.id === appId);
+      if (ensureTab && appId !== CODE_AGENTS_SURFACE_ID && app) {
+        setAppTabs((prev) => {
+          const appState = prev[appId];
+          if (appState?.tabs.length) return prev;
+          const tab = createTab(app);
+          return {
+            ...prev,
+            [appId]: { tabs: [tab], activeTabId: tab.id },
+          };
+        });
+      }
+      setMountedAppIds((prev) => markAppMounted(prev, appId));
+      setActiveSidebarAppId(appId);
+    },
+    [enabledApps],
+  );
 
-  const handleSidebarTabChange = useCallback((appId: string) => {
-    setActiveSidebarAppId(appId);
-    setShowSettings(false);
-  }, []);
+  const handleAddApp = useCallback(
+    async (app: AppConfig) => {
+      if (window.electronAPI?.appConfig) {
+        const updated = await window.electronAPI.appConfig.add(app);
+        setApps(updated);
+      } else {
+        setApps((prev) => [...prev, app]);
+      }
+      activateApp(app.id);
+      setShowAddApp(false);
+    },
+    [activateApp],
+  );
+
+  const handleSidebarTabChange = useCallback(
+    (appId: string) => {
+      activateApp(appId);
+      setShowSettings(false);
+    },
+    [activateApp],
+  );
 
   const handleCodeAgentsClick = useCallback(() => {
     setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
     setShowSettings(false);
     setShowAddApp(false);
   }, []);
+
+  const handleDesktopOpenRequest = useCallback(
+    (request: DesktopOpenRequest): boolean => {
+      const goal = getCodeAgentGoal(request.goalId);
+      if (
+        goal ||
+        request.app === MIGRATION_APP_ID ||
+        request.app === CODE_AGENTS_SURFACE_ID
+      ) {
+        setCodeAgentsOpenRequest({
+          goalId:
+            goal?.id ??
+            (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
+          runId: request.runId,
+          nonce: Date.now(),
+        });
+        setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+        setShowSettings(false);
+        setShowAddApp(false);
+        return true;
+      }
+
+      const appId = request.app?.trim();
+      if (!appId) return true;
+      const targetApp = enabledApps.find((app) => app.id === appId);
+      if (!targetApp) return !loading;
+
+      activateApp(appId);
+      setShowSettings(false);
+      setShowAddApp(false);
+
+      const urlPath = safeDesktopOpenPath(request.path);
+      if (!urlPath) return true;
+      const urlOpenNonce = Date.now();
+      const urlOpenSoft = request.softOpen === true;
+
+      setAppTabs((prev) => {
+        const appState = prev[appId];
+        const tabs =
+          appState && appState.tabs.length > 0
+            ? appState.tabs
+            : [createTab(targetApp)];
+        const activeTabId =
+          appState?.activeTabId &&
+          tabs.some((tab) => tab.id === appState.activeTabId)
+            ? appState.activeTabId
+            : tabs[0].id;
+
+        return {
+          ...prev,
+          [appId]: {
+            tabs: tabs.map((tab) =>
+              tab.id === activeTabId
+                ? { ...tab, urlOpenNonce, urlPath, urlOpenSoft }
+                : tab,
+            ),
+            activeTabId,
+          },
+        };
+      });
+      return true;
+    },
+    [activateApp, enabledApps, loading],
+  );
 
   const handleTabSelect = useCallback(
     (tabId: string) => {
@@ -241,11 +368,20 @@ export default function App() {
 
         if (next.length === 0) {
           const app = enabledApps.find((a) => a.id === activeSidebarAppId);
-          if (!app) return prev;
-          const tab = createTab(app);
+          if (app) {
+            const replacementTab = createTab(app);
+            return {
+              ...prev,
+              [activeSidebarAppId]: {
+                tabs: [replacementTab],
+                activeTabId: replacementTab.id,
+              },
+            };
+          }
+
           return {
             ...prev,
-            [activeSidebarAppId]: { tabs: [tab], activeTabId: tab.id },
+            [activeSidebarAppId]: { tabs: [], activeTabId: "" },
           };
         }
 
@@ -264,15 +400,41 @@ export default function App() {
     [activeSidebarAppId, appTabs, enabledApps],
   );
 
+  const handleTabTitleChange = useCallback(
+    (tabId: string, title: string) => {
+      setAppTabs((prev) => {
+        const appId = findTabAppId(prev, tabId);
+        if (!appId) return prev;
+        const appState = prev[appId];
+        const tab = appState.tabs.find((t) => t.id === tabId);
+        if (!tab) return prev;
+
+        const app = enabledApps.find((candidate) => candidate.id === appId);
+        const nextTitle = getTabDisplayTitle(title, app?.name ?? tab.title);
+        if (tab.title === nextTitle) return prev;
+
+        return {
+          ...prev,
+          [appId]: {
+            ...appState,
+            tabs: appState.tabs.map((t) =>
+              t.id === tabId ? { ...t, title: nextTitle } : t,
+            ),
+          },
+        };
+      });
+    },
+    [enabledApps],
+  );
+
   const handleReopenTab = useCallback(() => {
     const entry = closedTabsRef.current.pop();
     if (!entry) return;
     if (!enabledApps.some((app) => app.id === entry.appId)) return;
 
-    setActiveSidebarAppId(entry.appId);
+    activateApp(entry.appId, { ensureTab: false });
     setAppTabs((prev) => {
-      const appState = prev[entry.appId];
-      if (!appState) return prev;
+      const appState = prev[entry.appId] ?? { tabs: [], activeTabId: "" };
 
       return {
         ...prev,
@@ -282,15 +444,18 @@ export default function App() {
         },
       };
     });
-  }, [enabledApps]);
+  }, [activateApp, enabledApps]);
 
   const handleNewTab = useCallback(() => {
     const app = enabledApps.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
     const tab = createTab(app);
+    activateApp(activeSidebarAppId, { ensureTab: false });
     setAppTabs((prev) => {
-      const appState = prev[activeSidebarAppId];
-      if (!appState) return prev;
+      const appState = prev[activeSidebarAppId] ?? {
+        tabs: [],
+        activeTabId: "",
+      };
 
       return {
         ...prev,
@@ -300,7 +465,7 @@ export default function App() {
         },
       };
     });
-  }, [activeSidebarAppId, enabledApps]);
+  }, [activateApp, activeSidebarAppId, enabledApps]);
 
   const handleCopyCurrentUrl = useCallback(async () => {
     const currentUrl = webviewRefs.current
@@ -331,14 +496,13 @@ export default function App() {
 
       // Cmd+Option+Up/Down — previous/next app
       if (altKey && (k === "arrowup" || k === "arrowdown")) {
-        setActiveSidebarAppId((current) => {
-          const idx = appDefs.findIndex((a) => a.id === current);
-          const next =
-            k === "arrowdown"
-              ? (idx + 1) % appDefs.length
-              : (idx - 1 + appDefs.length) % appDefs.length;
-          return appDefs[next].id;
-        });
+        if (appDefs.length === 0) return;
+        const idx = appDefs.findIndex((a) => a.id === activeSidebarAppId);
+        const next =
+          k === "arrowdown"
+            ? (idx + 1) % appDefs.length
+            : (idx - 1 + appDefs.length) % appDefs.length;
+        activateApp(appDefs[next].id);
         return;
       }
 
@@ -375,21 +539,20 @@ export default function App() {
       const digit = parseInt(key, 10);
       if (digit >= 1 && digit <= 9) {
         if (digit - 1 < appDefs.length) {
-          setActiveSidebarAppId(appDefs[digit - 1].id);
+          activateApp(appDefs[digit - 1].id);
         }
         return;
       }
 
       if (key === "[" || key === "]") {
         if (shiftKey) {
-          setActiveSidebarAppId((current) => {
-            const idx = appDefs.findIndex((a) => a.id === current);
-            const next =
-              key === "]"
-                ? (idx + 1) % appDefs.length
-                : (idx - 1 + appDefs.length) % appDefs.length;
-            return appDefs[next].id;
-          });
+          if (appDefs.length === 0) return;
+          const idx = appDefs.findIndex((a) => a.id === activeSidebarAppId);
+          const next =
+            key === "]"
+              ? (idx + 1) % appDefs.length
+              : (idx - 1 + appDefs.length) % appDefs.length;
+          activateApp(appDefs[next].id);
         } else {
           const ref = webviewRefs.current.get(activeTabIdRef.current);
           if (key === "[") ref?.goBack();
@@ -397,7 +560,14 @@ export default function App() {
         }
       }
     },
-    [handleCopyCurrentUrl, handleNewTab, handleReopenTab, appDefs],
+    [
+      activateApp,
+      activeSidebarAppId,
+      handleCopyCurrentUrl,
+      handleNewTab,
+      handleReopenTab,
+      appDefs,
+    ],
   );
 
   useEffect(() => {
@@ -428,27 +598,16 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
     return window.electronAPI.codeAgents.onOpenRequest((request) => {
-      const goal = getCodeAgentGoal(request.goalId);
-      if (
-        !goal &&
-        request.app &&
-        request.app !== MIGRATION_APP_ID &&
-        request.app !== CODE_AGENTS_SURFACE_ID
-      ) {
-        return;
-      }
-      setCodeAgentsOpenRequest({
-        goalId:
-          goal?.id ??
-          (request.app === MIGRATION_APP_ID ? "migrate" : undefined),
-        runId: request.runId,
-        nonce: Date.now(),
-      });
-      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
-      setShowSettings(false);
-      setShowAddApp(false);
+      setPendingDesktopOpenRequest(request);
     });
   }, []);
+
+  useEffect(() => {
+    if (!pendingDesktopOpenRequest) return;
+    if (handleDesktopOpenRequest(pendingDesktopOpenRequest)) {
+      setPendingDesktopOpenRequest(null);
+    }
+  }, [handleDesktopOpenRequest, pendingDesktopOpenRequest]);
 
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
@@ -593,6 +752,9 @@ export default function App() {
         <TabBar
           tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
+          appName={
+            enabledApps.find((app) => app.id === activeSidebarAppId)?.name ?? ""
+          }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
           onNewTab={handleNewTab}
@@ -634,7 +796,11 @@ export default function App() {
                 app={appDef}
                 appConfig={app}
                 isActive={isActive}
+                urlOpenNonce={tab.urlOpenNonce}
+                urlPath={tab.urlPath}
+                urlOpenSoft={tab.urlOpenSoft}
                 refreshKey={isActive ? refreshKey : 0}
+                onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
                 onAppsChanged={handleAppsChanged}
               />
             ))}

@@ -55,11 +55,14 @@ available to every workspace app. Only create or request per-app vault grants
 when Dispatch's vault access setting is switched to manual mode.
 
 Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
-separate workspace app registry to edit for Dispatch to list the app. Use
-relative workspace links like `/<app-name>` and never hardcode `localhost`,
-`127.0.0.1`, `8080`, `8100`, or any dev port in app cards, instructions,
-redirects, or navigation; the active workspace gateway/browser origin owns the
-port. React Router apps must preserve `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
+separate workspace app registry to edit for Dispatch to list the app. Always
+save a concise, human-readable `description` there; Dispatch lists and A2A
+connected-agent context use the app name plus description so agents know what
+the app does. Use relative workspace links like `/<app-name>` and never
+hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
+cards, instructions, redirects, or navigation; the active workspace
+gateway/browser origin owns the port. React Router apps must preserve
+`APP_BASE_PATH` / `VITE_APP_BASE_PATH` in
 `app/entry.client.tsx` via `appBasePath()` so the app hydrates correctly when
 mounted at `/<app-name>`. Use the framework/template UI stack for standard UI:
 shadcn/ui components and `@tabler/icons-react`. Do not add `lucide-react` or
@@ -74,9 +77,22 @@ the same data unless the route is for uploads, streaming, webhooks, OAuth, or
 another route-only concern. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
+App database code must be provider-agnostic. Define schemas with
+`@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's
+query builder and portable `drizzle-orm` operators. Do not import from
+`drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
+for additive migrations, health checks, or carefully scoped maintenance, and
+never write SQLite-only or Postgres-only product code.
+
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the
 workspace root. In production, Dispatch posts new-app requests to Builder
 branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
+
+When using the starter template, treat it as scaffolding only. The finished app
+must be branded as the requested app, with its own home screen, navigation,
+package metadata, manifest, and domain workflow. Do not leave visible
+`Starter`, `Blank app`, `Start building`, or `New app` UI in a starter-derived
+app.

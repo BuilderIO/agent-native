@@ -307,10 +307,85 @@ describe("server/auth", () => {
       expect(rejectedState.returnUrl).toBeUndefined();
     });
 
-    it("mounts auth when ACCESS_TOKEN is set in production", async () => {
+    it("uses a derived A2A secret for Google OAuth state in production workspaces", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("A2A_SECRET", "workspace-root-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.OAUTH_STATE_SECRET;
+      delete process.env.BETTER_AUTH_SECRET;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { decodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+      const result = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+          },
+        }),
+      );
+      const stateParam = new URL(result.url).searchParams.get("state");
+
+      expect(
+        decodeOAuthState(
+          stateParam || undefined,
+          "https://agent-workspace.builder.io/_agent-native/google/callback",
+        ).redirectUri,
+      ).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+
+      vi.stubEnv("A2A_SECRET", "different-root-secret");
+      expect(
+        decodeOAuthState(
+          stateParam || undefined,
+          "https://fallback.example/_agent-native/google/callback",
+        ).redirectUri,
+      ).toBe("https://fallback.example/_agent-native/google/callback");
+    });
+
+    it("uses Better Auth, not token-only browser auth, when ACCESS_TOKEN is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("DEBUG", "1");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -318,16 +393,32 @@ describe("server/auth", () => {
       const result = await autoMountAuth(app);
 
       expect(result).toBe(true);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("1 access token(s)"),
-      );
+      const paths = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((path: unknown): path is string => typeof path === "string");
+      expect(paths).toContain("/_agent-native/auth/ba");
+      const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
+      expect(allLogs).toContain("Better Auth");
+      expect(allLogs).not.toContain("access token");
       logSpy.mockRestore();
     });
 
-    it("renders a clearer access-token login page with mounted auth paths", async () => {
+    it("does not render an access-token login page when ACCESS_TOKEN is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/demo");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -340,25 +431,23 @@ describe("server/auth", () => {
 
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
 
       const html = await (result as Response).text();
-      expect(html).toContain("This app is private");
-      expect(html).toContain("not your deploy provider account token");
-      expect(html).toContain('var configuredBasePath = "/demo";');
-      expect(html).toContain("__anPath('/_agent-native/auth/login')");
-      expect(html).toContain("__anPath('/_agent-native/auth/session')");
-      expect(html).toContain("The token was accepted, but the browser");
+      expect(html).toContain("Create account");
+      expect(html).not.toContain("This app is private");
+      expect(html).not.toContain("Private deployment");
+      expect(html).not.toContain("ACCESS_TOKEN");
     });
 
-    it("infers mounted workspace auth paths when APP_BASE_PATH is absent", async () => {
+    it("custom auth without loginHtml does not render an access-token page", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-      delete process.env.APP_BASE_PATH;
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
-      await autoMountAuth(app);
+      await autoMountAuth(app, {
+        getSession: async () => null,
+      });
 
       const guard = app.use.mock.calls
         .map((call: any[]) => call[0])
@@ -369,8 +458,10 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
 
       const html = await (result as Response).text();
-      expect(html).toContain('var configuredBasePath = "/starter";');
-      expect(html).toContain("__anPath('/_agent-native/auth/login')");
+      expect(html).toContain("Sign in is not configured");
+      expect(html).not.toContain("This app is private");
+      expect(html).not.toContain("Private deployment");
+      expect(html).not.toContain("ACCESS_TOKEN");
     });
 
     it("recognizes auth routes under APP_BASE_PATH in the global guard", async () => {
@@ -422,6 +513,7 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/admin/users" }),
       );
       expect(adminResult).toBeInstanceOf(Response);
+      expect((adminResult as Response).status).toBe(401);
 
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
@@ -461,6 +553,7 @@ describe("server/auth", () => {
         createMockEvent({ path: "/docs/admin" }),
       );
       expect(privateResult).toBeInstanceOf(Response);
+      expect((privateResult as Response).status).toBe(401);
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -687,6 +780,53 @@ describe("server/auth", () => {
         expect((result as Response).status).toBe(200);
         expect(await (result as Response).text()).toContain("QA login");
       }
+    });
+
+    it("serves first-party branded auth when the default guard handles a built-in host", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({
+          path: "/",
+          headers: { host: "dispatch.agent-native.com" },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
+      expect((result as Response).headers.get("Cache-Control")).toBe(
+        "no-store",
+      );
+      expect((result as Response).headers.get("X-Robots-Tag")).toBe(
+        "noindex, nofollow",
+      );
+      const html = await (result as Response).text();
+      expect(html).toContain("Agent-Native Dispatch");
+      expect(html).toContain('class="marketing-panel"');
     });
 
     it("redirects mounted login and signup pages when a session already exists", async () => {
@@ -1212,11 +1352,94 @@ describe("server/auth", () => {
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
-    it("supports multiple ACCESS_TOKENS", async () => {
+    it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let forwardedBody: any;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async (request: Request) => {
+            forwardedBody = await request.json();
+            return new Response(JSON.stringify({ ok: true }), {
+              headers: { "content-type": "application/json" },
+            });
+          },
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath = "/_agent-native/auth/ba/send-verification-email";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "user@example.com",
+          callbackURL: "https://slack.com/app_redirect?channel=C123",
+        }),
+      });
+      const event = {
+        req: request,
+        url: new URL("http://localhost/send-verification-email"),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "POST" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: "/send-verification-email",
+      };
+
+      await baHandler(event);
+
+      expect(forwardedBody).toEqual({
+        email: "user@example.com",
+        callbackURL: "/",
+      });
+    });
+
+    it("does not enable token-only browser auth when ACCESS_TOKENS is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
       vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -1224,26 +1447,9 @@ describe("server/auth", () => {
       const result = await autoMountAuth(app);
 
       expect(result).toBe(true);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("3 access token(s)"),
-      );
-      logSpy.mockRestore();
-    });
-
-    it("deduplicates tokens across ACCESS_TOKEN and ACCESS_TOKENS", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "shared");
-      vi.stubEnv("ACCESS_TOKENS", "shared,unique1,unique2");
-      vi.stubEnv("DEBUG", "1");
-      const { autoMountAuth } = await import("./auth.js");
-
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("3 access token(s)"),
-      );
+      const allLogs = logSpy.mock.calls.map((c) => c[0]).join(" ");
+      expect(allLogs).toContain("Better Auth");
+      expect(allLogs).not.toContain("access token");
       logSpy.mockRestore();
     });
 
@@ -1390,6 +1596,54 @@ describe("server/auth", () => {
         })
         .filter(Boolean);
       expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
+    });
+
+    it("migrates a legacy shared framework cookie into the isolated cookie name", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
+      vi.stubEnv("APP_NAME", "slides");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          typeof sql === "string" &&
+          sql.includes("SELECT") &&
+          args?.[0] === "legacy-token"
+        ) {
+          return {
+            rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+          };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: "an_session=legacy-token",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "user@gmail.com",
+        token: "legacy-token",
+      });
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("an_session=");
+      expect(setCookie).toContain("Max-Age=0");
+      expect(setCookie).toContain("Domain=.agent-native.com");
+      expect(setCookie).toContain("an_session_slides=legacy-token");
     });
 
     it("marks promoted cross-site session cookies secure on forwarded HTTPS requests", async () => {
@@ -2160,7 +2414,41 @@ describe("server/auth", () => {
       expect(setCookie).toContain("Secure");
     });
 
-    it("clears stale host-only cookies before setting a domain shared session", async () => {
+    it("clears stale host-only cookies before setting a custom-domain shared session", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+      vi.stubEnv("APP_NAME", "slides");
+
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "x-forwarded-proto": "https",
+          host: "slides.example.com",
+        },
+      });
+
+      const result = await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+      });
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("an_session=");
+      expect(setCookie).toContain("Max-Age=0");
+      expect(setCookie).toContain("Domain=.example.com");
+      expect(setCookie).toContain(result.sessionToken);
+      expect(setCookie).toContain("an_session_slides=");
+    });
+
+    it("ignores first-party shared cookie domains and sets an isolated app session", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".agent-native.com");
       vi.stubEnv("APP_NAME", "slides");
@@ -2190,8 +2478,15 @@ describe("server/auth", () => {
       expect(setCookie).toContain("an_session=");
       expect(setCookie).toContain("Max-Age=0");
       expect(setCookie).toContain("Domain=.agent-native.com");
-      expect(setCookie).toContain(result.sessionToken);
-      expect(setCookie).toContain("an_session_slides=");
+      expect(setCookie).toContain(`an_session_slides=${result.sessionToken}`);
+      const sessionCookie = setCookie
+        .split(/,(?=\s*[^=]+=)/)
+        .map((value) => value.trim())
+        .find((value) =>
+          value.startsWith(`an_session_slides=${result.sessionToken}`),
+        );
+      expect(sessionCookie).toBeTruthy();
+      expect(sessionCookie).not.toContain("Domain=.agent-native.com");
     });
   });
 

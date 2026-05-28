@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   format,
   startOfMonth,
@@ -13,8 +14,8 @@ import {
   subWeeks,
   addDays,
   subDays,
-  isSameDay,
   parseISO,
+  startOfDay,
 } from "date-fns";
 import {
   IconCheck,
@@ -61,6 +62,7 @@ import {
 } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useQueryClient } from "@tanstack/react-query";
@@ -122,6 +124,28 @@ function fallbackDraftRange(fallbackDate: Date) {
   const end = new Date(start);
   end.setHours(10, 0, 0, 0);
   return { start, end };
+}
+
+function addMinutesToDateTimeParts(
+  date: string,
+  time: string,
+  minutes: number,
+) {
+  const [hour, minute] = time.split(":").map(Number);
+  const safeHour = Number.isFinite(hour) ? hour : 9;
+  const safeMinute = Number.isFinite(minute) ? minute : 0;
+  const totalMinutes = safeHour * 60 + safeMinute + minutes;
+  const dayOffset = Math.floor(totalMinutes / (24 * 60));
+  const minuteOfDay = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const endDate = new Date(`${date}T00:00:00`);
+  endDate.setDate(endDate.getDate() + dayOffset);
+  const endHour = Math.floor(minuteOfDay / 60);
+  const endMinute = minuteOfDay % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: format(endDate, "yyyy-MM-dd"),
+    time: `${pad(endHour)}:${pad(endMinute)}`,
+  };
 }
 
 function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
@@ -279,6 +303,8 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
+  const settingsQuery = useSettings();
+  const { data: settings } = settingsQuery;
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -419,11 +445,18 @@ export default function CalendarView() {
       });
   }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
 
-  // Filter events for day view
+  // Filter events for day view — use overlap check so multi-day continuation
+  // events (started on a prior day) still appear on the selected day.
   const dayEvents = useMemo(
     () =>
       viewMode === "day"
-        ? events.filter((e) => isSameDay(parseISO(e.start), selectedDate))
+        ? events.filter((e) => {
+            const evStart = parseISO(e.start);
+            const evEnd = parseISO(e.end);
+            const dayStart = startOfDay(selectedDate);
+            const dayEnd = addDays(dayStart, 1);
+            return evStart < dayEnd && evEnd > dayStart;
+          })
         : events,
     [events, viewMode, selectedDate],
   );
@@ -833,12 +866,13 @@ export default function CalendarView() {
     if (!event) return;
 
     if (calendarDraftIdFromEventId(eventId)) {
+      const timezone = settings?.timezone || getLocalTimezone();
       updateDraftEvent(eventId, {
         start: newStart.toISOString(),
         end: newEnd.toISOString(),
         allDay: false,
-        startTimeZone: getLocalTimezone(),
-        endTimeZone: getLocalTimezone(),
+        startTimeZone: timezone,
+        endTimeZone: timezone,
       });
       return;
     }
@@ -888,62 +922,57 @@ export default function CalendarView() {
     );
   }
 
-  function handleClickTimeSlot(
+  async function handleClickTimeSlot(
     clickedDate: Date,
     startTime: string,
-    endTime: string,
+    _endTime: string,
   ) {
+    let activeSettings = settings;
+    if (!activeSettings) {
+      const result = await settingsQuery.refetch();
+      activeSettings = result.data;
+    }
+    if (!activeSettings?.timezone) {
+      toast.error(
+        "Calendar settings are still loading. Try again in a moment.",
+      );
+      return;
+    }
+
     setSelectedDate(clickedDate);
-    setEventDraft(null);
+    const defaultDuration = Math.max(
+      5,
+      activeSettings.defaultEventDuration ?? 30,
+    );
+    const timezone = activeSettings.timezone;
     setCreateDefaultStart(startTime);
-    setCreateDefaultEnd(endTime);
     setCreateDialogOpen(false);
 
     const dateStr = format(clickedDate, "yyyy-MM-dd");
-    const timezone = getLocalTimezone();
+    const end = addMinutesToDateTimeParts(dateStr, startTime, defaultDuration);
+    setCreateDefaultEnd(end.time);
     const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
-    const endISO = dateTimeInTimezoneToIso(dateStr, endTime, timezone);
-    const tempId = `temp-${Date.now()}`;
+    const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
+    const now = new Date().toISOString();
+    const draftId = `slot-${Date.now()}`;
+    const draft: CalendarEventDraft = {
+      id: draftId,
+      title: "",
+      description: "",
+      location: "",
+      start: startISO,
+      end: endISO,
+      startTimeZone: timezone,
+      endTimeZone: timezone,
+      allDay: false,
+      eventType: "default",
+      createdAt: now,
+      updatedAt: now,
+    };
 
-    createEvent.mutate(
-      {
-        title: "(No title)",
-        description: "",
-        location: "",
-        start: startISO,
-        end: endISO,
-        startTimeZone: timezone,
-        endTimeZone: timezone,
-        allDay: false,
-        _tempId: tempId,
-      },
-      {
-        onSuccess: (result) => {
-          const { _tempId, ...realEvent } = result;
-          const stableTempId = _tempId ?? tempId;
-          setQuickEditTempIds((current) => ({
-            ...current,
-            [realEvent.id]: stableTempId,
-          }));
-          queryClient.setQueriesData<CalendarEvent[]>(
-            { queryKey: ["action", "list-events"] },
-            (old) =>
-              old?.map((e) =>
-                e.id === stableTempId
-                  ? { ...e, ...realEvent, _tempId: stableTempId }
-                  : e,
-              ),
-          );
-          setQuickEditEventId(realEvent.id);
-        },
-        onError: () => {
-          setQuickEditEventId(null);
-          toast.error("Failed to create event");
-        },
-      },
-    );
-
-    setQuickEditEventId(tempId);
+    persistCalendarDraft(draft);
+    setEventDraft(draft);
+    setQuickEditEventId(calendarDraftEventId(draftId));
   }
 
   async function handleQuickEditSave(eventId: string, title: string) {
@@ -1464,7 +1493,7 @@ function AccountAvatars() {
                   zIndex: accounts.length - i,
                 }}
               >
-                {account.photoUrl ? (
+                {account.photoUrl && !isMcpEmbedSurface() ? (
                   <img
                     src={account.photoUrl}
                     alt=""
@@ -1472,6 +1501,11 @@ function AccountAvatars() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
+                  // MCP host iframes (ChatGPT / Claude) ship strict COEP/CORP
+                  // headers that block cross-origin googleusercontent.com
+                  // avatars and produce noisy console errors. Fall back to a
+                  // same-origin initial chip when embedded. See
+                  // `templates/calendar/app/lib/mcp-embed.ts`.
                   <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
                     {account.email[0]?.toUpperCase()}
                   </div>

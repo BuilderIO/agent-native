@@ -6,18 +6,20 @@ import {
   IconH1,
   IconH2,
   IconH3,
+  IconH4,
   IconList,
   IconListNumbers,
   IconSquareCheck,
   IconChevronRight,
   IconCode,
-  IconQuote,
   IconMinus,
   IconTable as TableIcon,
-  IconPencil,
+  IconSparkles,
   IconArrowUp,
   IconInfoCircle,
+  IconMusic,
   IconPhoto,
+  IconVideo,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -26,24 +28,58 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
 }
 
+interface EditorMenuPosition {
+  top: number;
+  left: number;
+}
+
 interface CommandItem {
   title: string;
   description: string;
+  shortcut?: string;
   icon: React.ElementType;
   action: (editor: Editor) => void;
+}
+
+function QuoteCommandIcon({ size = 22 }: { size?: number; stroke?: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="font-serif font-semibold leading-none"
+      style={{ fontSize: Math.round(size * 1.15) }}
+    >
+      &quot;
+    </span>
+  );
 }
 
 export function parseInlineGeneratePrompt(textBeforeCursor: string) {
   const match = textBeforeCursor.match(/^\/generate\s+([\s\S]+)$/i);
   const prompt = match?.[1]?.trim();
   return prompt || null;
+}
+
+export function shouldOpenGenerateOnSpace(editor: Editor) {
+  const { selection } = editor.state;
+  if (!selection.empty) return false;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock) return false;
+  if ($from.parent.type.name !== "paragraph") return false;
+  if ($from.parentOffset !== 0) return false;
+
+  return $from.parent.textContent.trim().length === 0;
+}
+
+export function parseSlashCommandQuery(textBeforeCursor: string) {
+  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
 }
 
 const commands: CommandItem[] = [
@@ -56,6 +92,7 @@ const commands: CommandItem[] = [
   {
     title: "Heading 1",
     description: "Large heading",
+    shortcut: "#",
     icon: IconH1,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 1 }).run(),
@@ -63,6 +100,7 @@ const commands: CommandItem[] = [
   {
     title: "Heading 2",
     description: "Medium heading",
+    shortcut: "##",
     icon: IconH2,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 2 }).run(),
@@ -70,53 +108,70 @@ const commands: CommandItem[] = [
   {
     title: "Heading 3",
     description: "Small heading",
+    shortcut: "###",
     icon: IconH3,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
+    title: "Heading 4",
+    description: "Subheading",
+    shortcut: "####",
+    icon: IconH4,
+    action: (editor) =>
+      editor.chain().focus().toggleHeading({ level: 4 }).run(),
+  },
+  {
+    title: "Bulleted list",
     description: "Unordered list",
+    shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
+    title: "Numbered list",
     description: "Ordered list",
+    shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do List",
+    title: "To-do list",
     description: "Checklist items",
+    shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     title: "Toggle",
     description: "Notion-style toggle line",
+    shortcut: ">",
     icon: IconChevronRight,
-    action: (editor) =>
+    action: (editor) => {
       editor
         .chain()
         .focus()
         .insertContent({
           type: "notionToggle",
-          attrs: { summary: "Toggle" },
+          attrs: { summary: "", open: true },
           content: [{ type: "paragraph" }],
         })
-        .run(),
+        .run();
+      focusMostRecentEmptyToggleSummary(editor);
+    },
   },
   {
     title: "Code Block",
     description: "Code snippet",
+    shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
     title: "Quote",
     description: "Block quote",
-    icon: IconQuote,
+    shortcut: '"',
+    icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -137,6 +192,7 @@ const commands: CommandItem[] = [
   {
     title: "Divider",
     description: "Horizontal rule",
+    shortcut: "---",
     icon: IconMinus,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
@@ -148,7 +204,7 @@ const commands: CommandItem[] = [
       editor
         .chain()
         .focus()
-        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: false })
         .run(),
   },
 ];
@@ -164,42 +220,56 @@ const turnIntoCommands: CommandItem[] = [
   {
     title: "Heading 1",
     description: "Large heading",
+    shortcut: "#",
     icon: IconH1,
     action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
     title: "Heading 2",
     description: "Medium heading",
+    shortcut: "##",
     icon: IconH2,
     action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
     title: "Heading 3",
     description: "Small heading",
+    shortcut: "###",
     icon: IconH3,
     action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
+    title: "Heading 4",
+    description: "Subheading",
+    shortcut: "####",
+    icon: IconH4,
+    action: (editor) => editor.chain().focus().setHeading({ level: 4 }).run(),
+  },
+  {
+    title: "Bulleted list",
     description: "Unordered list",
+    shortcut: "-",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
+    title: "Numbered list",
     description: "Ordered list",
+    shortcut: "1.",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do List",
+    title: "To-do list",
     description: "Checklist items",
+    shortcut: "[]",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     title: "Toggle",
     description: "Collapsible block",
+    shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
       // Grab remaining text (slash already deleted by executeCommand)
@@ -215,22 +285,25 @@ const turnIntoCommands: CommandItem[] = [
         .deleteRange({ from: blockStart, to: blockEnd })
         .insertContent({
           type: "notionToggle",
-          attrs: { summary: text },
+          attrs: { summary: text, open: true },
           content: [{ type: "paragraph" }],
         })
         .run();
+      if (!text) focusMostRecentEmptyToggleSummary(editor);
     },
   },
   {
     title: "Code Block",
     description: "Code snippet",
+    shortcut: "```",
     icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
     title: "Quote",
     description: "Block quote",
-    icon: IconQuote,
+    shortcut: '"',
+    icon: QuoteCommandIcon,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -269,22 +342,16 @@ export function SlashCommandMenu({
   const [isTurnInto, setIsTurnInto] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [position, setPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const imageInsertPosRef = useRef<number | null>(null);
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
-  const [generatePos, setGeneratePos] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
+    null,
+  );
   const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submitGeneratePrompt = useCallback(
@@ -305,6 +372,33 @@ export function SlashCommandMenu({
     [documentId, editor, send],
   );
 
+  const getSelectionMenuPosition = useCallback(() => {
+    const coords = editor.view.coordsAtPos(editor.state.selection.from);
+    const editorRect = editor.view.dom
+      .closest(".visual-editor-wrapper")
+      ?.getBoundingClientRect();
+    if (!editorRect) return null;
+
+    return {
+      top: coords.bottom - editorRect.top + 4,
+      left: coords.left - editorRect.left,
+    };
+  }, [editor]);
+
+  const openGeneratePopover = useCallback(
+    (menuPosition: EditorMenuPosition | null = null) => {
+      const nextPosition = menuPosition ?? getSelectionMenuPosition();
+      if (!nextPosition) return false;
+
+      setGeneratePos(nextPosition);
+      setGeneratePrompt("");
+      setGenerateOpen(true);
+      setTimeout(() => generateTextareaRef.current?.focus(), 0);
+      return true;
+    },
+    [getSelectionMenuPosition],
+  );
+
   const readInlineGenerateCommand = useCallback(() => {
     const { state } = editor;
     if (!state.selection.empty) return null;
@@ -323,74 +417,83 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: "Generate",
     description: "Generate content with AI",
-    icon: IconPencil,
+    icon: IconSparkles,
     action: () => {
-      // Show the prompt popover at current position
-      setGeneratePos(position);
-      setGeneratePrompt("");
-      setGenerateOpen(true);
-      setTimeout(() => generateTextareaRef.current?.focus(), 0);
+      openGeneratePopover(position);
     },
   };
 
   const imageCommand: CommandItem = {
     title: "Image",
-    description: "Upload image",
+    description: "Upload or embed image",
     icon: IconPhoto,
     action: (editor) => {
-      imageInsertPosRef.current = editor.state.selection.from;
-      imageInputRef.current?.click();
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
+        .run();
     },
   };
 
-  const allCommands = isTurnInto
-    ? turnIntoCommands
-    : [generateCommand, imageCommand, ...commands];
+  const videoCommand: CommandItem = {
+    title: "Video",
+    description: "Upload or embed video",
+    icon: IconVideo,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "video", attrs: { src: null } })
+        .run();
+    },
+  };
 
-  const filteredCommands = allCommands.filter(
-    (cmd) =>
-      cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase()),
-  );
+  const audioCommand: CommandItem = {
+    title: "Audio",
+    description: "Upload or embed audio",
+    icon: IconMusic,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "audio", attrs: { src: null } })
+        .run();
+    },
+  };
+
+  const aiCommands = isTurnInto ? [] : [generateCommand];
+  const blockCommands = isTurnInto ? turnIntoCommands : commands;
+  const mediaCommands = isTurnInto
+    ? []
+    : [imageCommand, videoCommand, audioCommand];
+  const commandMatchesQuery = (cmd: CommandItem) =>
+    cmd.title.toLowerCase().includes(query.toLowerCase()) ||
+    cmd.description.toLowerCase().includes(query.toLowerCase());
+  const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
+  const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+  const filteredCommands = [
+    ...filteredAiCommands,
+    ...filteredBlockCommands,
+    ...filteredMediaCommands,
+  ];
+
+  const renderCommand = (cmd: CommandItem) => {
+    const globalIndex = filteredCommands.indexOf(cmd);
+    return (
+      <CommandButton
+        key={cmd.title}
+        cmd={cmd}
+        isSelected={globalIndex === selectedIndex}
+        onExecute={() => executeCommand(cmd)}
+        onHover={() => setSelectedIndex(globalIndex)}
+      />
+    );
+  };
 
   function handleGenerateSubmit() {
     submitGeneratePrompt(generatePrompt);
-  }
-
-  async function handleImageFilePicked(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-
-    const toastId = toast.loading("Uploading image...");
-    try {
-      const src = await uploadImageFile(file);
-      const imageBlock = {
-        type: "image",
-        attrs: { src, alt: file.name },
-      };
-      const insertPos = imageInsertPosRef.current;
-      imageInsertPosRef.current = null;
-
-      if (insertPos !== null) {
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(
-            Math.min(insertPos, editor.state.doc.content.size),
-            imageBlock,
-          )
-          .run();
-      } else {
-        editor.chain().focus().insertContent(imageBlock).run();
-      }
-      toast.success("Image added", { id: toastId });
-    } catch (error) {
-      imageInsertPosRef.current = null;
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
-    }
   }
 
   const executeCommand = useCallback(
@@ -417,6 +520,25 @@ export function SlashCommandMenu({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) {
+        if (
+          (e.key === " " || e.code === "Space") &&
+          !e.shiftKey &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          editor.isFocused &&
+          shouldOpenGenerateOnSpace(editor)
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(false);
+          setIsTurnInto(false);
+          setQuery("");
+          slashPosRef.current = null;
+          openGeneratePopover();
+          return;
+        }
+
         if (
           e.key === "Enter" &&
           !e.shiftKey &&
@@ -470,6 +592,7 @@ export function SlashCommandMenu({
     filteredCommands,
     executeCommand,
     editor,
+    openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
   ]);
@@ -480,18 +603,26 @@ export function SlashCommandMenu({
     const handleTransaction = () => {
       const { state } = editor;
       const { from } = state.selection;
-      const textBefore = state.doc.textBetween(
-        Math.max(0, from - 20),
-        from,
-        "\n",
-      );
+      const { $from } = state.selection;
+      if (!$from.parent.isTextblock) {
+        if (isOpen) {
+          setIsOpen(false);
+          setIsTurnInto(false);
+          setQuery("");
+          slashPosRef.current = null;
+        }
+        return;
+      }
 
-      const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
+      const blockStart = $from.start();
+      const textBefore = state.doc.textBetween(blockStart, from, "\n");
+      const slashQuery = parseSlashCommandQuery(textBefore);
 
-      if (slashMatch) {
-        const slashStart = from - slashMatch[0].length;
+      if (slashQuery !== null) {
+        const slashIndex = textBefore.lastIndexOf("/");
+        const slashStart = blockStart + slashIndex;
         slashPosRef.current = slashStart;
-        setQuery(slashMatch[1]);
+        setQuery(slashQuery);
         setSelectedIndex(0);
 
         // Detect "turn into" mode: "/" is at start of a non-empty block
@@ -499,7 +630,7 @@ export function SlashCommandMenu({
         const parentNode = resolved.parent;
         const offsetInParent = resolved.parentOffset;
         const blockHasOtherContent =
-          parentNode.textContent.length > slashMatch[0].length;
+          parentNode.textContent.length > textBefore.length - slashIndex;
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 
@@ -532,16 +663,6 @@ export function SlashCommandMenu({
 
   return (
     <>
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        tabIndex={-1}
-        aria-hidden="true"
-        onChange={handleImageFilePicked}
-      />
-
       {/* Slash command menu */}
       {isOpen && position && filteredCommands.length > 0 && (
         <div
@@ -552,27 +673,36 @@ export function SlashCommandMenu({
             top: position.top,
             left: 0,
             right: 0,
-            maxWidth: "min(300px, calc(100vw - 2rem))",
+            maxWidth: "min(330px, calc(100vw - 2rem))",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
           }}
         >
           <div className="py-1.5">
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {isTurnInto ? "Turn into" : "Blocks"}
-            </div>
-            {filteredCommands.map((cmd) => {
-              const globalIndex = filteredCommands.indexOf(cmd);
-              return (
-                <CommandButton
-                  key={cmd.title}
-                  cmd={cmd}
-                  isSelected={globalIndex === selectedIndex}
-                  onExecute={() => executeCommand(cmd)}
-                  onHover={() => setSelectedIndex(globalIndex)}
-                />
-              );
-            })}
+            {filteredAiCommands.length > 0 ? (
+              <div className="pb-1">
+                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
+                  AI
+                </div>
+                {filteredAiCommands.map(renderCommand)}
+              </div>
+            ) : null}
+            {filteredBlockCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
+                  {isTurnInto ? "Turn into" : "Basic blocks"}
+                </div>
+                {filteredBlockCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredMediaCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  Media
+                </div>
+                {filteredMediaCommands.map(renderCommand)}
+              </>
+            ) : null}
           </div>
         </div>
       )}
@@ -600,7 +730,7 @@ export function SlashCommandMenu({
           >
             <div className="p-4 pb-3">
               <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconPencil size={14} className="text-muted-foreground" />
+                <IconSparkles size={14} className="text-muted-foreground" />
                 Generate with AI
               </p>
               <textarea
@@ -658,16 +788,22 @@ function CommandButton({
       onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(
-        "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-        isSelected ? "bg-accent" : "hover:bg-accent/50",
+        "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",
+        isSelected ? "bg-accent/70" : "hover:bg-accent/50",
       )}
     >
-      <div className="flex items-center justify-center w-9 h-9 rounded-md border border-border bg-background text-muted-foreground">
-        <cmd.icon size={18} />
+      <div className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+        <cmd.icon size={22} stroke={1.75} />
       </div>
-      <div>
-        <div className="text-sm font-medium text-foreground">{cmd.title}</div>
-        <div className="text-xs text-muted-foreground">{cmd.description}</div>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="truncate text-[15px] font-medium leading-5 text-foreground">
+          {cmd.title}
+        </div>
+        {cmd.shortcut ? (
+          <div className="ml-auto shrink-0 text-sm font-semibold leading-5 text-muted-foreground/60">
+            {cmd.shortcut}
+          </div>
+        ) : null}
       </div>
     </button>
   );

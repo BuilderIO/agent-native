@@ -3,9 +3,14 @@ import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconDownload,
+  IconDotsVertical,
   IconExternalLink,
+  IconFileTypeHtml,
+  IconFileTypePdf,
   IconLinkOff,
   IconLoader2,
+  IconMarkdown,
   IconSearch,
   IconFileText,
   IconPlus,
@@ -18,12 +23,24 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
   AgentToggleButton,
   NotificationsBell,
   PresenceBar,
   appPath,
+  useActionMutation,
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
@@ -48,13 +65,75 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
+type ExportFormat = "pdf" | "markdown" | "html";
+
+interface ExportDocumentResult {
+  filename: string;
+  mimeType: string;
+  content: string;
+  format: ExportFormat;
+  print: boolean;
+}
+
+function downloadExportFile(result: ExportDocumentResult) {
+  const blob = new Blob([result.content], { type: result.mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = result.filename;
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printExportHtml(result: ExportDocumentResult) {
+  const iframe = window.document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  window.document.body.appendChild(iframe);
+
+  const frameWindow = iframe.contentWindow;
+  const frameDocument = frameWindow?.document;
+  if (!frameWindow || !frameDocument) {
+    iframe.remove();
+    throw new Error("Could not open the print preview.");
+  }
+
+  const cleanup = () => {
+    setTimeout(() => iframe.remove(), 500);
+  };
+
+  frameWindow.addEventListener("afterprint", cleanup, { once: true });
+  frameDocument.open();
+  frameDocument.write(result.content);
+  frameDocument.close();
+
+  window.setTimeout(() => {
+    frameWindow.focus();
+    frameWindow.print();
+  }, 100);
+
+  window.setTimeout(cleanup, 60_000);
+}
+
 function NotionIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 100 100" className={className} fill="currentColor">
-      <path d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z" />
+    <svg viewBox="0 0 100 100" className={cn("notion-logo-icon", className)}>
       <path
-        d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L75.99 3.147C71.717 0.033 69.97 -0.36 63.17 0.227L61.35 0.227zM25.723 19.043c-5.35 0.353 -6.567 0.433 -9.613 -1.993L8.95 11.467c-0.807 -0.777 -0.36 -1.75 1.163 -1.943l52.647 -3.887c4.473 -0.393 6.733 1.167 8.463 2.527l8.723 6.35c0.393 0.273 1.36 1.553 0.193 1.553l-54.637 3.18 0.22 -0.203zM19.457 88.3V35.507c0 -2.723 0.78 -4.017 3.3 -4.21l56.857 -3.307c2.333 -0.193 3.497 1.36 3.497 4.08v52.2c0 2.723 -0.39 5.053 -3.883 5.25l-54.053 3.11c-3.5 0.197 -5.717 -0.967 -5.717 -4.33zM71.9 38.587c0.39 1.75 0 3.5 -1.75 3.7l-2.72 0.533v38.503c-2.333 1.36 -4.473 2.14 -6.247 2.14 -2.913 0 -3.687 -0.78 -5.83 -3.5l-18.043 -28.357v27.39l5.637 1.36s0 3.5 -4.857 3.5l-13.393 0.78c-0.393 -0.78 0 -2.723 1.36 -3.11l3.497 -0.967v-36.17l-4.857 -0.393c-0.393 -1.75 0.583 -4.277 3.3 -4.473l14.367 -0.967 18.8 28.94v-25.64l-4.667 -0.583c-0.39 -2.143 1.163 -3.7 3.11 -3.887l13.297 -0.78z"
-        fill="hsl(var(--popover))"
+        className="notion-logo-icon-face"
+        d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z"
+      />
+      <path
+        className="notion-logo-icon-mark"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L74.167 3.143c-4.273 -3.107 -6.02 -3.5 -12.817 -2.917zM25.92 19.523c-5.247 0.353 -6.437 0.433 -9.417 -1.99L8.927 11.507c-0.77 -0.78 -0.383 -1.753 1.557 -1.947l53.193 -3.887c4.467 -0.39 6.793 1.167 8.54 2.527l9.123 6.61c0.39 0.197 1.36 1.36 0.193 1.36l-54.933 3.307 -0.68 0.047zM19.803 88.3V30.367c0 -2.53 0.777 -3.697 3.103 -3.893L86 22.78c2.14 -0.193 3.107 1.167 3.107 3.693v57.547c0 2.53 -0.39 4.67 -3.883 4.863l-60.377 3.5c-3.493 0.193 -5.043 -0.97 -5.043 -4.083zm59.6 -54.827c0.387 1.75 0 3.5 -1.75 3.7l-2.91 0.577v42.773c-2.527 1.36 -4.853 2.137 -6.797 2.137 -3.107 0 -3.883 -0.973 -6.21 -3.887l-19.03 -29.94v28.967l6.02 1.363s0 3.5 -4.857 3.5l-13.39 0.777c-0.39 -0.78 0 -2.723 1.357 -3.11l3.497 -0.97v-38.3L30.48 40.667c-0.39 -1.75 0.58 -4.277 3.3 -4.473l14.367 -0.967 19.8 30.327v-26.83l-5.047 -0.58c-0.39 -2.143 1.163 -3.7 3.103 -3.89l13.4 -0.78z"
       />
     </svg>
   );
@@ -63,23 +142,27 @@ function NotionIcon({ className }: { className?: string }) {
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
+  documentContent?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
   isSaving?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  hideFromSearch?: boolean;
 }
 
 export function DocumentToolbar({
   documentId,
   documentTitle,
+  documentContent,
   activeUsers,
   agentPresent,
   agentActive,
   isSaving,
   currentUserEmail,
   canEdit = true,
+  hideFromSearch = false,
 }: DocumentToolbarProps) {
   const queryClient = useQueryClient();
   const [autoSync, setAutoSync] = useLocalStorage(
@@ -93,10 +176,17 @@ export function DocumentToolbar({
   const pullDocument = usePullDocumentFromNotion(documentId);
   const pushDocument = usePushDocumentToNotion(documentId);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
+  const setDocumentDiscoverability = useActionMutation(
+    "set-document-discoverability",
+  );
+  const exportDocument = useActionMutation("export-document");
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
   const [open, setOpen] = useState(false);
+  const [pendingHideFromSearch, setPendingHideFromSearch] = useState<
+    boolean | null
+  >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -126,9 +216,68 @@ export function DocumentToolbar({
     typeof window === "undefined"
       ? `/p/${documentId}`
       : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+  const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
+
+  const handleHideFromSearchChange = useCallback(
+    async (next: boolean) => {
+      const previous = hideFromSearch;
+      setPendingHideFromSearch(next);
+
+      queryClient.setQueryData(
+        ["action", "get-document", { id: documentId }],
+        (old: any) =>
+          old && typeof old === "object"
+            ? { ...old, hideFromSearch: next }
+            : old,
+      );
+      queryClient.setQueryData(
+        ["action", "list-documents", undefined],
+        (old: any) => {
+          const docs = old?.documents ?? (Array.isArray(old) ? old : null);
+          if (!Array.isArray(docs)) return old;
+          const nextDocs = docs.map((doc: any) =>
+            doc.id === documentId ? { ...doc, hideFromSearch: next } : doc,
+          );
+          return Array.isArray(old)
+            ? nextDocs
+            : { ...old, documents: nextDocs };
+        },
+      );
+
+      try {
+        await setDocumentDiscoverability.mutateAsync({
+          id: documentId,
+          hideFromSearch: next,
+          includeChildren: true,
+        });
+      } catch (err) {
+        setPendingHideFromSearch(previous);
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: documentId }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        toast.error("Failed to update sharing", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+        throw err;
+      } finally {
+        setPendingHideFromSearch(null);
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: documentId }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      }
+    },
+    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
+  );
 
   // Debounce search
   useEffect(() => {
@@ -260,6 +409,38 @@ export function DocumentToolbar({
     setOpen(false);
   };
 
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      try {
+        const result = (await exportDocument.mutateAsync({
+          id: documentId,
+          format,
+          title: documentTitle,
+          content: documentContent,
+        })) as ExportDocumentResult;
+
+        if (result.print) {
+          printExportHtml(result);
+          toast.success("Print dialog opened", {
+            description: "Choose Save as PDF to finish the export.",
+          });
+          return;
+        }
+
+        downloadExportFile(result);
+        toast.success(
+          `Exported ${format === "markdown" ? "Markdown" : "HTML"}`,
+        );
+      } catch (error) {
+        toast.error("Export failed", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      }
+    },
+    [documentContent, documentId, documentTitle, exportDocument],
+  );
+
   return (
     <>
       <div
@@ -286,20 +467,23 @@ export function DocumentToolbar({
           resourceId={documentId}
           resourceTitle={documentTitle}
           shareUrl={shareUrl}
+          visibilityCopy={{
+            org: {
+              description: effectiveHideFromSearch
+                ? "Anyone in your organization with the link can view"
+                : "Anyone in your organization can find and view",
+            },
+          }}
+          hideInSearchControl={{
+            checked: effectiveHideFromSearch,
+            pending: setDocumentDiscoverability.isPending,
+            label: "Hide in search",
+            description:
+              "Hide from Organization and search. People with the link can still view.",
+            onCheckedChange: handleHideFromSearchChange,
+          }}
           variant="compact"
         />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setHistoryOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-            >
-              <IconHistory size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Version history</TooltipContent>
-        </Tooltip>
 
         <VersionHistoryPanel
           documentId={documentId}
@@ -307,6 +491,64 @@ export function DocumentToolbar({
           onOpenChange={setHistoryOpen}
           canRestore={canEdit}
         />
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  aria-label="More page actions"
+                >
+                  <IconDotsVertical size={16} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>More page actions</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                <IconHistory className="mr-2 h-4 w-4" />
+                Version history
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
+                {exportDocument.isPending ? (
+                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconDownload className="mr-2 h-4 w-4" />
+                )}
+                Export
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("pdf")}
+                >
+                  <IconFileTypePdf className="mr-2 h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("markdown")}
+                >
+                  <IconMarkdown className="mr-2 h-4 w-4" />
+                  Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("html")}
+                >
+                  <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                  HTML
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {canEdit ? (
           <Popover open={open} onOpenChange={setOpen}>

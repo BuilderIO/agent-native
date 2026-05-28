@@ -32,7 +32,6 @@ import {
   IconPencil,
   IconExternalLink,
   IconArchive,
-  IconArchiveOff,
   IconDots,
 } from "@tabler/icons-react";
 import {
@@ -55,6 +54,11 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -114,7 +118,7 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
   archivedAt: string | null;
-};
+} & ResourceAccess;
 
 async function fetchDashboard(
   id: string,
@@ -128,6 +132,9 @@ async function fetchDashboard(
       charts: data.charts ?? [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
   };
 }
 
@@ -157,11 +164,16 @@ export default function ExplorerDashboardPage() {
     null,
   );
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
+  const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
+    null,
+  );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const canEdit = resourceCanEdit(resourceAccess);
+  const canManage = resourceCanManage(resourceAccess);
 
   // ── Collaborative editing ──────────────────────────────────────────
   const { session } = useSession();
@@ -233,53 +245,67 @@ export default function ExplorerDashboardPage() {
 
   useEffect(() => {
     if (!dashboardId) return;
+    setLoaded(false);
+    setResourceAccess(null);
+    setEditingName(false);
     fetchDashboard(dashboardId).then((d) => {
       if (d) {
         setDashboard(d.data);
         setArchivedAt(d.archivedAt);
+        setResourceAccess({
+          role: d.role,
+          canEdit: d.canEdit,
+          canManage: d.canManage,
+        });
       } else {
         setDashboard({ name: "Untitled Dashboard", charts: [] });
         setArchivedAt(null);
+        setResourceAccess(null);
       }
       setLoaded(true);
     });
   }, [dashboardId]);
 
-  const handleArchiveToggle = useCallback(
-    async (action: "archive" | "restore") => {
-      if (!dashboardId) return;
-      const path =
-        action === "archive"
-          ? `/api/explorer-dashboards/${dashboardId}/archive`
-          : `/api/explorer-dashboards/${dashboardId}/unarchive`;
-      try {
-        const res = await fetchWithAuth(path, { method: "POST" });
-        if (!res.ok) throw new Error(`${action} failed (${res.status})`);
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-sidebar"],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-palette"],
-        });
-        if (action === "archive") {
-          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-          navigate("/adhoc/explorer");
-        } else {
-          setArchivedAt(null);
-          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
-        );
-      }
-    },
-    [dashboardId, queryClient, navigate, dashboard?.name],
-  );
+  const handleArchive = useCallback(async () => {
+    if (!dashboardId || !canEdit) return;
+    if (archivedAt) return;
+    try {
+      const res = await fetchWithAuth(
+        `/api/explorer-dashboards/${dashboardId}/archive`,
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error(`Archive failed (${res.status})`);
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-sidebar"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-palette"],
+      });
+      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+      navigate("/adhoc/explorer");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't archive dashboard",
+      );
+    }
+  }, [
+    dashboardId,
+    canEdit,
+    archivedAt,
+    queryClient,
+    navigate,
+    dashboard?.name,
+  ]);
 
   const persist = useCallback(
     (updated: ExplorerDashboardData) => {
       if (!dashboardId) return;
+      if (!canEdit) {
+        toast.error(
+          "You can view this dashboard, but only editors can change it.",
+        );
+        return;
+      }
       setDashboard(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated).then(() => {
@@ -291,7 +317,7 @@ export default function ExplorerDashboardPage() {
         });
       });
     },
-    [dashboardId, queryClient, pushToCollab],
+    [dashboardId, canEdit, queryClient, pushToCollab],
   );
 
   const addChart = useCallback(
@@ -341,7 +367,7 @@ export default function ExplorerDashboardPage() {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (!dashboard) return;
+      if (!dashboard || !canEdit) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
       const oldIndex = dashboard.charts.findIndex((c) => c.id === active.id);
@@ -352,15 +378,15 @@ export default function ExplorerDashboardPage() {
         charts: arrayMove(dashboard.charts, oldIndex, newIndex),
       });
     },
-    [dashboard, persist],
+    [dashboard, canEdit, persist],
   );
 
   const handleSaveName = useCallback(() => {
-    if (!dashboard) return;
+    if (!dashboard || !canEdit) return;
     const name = nameInput.trim() || "Untitled Dashboard";
     persist({ ...dashboard, name });
     setEditingName(false);
-  }, [dashboard, nameInput, persist]);
+  }, [dashboard, canEdit, nameInput, persist]);
 
   useSetPageTitle(
     !dashboardId ? (
@@ -418,7 +444,7 @@ export default function ExplorerDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          {editingName ? (
+          {editingName && canEdit ? (
             <Input
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
@@ -427,7 +453,7 @@ export default function ExplorerDashboardPage() {
               className="h-8 w-full sm:w-64 text-lg font-semibold"
               autoFocus
             />
-          ) : (
+          ) : canEdit ? (
             <button
               className="text-lg font-semibold hover:text-primary transition-colors flex items-center gap-1"
               onClick={() => {
@@ -438,6 +464,8 @@ export default function ExplorerDashboardPage() {
               {dashboard.name}
               <IconPencil className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
+          ) : (
+            <h1 className="text-lg font-semibold">{dashboard.name}</h1>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -447,120 +475,105 @@ export default function ExplorerDashboardPage() {
             agentActive={agentActive}
             currentUserEmail={session?.email}
           />
-          <Button size="sm" onClick={() => setAddChartOpen(true)}>
-            <IconPlus className="h-4 w-4 mr-1" />
-            Add Chart
-          </Button>
-          {archivedAt ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleArchiveToggle("restore")}
-                >
-                  <IconArchiveOff className="h-4 w-4 mr-1.5" />
-                  Restore
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>This dashboard is archived</TooltipContent>
-            </Tooltip>
+          {canEdit ? (
+            <Button size="sm" onClick={() => setAddChartOpen(true)}>
+              <IconPlus className="h-4 w-4 mr-1" />
+              Add Chart
+            </Button>
           ) : null}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Dashboard actions"
+          {canEdit || canManage ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label="Dashboard actions"
+                    >
+                      <IconDots className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>More actions</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-44">
+                {canEdit && !archivedAt ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleArchive();
+                    }}
                   >
-                    <IconDots className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>More actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-44">
-              {archivedAt ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleArchiveToggle("restore");
-                  }}
-                >
-                  <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                  Restore
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleArchiveToggle("archive");
-                  }}
-                >
-                  <IconArchive className="mr-2 h-3.5 w-3.5" />
-                  Archive
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setConfirmDeleteOpen(true);
-                }}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconTrash className="mr-2 h-3.5 w-3.5" />
-                Delete permanently
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <AlertDialog
-            open={confirmDeleteOpen}
-            onOpenChange={setConfirmDeleteOpen}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently deletes &ldquo;{dashboard.name}&rdquo; and
-                  cannot be undone. To keep it recoverable, choose Archive
-                  instead.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={async () => {
-                    if (!dashboardId) return;
-                    const token = await getIdToken();
-                    await fetch(
-                      appApiPath(`/api/explorer-dashboards/${dashboardId}`),
-                      {
-                        method: "DELETE",
-                        headers: token
-                          ? { Authorization: `Bearer ${token}` }
-                          : {},
-                      },
-                    );
-                    queryClient.invalidateQueries({
-                      queryKey: ["explorer-dashboards-sidebar"],
-                    });
-                    queryClient.invalidateQueries({
-                      queryKey: ["explorer-dashboards-palette"],
-                    });
-                    setConfirmDeleteOpen(false);
-                    navigate("/adhoc/explorer");
-                  }}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Delete permanently
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </DropdownMenuItem>
+                ) : null}
+                {canEdit && !archivedAt && canManage ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+                {canManage ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setConfirmDeleteOpen(true);
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash className="mr-2 h-3.5 w-3.5" />
+                    Delete permanently
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {canManage ? (
+            <AlertDialog
+              open={confirmDeleteOpen}
+              onOpenChange={setConfirmDeleteOpen}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes &ldquo;{dashboard.name}&rdquo; and
+                    cannot be undone. To keep it recoverable, choose Archive
+                    instead.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      if (!dashboardId || !canManage) return;
+                      const token = await getIdToken();
+                      await fetch(
+                        appApiPath(`/api/explorer-dashboards/${dashboardId}`),
+                        {
+                          method: "DELETE",
+                          headers: token
+                            ? { Authorization: `Bearer ${token}` }
+                            : {},
+                        },
+                      );
+                      queryClient.invalidateQueries({
+                        queryKey: ["explorer-dashboards-sidebar"],
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: ["explorer-dashboards-palette"],
+                      });
+                      setConfirmDeleteOpen(false);
+                      navigate("/adhoc/explorer");
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete permanently
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
         </div>
       </div>
 
@@ -571,21 +584,23 @@ export default function ExplorerDashboardPage() {
             <p>
               No charts yet. Add saved explorer charts to build your dashboard.
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAddChartOpen(true)}
-            >
-              <IconPlus className="h-4 w-4 mr-1" />
-              Add Chart
-            </Button>
+            {canEdit ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAddChartOpen(true)}
+              >
+                <IconPlus className="h-4 w-4 mr-1" />
+                Add Chart
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       ) : (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+          onDragEnd={canEdit ? handleDragEnd : undefined}
         >
           <SortableContext
             items={dashboard.charts.map((c) => c.id)}
@@ -604,6 +619,7 @@ export default function ExplorerDashboardPage() {
                   onEdit={() =>
                     navigate(`/adhoc/explorer?config=${chart.configId}`)
                   }
+                  editable={canEdit}
                 />
               ))}
             </div>
@@ -612,37 +628,39 @@ export default function ExplorerDashboardPage() {
       )}
 
       {/* Add Chart Dialog */}
-      <Dialog open={addChartOpen} onOpenChange={setAddChartOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Chart</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[400px] overflow-auto space-y-1">
-            {savedConfigs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                No saved explorer charts yet. Create one in the Explorer tool
-                first.
-              </p>
-            ) : (
-              savedConfigs.map((config) => (
-                <button
-                  key={config.id}
-                  onClick={() => addChart(config.id)}
-                  className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors flex items-center justify-between"
-                >
-                  <span>{config.name}</span>
-                  <IconPlus className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              ))
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddChartOpen(false)}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {canEdit ? (
+        <Dialog open={addChartOpen} onOpenChange={setAddChartOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Chart</DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[400px] overflow-auto space-y-1">
+              {savedConfigs.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No saved explorer charts yet. Create one in the Explorer tool
+                  first.
+                </p>
+              ) : (
+                savedConfigs.map((config) => (
+                  <button
+                    key={config.id}
+                    onClick={() => addChart(config.id)}
+                    className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors flex items-center justify-between"
+                  >
+                    <span>{config.name}</span>
+                    <IconPlus className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                ))
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAddChartOpen(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

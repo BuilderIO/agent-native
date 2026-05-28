@@ -318,7 +318,7 @@ If the request is for a standalone visual, hero image, diagram, one-pager, poste
 
 For image-generation prompts, create actual image assets with `generate-image`; do not substitute HTML/CSS placeholders, icon-only compositions, inline SVGs, or text-only mockups. Do not render visible text inside generated images unless the user explicitly asks for exact text. Style phrases like "make it look like Builder.io" are not brand-system setup requests; use a concise style interpretation and avoid browsing/searching/analyzing brand assets unless the user explicitly asks to set up, save, import, extract, or apply a design system.
 
-When `IMAGES_A2A_URL` is configured, `generate-image` delegates to the Images app over A2A before falling back to the direct Gemini/OpenAI provider path. Use this path for brand/library-based slide imagery; keep the returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and `embedPath` with the slide so follow-up feedback can call the Images agent's `refine-image` flow by asset ID. See `.agents/skills/image-generation-via-a2a/SKILL.md`.
+When `IMAGES_A2A_URL` is configured, `generate-image` delegates to the Assets app over A2A before falling back to the direct Gemini/OpenAI provider path. Use this path for brand/library-based slide imagery; keep the returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and `embedPath` with the slide so follow-up feedback can call the Assets agent's `refine-image` flow by asset ID. See `.agents/skills/image-generation-via-a2a/SKILL.md`.
 
 #### Chat-attached images (drag, paste, or attach into the agent composer)
 

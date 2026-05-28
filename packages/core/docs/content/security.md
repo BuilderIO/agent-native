@@ -157,7 +157,7 @@ OAuth flows (Google, Atlassian, Zoom) sign their state envelope with a dedicated
 OAUTH_STATE_SECRET=$(openssl rand -hex 32)
 ```
 
-This used to fall back to `GOOGLE_CLIENT_SECRET` (a credential shared with Google) — a leak of the Google secret would have let attackers forge OAuth state envelopes. The dedicated key is independent of any third-party secret. If `OAUTH_STATE_SECRET` is unset, the framework falls back to `BETTER_AUTH_SECRET`; if both are unset, the OAuth flows fail in production.
+This used to fall back to `GOOGLE_CLIENT_SECRET` (a credential shared with Google) — a leak of the Google secret would have let attackers forge OAuth state envelopes. The dedicated key is independent of any third-party secret. If `OAUTH_STATE_SECRET` is unset, the framework falls back to `BETTER_AUTH_SECRET`; hosted workspace deploys can also derive a per-purpose OAuth key from the already-required `A2A_SECRET`. If none of those server secrets are available, OAuth flows fail in production.
 
 `redirect_uri` query parameters are also validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use the framework's `isAllowedOAuthRedirectUri()` helper before signing state.
 
@@ -177,8 +177,8 @@ Workspace-scope secret writes still require org owner/admin role regardless of t
 
 ### Auth & secrets
 
-- [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`)
-- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`)
+- [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
+- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
 - [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic
 - [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)

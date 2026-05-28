@@ -67,6 +67,9 @@ export const getExplorerDashboard = defineEventHandler(async (event) => {
       ownerEmail: dash.ownerEmail,
       orgId: dash.orgId,
       visibility: dash.visibility,
+      role: dash.role,
+      canEdit: dash.canEdit,
+      canManage: dash.canManage,
       archivedAt: dash.archivedAt,
     };
   } catch (err: any) {

@@ -14,6 +14,7 @@
 import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { captureError } from "./capture-error.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -22,7 +23,10 @@ const WELL_KNOWN_PREFIX = "/.well-known";
 const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
+const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
+const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
+  "_agentNativeMiddlewareDispatcherPatched";
 
 interface PluginReadyEntry {
   promise: Promise<void>;
@@ -112,6 +116,7 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
  */
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
+  ensureGlobalMiddlewareDispatch(nitroApp);
 
   // Reuse the cached shim if we've wrapped this nitroApp before
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
@@ -138,6 +143,10 @@ export function getH3App(nitroApp: any): H3AppShim {
           "[agent-native] Failed to auto-mount default plugins:",
           (err as Error).message,
         );
+        captureError(err, {
+          route: "default-plugin-bootstrap",
+          tags: { phase: "default-plugin-bootstrap" },
+        });
       },
     );
 
@@ -154,11 +163,55 @@ export function getH3App(nitroApp: any): H3AppShim {
       // Fall through — the actual route handler runs next.
       return undefined;
     }) as EventHandler;
-    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate);
-    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate);
+    registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate, {
+      prepend: true,
+    });
+    registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
+      prepend: true,
+    });
   }
 
   return shim;
+}
+
+/**
+ * Nitro 3 production builds generate a route dispatcher by overriding h3's
+ * internal `~getMiddleware()` hook. Some generated dispatchers return only
+ * route-rule middleware and skip the global `h3["~middleware"]` array that
+ * `getH3App().use()` appends to. Wrap the dispatcher once so framework routes
+ * registered at runtime are still part of request dispatch.
+ */
+function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
+  const h3 = nitroApp?.h3;
+  if (!h3 || h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY]) return;
+
+  const original =
+    typeof h3["~getMiddleware"] === "function"
+      ? h3["~getMiddleware"].bind(h3)
+      : undefined;
+
+  h3["~getMiddleware"] = (event: H3Event, route: unknown) => {
+    const originalResult = original ? original(event, route) : [];
+    const originalList = Array.isArray(originalResult)
+      ? originalResult
+      : originalResult
+        ? [originalResult]
+        : [];
+    const globalMiddleware = Array.isArray(h3["~middleware"])
+      ? h3["~middleware"]
+      : [];
+    if (globalMiddleware.length === 0) return originalList;
+
+    const alreadyIncluded = new Set(originalList);
+    const missingGlobal = globalMiddleware.filter(
+      (middleware) => !alreadyIncluded.has(middleware),
+    );
+    return missingGlobal.length
+      ? [...missingGlobal, ...originalList]
+      : originalList;
+  };
+
+  h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = true;
 }
 
 /**
@@ -213,6 +266,10 @@ export function trackPluginInit(
   options: { paths?: string[] } = {},
 ): void {
   if (!nitroApp) return;
+  // Ensure the readiness gate exists even when the tracked plugin is the first
+  // framework code to run in a serverless isolate. Otherwise an immediate
+  // first request can fall through before the plugin registers its routes.
+  getH3App(nitroApp);
   // Attach a no-op catch so the promise doesn't surface as an unhandled
   // rejection when Nitro v3 drops the async return value. The actual error
   // is still observable when awaitPluginsReady() re-awaits the promise.
@@ -231,6 +288,40 @@ export function trackPluginInit(
     existing.push(entry);
   } else {
     nitroApp[PLUGIN_READY_KEY] = [entry];
+  }
+  installPluginReadyPlaceholders(nitroApp, entry.paths);
+}
+
+function installPluginReadyPlaceholders(
+  nitroApp: any,
+  paths: string[] | undefined,
+): void {
+  if (!paths?.length) return;
+  const existing = nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] as
+    | Set<string>
+    | undefined;
+  const installed = existing ?? new Set<string>();
+  nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] = installed;
+
+  const app = getH3App(nitroApp);
+  for (const path of paths) {
+    if (!path || installed.has(path)) continue;
+    installed.add(path);
+    registerMiddleware(
+      nitroApp,
+      path,
+      (async (event: H3Event) => {
+        const eventAny = event as any;
+        await awaitFrameworkRoutesReadyForRequest(
+          nitroApp,
+          eventAny.context?._mountedPathname ?? event.url?.pathname ?? path,
+        );
+        return undefined;
+      }) as EventHandler,
+      {
+        prepend: true,
+      },
+    );
   }
 }
 
@@ -280,6 +371,7 @@ function registerMiddleware(
   nitroApp: any,
   path: string,
   handler: EventHandler,
+  options: { prepend?: boolean } = {},
 ) {
   const h3 = nitroApp.h3;
   if (!h3 || !Array.isArray(h3["~middleware"])) {
@@ -428,7 +520,11 @@ function registerMiddleware(
     }
   };
 
-  h3["~middleware"].push(middleware);
+  if (options.prepend) {
+    h3["~middleware"].unshift(middleware);
+  } else {
+    h3["~middleware"].push(middleware);
+  }
 }
 
 /**
@@ -545,6 +641,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             `[agent-native] Failed to auto-mount default plugin ${stem}:`,
             (e as Error).message,
           );
+          captureError(e, {
+            route: "default-plugin-bootstrap",
+            tags: { phase: "default-plugin-bootstrap", plugin: stem },
+          });
         }
       }
     }

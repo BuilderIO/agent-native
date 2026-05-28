@@ -5,6 +5,8 @@ import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { scrubUrl } from "./url-scrub.js";
+export { scrubUrl } from "./url-scrub.js";
 
 declare global {
   interface Window {
@@ -232,45 +234,6 @@ function ensureAmplitude(): boolean {
   amplitude.init(key, { autocapture: true });
   _amplitudeInitialized = true;
   return true;
-}
-
-/**
- * Query parameters that may carry sensitive values in the URL bar. Browser
- * Sentry collects `event.request.url` automatically; without scrubbing,
- * share tokens, password params (F-07), email-confirm tokens, etc. land in
- * Sentry events and become a recon vector for anyone with project access.
- */
-const SENSITIVE_QUERY_PARAMS = new Set([
-  "password",
-  "p",
-  "token",
-  "state",
-  "code",
-  "share",
-  "share_token",
-]);
-
-function scrubUrl(url: string | undefined): string | undefined {
-  if (!url || typeof url !== "string") return url;
-  try {
-    // Parse using a base origin so relative URLs still work.
-    const u = new URL(url, "http://placeholder.local");
-    let mutated = false;
-    for (const key of Array.from(u.searchParams.keys())) {
-      if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
-        u.searchParams.set(key, "<redacted>");
-        mutated = true;
-      }
-    }
-    if (!mutated) return url;
-    // If the original URL was relative, return only the path/query/fragment.
-    if (u.origin === "http://placeholder.local") {
-      return `${u.pathname}${u.search}${u.hash}`;
-    }
-    return u.toString();
-  } catch {
-    return url;
-  }
 }
 
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {

@@ -6,6 +6,7 @@ import {
   IconChartBar,
   IconCheck,
   IconBook,
+  IconDotsVertical,
   IconExternalLink,
   IconFileText,
   IconGitMerge,
@@ -32,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -43,6 +43,13 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   EmptyActionState,
   LoadingRows,
@@ -89,6 +96,9 @@ export default function ReviewRoute() {
   const [canonicalChoices, setCanonicalChoices] = useState<
     Record<string, boolean>
   >({});
+  const [editingProposalIds, setEditingProposalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
   const [canonicalPreview, setCanonicalPreview] =
     useState<CanonicalPreviewData | null>(null);
@@ -269,6 +279,15 @@ export default function ReviewRoute() {
     }));
   }
 
+  function toggleProposalEditing(proposalId: string) {
+    setEditingProposalIds((current) => {
+      const next = new Set(current);
+      if (next.has(proposalId)) next.delete(proposalId);
+      else next.add(proposalId);
+      return next;
+    });
+  }
+
   function handleProposalShortcut(
     event: KeyboardEvent<HTMLElement>,
     proposal: ReviewItem,
@@ -327,6 +346,7 @@ export default function ReviewRoute() {
               const hasChanges = hasDraftChanges(proposal);
               const publishCanonical = canonicalChoice(proposal);
               const selected = selectedProposalId === proposal.id;
+              const editing = editingProposalIds.has(proposal.id);
               return (
                 <Card
                   key={proposal.id}
@@ -342,151 +362,139 @@ export default function ReviewRoute() {
                       : proposal.title
                   }
                 >
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <CardHeader className="pb-3 sm:pb-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <CardTitle className="min-w-0 break-words text-base">
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <CardTitle className="min-w-0 break-words text-base leading-6">
                             {proposal.title}
                           </CardTitle>
-                          <StatusBadge status={proposal.status ?? "pending"} />
-                          {proposal.proposedAction ? (
-                            <Badge variant="secondary" className="capitalize">
-                              {proposal.proposedAction}
-                            </Badge>
-                          ) : null}
-                          <ConfidenceBadge confidence={insight.confidence} />
-                          {hasChanges ? (
-                            <Badge variant="outline">Unsaved edits</Badge>
-                          ) : null}
-                          {publishCanonical ? (
-                            <Badge variant="outline" className="gap-1.5">
-                              <IconBook className="size-3" />
-                              Company context
-                            </Badge>
-                          ) : null}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span>{formatDate(proposal.createdAt)}</span>
+                            <span className="hidden sm:inline">/</span>
+                            <span>
+                              {proposal.createdBy ?? "Reviewer queue"}
+                            </span>
+                            {hasChanges ? (
+                              <>
+                                <span className="hidden sm:inline">/</span>
+                                <span className="font-medium text-foreground">
+                                  Unsaved edits
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {formatDate(proposal.createdAt)} ·{" "}
-                          {proposal.createdBy ?? "Reviewer queue"}
-                        </p>
                       </div>
-                      {sourceUrl ? (
-                        <Button
-                          asChild
-                          size="sm"
-                          variant="outline"
-                          className="w-full sm:w-auto"
-                        >
-                          <a href={sourceUrl} target="_blank" rel="noreferrer">
-                            <IconExternalLink className="size-4" />
-                            Open source
-                          </a>
-                        </Button>
-                      ) : null}
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={proposal.status ?? "pending"} />
+                        <ConfidenceBadge confidence={insight.confidence} />
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="grid gap-5">
-                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-                      <div className="grid gap-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-title-${proposal.id}`}>
-                            Title
-                          </Label>
-                          <Input
-                            id={`proposal-title-${proposal.id}`}
-                            value={draftValue(proposal, "title")}
-                            disabled={!canReview || pendingMutation}
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                title: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-body-${proposal.id}`}>
-                            Proposed memory
-                          </Label>
-                          <Textarea
-                            id={`proposal-body-${proposal.id}`}
-                            className="min-h-36"
-                            value={draftValue(proposal, "body")}
-                            disabled={!canReview || pendingMutation}
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                body: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor={`proposal-rationale-${proposal.id}`}>
-                            Rationale
-                          </Label>
-                          <Textarea
-                            id={`proposal-rationale-${proposal.id}`}
-                            className="min-h-24"
-                            value={draftValue(proposal, "rationale")}
-                            disabled={!canReview || pendingMutation}
-                            placeholder="Why this should become durable knowledge"
-                            onChange={(event) =>
-                              patchDraft(proposal.id, {
-                                rationale: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                      </div>
+                  <CardContent className="grid gap-4 pt-0">
+                    <div className="grid gap-4">
+                      <p className="line-clamp-3 max-w-5xl whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                        {draftValue(proposal, "body") ||
+                          "No proposed knowledge."}
+                      </p>
+                      <ReviewSignalStrip
+                        target={insight.target.label}
+                        privacy={privacySummary(insight.privacyFlags)}
+                        evidenceCount={evidence.length}
+                        proposedAction={proposal.proposedAction}
+                        publishCanonical={publishCanonical}
+                      />
+                    </div>
 
-                      <div className="grid content-start gap-4 rounded-md border border-border bg-muted/30 p-4">
-                        <div className="grid gap-3">
-                          <SignalRow
-                            icon={IconInfoCircle}
-                            label="Queued because"
-                            value={insight.queueReason}
-                          />
-                          <SignalRow
-                            icon={IconGitMerge}
-                            label="Target"
-                            value={insight.target.label}
-                            detail={insight.target.detail}
-                          />
-                          <SignalRow
-                            icon={IconShieldCheck}
-                            label="Privacy"
-                            value={privacySummary(insight.privacyFlags)}
-                            detail={privacyDetail(insight.privacyFlags)}
-                          />
+                    {editing ? (
+                      <div className="grid gap-4 rounded-md border border-border bg-muted/20 p-4">
+                        <div className="grid gap-4">
+                          <div className="grid gap-2">
+                            <Label htmlFor={`proposal-title-${proposal.id}`}>
+                              Title
+                            </Label>
+                            <Input
+                              id={`proposal-title-${proposal.id}`}
+                              value={draftValue(proposal, "title")}
+                              disabled={!canReview || pendingMutation}
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  title: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`proposal-body-${proposal.id}`}>
+                              Proposed knowledge
+                            </Label>
+                            <Textarea
+                              id={`proposal-body-${proposal.id}`}
+                              className="min-h-32"
+                              value={draftValue(proposal, "body")}
+                              disabled={!canReview || pendingMutation}
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  body: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label
+                              htmlFor={`proposal-rationale-${proposal.id}`}
+                            >
+                              Rationale
+                            </Label>
+                            <Textarea
+                              id={`proposal-rationale-${proposal.id}`}
+                              className="min-h-20"
+                              value={draftValue(proposal, "rationale")}
+                              disabled={!canReview || pendingMutation}
+                              placeholder="Why this should become durable knowledge"
+                              onChange={(event) =>
+                                patchDraft(proposal.id, {
+                                  rationale: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor={`reviewer-notes-${proposal.id}`}>
+                              Reviewer notes
+                            </Label>
+                            <Textarea
+                              id={`reviewer-notes-${proposal.id}`}
+                              className="min-h-20"
+                              value={
+                                notes[proposal.id] ??
+                                proposal.reviewerNotes ??
+                                ""
+                              }
+                              disabled={!canReview || pendingMutation}
+                              placeholder="Optional context for this decision"
+                              onChange={(event) =>
+                                setNotes((current) => ({
+                                  ...current,
+                                  [proposal.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
                         </div>
+
                         {canReview ? (
-                          <div className="rounded-md border border-border bg-background p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <Label
-                                  htmlFor={`canonical-${proposal.id}`}
-                                  className="flex items-center gap-2 text-sm font-medium"
-                                >
-                                  <IconBook className="size-4 text-muted-foreground" />
-                                  Publish as company context
-                                </Label>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                  Mirrors the approved memory into
-                                  context/company-brain for ambient Dispatch and
-                                  cross-app agent context.
-                                </p>
-                              </div>
-                              <Switch
-                                id={`canonical-${proposal.id}`}
-                                checked={publishCanonical}
-                                disabled={pendingMutation}
-                                onCheckedChange={(checked) =>
-                                  setCanonicalChoice(proposal.id, checked)
-                                }
-                              />
-                            </div>
-                            {publishCanonical ? (
-                              <div className="mt-3">
+                          <div className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <Label
+                              htmlFor={`canonical-${proposal.id}`}
+                              className="flex items-center gap-2 text-sm font-medium"
+                            >
+                              <IconBook className="size-4 text-muted-foreground" />
+                              Publish as company context
+                            </Label>
+                            <div className="flex items-center gap-3">
+                              {publishCanonical ? (
                                 <Button
                                   type="button"
                                   size="sm"
@@ -497,17 +505,32 @@ export default function ReviewRoute() {
                                   }
                                 >
                                   <IconFileText className="size-4" />
-                                  Preview Markdown
+                                  Preview
                                 </Button>
-                              </div>
-                            ) : null}
+                              ) : null}
+                              <Switch
+                                id={`canonical-${proposal.id}`}
+                                checked={publishCanonical}
+                                disabled={pendingMutation}
+                                onCheckedChange={(checked) =>
+                                  setCanonicalChoice(proposal.id, checked)
+                                }
+                              />
+                            </div>
                           </div>
                         ) : null}
-                        <Separator />
-                        <EvidencePreview
-                          evidence={evidence}
-                          proposalId={proposal.id}
-                        />
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs leading-5 text-muted-foreground sm:max-w-xl">
+                        {canReview
+                          ? hasChanges
+                            ? "Approval saves wording edits first."
+                            : "Approve durable, sourced memories; reject anything too narrow or uncertain."
+                          : reviewedSummary(proposal)}
+                      </p>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap sm:justify-end">
                         <ProposalDetailsSheet
                           proposal={proposal}
                           insight={insight}
@@ -518,70 +541,54 @@ export default function ReviewRoute() {
                           draftRationale={draftValue(proposal, "rationale")}
                           hasDraftChanges={hasChanges}
                         />
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
-                      <div className="grid gap-2">
-                        <Label htmlFor={`reviewer-notes-${proposal.id}`}>
-                          Reviewer notes
-                        </Label>
-                        <Textarea
-                          id={`reviewer-notes-${proposal.id}`}
-                          className="min-h-20"
-                          value={
-                            notes[proposal.id] ?? proposal.reviewerNotes ?? ""
+                        <ProposalOverflowMenu
+                          canReview={canReview}
+                          editing={editing}
+                          pendingMutation={pendingMutation}
+                          publishCanonical={publishCanonical}
+                          sourceUrl={sourceUrl}
+                          onToggleEditing={() =>
+                            toggleProposalEditing(proposal.id)
                           }
-                          disabled={!canReview || pendingMutation}
-                          placeholder="Add context for the approval or rejection"
-                          onChange={(event) =>
-                            setNotes((current) => ({
-                              ...current,
-                              [proposal.id]: event.target.value,
-                            }))
+                          onPreviewCanonical={() =>
+                            void openCanonicalPreview(proposal)
                           }
                         />
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          {canReview
-                            ? hasChanges
-                              ? "Approval saves wording edits first; rejection records only the notes."
-                              : "A approves, R rejects, and S saves wording when this card is focused."
-                            : reviewedSummary(proposal)}
-                        </p>
-                      </div>
-                      <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            !canReview ||
-                            pendingMutation ||
-                            !hasDraftChanges(proposal)
-                          }
-                          onClick={() => void saveDraft(proposal)}
-                        >
-                          <IconPencil className="size-4" />
-                          Save wording
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!canReview || pendingMutation}
-                          onClick={() => void reject(proposal)}
-                        >
-                          <IconX className="size-4" />
-                          Reject proposal
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={!canReview || pendingMutation}
-                          onClick={() => void approve(proposal)}
-                        >
-                          <IconCheck className="size-4" />
-                          {insight.approveLabel}
-                        </Button>
+                        {editing && canReview ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="col-span-2 sm:col-span-1"
+                            disabled={pendingMutation || !hasChanges}
+                            onClick={() => void saveDraft(proposal)}
+                          >
+                            <IconPencil className="size-4" />
+                            Save wording
+                          </Button>
+                        ) : null}
+                        {canReview ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="col-span-2 sm:col-span-1"
+                              disabled={pendingMutation}
+                              onClick={() => void reject(proposal)}
+                            >
+                              <IconX className="size-4" />
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="col-span-2 sm:col-span-1"
+                              disabled={pendingMutation}
+                              onClick={() => void approve(proposal)}
+                            >
+                              <IconCheck className="size-4" />
+                              {insight.approveLabel}
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </CardContent>
@@ -592,7 +599,7 @@ export default function ReviewRoute() {
         ) : (
           <EmptyActionState
             title={`No ${status} proposals`}
-            detail="Demo and low-confidence distillation proposals appear here before they become company memory."
+            detail="New source captures appear here when Brain needs a reviewer before turning them into company knowledge."
           />
         )}
 
@@ -729,7 +736,7 @@ function buildTargetContext(
 
   if (knowledgeId) {
     return {
-      label: "Merge into existing memory",
+      label: "Merge into existing knowledge",
       detail: `Approving applies this wording to ${shortId(knowledgeId)}.`,
       knowledgeId,
     };
@@ -737,7 +744,7 @@ function buildTargetContext(
 
   if (supersedesId) {
     return {
-      label: "Supersede existing memory",
+      label: "Supersede existing knowledge",
       detail: `Approving creates a replacement and archives ${shortId(
         supersedesId,
       )}.`,
@@ -747,15 +754,15 @@ function buildTargetContext(
 
   if (proposal.proposedAction === "archive") {
     return {
-      label: "Archive memory",
-      detail: "Approving marks the target memory as archived.",
+      label: "Archive knowledge",
+      detail: "Approving marks the target knowledge as archived.",
       knowledgeId,
     };
   }
 
   return {
-    label: "Create new memory",
-    detail: "Approving adds a new durable company-memory entry.",
+    label: "Create new knowledge",
+    detail: "Approving adds a new durable company knowledge entry.",
   };
 }
 
@@ -779,7 +786,7 @@ function buildPrivacyFlags(
     );
   }
   if (context.publishTier === "company") {
-    flags.push("Company-tier memory");
+    flags.push("Company-tier knowledge");
   } else if (context.publishTier) {
     flags.push(`${titleCase(context.publishTier)} publish tier`);
   }
@@ -821,16 +828,16 @@ function buildQueueReason(
     )}, below the auto-publish threshold.`;
   }
   if (context.publishTier === "company") {
-    return "Company-tier memory requires reviewer approval.";
+    return "Company-tier knowledge requires reviewer approval.";
   }
-  return "Queued for reviewer approval before becoming durable company memory.";
+  return "Queued for reviewer approval before becoming durable company knowledge.";
 }
 
 function buildApproveLabel(target: TargetContext, status: string | null) {
   if (status === "redacted") return "Approve redacted draft";
   if (target.supersedesId) return "Approve replacement";
   if (target.knowledgeId) return "Approve update";
-  return "Approve memory";
+  return "Approve knowledge";
 }
 
 function readString(value: unknown) {
@@ -970,40 +977,116 @@ function SignalRow({
   );
 }
 
-function EvidencePreview({
-  evidence,
-  proposalId,
+function ReviewSignalStrip({
+  target,
+  privacy,
+  evidenceCount,
+  proposedAction,
+  publishCanonical,
 }: {
-  evidence: NonNullable<ReviewItem["evidence"]>;
-  proposalId: string;
+  target: string;
+  privacy: string;
+  evidenceCount: number;
+  proposedAction?: string | null;
+  publishCanonical: boolean;
 }) {
+  const signals = [
+    { label: "Target", value: target },
+    { label: "Privacy", value: privacy },
+    {
+      label: "Evidence",
+      value: evidenceCount
+        ? `${evidenceCount} ${evidenceCount === 1 ? "snippet" : "snippets"}`
+        : "No snippets",
+    },
+  ];
+
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <IconFileText className="size-4 text-muted-foreground" />
-          Source snippets
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+      {signals.map((signal) => (
+        <div key={signal.label} className="flex min-w-0 items-center gap-1.5">
+          <span className="text-muted-foreground">{signal.label}</span>
+          <span className="max-w-56 truncate font-medium text-foreground">
+            {signal.value}
+          </span>
         </div>
-        {evidence.length > 2 ? (
-          <Badge variant="outline">+{evidence.length - 2} more</Badge>
-        ) : null}
-      </div>
-      {evidence.length ? (
-        evidence
-          .slice(0, 2)
-          .map((item, index) => (
-            <EvidenceSnippet
-              key={`${proposalId}-evidence-${index}`}
-              item={item}
-              compact
-            />
-          ))
-      ) : (
-        <p className="rounded-md border border-dashed border-border bg-background p-3 text-sm leading-6 text-muted-foreground">
-          No source snippets were attached to this proposal.
-        </p>
-      )}
+      ))}
+      {proposedAction ? (
+        <Badge variant="secondary" className="h-5 capitalize">
+          {proposedAction}
+        </Badge>
+      ) : null}
+      {publishCanonical ? (
+        <Badge variant="outline" className="h-5 gap-1.5">
+          <IconBook className="size-3" />
+          Company context
+        </Badge>
+      ) : null}
     </div>
+  );
+}
+
+function ProposalOverflowMenu({
+  canReview,
+  editing,
+  pendingMutation,
+  publishCanonical,
+  sourceUrl,
+  onToggleEditing,
+  onPreviewCanonical,
+}: {
+  canReview: boolean;
+  editing: boolean;
+  pendingMutation: boolean;
+  publishCanonical: boolean;
+  sourceUrl: string | null;
+  onToggleEditing: () => void;
+  onPreviewCanonical: () => void;
+}) {
+  if (!canReview && !sourceUrl) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          aria-label="More review actions"
+        >
+          <IconDotsVertical className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {canReview ? (
+          <DropdownMenuItem
+            disabled={pendingMutation}
+            onSelect={onToggleEditing}
+          >
+            <IconPencil className="size-4" />
+            {editing ? "Hide editor" : "Edit wording"}
+          </DropdownMenuItem>
+        ) : null}
+        {canReview && publishCanonical ? (
+          <DropdownMenuItem
+            disabled={pendingMutation}
+            onSelect={onPreviewCanonical}
+          >
+            <IconFileText className="size-4" />
+            Preview company context
+          </DropdownMenuItem>
+        ) : null}
+        {sourceUrl && canReview ? <DropdownMenuSeparator /> : null}
+        {sourceUrl ? (
+          <DropdownMenuItem asChild>
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <IconExternalLink className="size-4" />
+              Open source
+            </a>
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1081,9 +1164,9 @@ function ProposalDetailsSheet({
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button size="sm" variant="outline" className="w-full">
+        <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <IconListDetails className="size-4" />
-          Review details
+          Details
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
@@ -1144,7 +1227,7 @@ function ProposalDetailsSheet({
               current={draftTitle}
             />
             <DraftDiff
-              label="Memory body"
+              label="Knowledge body"
               queued={queuedBody}
               current={draftBody}
               multiline

@@ -32,7 +32,10 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  createAgentChatAdapter,
+  type AgentChatSurfaceKind,
+} from "./agent-chat-adapter.js";
 import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
@@ -51,6 +54,7 @@ import {
 } from "./sse-event-processor.js";
 import { captureError, trackEvent } from "./analytics.js";
 import { cn } from "./utils.js";
+import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -85,7 +89,10 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import type { Reference } from "./composer/types.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+} from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
@@ -267,20 +274,69 @@ async function getImageFileDataURL(file: File): Promise<string> {
 
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
+export type AgentRecoveryAction = "continue" | "retry";
+
+function imageContentTypeFromDataUrl(dataUrl: string): string {
+  const match = /^data:([^;,]+)/.exec(dataUrl);
+  return match?.[1] || "image/jpeg";
+}
+
+function imageExtensionFromContentType(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/gif") return "gif";
+  return "jpg";
+}
+
+function createAgentImageAttachments(
+  images?: readonly string[],
+): QueuedAttachment[] | undefined {
+  const validImages = (images ?? []).filter((image) => image.trim().length > 0);
+  if (validImages.length === 0) return undefined;
+
+  return validImages.map((image, index) => {
+    const contentType = imageContentTypeFromDataUrl(image);
+    const extension = imageExtensionFromContentType(contentType);
+    const name = `image-${index + 1}.${extension}`;
+    return {
+      id: `agent-chat-image-${index + 1}`,
+      type: "image",
+      name,
+      contentType,
+      status: { type: "complete" },
+      content: [{ type: "image", image }],
+    };
+  });
+}
 
 function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
+  recoveryAction?: AgentRecoveryAction,
 ) {
-  const custom: { references?: Reference[]; requestMode?: AgentRequestMode } =
-    {};
+  const custom: {
+    references?: Reference[];
+    requestMode?: AgentRequestMode;
+  } = {};
   if (references && references.length > 0) {
     custom.references = references;
   }
   if (requestMode) {
     custom.requestMode = requestMode;
   }
-  return Object.keys(custom).length > 0 ? { runConfig: { custom } } : {};
+  const options: {
+    runConfig?: { custom: typeof custom };
+    metadata?: { custom: { agentNativeRecoveryAction: AgentRecoveryAction } };
+  } = {};
+  if (Object.keys(custom).length > 0) {
+    options.runConfig = { custom };
+  }
+  if (recoveryAction) {
+    options.metadata = {
+      custom: { agentNativeRecoveryAction: recoveryAction },
+    };
+  }
+  return options;
 }
 
 function escapeQueuedAttachmentAttribute(value: string): string {
@@ -536,6 +592,18 @@ function shouldImportServerThreadData(currentRepo: any, incomingRepo: any) {
   }
 
   return true;
+}
+
+function cloneContentParts(content: ContentPart[]): ContentPart[] {
+  return content.map((part) =>
+    part.type === "text"
+      ? { ...part }
+      : {
+          ...part,
+          args: { ...part.args },
+          ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
+        },
+  );
 }
 
 function clearPendingSelection() {
@@ -1301,10 +1369,11 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
 
   const copyValue = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(payload.copyText);
-      setCopied(true);
-      if (copyResetRef.current) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      if (await writeClipboardText(payload.copyText)) {
+        setCopied(true);
+        if (copyResetRef.current) clearTimeout(copyResetRef.current);
+        copyResetRef.current = setTimeout(() => setCopied(false), 1200);
+      }
     } catch {
       // Clipboard failures should not interrupt chat rendering.
     }
@@ -2105,12 +2174,14 @@ function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    navigator.clipboard.writeText(text);
-    setCopied("message");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied("message");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
@@ -2132,12 +2203,14 @@ function MessageActionsMenu({
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
-    navigator.clipboard.writeText(runId);
-    setCopied("id");
-    setTimeout(() => {
-      setCopied(null);
-      setOpen(false);
-    }, 1000);
+    void writeClipboardText(runId).then((ok) => {
+      if (!ok) return;
+      setCopied("id");
+      setTimeout(() => {
+        setCopied(null);
+        setOpen(false);
+      }, 1000);
+    });
   }, [messageRuntime]);
 
   const handleForkChat = useCallback(() => {
@@ -2701,6 +2774,43 @@ function getMessageText(message: unknown): string {
   return typeof content === "string" ? content.trim() : "";
 }
 
+const RECOVERY_USER_MESSAGE_PREFIXES = [
+  "Continue from where you left off",
+  "Continue from where you stopped",
+  "Retry the previous request from a clean approach",
+];
+
+function getRecoveryActionMetadata(
+  message: unknown,
+): AgentRecoveryAction | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const action = meta?.custom?.agentNativeRecoveryAction;
+  return action === "continue" || action === "retry" ? action : null;
+}
+
+function isRecoveryUserMessage(message: unknown): boolean {
+  if (getRecoveryActionMetadata(message)) return true;
+  const text = getMessageText(message);
+  return RECOVERY_USER_MESSAGE_PREFIXES.some((prefix) =>
+    text.startsWith(prefix),
+  );
+}
+
+export function latestNonRecoveryUserMessageText(
+  messages: readonly unknown[],
+): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as { role?: unknown };
+    if (message?.role !== "user") continue;
+    if (isRecoveryUserMessage(message)) continue;
+    const text = getMessageText(message);
+    if (text) return text;
+  }
+  return "";
+}
+
 function RunErrorRecoveryCard({
   info,
   onContinue,
@@ -2740,9 +2850,11 @@ function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    void writeClipboardText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -3154,9 +3266,15 @@ function PlanModeCallout({
 
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
-  sendMessage(text: string): void;
+  sendMessage(text: string, images?: string[]): void;
+  /** Programmatically send a recovery prompt without replacing the original request. */
+  sendRecoveryMessage(
+    text: string,
+    recoveryAction: AgentRecoveryAction,
+    images?: string[],
+  ): void;
   /** Queue a message to send after the current run finishes */
-  queueMessage(text: string): void;
+  queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
   /** Focus the composer input */
@@ -3175,6 +3293,7 @@ export interface AssistantChatAdapterContext {
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
+  surface: AgentChatSurfaceKind;
 }
 
 export interface AssistantChatProps {
@@ -3188,6 +3307,11 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /**
+   * Identifies which surface hosts this chat. Defaults to "app", which keeps
+   * dev filesystem/bash code-editing tools out of in-product sidebars.
+   */
+  agentChatSurface?: AgentChatSurfaceKind;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3222,6 +3346,14 @@ export interface AssistantChatProps {
   composerSlot?: React.ReactNode;
   /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
+  /** Placeholder for the shared composer in its normal idle state. */
+  composerPlaceholder?: string;
+  /** Visual density for the shared composer shell. */
+  composerLayoutVariant?: AgentComposerLayoutVariant;
+  /** Center the composer on a fresh empty chat instead of pinning it low. */
+  centerComposerWhenEmpty?: boolean;
+  /** Hide the default empty-state icon/text/suggestions for custom start screens. */
+  emptyStateDisplay?: "default" | "hidden";
   /** Optional content rendered inside the composer toolbar after the attach button. */
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
@@ -3367,6 +3499,10 @@ const AssistantChatInner = forwardRef<
     onGenerateTitle,
     composerSlot,
     composerAreaClassName,
+    composerPlaceholder,
+    composerLayoutVariant = "default",
+    centerComposerWhenEmpty = false,
+    emptyStateDisplay = "default",
     composerToolbarSlot,
     composerExtraActionButton,
     composerDisabled = false,
@@ -3434,6 +3570,11 @@ const AssistantChatInner = forwardRef<
     dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
     if (dropDepthRef.current === 0) setDropActive(false);
   }, []);
+  const handleChatDropCapture = useCallback((e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+    dropDepthRef.current = 0;
+    setDropActive(false);
+  }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer?.files ?? []);
@@ -3468,7 +3609,7 @@ const AssistantChatInner = forwardRef<
   // user message and the `performRoundtrip` call that tries to record the
   // assistant placeholder against that user message's id. The internal-bug
   // throw turns into an unhandled rejection that Sentry captures from the
-  // images.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
+  // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
   // it by relinking to the current head whenever the requested parent has
   // gone missing instead of throwing.
   useEffect(() => {
@@ -3514,6 +3655,7 @@ const AssistantChatInner = forwardRef<
       attachments?: QueuedAttachment[];
       references?: Reference[];
       requestMode?: AgentRequestMode;
+      recoveryAction?: AgentRecoveryAction;
     }>
   >([]);
   // Tracks the JSON of the last queue we successfully persisted so the
@@ -4340,21 +4482,22 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           await waitForThreadRunToClear(apiUrl, threadId);
-          const content: Array<
-            { type: "text"; text: string } | { type: "image"; image: string }
-          > = [{ type: "text", text: next.text }];
-          if (next.images) {
-            for (const img of next.images) {
-              content.push({ type: "image", image: img });
-            }
-          }
+          const imageAttachments = createAgentImageAttachments(next.images);
+          const messageAttachments =
+            next.attachments && next.attachments.length > 0
+              ? next.attachments
+              : (imageAttachments ?? []);
           threadRuntime.append({
             role: "user",
-            content,
-            ...(next.attachments && next.attachments.length > 0
-              ? { attachments: next.attachments }
+            content: [{ type: "text", text: next.text }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
               : {}),
-            ...createUserMessageRunConfig(next.references, next.requestMode),
+            ...createUserMessageRunConfig(
+              next.references,
+              next.requestMode,
+              next.recoveryAction,
+            ),
           } as Parameters<typeof threadRuntime.append>[0]);
         })();
       }, 100);
@@ -4393,6 +4536,68 @@ const AssistantChatInner = forwardRef<
     }
   }, [isReconnecting, forceStopped]);
 
+  const materializeFrozenReconnectContent = useCallback(() => {
+    if (!reconnectFrozen || reconnectContent.length === 0) return;
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const messages = getRepoMessages(repo);
+      const lastEntry = messages[messages.length - 1];
+      const lastMessage = getRepoMessage(lastEntry);
+      const parentId =
+        typeof repo.headId === "string"
+          ? repo.headId
+          : typeof lastMessage?.id === "string"
+            ? lastMessage.id
+            : null;
+      const runId = runErrorInfo?.runId ?? reconnectRunIdRef.current;
+      const id = `reconnect-${runId ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      repo.messages = [
+        ...messages,
+        {
+          parentId,
+          message: {
+            id,
+            role: "assistant",
+            createdAt: new Date(),
+            content: cloneContentParts(reconnectContent),
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              custom: {
+                reconnectFrozen: true,
+                ...(runId ? { runId } : {}),
+              },
+            },
+          },
+        },
+      ];
+      repo.headId = id;
+
+      threadRuntime.import(ensureMessageMetadata(repo));
+      setReconnectFrozen(false);
+      setReconnectContent([]);
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "materialize-reconnect-content",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+          reconnectParts: reconnectContent.length,
+        },
+      });
+    }
+  }, [
+    reconnectFrozen,
+    reconnectContent,
+    runErrorInfo?.runId,
+    tabId,
+    threadId,
+    threadRuntime,
+  ]);
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4401,7 +4606,9 @@ const AssistantChatInner = forwardRef<
       attachments?: ReadonlyArray<unknown>,
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
+      recoveryAction?: AgentRecoveryAction,
     ) => {
+      materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
@@ -4419,6 +4626,11 @@ const AssistantChatInner = forwardRef<
       // direct sends.
       markNearBottom();
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      const imageAttachments = createAgentImageAttachments(images);
+      const messageAttachments = [
+        ...(queuedAttachments ?? []),
+        ...(imageAttachments ?? []),
+      ];
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -4440,42 +4652,55 @@ const AssistantChatInner = forwardRef<
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             text,
             images,
-            attachments: queuedAttachments,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
             references,
             requestMode: effectiveRequestMode,
+            recoveryAction,
           },
         ]);
       } else {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text }];
-        if (images) {
-          for (const img of images) {
-            content.push({ type: "image", image: img });
-          }
-        }
         threadRuntime.append({
           role: "user",
-          content,
-          ...(queuedAttachments && queuedAttachments.length > 0
-            ? { attachments: queuedAttachments }
+          content: [{ type: "text", text }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
             : {}),
-          ...createUserMessageRunConfig(references, effectiveRequestMode),
+          ...createUserMessageRunConfig(
+            references,
+            effectiveRequestMode,
+            recoveryAction,
+          ),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
     },
-    [execMode, isRunning, threadRuntime],
+    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
   );
 
   // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
-      sendMessage(text: string) {
-        addToQueue(text);
+      sendMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
-      queueMessage(text: string) {
-        addToQueue(text);
+      sendRecoveryMessage(
+        text: string,
+        recoveryAction: AgentRecoveryAction,
+        images?: string[],
+      ) {
+        addToQueue(
+          text,
+          images,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          recoveryAction,
+        );
+      },
+      queueMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
       isRunning() {
         return thread.isRunning;
@@ -4565,12 +4790,10 @@ const AssistantChatInner = forwardRef<
     if (!last || last.role !== "assistant") return null;
     return getRunErrorMetadata(last);
   }, [messages]);
-  const lastUserText = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "user") return getMessageText(messages[i]);
-    }
-    return "";
-  }, [messages]);
+  const lastUserText = useMemo(
+    () => latestNonRecoveryUserMessageText(messages),
+    [messages],
+  );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
@@ -4613,12 +4836,20 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const isFreshEmptyChat =
+    messages.length === 0 &&
+    !isRestoring &&
+    !isReconnecting &&
+    !authError &&
+    !missingApiKey;
+  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ChatRunningContext.Provider value={isRunning}>
           <div
+            data-agent-empty-state={centeredEmptyState ? "centered" : undefined}
             className={cn(
               "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
               className,
@@ -4626,6 +4857,7 @@ const AssistantChatInner = forwardRef<
             onDragEnter={handleChatDragEnter}
             onDragOver={handleChatDragOver}
             onDragLeave={handleChatDragLeave}
+            onDropCapture={handleChatDropCapture}
             onDrop={handleChatDrop}
           >
             {dropActive && (
@@ -4668,7 +4900,7 @@ const AssistantChatInner = forwardRef<
             {/* Messages area */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+              className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0"
             >
               {authError ? (
                 <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
@@ -4758,7 +4990,14 @@ const AssistantChatInner = forwardRef<
                   </div>
                 </div>
               ) : messages.length === 0 && !isReconnecting ? (
-                <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
+                <div
+                  className={cn(
+                    "agent-empty-state",
+                    emptyStateDisplay === "hidden"
+                      ? "sr-only"
+                      : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
+                  )}
+                >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
                     <IconMessage className="h-5 w-5 text-muted-foreground" />
                   </div>
@@ -4809,7 +5048,15 @@ const AssistantChatInner = forwardRef<
                       onContinue={() => {
                         setShowContinue(false);
                         setLoopLimitInfo(null);
-                        addToQueue("Continue from where you left off.");
+                        addToQueue(
+                          "Continue from where you left off.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "continue",
+                        );
                       }}
                     />
                   )}
@@ -4820,6 +5067,12 @@ const AssistantChatInner = forwardRef<
                         setRunErrorInfo(null);
                         addToQueue(
                           "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "continue",
                         );
                       }}
                       onRetry={() => {
@@ -4828,6 +5081,12 @@ const AssistantChatInner = forwardRef<
                           lastUserText
                             ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
                             : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          "queued",
+                          "retry",
                         );
                       }}
                       onFork={onForkChat}
@@ -4930,6 +5189,7 @@ const AssistantChatInner = forwardRef<
             <SelectionAttachedPill />
             {/* Input area */}
             <AgentComposerFrame
+              layoutVariant={composerLayoutVariant}
               className={cn(
                 composerAreaClassName,
                 missingApiKey && "cursor-pointer",
@@ -4955,7 +5215,7 @@ const AssistantChatInner = forwardRef<
                         ? queuedMessages.length > 0
                           ? `${queuedMessages.length} queued — send a follow-up...`
                           : "Send a follow-up..."
-                        : undefined
+                        : composerPlaceholder
                 }
                 onSubmit={
                   isRunning
@@ -4983,6 +5243,7 @@ const AssistantChatInner = forwardRef<
                 onConnectProvider={onConnectProvider}
                 toolbarSlot={composerToolbarSlot}
                 plusMenuMode={plusMenuMode}
+                layoutVariant={composerLayoutVariant}
                 providerConnectStatusEnabled={providerStatusChecksEnabled}
                 draftScope={threadId || tabId}
                 interceptBuildRequestsForBuilder
@@ -5083,6 +5344,7 @@ export const AssistantChat = forwardRef<
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
   scopeRef.current = contextScope;
+  const surface = props.agentChatSurface ?? "app";
   const createAdapterRef = useRef(props.createAdapter);
   createAdapterRef.current = props.createAdapter;
 
@@ -5098,6 +5360,7 @@ export const AssistantChat = forwardRef<
         execModeRef,
         browserTabId,
         scopeRef,
+        surface,
       };
       const createAdapter = createAdapterRef.current;
       return createAdapter
@@ -5107,7 +5370,7 @@ export const AssistantChat = forwardRef<
     // Adapter factories must be memoized and use refs for changing values.
     // `adapterReloadKey` is an explicit opt-in for embedded hosts whose
     // transport identity can change without changing tab/thread ids.
-    [apiUrl, tabId, threadId, browserTabId, props.adapterReloadKey],
+    [apiUrl, tabId, threadId, browserTabId, surface, props.adapterReloadKey],
   );
   const attachmentAdapter = useMemo(
     () =>

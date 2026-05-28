@@ -67,4 +67,26 @@ describe("action discovery", () => {
       isConsequential: false,
     });
   });
+
+  it("preserves MCP Apps metadata from static defineAction entries", () => {
+    const mcpApp = {
+      resource: {
+        title: "Preview",
+        html: "<!doctype html><p>Preview</p>",
+        csp: { connectDomains: ["https://example.com"] },
+      },
+      visibility: ["model", "app"],
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "preview-thing": {
+        default: {
+          tool: { description: "Preview thing", parameters: {} },
+          mcpApp,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["preview-thing"].mcpApp).toBe(mcpApp);
+  });
 });

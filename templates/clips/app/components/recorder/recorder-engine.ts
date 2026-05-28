@@ -111,8 +111,43 @@ export interface RecorderFinalizeResult {
   hasCamera: boolean;
 }
 
-const DEFAULT_CHUNK_MS = 2000;
+interface RecordingFinalizeMeta {
+  durationMs: number;
+  dimensions: { width: number; height: number };
+  hasAudio: boolean;
+  hasCamera: boolean;
+}
+
+interface CompressionUploadMeta {
+  originalBytes?: number;
+  compressedBytes?: number;
+  ratio?: number;
+  elapsedMs?: number;
+  outputMimeType?: string;
+}
+
+const DEFAULT_CHUNK_MS = 1000;
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
+  408, 425, 429, 500, 502, 503, 504,
+]);
 type CaptureSource = "screen" | "camera" | "microphone" | "unknown";
+
+const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
+  channelCount: { ideal: 1 },
+};
+
+function voiceFocusedAudioConstraints(
+  deviceId?: string | null,
+): MediaTrackConstraints {
+  return {
+    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
+}
 
 function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
@@ -231,13 +266,53 @@ export function pickMimeType(): string {
   return "";
 }
 
-function canStreamMediaRecorderChunks(mimeType: string): boolean {
-  // WebM chunks emitted by MediaRecorder are safe to concatenate. Browser MP4
-  // chunks are not reliably self-contained; in Safari/WebKit we have seen
-  // ftyp+mdat-only assemblies with no top-level moov atom, which storage will
-  // accept but browsers cannot play. Keep MP4/QuickTime as one final recorder
-  // blob and upload that blob in bounded slices after stop().
+function canUseTimeslicedRecorderChunks(mimeType: string): boolean {
+  // WebM chunks emitted by MediaRecorder are safe to concatenate locally before
+  // compression/upload. Browser MP4 chunks are not reliably self-contained; in
+  // Safari/WebKit we have seen ftyp+mdat-only assemblies with no top-level moov
+  // atom, so MP4/QuickTime stays as one final recorder blob after stop().
   return /^video\/webm(?:;|$)/i.test(mimeType);
+}
+
+function isRetryableChunkUploadStatus(status: number): boolean {
+  return RETRYABLE_CHUNK_UPLOAD_STATUSES.has(status);
+}
+
+function retryDelayMs(attempt: number): number {
+  return attempt === 1 ? 500 : 1500;
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error
+        ? signal.reason
+        : new Error("Upload aborted"),
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    let timer: number;
+    let onAbort: () => void;
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onResolve = () => {
+      cleanup();
+      resolve();
+    };
+    onAbort = () => {
+      cleanup();
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new Error("Upload aborted"),
+      );
+    };
+    timer = window.setTimeout(onResolve, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export class RecorderEngine {
@@ -264,11 +339,9 @@ export class RecorderEngine {
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
   /**
-   * Local mirror of every chunk we sent to the server, in record order.
-   * We hold these to enable the post-stop "compress and re-upload" path
-   * for clips larger than COMPRESS_THRESHOLD_BYTES — without this buffer
-   * we'd have to ask the server for the chunks back, which neither the
-   * `/api/uploads/:id/chunk` endpoint nor `application_state` support.
+   * Local mirror of every recorder chunk, in record order. We upload after stop
+   * so the server never stores the uncompressed source before compression has a
+   * chance to run.
    *
    * Memory cost: one Blob per 2s slice. A 10-min 1080p screen capture is
    * ~600 MB worst case (heavy motion); typical screen capture is much
@@ -276,6 +349,7 @@ export class RecorderEngine {
    */
   private localChunks: Blob[] = [];
   private totalRecordedBytes = 0;
+  private lastFinalizeMeta: RecordingFinalizeMeta | null = null;
   /**
    * Owns the abort signal threaded into the compression pass so a `cancel()`
    * during a multi-minute ffmpeg.wasm encode actually terminates the worker
@@ -289,7 +363,7 @@ export class RecorderEngine {
    * fetch quietly complete and the recording finalise server-side.
    */
   private uploadAbort: AbortController | null = null;
-  private streamChunksDuringRecording = true;
+  private streamChunksDuringRecording = false;
 
   private state: RecorderState = "idle";
 
@@ -328,6 +402,14 @@ export class RecorderEngine {
     const pausedNow =
       this.pausedStartedMs !== null ? now - this.pausedStartedMs : 0;
     return Math.max(0, now - this.startedAtMs - this.pausedAccumMs - pausedNow);
+  }
+
+  canRetryUpload(): boolean {
+    return (
+      this.state === "error" &&
+      this.lastFinalizeMeta !== null &&
+      this.localChunks.length > 0
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -395,7 +477,8 @@ export class RecorderEngine {
       const displayOptions: ExtendedDisplayMediaOptions = {
         video: { frameRate: { ideal: 30 }, displaySurface },
         audio: wantsMic,
-        preferCurrentTab: displaySurface === "browser",
+        // Let "Browser tab" open the tab picker. preferCurrentTab turns it
+        // into a current-tab shortcut, which makes choosing another tab harder.
         selfBrowserSurface:
           displaySurface === "browser" ? "include" : "exclude",
         surfaceSwitching: "include",
@@ -432,9 +515,7 @@ export class RecorderEngine {
       if (wantsMic) {
         try {
           this.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: this.opts.micDeviceId
-              ? { deviceId: { exact: this.opts.micDeviceId } }
-              : true,
+            audio: voiceFocusedAudioConstraints(this.opts.micDeviceId),
             video: false,
           });
         } catch (err) {
@@ -564,17 +645,18 @@ export class RecorderEngine {
     this.uploadFailure = null;
     this.localChunks = [];
     this.totalRecordedBytes = 0;
+    this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
-    this.streamChunksDuringRecording = canStreamMediaRecorderChunks(
+    this.streamChunksDuringRecording = false;
+    const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
       this.mimeType,
     );
 
     this.recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
       if (!blob || blob.size === 0) return;
-      // Mirror to local buffer BEFORE upload — if compression turns out to
-      // be needed (decided post-stop based on totalRecordedBytes), we need
-      // every chunk on the client side to assemble + re-encode.
+      // Mirror to local buffer first. Upload waits until stop(), after we know
+      // whether this recording needs compression.
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
       if (this.streamChunksDuringRecording) {
@@ -594,7 +676,7 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
-    if (this.streamChunksDuringRecording) {
+    if (useTimeslicedLocalChunks) {
       this.recorder.start(this.opts.chunkIntervalMs);
     } else {
       this.recorder.start();
@@ -663,9 +745,8 @@ export class RecorderEngine {
       // (e.g. display-only mode with no mic). Different browsers dispatch
       // `dataavailable` either before or after state transitions to
       // `inactive`. Yielding one macrotask ensures any still-pending
-      // `dataavailable` event runs first and gets queued by our
-      // start()-time listener before we drain the chunk queue and send
-      // the isFinal=1 sentinel.
+      // `dataavailable` event runs first and is mirrored into localChunks before
+      // the post-stop upload/compression path starts.
       this.transition("stopping");
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     } else {
@@ -673,7 +754,7 @@ export class RecorderEngine {
 
       // Wait for the dataavailable event triggered by recorder.stop() to
       // be picked up by the start()-time listener (which mirrors it into
-      // `localChunks` and queues an upload). We don't push or upload the
+      // `localChunks`). We don't push or upload the
       // final blob here — that listener is the single owner. Pushing
       // again would duplicate the final ~2s slice in `localChunks`,
       // inflating the assembled blob and corrupting the compressed
@@ -721,46 +802,42 @@ export class RecorderEngine {
       await finalDataAvailable;
     }
 
-    // Drain in-flight chunk uploads queued by the start()-time listener
-    // (including the final dataavailable that just fired) before we either
-    // compress + re-upload or send the isFinal sentinel.
-    await this.chunkQueue;
-    if (this.uploadFailure) {
-      this.cleanupTracks();
-      this.localChunks = [];
-      this.transition("error", { message: this.uploadFailure.message });
-      throw this.uploadFailure;
-    }
-
     const dimensions = this.readDimensions();
     const durationMs = Math.round(this.getElapsedMs());
     const hasAudio = this.hasAudioTrack();
     const hasCamera = !!this.cameraStream;
+    const finalizeMeta: RecordingFinalizeMeta = {
+      durationMs,
+      dimensions,
+      hasAudio,
+      hasCamera,
+    };
+    this.lastFinalizeMeta = finalizeMeta;
+
+    // Drain any legacy in-flight chunk uploads before we either compress or
+    // upload. New recordings upload after stop(), but keeping this guard makes
+    // retry paths resilient while a release rolls out.
+    await this.chunkQueue;
+    if (this.uploadFailure) {
+      this.cleanupTracks();
+      this.transition("error", { message: this.uploadFailure.message });
+      throw this.uploadFailure;
+    }
 
     let result: Record<string, unknown> | undefined;
+    let completed = false;
     try {
       if (this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES) {
-        // Discard everything that streamed up during recording — it's
-        // about to be replaced by the compressed assembly below — and
-        // re-upload from index 0.
-        result = await this.compressAndReupload({
-          durationMs,
-          dimensions,
-          hasAudio,
-          hasCamera,
-        });
+        // Compress before the first server upload so large recordings don't
+        // stage their uncompressed source in SQL.
+        result = await this.compressAndReupload(finalizeMeta);
       } else if (!this.streamChunksDuringRecording) {
         this.transition("uploading", { progress: 0 });
         const assembled = new Blob(this.localChunks, { type: this.mimeType });
         result = await this.uploadBlobInSlices(
           assembled,
           this.mimeType,
-          {
-            durationMs,
-            dimensions,
-            hasAudio,
-            hasCamera,
-          },
+          finalizeMeta,
           this.uploadAbort?.signal,
         );
       } else {
@@ -786,6 +863,7 @@ export class RecorderEngine {
         );
       }
       this.transition("complete");
+      completed = true;
     } catch (err) {
       // Reachable from compressAndReupload (compression failure, OOM,
       // reset-chunks failure, hard-cap exceeded, abort) and from the
@@ -798,25 +876,117 @@ export class RecorderEngine {
     } finally {
       // Always release hardware resources, even if the final upload failed.
       this.cleanupTracks();
-      // Drop the in-memory chunks now that they're either uploaded or no
-      // longer needed by this engine. If storage was missing, the server keeps
-      // its uploaded chunk scratch-space and the player page resumes finalize
-      // after the user connects Builder.io/S3.
-      this.localChunks = [];
+      // Keep the in-memory chunks after an upload failure so the error screen
+      // can retry the upload without making the user re-record. They are
+      // dropped on success or when cancel/restart runs.
+      if (completed) {
+        this.localChunks = [];
+        this.lastFinalizeMeta = null;
+      }
     }
 
+    return this.toFinalizeResult(result, finalizeMeta);
+  }
+
+  async retryUpload(): Promise<RecorderFinalizeResult> {
+    const meta = this.lastFinalizeMeta;
+    if (!meta || this.localChunks.length === 0) {
+      throw new Error(
+        "This recording no longer has local upload data to retry.",
+      );
+    }
+
+    this.uploadFailure = null;
+    this.chunkIndex = 0;
+    this.uploadAbort = new AbortController();
+
+    let result: Record<string, unknown> | undefined;
+    let completed = false;
+    try {
+      result = await this.uploadBufferedChunks(meta, this.uploadAbort.signal);
+      this.transition("complete");
+      completed = true;
+      return this.toFinalizeResult(result, meta);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      this.transition("error", { message: e.message });
+      throw e;
+    } finally {
+      if (completed) {
+        this.localChunks = [];
+        this.lastFinalizeMeta = null;
+      }
+    }
+  }
+
+  private toFinalizeResult(
+    result: Record<string, unknown> | undefined,
+    meta: RecordingFinalizeMeta,
+  ): RecorderFinalizeResult {
     return {
       videoUrl: (result?.videoUrl as string | undefined) ?? null,
       status: result?.status as string | undefined,
       waitingForStorage:
         result?.waitingForStorage === true ||
         result?.status === "waiting_storage",
-      durationMs,
-      width: dimensions.width,
-      height: dimensions.height,
-      hasAudio,
-      hasCamera,
+      durationMs: meta.durationMs,
+      width: meta.dimensions.width,
+      height: meta.dimensions.height,
+      hasAudio: meta.hasAudio,
+      hasCamera: meta.hasCamera,
     };
+  }
+
+  private async uploadBufferedChunks(
+    meta: RecordingFinalizeMeta,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (this.totalRecordedBytes > COMPRESS_THRESHOLD_BYTES) {
+      return this.compressAndReupload(meta);
+    }
+
+    await this.resetUploadedChunks(null, signal);
+    this.transition("uploading", { progress: 0 });
+    const assembled = new Blob(this.localChunks, { type: this.mimeType });
+    return this.uploadBlobInSlices(assembled, this.mimeType, meta, signal);
+  }
+
+  private async resetUploadedChunks(
+    compression: CompressionUploadMeta | null,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const resetUrl = `${appBasePath()}/api/uploads/${
+      this.opts.recordingId
+    }/reset-chunks`;
+    let resetRes: Response;
+    try {
+      resetRes = await fetch(resetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compression }),
+        signal,
+      });
+    } catch (err) {
+      // The user clicking Cancel mid-fetch makes the AbortController abort and
+      // `fetch` rejects with an AbortError. Preserve that identity so the UI
+      // treats it as cancellation, not as a failed upload.
+      if ((err as { name?: string } | null)?.name === "AbortError") {
+        throw err;
+      }
+      throw new Error(
+        `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    if (!resetRes.ok) {
+      const text = await resetRes.text().catch(() => "");
+      throw new Error(
+        `Couldn't prepare the recording for re-upload (reset-chunks ${
+          resetRes.status
+        }). ${text || resetRes.statusText}`,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -824,23 +994,18 @@ export class RecorderEngine {
   // -------------------------------------------------------------------------
 
   /**
-   * Re-encode the local chunk buffer at a lower bitrate via ffmpeg.wasm,
-   * discard the chunks we already streamed up (they'd assemble to the
-   * un-compressed source), and upload the compressed result starting at
-   * index 0. Triggered when `totalRecordedBytes > COMPRESS_THRESHOLD_BYTES`
-   * because the assembled blob would otherwise blow Builder.io's 100 MB
-   * per-file upload limit and 500 mid-stream.
+   * Re-encode the local chunk buffer at a lower bitrate via ffmpeg.wasm and
+   * upload the compressed result starting at index 0. Triggered when
+   * `totalRecordedBytes > COMPRESS_THRESHOLD_BYTES` because the assembled blob
+   * would otherwise blow past the server's SQL staging budget.
    *
    * Throws a clean user-facing error if the compressed blob is STILL larger
    * than `MAX_UPLOAD_BYTES`, so the UI can suggest "shorter recording / lower
    * resolution" rather than letting the upload fail with a 500.
    */
-  private async compressAndReupload(meta: {
-    durationMs: number;
-    dimensions: { width: number; height: number };
-    hasAudio: boolean;
-    hasCamera: boolean;
-  }): Promise<Record<string, unknown> | undefined> {
+  private async compressAndReupload(
+    meta: RecordingFinalizeMeta,
+  ): Promise<Record<string, unknown> | undefined> {
     this.transition("compressing");
 
     // Owned for the lifetime of this single call so `cancel()` can abort
@@ -862,6 +1027,7 @@ export class RecorderEngine {
         compression = await compressBlobIfTooLarge(assembled, this.mimeType, {
           width: meta.dimensions.width,
           height: meta.dimensions.height,
+          durationMs: meta.durationMs,
           signal: abort.signal,
           onProgress: (p) => {
             this.opts.onCompressionProgress?.({
@@ -889,10 +1055,9 @@ export class RecorderEngine {
       const finalBlob = compression.blob;
       const compressedBytes = finalBlob.size;
 
-      // Tell the server to wipe the chunks we streamed up during recording
-      // (they came from an un-compressed source) and stash the compression
-      // metadata so finalize-recording can include it in any Sentry capture
-      // if the upload still fails downstream.
+      // Tell the server to wipe any chunks a previous/legacy attempt may have
+      // uploaded and stash compression metadata so finalize-recording can
+      // include it in any Sentry capture if the upload still fails downstream.
       //
       // A failure here is fatal — proceeding with the re-upload would
       // mix compressed slices (indices 0..N) on top of the leftover
@@ -900,9 +1065,6 @@ export class RecorderEngine {
       // concatenate them into a corrupted blob that decodes to a
       // mid-clip glitch followed by garbage. Better a clean error than a
       // silently-broken recording.
-      const resetUrl = `${appBasePath()}/api/uploads/${
-        this.opts.recordingId
-      }/reset-chunks`;
       const compressionPayload = compression.compressed
         ? {
             originalBytes,
@@ -912,39 +1074,7 @@ export class RecorderEngine {
             outputMimeType: compression.outputMimeType,
           }
         : null;
-      let resetRes: Response;
-      try {
-        resetRes = await fetch(resetUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ compression: compressionPayload }),
-          signal: abort.signal,
-        });
-      } catch (err) {
-        // The user clicking Cancel mid-fetch makes the AbortController
-        // abort and `fetch` rejects with a DOMException whose
-        // `name === "AbortError"`. Wrapping that into a generic network
-        // error would lose the AbortError identity, so doStop()'s catch
-        // would surface a misleading "Upload failed (network error)"
-        // toast for what is actually an intentional cancel. Re-throw the
-        // abort untouched; only wrap genuine non-abort failures.
-        if ((err as { name?: string } | null)?.name === "AbortError") {
-          throw err;
-        }
-        throw new Error(
-          `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-      if (!resetRes.ok) {
-        const text = await resetRes.text().catch(() => "");
-        throw new Error(
-          `Couldn't prepare the recording for re-upload (reset-chunks ${
-            resetRes.status
-          }). ${text || resetRes.statusText}`,
-        );
-      }
+      await this.resetUploadedChunks(compressionPayload, abort.signal);
 
       if (compressionError) {
         // Compression itself failed — we still hold the original assembled
@@ -1031,6 +1161,7 @@ export class RecorderEngine {
     this.pausedStartedMs = null;
     this.localChunks = [];
     this.totalRecordedBytes = 0;
+    this.lastFinalizeMeta = null;
     this.transition("idle");
 
     if (this.opts.abortUrl) {
@@ -1189,9 +1320,9 @@ export class RecorderEngine {
     // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
 
-    // The server chunk handler caps each body at ~6 MB, so keep slices under
-    // that cap. This mirrors the local-file upload path in record.tsx.
-    const UPLOAD_SLICE_BYTES = 5 * 1024 * 1024;
+    // Keep binary uploads comfortably under Netlify's effective function
+    // payload limit. This mirrors the local-file upload path in record.tsx.
+    const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
     let lastResult: Record<string, unknown> | undefined;
@@ -1261,15 +1392,47 @@ export class RecorderEngine {
     const url = `${this.opts.uploadUrl}?${params.toString()}`;
 
     const body = await blob.arrayBuffer();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          blob.type || this.mimeType || "application/octet-stream",
-      },
-      body,
-      signal: extra.signal,
-    });
+    let res: Response | null = null;
+    for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              blob.type || this.mimeType || "application/octet-stream",
+          },
+          body,
+          signal: extra.signal,
+        });
+      } catch (err) {
+        if (
+          extra.isFinal ||
+          attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS ||
+          (err as { name?: string } | null)?.name === "AbortError"
+        ) {
+          throw err;
+        }
+        await waitForRetry(retryDelayMs(attempt), extra.signal);
+        continue;
+      }
+
+      if (
+        !res.ok &&
+        !extra.isFinal &&
+        attempt < CHUNK_UPLOAD_MAX_ATTEMPTS &&
+        isRetryableChunkUploadStatus(res.status)
+      ) {
+        await res.text().catch(() => "");
+        await waitForRetry(retryDelayMs(attempt), extra.signal);
+        continue;
+      }
+
+      break;
+    }
+
+    if (!res) {
+      throw new Error(`Chunk ${index} upload failed: no response`);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");

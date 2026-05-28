@@ -3,9 +3,17 @@
 // Client
 export {
   sendToAgentChat,
+  isEmbedMcpChatBridgeActive,
   useAgentChatGenerating,
   useDevMode,
   useSendToAgentChat,
+  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  sendMcpAppHostMessage,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
   CodeRequiredDialog,
   useDbSync,
   useFileWatcher,
@@ -13,6 +21,14 @@ export {
   cn,
   ApiKeySettings,
   type AgentChatMessage,
+  type AgentNativeMcpAppHostMessageType,
+  type McpAppDisplayMode,
+  type McpAppHostChatMessage,
+  type McpAppHostCapabilities,
+  type McpAppHostContext,
+  type McpAppHostContextSnapshot,
+  type McpAppModelContextContentPart,
+  type McpAppModelContextUpdate,
   type CodeRequiredDialogProps,
   type AuthSession,
 } from "./client/index.js";
@@ -35,8 +51,21 @@ export {
   MCP_APP_RESOURCE_URI_META_KEY,
   type ActionMcpAppConfig,
   type ActionMcpAppCsp,
+  type ActionMcpAppCspBuilder,
   type ActionMcpAppHtmlBuilder,
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export {
+  embedApp,
+  MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+  type EmbedAppOptions,
+} from "./mcp/embed-app.js";
+export {
+  embedRoute,
+  type EmbedRouteContext,
+  type EmbedRouteOptions,
+  type EmbedRoutePathBuilder,
+  type EmbedRouteResult,
+} from "./mcp/embed-route.js";

@@ -6,6 +6,7 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client";
+import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
@@ -14,6 +15,8 @@ import type {
 export interface NavigationState {
   view: string;
   path?: string;
+  extensionId?: string;
+  extensionSlug?: string;
   dreamId?: string;
   sourceId?: string;
   query?: string;
@@ -27,19 +30,11 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
   // Sync current route to application state
   useEffect(() => {
     const localPathname = routerPath(location.pathname);
-    const params = new URLSearchParams(location.search);
-    const state: NavigationState = {
-      view: resolveView(localPathname, extensions),
-      path: appPath(localPathname),
-    };
-    if (state.view === "dreams") {
-      const dreamId = params.get("dreamId");
-      const sourceId = params.get("sourceId");
-      const query = params.get("query");
-      if (dreamId) state.dreamId = dreamId;
-      if (sourceId) state.sourceId = sourceId;
-      if (query) state.query = query;
-    }
+    const state = buildDispatchNavigationState(
+      localPathname,
+      location.search,
+      extensions,
+    );
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -79,7 +74,7 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
 
     // Navigate to a specific path or resolve view name to path
     const resolvedPath =
-      cmd.path || resolvePath(cmd.view, extensions) || "/overview";
+      cmd.path || resolvePath(cmd.view, extensions, cmd) || "/overview";
     const path =
       cmd.view === "dreams" && cmd.dreamId && !resolvedPath.includes("?")
         ? `${resolvedPath}?dreamId=${encodeURIComponent(cmd.dreamId)}`
@@ -88,6 +83,38 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
     navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);
   }, [extensions, navCommand, navigate, qc]);
+}
+
+export function buildDispatchNavigationState(
+  pathname: string,
+  search = "",
+  extensions?: DispatchExtensionConfig,
+): NavigationState {
+  const state: NavigationState = {
+    view: resolveView(pathname, extensions),
+    path: appPath(pathname),
+  };
+
+  const extensionId = extensionIdFromPathname(pathname);
+  if (extensionId) {
+    state.view = "extensions";
+    state.extensionId = extensionId;
+    const slug = extensionSlugFromPathname(pathname);
+    if (slug) state.extensionSlug = slug;
+    return state;
+  }
+
+  if (state.view === "dreams") {
+    const params = new URLSearchParams(search);
+    const dreamId = params.get("dreamId");
+    const sourceId = params.get("sourceId");
+    const query = params.get("query");
+    if (dreamId) state.dreamId = dreamId;
+    if (sourceId) state.sourceId = sourceId;
+    if (query) state.query = query;
+  }
+
+  return state;
 }
 
 function routerPath(path: string): string {
@@ -143,6 +170,10 @@ function resolveView(
 ): string {
   const extensionView = resolveExtensionView(pathname, extensions);
   if (extensionView) return extensionView;
+  if (pathname === "/extensions" || pathname.startsWith("/extensions/")) {
+    return "extensions";
+  }
+  if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
@@ -164,8 +195,12 @@ function resolveView(
 function resolvePath(
   view?: string,
   extensions?: DispatchExtensionConfig,
+  command?: Pick<NavigationState, "extensionId">,
 ): string | undefined {
   switch (view) {
+    case "chat":
+    case "ask":
+      return "/chat";
     case "overview":
       return "/overview";
     case "apps":
@@ -204,7 +239,21 @@ function resolvePath(
       return "/thread-debug";
     case "team":
       return "/team";
+    case "extensions":
+      return command?.extensionId
+        ? `/extensions/${encodeURIComponent(command.extensionId)}`
+        : "/extensions";
     default:
       return resolveExtensionPath(view, extensions);
+  }
+}
+
+function extensionSlugFromPathname(pathname: string): string | undefined {
+  const match = pathname.match(/^\/extensions\/[^/]+\/([^/?#]+)/);
+  if (!match?.[1]) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
   }
 }

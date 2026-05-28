@@ -20,9 +20,19 @@ describe("VisualEditor read-only mode", () => {
 
     expect(source).toContain("const editor = this.editor");
     expect(source).toContain("el.draggable = false");
-    expect(source).toContain("if (!editor.isEditable) return");
-    expect(source).toContain("e.preventDefault();");
-    expect(source).toContain("handle.draggable = false");
-    expect(source).toContain("handle.draggable = true");
+    expect(source).toMatch(
+      /handle\.addEventListener\("mousedown", \(e\) => \{\s*e\.stopPropagation\(\);\s*if \(!editor\.isEditable\) \{\s*e\.preventDefault\(\);/,
+    );
+    expect(source).not.toMatch(
+      /handle\.addEventListener\("mousedown", \(e\) => \{\s*e\.preventDefault\(\);\s*if \(!editor\.isEditable\)/,
+    );
+    expect(source).toContain(
+      'document.addEventListener("mousemove", handleDocumentMouseMove);',
+    );
+    expect(source).toContain('line.className = "notion-drop-indicator";');
+    expect(source).toContain(
+      'session.sourceBlock.classList.add("notion-block--dragging");',
+    );
+    expect(source).toContain("session.view.dispatch(tr.scrollIntoView());");
   });
 });

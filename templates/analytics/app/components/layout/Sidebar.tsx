@@ -30,13 +30,6 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconArchiveOff,
-  IconLink,
-  IconLock,
-  IconBuilding,
-  IconFilter,
-  IconHome,
-  IconBookmark,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -53,9 +46,6 @@ type SidebarDashboard = {
   name: string;
   subviews?: DashboardSubview[];
   source: "static" | "sql";
-  archivedAt?: string | null;
-  keptAt?: string | null;
-  visibility?: Visibility;
 };
 import {
   Tooltip,
@@ -112,6 +102,7 @@ import {
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
+import type { ResourceAccess } from "@/lib/resource-access";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
@@ -277,9 +268,6 @@ function SortableRow({
   onRename,
   onArchive,
   onPrefetch,
-  archived,
-  visibility,
-  onSetVisibility,
   children,
 }: {
   id: string;
@@ -291,14 +279,11 @@ function SortableRow({
   onToggleFavorite: (key: string) => void;
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
-  /** When provided, the menu shows Archive/Restore as the primary destructive
-   *  action and Delete becomes a confirm-gated "Delete permanently". When
-   *  omitted, Delete fires immediately with no confirm (analyses behavior). */
-  onArchive?: (action: "archive" | "restore") => Promise<void> | void;
+  /** When provided, the menu shows Archive as the primary destructive action
+   *  and Delete becomes a confirm-gated "Delete permanently". When omitted,
+   *  Delete fires immediately with no confirm (analyses behavior). */
+  onArchive?: () => Promise<void> | void;
   onPrefetch?: () => void;
-  archived?: boolean;
-  visibility?: Visibility;
-  onSetVisibility?: (visibility: Visibility) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
   const {
@@ -358,22 +343,19 @@ function SortableRow({
     }
   }, [name, onDelete]);
 
-  const runArchive = useCallback(
-    async (action: "archive" | "restore") => {
-      setMenuOpen(false);
-      if (!onArchive) return;
-      try {
-        await onArchive(action);
-      } catch (e) {
-        toast.error(
-          e instanceof Error
-            ? `Couldn't ${action} ${name}: ${e.message}`
-            : `Couldn't ${action} ${name}`,
-        );
-      }
-    },
-    [name, onArchive],
-  );
+  const runArchive = useCallback(async () => {
+    setMenuOpen(false);
+    if (!onArchive) return;
+    try {
+      await onArchive();
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? `Couldn't archive ${name}: ${e.message}`
+          : `Couldn't archive ${name}`,
+      );
+    }
+  }, [name, onArchive]);
 
   const runSetVisibility = useCallback(
     async (visibility: Visibility) => {
@@ -545,27 +527,15 @@ function SortableRow({
               <DropdownMenuSeparator />
               {onArchive ? (
                 <>
-                  {archived ? (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void runArchive("restore");
-                      }}
-                    >
-                      <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                      Restore
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void runArchive("archive");
-                      }}
-                    >
-                      <IconArchive className="mr-2 h-3.5 w-3.5" />
-                      Archive
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void runArchive();
+                    }}
+                  >
+                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onSelect={(event) => {
@@ -647,10 +617,7 @@ function SortableDashboardItem({
   onToggleFavorite: (id: string) => void;
   onDelete: (d: SidebarDashboard) => Promise<void>;
   onRename: (d: SidebarDashboard, name: string) => Promise<void>;
-  onArchive?: (
-    d: SidebarDashboard,
-    action: "archive" | "restore",
-  ) => Promise<void>;
+  onArchive?: (d: SidebarDashboard) => Promise<void>;
   onPrefetch?: (d: SidebarDashboard) => void;
   views?: DashboardView[];
   onSetVisibility?: (
@@ -706,15 +673,8 @@ function SortableDashboardItem({
       onToggleFavorite={onToggleFavorite}
       onDelete={() => onDelete(d)}
       onRename={(name) => onRename(d, name)}
-      onArchive={onArchive ? (action) => onArchive(d, action) : undefined}
+      onArchive={onArchive ? () => onArchive(d) : undefined}
       onPrefetch={() => onPrefetch?.(d)}
-      archived={!!d.archivedAt}
-      visibility={d.visibility}
-      onSetVisibility={
-        d.source === "sql" && onSetVisibility
-          ? (v) => onSetVisibility(d, v)
-          : undefined
-      }
     >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
@@ -849,76 +809,6 @@ function SortableDashboardItem({
   );
 }
 
-// --- Archived dashboard row: simple non-sortable row with Restore + Delete ---
-
-function ArchivedDashboardRow({
-  dashboard,
-  onRestore,
-  onDelete,
-}: {
-  dashboard: SqlDashboardListItem;
-  onRestore: () => Promise<void> | void;
-  onDelete: () => Promise<void> | void;
-}) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  return (
-    <div className="group/archived flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground/70 hover:bg-sidebar-accent/40">
-      <span className="min-w-0 flex-1 truncate" title={dashboard.name}>
-        {dashboard.name}
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => void onRestore()}
-            className="shrink-0 rounded p-0.5 opacity-0 transition-colors hover:text-primary group-hover/archived:opacity-100"
-            aria-label={`Restore ${dashboard.name}`}
-          >
-            <IconArchiveOff className="h-3 w-3" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Restore</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            className="shrink-0 rounded p-0.5 opacity-0 transition-colors hover:text-destructive group-hover/archived:opacity-100"
-            aria-label={`Delete ${dashboard.name} permanently`}
-          >
-            <IconTrash className="h-3 w-3" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Delete permanently</TooltipContent>
-      </Tooltip>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes &ldquo;{dashboard.name}&rdquo; and cannot
-              be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmOpen(false);
-                void onDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete permanently
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
 // Analyses reuse SortableRow directly — no wrapper component needed.
 
 const ANALYSIS_ORDER_KEY = "analysis-order";
@@ -987,44 +877,11 @@ type Visibility = "private" | "org" | "public";
 type SqlDashboardListItem = {
   id: string;
   name: string;
-  archivedAt: string | null;
-  keptAt: string | null;
-  visibility?: Visibility;
 };
 
-function VisibilityDot({ visibility }: { visibility: Visibility }) {
-  const colors: Record<Visibility, string> = {
-    private: "bg-yellow-400",
-    org: "bg-blue-400",
-    public: "bg-green-400",
-  };
-  const labels: Record<Visibility, string> = {
-    private: "Private",
-    org: "Shared with org",
-    public: "Public",
-  };
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${colors[visibility]}`}
-          aria-label={labels[visibility]}
-        />
-      </TooltipTrigger>
-      <TooltipContent side="right">{labels[visibility]}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-async function fetchSqlDashboardsByArchived(
-  archived: "active" | "archived",
-): Promise<SqlDashboardListItem[]> {
+async function fetchSqlDashboards(): Promise<SqlDashboardListItem[]> {
   const token = await getIdToken();
-  const url =
-    archived === "archived"
-      ? "/api/sql-dashboards?archived=1"
-      : "/api/sql-dashboards";
-  const res = await fetch(appApiPath(url), {
+  const res = await fetch(appApiPath("/api/sql-dashboards"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -1037,22 +894,10 @@ async function fetchSqlDashboardsByArchived(
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : "Untitled dashboard",
-      archivedAt: typeof d.archivedAt === "string" ? d.archivedAt : null,
-      keptAt: typeof d.keptAt === "string" ? d.keptAt : null,
-      visibility:
-        d.visibility === "org" || d.visibility === "public"
-          ? d.visibility
-          : ("private" as Visibility),
     }));
 }
 
-const fetchSqlDashboards = () => fetchSqlDashboardsByArchived("active");
-const fetchArchivedSqlDashboards = () =>
-  fetchSqlDashboardsByArchived("archived");
-
-async function fetchSidebarAnalyses(): Promise<
-  { id: string; name: string; keptAt: string | null; visibility?: Visibility }[]
-> {
+async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/analyses"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -1087,7 +932,7 @@ type PrefetchedSqlDashboard = {
     panels: unknown[];
   };
   archivedAt: string | null;
-};
+} & ResourceAccess;
 
 async function fetchSqlDashboardForPrefetch(
   id: string,
@@ -1120,6 +965,9 @@ async function fetchSqlDashboardForPrefetch(
       panels: Array.isArray(data.panels) ? data.panels : [],
     },
     archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    role: typeof data.role === "string" ? data.role : undefined,
+    canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
+    canManage: typeof data.canManage === "boolean" ? data.canManage : undefined,
   };
 }
 
@@ -1289,15 +1137,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       placeholderData: (prev) => prev,
     });
 
-  const { data: archivedDashboards = [] } = useQuery({
-    queryKey: ["sql-dashboards-archived-sidebar", dashboardsSync],
-    queryFn: fetchArchivedSqlDashboards,
-    staleTime: 30_000,
-    placeholderData: (prev) => prev,
-  });
-
-  const [archivedOpen, setArchivedOpen] = useState(false);
-
   const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
     queryKey: ["analyses-sidebar", analysesSync],
     queryFn: fetchSidebarAnalyses,
@@ -1425,9 +1264,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       id: d.id,
       name: d.name,
       source: "sql",
-      archivedAt: d.archivedAt,
-      keptAt: d.keptAt,
-      visibility: d.visibility,
     }));
     const all = [...staticItems, ...sqlItems];
     if (dashboardSortMode === "alphabetical") {
@@ -1480,25 +1316,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      // Optimistic: remove from both sidebar query caches immediately so the
-      // row disappears without waiting for the DELETE round-trip. Snapshot
-      // the prior values so we can roll back on failure.
+      // Optimistic: remove from the sidebar query cache immediately so the row
+      // disappears without waiting for the DELETE round-trip. Snapshot the
+      // prior value so we can roll back on failure.
       const activeKey = ["sql-dashboards-sidebar"] as const;
-      const archivedKey = ["sql-dashboards-archived-sidebar"] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
       );
-      const prevArchived = getQuerySnapshots<SqlDashboardListItem[]>(
-        queryClient,
-        archivedKey,
-      );
       queryClient.setQueriesData<SqlDashboardListItem[]>(
         { queryKey: activeKey },
-        (old) => (old ?? []).filter((item) => item.id !== d.id),
-      );
-      queryClient.setQueriesData<SqlDashboardListItem[]>(
-        { queryKey: archivedKey },
         (old) => (old ?? []).filter((item) => item.id !== d.id),
       );
       try {
@@ -1512,10 +1339,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         }
         queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
-        queryClient.invalidateQueries({ queryKey: archivedKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
-        restoreQuerySnapshots(queryClient, prevArchived);
         throw err;
       }
     },
@@ -1523,84 +1348,38 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
 
   const handleDashboardArchive = useCallback(
-    async (d: SidebarDashboard, action: "archive" | "restore") => {
+    async (d: SidebarDashboard) => {
       if (d.source === "static") {
         // Static dashboards can only be hidden, not archived; route to delete
         // (which calls hideDashboard for static items).
-        if (action === "archive") {
-          hideDashboard(d.id);
-          setHiddenIds(getHiddenDashboards());
-        }
+        hideDashboard(d.id);
+        setHiddenIds(getHiddenDashboards());
         return;
       }
       const activeKey = ["sql-dashboards-sidebar"] as const;
-      const archivedKey = ["sql-dashboards-archived-sidebar"] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
       );
-      const prevArchived = getQuerySnapshots<SqlDashboardListItem[]>(
-        queryClient,
-        archivedKey,
+      queryClient.setQueriesData<SqlDashboardListItem[]>(
+        { queryKey: activeKey },
+        (old) => (old ?? []).filter((item) => item.id !== d.id),
       );
-      // Optimistic move between the two lists.
-      if (action === "archive") {
-        queryClient.setQueriesData<SqlDashboardListItem[]>(
-          { queryKey: activeKey },
-          (old) => (old ?? []).filter((item) => item.id !== d.id),
-        );
-        queryClient.setQueriesData<SqlDashboardListItem[]>(
-          { queryKey: archivedKey },
-          (old) => [
-            ...(old ?? []),
-            {
-              id: d.id,
-              name: d.name,
-              archivedAt: new Date().toISOString(),
-              keptAt: d.keptAt ?? null,
-            },
-          ],
-        );
-      } else {
-        queryClient.setQueriesData<SqlDashboardListItem[]>(
-          { queryKey: archivedKey },
-          (old) => (old ?? []).filter((item) => item.id !== d.id),
-        );
-        queryClient.setQueriesData<SqlDashboardListItem[]>(
-          { queryKey: activeKey },
-          (old) => [
-            ...(old ?? []),
-            {
-              id: d.id,
-              name: d.name,
-              archivedAt: null,
-              keptAt: d.keptAt ?? null,
-            },
-          ],
-        );
-      }
       try {
         const token = await getIdToken();
-        const path =
-          action === "archive"
-            ? `/api/sql-dashboards/${d.id}/archive`
-            : `/api/sql-dashboards/${d.id}/unarchive`;
-        const res = await fetch(appApiPath(path), {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) throw new Error(`${action} failed: ${res.status}`);
+        const res = await fetch(
+          appApiPath(`/api/sql-dashboards/${d.id}/archive`),
+          {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
+        );
+        if (!res.ok) throw new Error(`archive failed: ${res.status}`);
         queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
         queryClient.invalidateQueries({ queryKey: activeKey });
-        queryClient.invalidateQueries({ queryKey: archivedKey });
-        toast.success(
-          action === "archive"
-            ? `Archived "${d.name}"`
-            : `Restored "${d.name}"`,
-        );
+        toast.success(`Archived "${d.name}"`);
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
-        restoreQuerySnapshots(queryClient, prevArchived);
         throw err;
       }
     },
@@ -2102,56 +1881,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         />
                       </div>
                     ))}
-                  {archivedDashboards.length > 0 && (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setArchivedOpen((v) => !v)}
-                        className="flex w-full items-center gap-1.5 rounded-md px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                        aria-expanded={archivedOpen}
-                      >
-                        <IconChevronDown
-                          className={cn(
-                            "h-3 w-3 shrink-0 transition-transform",
-                            !archivedOpen && "-rotate-90",
-                          )}
-                        />
-                        <IconArchive className="h-3 w-3 shrink-0" />
-                        <span className="truncate">
-                          Archived ({archivedDashboards.length})
-                        </span>
-                      </button>
-                      {archivedOpen && (
-                        <div className="ml-2 mt-0.5 space-y-0.5">
-                          {archivedDashboards.map((d) => (
-                            <ArchivedDashboardRow
-                              key={d.id}
-                              dashboard={d}
-                              onRestore={() =>
-                                handleDashboardArchive(
-                                  {
-                                    id: d.id,
-                                    name: d.name,
-                                    source: "sql",
-                                    archivedAt: d.archivedAt,
-                                  },
-                                  "restore",
-                                )
-                              }
-                              onDelete={() =>
-                                handleDashboardDelete({
-                                  id: d.id,
-                                  name: d.name,
-                                  source: "sql",
-                                  archivedAt: d.archivedAt,
-                                })
-                              }
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <NewDashboardDialog />
                 </div>
               </SortableContext>

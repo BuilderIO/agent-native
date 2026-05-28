@@ -16,9 +16,9 @@ use crate::state::{
     DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 use crate::util::{
-    build_overlay_url, hide_voice_wake_popover, is_recording_active, mark_popover_shown,
-    primary_monitor_physical_size, set_capture_excluded, set_capture_excluded_always,
-    set_capture_included, set_dictation_active,
+    build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
+    mark_popover_shown, set_capture_excluded, set_capture_excluded_always, set_capture_included,
+    set_dictation_active, tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -38,6 +38,10 @@ const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 /// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
+const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
+const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
@@ -67,6 +71,28 @@ enum TextInsertionStrategy {
 /// an 8px gap from the circle, with a small cushion so the pill's drop-shadow
 /// doesn't clip at the window bottom.
 const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
+
+fn overlay_scale_factor(app: &AppHandle) -> f64 {
+    app.get_webview_window("popover")
+        .and_then(|w| w.scale_factor().ok())
+        .or_else(|| {
+            app.primary_monitor()
+                .ok()
+                .flatten()
+                .map(|monitor| monitor.scale_factor())
+        })
+        .unwrap_or(2.0)
+        .max(1.0)
+}
+
+fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
+    (OVERLAY_SHADOW_GUTTER_LOGICAL * overlay_scale_factor(app)).round() as u32
+}
+
+fn popover_window_size_logical(content_width: f64, content_height: f64) -> (f64, f64) {
+    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
+    (content_width + gutter, content_height + gutter)
+}
 
 fn bubble_size_for_name(name: &str) -> u32 {
     match name {
@@ -184,8 +210,14 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
         let _ = app.emit("clips:countdown-shortcuts-active", false);
         let _ = existing.close();
     }
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    dlog!("[clips-tray] countdown target size {}x{} physical", mw, mh);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    dlog!(
+        "[clips-tray] countdown target {}x{} at ({},{}) physical",
+        mw,
+        mh,
+        mx,
+        my
+    );
     let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url("countdown"))
         .title("Countdown")
         .decorations(false)
@@ -205,9 +237,10 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
             e.to_string()
         })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     let _ = win.show();
     let _ = app.emit("clips:countdown-shortcuts-active", true);
     dlog!("[clips-tray] countdown shown");
@@ -227,7 +260,7 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
         let _ = existing.close();
     }
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     dlog!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
     let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
         .title("Finalizing")
@@ -245,9 +278,10 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
             e.to_string()
         })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     let _ = win.show();
     dlog!("[clips-tray] finalizing shown");
     Ok(())
@@ -281,7 +315,7 @@ pub async fn show_region_guides(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let win = WebviewWindowBuilder::new(
         &app,
         REGION_GUIDES_LABEL,
@@ -302,9 +336,10 @@ pub async fn show_region_guides(app: AppHandle) -> Result<(), String> {
         e.to_string()
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
     crate::util::show_without_activation(&win);
     Ok(())
 }
@@ -347,7 +382,7 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
         let _ = existing.close();
     }
 
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(
         &app,
@@ -372,8 +407,9 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
         e.to_string()
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(0, 0));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
     set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
@@ -387,22 +423,27 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // Reset the blur guard — spawning an overlay can briefly steal focus
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
+    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let gutter = overlay_shadow_gutter_physical(&app);
+    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
+    // visible pill keeps its original footprint, while the native window is
+    // expanded by a transparent gutter so the CSS shadow is not chopped at
+    // the rectangular WebView edge.
+    let content_w: u32 = 110;
+    let content_h: u32 = 260;
+    let w: u32 = content_w + gutter * 2;
+    let h: u32 = content_h + gutter * 2;
+    // Flush-left with a small margin; vertically centered on the screen.
+    let x: i32 = mx + 48 - gutter as i32;
+    let y: i32 = my + (mh as i32 - content_h as i32) / 2 - gutter as i32;
+    dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
+        let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+        let _ = existing.set_position(PhysicalPosition::new(x, y));
         let _ = existing.show();
         let _ = existing.set_focus();
         return Ok(());
     }
-    let (_mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
-    // window is sized so the pill fills it with only ~4-6 px of slack per
-    // side for the CSS drop shadow to bleed into. Values are physical px,
-    // so ~2x the logical pill dimensions on retina.
-    let w: u32 = 110;
-    let h: u32 = 260;
-    // Flush-left with a small margin; vertically centered on the screen.
-    let x: i32 = 48;
-    let y: i32 = (mh as i32 - h as i32) / 2;
-    dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, TOOLBAR_LABEL, build_overlay_url("toolbar"))
         .title("Clips Recorder")
@@ -436,6 +477,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     let _ = win.show();
     dlog!("[clips-tray] toolbar shown");
 
@@ -455,39 +497,45 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
         dlog!("[clips-tray] bubble reused");
         return Ok(());
     }
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
     // Honor the user's last-chosen size. Default is "small" (192 physical =
     // 96 logical) so new users get a quiet PiP rather than a giant circle.
     let size_name = load_bubble_size_name(&app);
     let size: u32 = bubble_size_for_name(&size_name);
     // The actual window is TALLER than the circle — see
     // `BUBBLE_CONTROLS_BUDGET_PX` — to give the hover controls pill room.
-    let win_h: u32 = bubble_window_height_for(size);
+    let content_h: u32 = bubble_window_height_for(size);
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let win_w: u32 = size + gutter * 2;
+    let win_h: u32 = content_h + gutter * 2;
+
+    let (mon_x, mon_y, mon_w, mon_h) = tray_monitor_physical_rect(&app);
+
     // Default Loom-style anchor: flush-left with a small margin, a hair
-    // above the bottom edge of the primary display. On Retina the 60
-    // physical-px offset maps to ~30 logical px. Account for the extra
-    // height below the circle so the circle (not the controls strip) sits
-    // at the same visual position as before.
-    let default_x: i32 = 48;
-    let default_y: i32 = mh as i32 - win_h as i32 - 60;
-    // Prefer the last-known position, clamped to the primary monitor so a
-    // position saved on a now-disconnected external display can't leave
-    // the bubble off-screen.
-    let max_x = (mw as i32 - size as i32).max(0);
-    let max_y = (mh as i32 - win_h as i32).max(0);
+    // above the bottom edge of the target monitor. On Retina the 60
+    // physical-px offset maps to ~30 logical px.
+    let default_x: i32 = mon_x + 48 - gutter as i32;
+    let default_y: i32 = mon_y + mon_h as i32 - content_h as i32 - 60 - gutter as i32;
+    // Clamp bounds within the target monitor.
+    let max_x = (mon_x + mon_w as i32 - win_w as i32).max(mon_x);
+    let max_y = (mon_y + mon_h as i32 - win_h as i32).max(mon_y);
+    // Use the saved position only if it already falls on the target monitor.
+    // A position from a previous session on a different display would strand
+    // the bubble off-screen, so fall back to the default anchor instead.
     let (x, y, source) = match load_bubble_position(&app) {
-        Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y), "saved"),
-        None => (default_x, default_y, "default"),
+        Some((sx, sy)) if sx >= mon_x && sx <= max_x && sy >= mon_y && sy <= max_y => {
+            (sx, sy, "saved")
+        }
+        _ => (default_x, default_y, "default"),
     };
     dlog!(
         "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
         x,
         y,
         source,
-        size,
+        win_w,
         win_h,
-        mw,
-        mh
+        mon_w,
+        mon_h
     );
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
@@ -508,7 +556,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
         eprintln!("[clips-tray] bubble build failed: {}", e);
         e.to_string()
     })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(size, win_h)));
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     // NOTE: intentionally NOT calling `set_capture_excluded` on the bubble.
     // The bubble is the user's face — Loom's behavior is that the camera
@@ -516,8 +564,9 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     // the bubble). NSWindowSharingNone would make macOS exclude it from
     // `getDisplayMedia`, which matches the other Clips chrome (popover,
     // toolbar, countdown) but NOT what users want for the camera bubble.
+    configure_overlay_behavior(&win);
     let _ = win.show();
-    dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
+    dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, win_w);
     Ok(())
 }
 
@@ -644,13 +693,18 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             .or_else(|| w.primary_monitor().ok().flatten())
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
+                ((monitor.size().height as f64) / scale
+                    - 24.0
+                    - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
+                    .clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
         let clamped = height.clamp(200.0, max_logical_height);
         let width = width.unwrap_or(360.0).clamp(320.0, 480.0);
+        let (window_width, window_height) = popover_window_size_logical(width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            width, clamped,
+            window_width,
+            window_height,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
         // bottom of the monitor after a growth.
@@ -797,6 +851,7 @@ pub async fn show_signin(app: AppHandle, url: String) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
@@ -821,15 +876,18 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
 pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
 
-    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     // Wider + taller than the pill alone so the live transcript chip
     // can stack above it. Height accommodates: bottom-anchored 32px pill
     // + 6px gap + ~28px transcript chip + drop-shadow margin.
-    let w: u32 = 420;
-    let h: u32 = 120;
-    let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
+    let content_w: u32 = 420;
+    let content_h: u32 = 120;
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let w: u32 = content_w + gutter * 2;
+    let h: u32 = content_h + gutter * 2;
+    let x: i32 = (mx + (mw as i32 - content_w as i32) / 2 - gutter as i32).max(mx);
     // Bottom margin: ~14 logical px ≈ 28 physical px.
-    let y: i32 = (mh as i32 - h as i32 - 28).max(0);
+    let y: i32 = (my + mh as i32 - content_h as i32 - 28 - gutter as i32).max(my);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
         // Reposition (in case the user changed display geometry between
@@ -865,6 +923,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     // click-through rectangle that strands the X button.
     let _ = win.set_ignore_cursor_events(false);
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     crate::util::show_without_activation(&win);
     let app_for_timeout = app.clone();
     thread::spawn(move || {
@@ -1184,7 +1243,12 @@ pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
         // Restore normal size in case the window was shrunk to a pinhole
         // during recording — otherwise it would reappear as a 2×2 dot.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+        configure_overlay_behavior(&window);
+        let (w, h) = popover_window_size_logical(
+            POPOVER_DEFAULT_WIDTH_LOGICAL,
+            POPOVER_DEFAULT_HEIGHT_LOGICAL,
+        );
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -1211,7 +1275,9 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
         _ => "small",
     };
     let px = bubble_size_for_name(name);
-    let win_h = bubble_window_height_for(px);
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let win_w = px + gutter * 2;
+    let win_h = bubble_window_height_for(px) + gutter * 2;
     if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
         // Re-center the resize around the current circle's center so the
         // bubble visually grows / shrinks around its current spot instead of
@@ -1228,12 +1294,13 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
             .outer_size()
             .ok()
             .map(|s| s.width as i32)
-            .unwrap_or(BUBBLE_SIZE_SMALL as i32);
+            .unwrap_or((BUBBLE_SIZE_SMALL + gutter * 2) as i32);
         let new_px = px as i32;
-        let delta = (current_size - new_px) / 2;
+        let current_circle_size = current_size - (gutter * 2) as i32;
+        let delta = (current_circle_size - new_px) / 2;
         let new_x = current_pos.0 + delta;
         let new_y = current_pos.1 + delta;
-        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(px, win_h)));
+        let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)));
         let _ = win.set_position(PhysicalPosition::new(new_x, new_y));
     }
     save_bubble_size_name(&app, name);
@@ -1271,13 +1338,20 @@ pub async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), 
 pub async fn show_popover(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("popover") {
         set_capture_included(&window);
+        // Re-apply Space behavior — `orderOut:` resets it, so without this
+        // the popover sticks to whichever Space it was first shown on.
+        configure_overlay_behavior(&window);
         // Restore the popover's normal size — it may have been shrunk to 2×2
         // during recording by `park_popover_offscreen` (kept the JS alive
         // while keeping the window out of the way). The content's
         // ResizeObserver will call `resize_popover` on the next render to
         // fine-tune the height, but we need a sensible starting size so
         // `position_popover` can anchor correctly.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+        let (w, h) = popover_window_size_logical(
+            POPOVER_DEFAULT_WIDTH_LOGICAL,
+            POPOVER_DEFAULT_HEIGHT_LOGICAL,
+        );
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
         position_popover(&app, &window);
         mark_popover_shown(&app);
         let _ = window.show();
@@ -1363,7 +1437,15 @@ pub fn toggle_popover(app: &AppHandle) {
     // during recording / voice-wake — otherwise it would reappear as a
     // 2x2 dot.
     set_capture_included(&window);
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+    // Re-apply Space behavior — `orderOut:` resets it on every `hide()`,
+    // so without this the popover sticks to whichever Space it was first
+    // shown on.
+    configure_overlay_behavior(&window);
+    let (w, h) = popover_window_size_logical(
+        POPOVER_DEFAULT_WIDTH_LOGICAL,
+        POPOVER_DEFAULT_HEIGHT_LOGICAL,
+    );
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
     position_popover(app, &window);
     mark_popover_shown(app);
     let _ = window.show();
@@ -1422,16 +1504,47 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
 
         // Center the popover horizontally on the icon.
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
-        // Drop below the icon with a tiny gap.
+        // Drop the visible panel below the icon with a tiny gap. The native
+        // window itself starts a shadow-gutter earlier so the top shadow has
+        // real transparent pixels to paint into without moving the panel down.
         let gap = 6_i32;
         let mut y = icon_y + icon_h + gap;
 
+        // Find the monitor that actually contains the tray icon. The popover
+        // is parked at (2,2) on the primary display, so current_monitor()
+        // always resolves to the primary monitor — wrong when the user clicked
+        // the icon on a secondary display
+        let icon_cx = icon_x + icon_w / 2;
+        let icon_cy = icon_y + icon_h / 2;
+        let tray_monitor = window.available_monitors().ok().and_then(|monitors| {
+            monitors.into_iter().find(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                icon_cx >= mp.x
+                    && icon_cx < mp.x + ms.width as i32
+                    && icon_cy >= mp.y
+                    && icon_cy < mp.y + ms.height as i32
+            })
+        });
+        let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL
+            * tray_monitor
+                .as_ref()
+                .map(|m| m.scale_factor())
+                .unwrap_or_else(|| monitor.scale_factor())
+                .max(1.0))
+        .round() as i32;
+        y -= popover_gutter;
+
+        let (clamp_pos, clamp_size) = tray_monitor
+            .map(|m| (*m.position(), *m.size()))
+            .unwrap_or((*mon_pos, *mon_size));
+
         // Clamp so settings and long error states don't run off the edge of
         // shorter displays or get stranded in a corner after a resize.
-        let min_x = mon_pos.x + 8;
-        let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
-        let min_y = mon_pos.y + 8;
-        let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
+        let min_x = clamp_pos.x + 8;
+        let max_x = clamp_pos.x + clamp_size.width as i32 - win_size.width as i32 - 8;
+        let min_y = clamp_pos.y + 8;
+        let max_y = clamp_pos.y + clamp_size.height as i32 - win_size.height as i32 - 8;
         if x < min_x {
             x = min_x;
         }
@@ -1453,12 +1566,13 @@ pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {
     let scale = monitor.scale_factor();
     let margin_right = (12.0 * scale) as i32;
     let margin_top = (36.0 * scale) as i32;
+    let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL * scale.max(1.0)).round() as i32;
     let min_x = mon_pos.x + 8;
     let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
     let min_y = mon_pos.y + 8;
     let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
     let x = (mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right)
         .clamp(min_x, max_x.max(min_x));
-    let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
+    let y = (mon_pos.y + margin_top - popover_gutter).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }

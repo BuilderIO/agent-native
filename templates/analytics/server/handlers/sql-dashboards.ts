@@ -19,6 +19,8 @@ import {
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { validateFirstPartyAnalyticsSql } from "../lib/first-party-analytics";
+import { parsePanelDescriptor as parsePrometheusPanelDescriptor } from "../lib/prometheus";
+import { loadDashboardSeed } from "../lib/dashboard-seeds";
 
 async function ctxFromEvent(event: any) {
   const ctx = await getOrgContext(event);
@@ -91,6 +93,24 @@ function parseArchivedFilter(raw: unknown): DashboardArchiveFilter {
   return "active";
 }
 
+function isEmptyDashboardConfig(config: Record<string, unknown>): boolean {
+  return !Array.isArray(config.panels) || config.panels.length === 0;
+}
+
+function seededSqlDashboardResponse(
+  id: string,
+  seed: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    id,
+    ...seed,
+    ownerEmail: null,
+    orgId: null,
+    visibility: "org",
+    archivedAt: null,
+  };
+}
+
 export const listSqlDashboards = defineEventHandler(async (event) => {
   try {
     const ctx = await ctxFromEvent(event);
@@ -124,15 +144,25 @@ export const getSqlDashboard = defineEventHandler(async (event) => {
     const ctx = await ctxFromEvent(event);
     const dash = await getDashboard(id, ctx);
     if (!dash || dash.kind !== "sql") {
+      const seed = loadDashboardSeed(id);
+      if (seed) return seededSqlDashboardResponse(id, seed);
       setResponseStatus(event, 404);
       return { error: "Dashboard not found" };
     }
+    const config = dash.config as Record<string, unknown>;
+    if (isEmptyDashboardConfig(config)) {
+      const seed = loadDashboardSeed(id);
+      if (seed) return seededSqlDashboardResponse(id, seed);
+    }
     return {
       id,
-      ...(dash.config as Record<string, unknown>),
+      ...config,
       ownerEmail: dash.ownerEmail,
       orgId: dash.orgId,
       visibility: dash.visibility,
+      role: dash.role,
+      canEdit: dash.canEdit,
+      canManage: dash.canManage,
       archivedAt: dash.archivedAt,
       keptAt: dash.keptAt,
       createdAt: dash.createdAt,
@@ -217,6 +247,15 @@ async function validatePanelSql(
         validateFirstPartyAnalyticsSql(interpolate(raw, vars));
       } catch (e: any) {
         return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
+      }
+      continue;
+    }
+
+    if (p.source === "prometheus") {
+      try {
+        parsePrometheusPanelDescriptor(interpolate(raw, vars));
+      } catch (e: any) {
+        return `panel[${i}] "${p.title || p.id}" Prometheus descriptor is invalid: ${e?.message ?? e}`;
       }
       continue;
     }
@@ -350,6 +389,7 @@ function validateDashboardConfig(
       "ga4",
       "amplitude",
       "first-party",
+      "prometheus",
     ]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
@@ -365,7 +405,7 @@ function validateDashboardConfig(
         }
       }
       if (!isSection && !validSources.has(p.source as string)) {
-        return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
+        return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', or 'prometheus' (got '${p.source}'). The PromQL/SQL/table belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (
         typeof p.width !== "number" ||

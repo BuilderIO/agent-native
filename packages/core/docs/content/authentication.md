@@ -1,6 +1,6 @@
 ---
 title: "Authentication"
-description: "Better Auth integration with email/password, social providers, organizations, and access tokens."
+description: "Better Auth integration with email/password, social providers, organizations, and MCP bearer credentials."
 ---
 
 # Authentication
@@ -12,7 +12,6 @@ Agent-native apps use [Better Auth](https://better-auth.com) for authentication 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. The behavior depends on your environment:
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
-- **`ACCESS_TOKEN`:** Simple shared token for production.
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
@@ -20,7 +19,7 @@ Local development uses the same Better Auth flow as production — there is no d
 
 ## Better Auth (Default) {#better-auth}
 
-When no `ACCESS_TOKEN` is set, Better Auth powers authentication. It provides:
+By default, Better Auth powers authentication. It provides:
 
 - Email/password registration and login
 - Social providers (Google, GitHub, and 35+ others)
@@ -31,9 +30,30 @@ When no `ACCESS_TOKEN` is set, Better Auth powers authentication. It provides:
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
 
 - `GET /_agent-native/auth/session` — get current session
-- `POST /_agent-native/auth/login` — email/password or token login
+- `POST /_agent-native/auth/login` — email/password login
 - `POST /_agent-native/auth/register` — create account
 - `POST /_agent-native/auth/logout` — sign out
+
+## Cookie Realms {#cookie-realms}
+
+Standalone apps keep their framework session cookie isolated by app when an
+app slug is available (`APP_NAME`, or the package name in local dev). Better
+Auth keeps its production standalone cookie prefix stable as `an` so existing
+sessions are not renamed casually.
+
+Workspace mode (`AGENT_NATIVE_WORKSPACE=1`) uses one shared session realm
+because workspace apps share an origin and database. Custom same-database
+subdomain deployments can opt into shared cookies with `COOKIE_DOMAIN`.
+
+First-party hosted apps at `*.agent-native.com` are different: each app has its
+own auth database, so `COOKIE_DOMAIN=.agent-native.com` is ignored by default
+and the app uses an isolated cookie namespace instead. Cross-app sign-in for
+those apps should go through [Cross-App SSO](/docs/cross-app-sso). First-party
+deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of
+falling back to the shared `an_session` name. If a first-party deployment
+intentionally shares one auth database across subdomains, set
+`AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
 
@@ -92,9 +112,9 @@ Better Auth's organization plugin is built into the framework. Every app support
 
 The active organization flows automatically through the system: `session.orgId` → `AGENT_ORG_ID` → SQL scoping. See the [Security & Data Scoping](/docs/security) docs for details.
 
-## Access Tokens {#access-tokens}
+## Static MCP Bearer Tokens {#access-tokens}
 
-For simple deployments, set `ACCESS_TOKEN` (single) or `ACCESS_TOKENS` (comma-separated) as environment variables:
+`ACCESS_TOKEN` and `ACCESS_TOKENS` are not browser auth and do not make an app private. They remain only as static bearer credentials for MCP/connect clients that cannot use the OAuth flow.
 
 ```bash
 # Single token
@@ -104,7 +124,7 @@ ACCESS_TOKEN=my-secret-token
 ACCESS_TOKENS=token1,token2,token3
 ```
 
-When access tokens are configured, users see a token login page. Sessions are cookie-based with 30-day expiry.
+Configuring these variables never renders a token login page for visitors. Web sign-in stays on Better Auth or your custom `getSession` provider.
 
 ## Remote MCP OAuth {#remote-mcp-oauth}
 
@@ -263,7 +283,7 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                                                               |
 | `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                                                               |
 | `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                                                               |
-| `ACCESS_TOKEN`                 | Simple shared token auth                                                                                                          |
-| `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                                                     |
+| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth                                                                  |
+| `ACCESS_TOKENS`                | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                 |
 | `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                |
 | `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |

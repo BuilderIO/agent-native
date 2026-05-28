@@ -92,7 +92,13 @@ export default defineAction({
       .union([z.string(), z.array(z.string())])
       .optional()
       .describe(
-        "Google recurrence rules. For weekdays only, use RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR. Pass an empty string or [] to clear recurrence.",
+        "Google recurrence rules. For weekdays only, use RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR. Pass an empty string or [] to clear recurrence.",
+      ),
+    scope: z
+      .enum(["single", "all"])
+      .optional()
+      .describe(
+        "For recurring events, use single for just this occurrence or all for the entire series.",
       ),
     attendees: z
       .union([
@@ -259,6 +265,7 @@ export default defineAction({
       sendUpdates:
         args.sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
       addGoogleMeet: args.addGoogleMeet,
+      scope: args.scope,
     });
 
     const guestNotification =

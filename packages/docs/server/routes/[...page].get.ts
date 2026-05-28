@@ -1,4 +1,7 @@
-import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+import {
+  createH3SSRHandler,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "@agent-native/core/server/ssr-handler";
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import fs from "fs";
 import path from "path";
@@ -22,6 +25,7 @@ export default async function docsPageHandler(event: H3Event) {
   const agentWebAsset = readAgentWebAssetForRequest(event);
   if (agentWebAsset) {
     setHeader(event, "content-type", agentWebAsset.contentType);
+    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     return agentWebAsset.content;
   }
@@ -38,6 +42,7 @@ export default async function docsPageHandler(event: H3Event) {
     )) {
       setHeader(event, name, value);
     }
+    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
     return markdown.content;
   }
 

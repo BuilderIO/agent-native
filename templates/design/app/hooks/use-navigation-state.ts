@@ -6,6 +6,7 @@ import { agentNativePath } from "@agent-native/core/client";
 export interface NavigationState {
   view: string;
   designId?: string;
+  designSystemId?: string;
   path?: string;
 }
 
@@ -24,6 +25,10 @@ export function useNavigationState() {
       state.designId = params.id;
     } else if (location.pathname.startsWith("/design-systems")) {
       state.view = "design-systems";
+      const designSystemId = new URLSearchParams(location.search).get(
+        "designSystemId",
+      );
+      if (designSystemId) state.designSystemId = designSystemId;
     } else if (location.pathname.startsWith("/present/")) {
       state.view = "present";
       state.designId = params.id;
@@ -42,7 +47,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname, params.id]);
+  }, [location.pathname, location.search, params.id]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
@@ -74,14 +79,21 @@ export function useNavigationState() {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
-    const cmd = navCommand as NavigationState & { designId?: string };
+    const cmd = navCommand as NavigationState & {
+      designId?: string;
+      designSystemId?: string;
+    };
 
     let path = cmd.path;
     if (!path) {
       if (cmd.view === "editor" && cmd.designId) {
         path = `/design/${cmd.designId}`;
       } else if (cmd.view === "design-systems") {
-        path = "/design-systems";
+        path = cmd.designSystemId
+          ? `/design-systems?designSystemId=${encodeURIComponent(
+              cmd.designSystemId,
+            )}`
+          : "/design-systems";
       } else if (cmd.view === "present" && cmd.designId) {
         path = `/present/${cmd.designId}`;
       } else if (cmd.view === "templates" || cmd.view === "examples") {

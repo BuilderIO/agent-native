@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { agentNativePath } from "./api-path.js";
 import { bumpChangeVersion } from "./use-change-version.js";
 import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -9,6 +13,16 @@ interface QueryClient {
 
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 15_000;
+const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
+
+class HttpStatusError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super("HTTP " + status);
+    this.status = status;
+  }
+}
 
 type SyncEvent = {
   version?: number;
@@ -36,6 +50,7 @@ function isDocumentHidden(): boolean {
 
 function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   if (sseUrl === false) return false;
+  if (isEmbedAuthActive()) return false;
   return agentNativePath(sseUrl ?? "/_agent-native/events");
 }
 
@@ -69,6 +84,16 @@ function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
   );
 }
 
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
 async function fetchPollJson<T>(
   pollUrl: string,
   since: number,
@@ -85,7 +110,7 @@ async function fetchPollJson<T>(
       `${pollUrl}?since=${since}`,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.ok) throw new HttpStatusError(res.status);
     // Await the json before the finally so a body-stream abort doesn't
     // produce a dangling promise that escapes as an unhandled rejection.
     return await res.json();
@@ -158,6 +183,7 @@ export function useDbSync(
     // Universal demo-mode redaction for the UI. Idempotent + browser-only +
     // a no-op until demo mode is on. Lives here because every template root
     // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureEmbedAuthFetchInterceptor();
     ensureDemoModeFetchInterceptor();
 
     let versionRef = 0;
@@ -166,11 +192,24 @@ export function useDbSync(
     let inFlight = false;
     let eventSource: EventSource | null = null;
     let sseConnected = false;
+    let authFailureUntil = 0;
+
+    function authFailureDelayMs(): number {
+      return Math.max(0, authFailureUntil - Date.now());
+    }
 
     function schedulePoll() {
       if (stopped) return;
       if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
+      const authDelay = authFailureDelayMs();
+      if (authDelay > 0) {
+        timer = setTimeout(() => {
+          timer = null;
+          void poll();
+        }, authDelay);
+        return;
+      }
       timer = setTimeout(
         () => {
           timer = null;
@@ -310,7 +349,11 @@ export function useDbSync(
           interval,
         );
         applyEvents(data.events ?? [], data.version);
-      } catch {
+      } catch (err) {
+        if (isAuthFailure(err)) {
+          authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
+          closeEvents();
+        }
         // Network error — will retry on next interval
       } finally {
         inFlight = false;
@@ -320,6 +363,10 @@ export function useDbSync(
 
     function pollNow() {
       if (pauseWhenHidden && isDocumentHidden()) {
+        return;
+      }
+      if (authFailureDelayMs() > 0) {
+        schedulePoll();
         return;
       }
       if (timer) {
@@ -418,11 +465,24 @@ export function useScreenRefreshKey(
     let inFlight = false;
     let eventSource: EventSource | null = null;
     let sseConnected = false;
+    let authFailureUntil = 0;
+
+    function authFailureDelayMs(): number {
+      return Math.max(0, authFailureUntil - Date.now());
+    }
 
     function schedulePoll() {
       if (stopped) return;
       if (pauseWhenHidden && isDocumentHidden()) return;
       if (timer) clearTimeout(timer);
+      const authDelay = authFailureDelayMs();
+      if (authDelay > 0) {
+        timer = setTimeout(() => {
+          timer = null;
+          void poll();
+        }, authDelay);
+        return;
+      }
       timer = setTimeout(
         () => {
           timer = null;
@@ -498,7 +558,11 @@ export function useScreenRefreshKey(
           interval,
         );
         applyEvents(data.events ?? [], data.version);
-      } catch {
+      } catch (err) {
+        if (isAuthFailure(err)) {
+          authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
+          closeEvents();
+        }
         // Network error — retry on next interval.
       } finally {
         inFlight = false;
@@ -508,6 +572,10 @@ export function useScreenRefreshKey(
 
     function pollNow() {
       if (pauseWhenHidden && isDocumentHidden()) {
+        return;
+      }
+      if (authFailureDelayMs() > 0) {
+        schedulePoll();
         return;
       }
       if (timer) {

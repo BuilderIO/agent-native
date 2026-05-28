@@ -30,6 +30,28 @@ async function dispatch(nitroApp: any, pathname: string) {
   return next();
 }
 
+async function dispatchViaGeneratedMiddleware(nitroApp: any, pathname: string) {
+  const event = {
+    method: "GET",
+    url: new URL(`http://example.test${pathname}`),
+    path: pathname,
+    context: {},
+  };
+  const route = {
+    data: {
+      handler: () => ({ fellThrough: true }),
+    },
+  };
+  const middleware = nitroApp.h3["~getMiddleware"](event, route);
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const handler = middleware[index++];
+    if (!handler) return route.data.handler();
+    return handler(event, next);
+  };
+  return next();
+}
+
 describe("framework request handler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
@@ -51,6 +73,23 @@ describe("framework request handler", () => {
       mountPrefix: "/_agent-native/extensions",
       mountedPathname: "/_agent-native/extensions/extension-1/render",
       pathname: "/extension-1/render",
+    });
+  });
+
+  it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      pathname: event.url.pathname,
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({
+      mountPrefix: "/_agent-native/ping",
+      pathname: "/",
     });
   });
 
@@ -149,6 +188,41 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("holds framework requests before already-registered middleware runs", async () => {
+    let release!: () => void;
+    let pluginsReady = false;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        pluginsReady = true;
+        resolve();
+      };
+    });
+    const observedPluginReadiness: boolean[] = [];
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~middleware"].push(async (_event: any, next: any) => {
+      observedPluginReadiness.push(pluginsReady);
+      return next();
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/_agent-native/mcp", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/_agent-native/mcp");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observedPluginReadiness).toEqual([]);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(observedPluginReadiness).toEqual([true]);
+  });
+
   it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
     const nitroApp = createNitroApp();
     markDefaultPluginProvided(nitroApp, "agent-chat");
@@ -193,6 +267,38 @@ describe("framework request handler", () => {
     getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
       ok: true,
     }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("installs the readiness gate when async plugin init is tracked first", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+          ok: true,
+        }));
+        resolve();
+      };
+    });
+    let settled = false;
+
     trackPluginInit(nitroApp, ready, {
       paths: ["/_agent-native/agent-chat"],
     });

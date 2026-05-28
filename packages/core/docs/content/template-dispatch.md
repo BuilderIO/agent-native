@@ -26,7 +26,7 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 - **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
-- **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, and reference resources can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
+- **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, reference resources, and HTTP MCP servers can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
 - **Reusable integrations.** One place to connect provider accounts, track
   credential refs, and grant apps access. Dispatch owns provider identity and
   app grants; domain apps still own app-specific source choices such as Brain's
@@ -56,6 +56,11 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
   and credential references, then grant apps such as Brain, Analytics, Mail, or
   Dispatch access without copying raw secrets. App-specific source
   configuration stays in the app that uses the provider.
+- **Expose one MCP connector.** Add
+  `https://dispatch.agent-native.com/_agent-native/mcp` in Claude, ChatGPT,
+  Codex, Cursor, or another MCP host, then choose which workspace apps the
+  connector can reach from Dispatch's **Agents** page. Use a direct app URL
+  only when that host should be isolated to one app.
 - **Keep company context global.** Put personas, positioning, messaging, company facts, brand guidelines, and guardrails in Dispatch Resources once, then preview the effective workspace -> app/org -> personal stack for any app/user or inspect the stack from an app card's Context view.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
 - **Review dream proposals.** Dispatch Dreams inspect prior agent runs and create source-backed proposals for what the workspace should remember, which stale notes should be cleaned up, and which repeated lessons should become skills or jobs.
@@ -71,7 +76,8 @@ _How it works under the hood (for developers)._
 - **Remote agent registry.** A2A manifests live in `remote-agents/*.json` — one per app. Dispatch calls them using the `call-agent` action. In a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed.
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
-- **MCP hub mode.** Dispatch can act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list.
+- **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
+- **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 
 ## Dreams {#dreams}
 
@@ -82,6 +88,15 @@ Dream proposals are checked against the personal memory index, existing `memory/
 When Dispatch approval policy is enabled, applying a shared or team-wide dream proposal creates a pending approval request instead of writing immediately. Creating, updating, or deleting an All-app workspace resource also queues an approval request. Personal memory proposals and selected-only resource edits can still be applied directly after review.
 
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
+
+### Dream Input Validation Boundaries
+
+Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream processor enforces strict input validation boundaries to prevent prompt injection and payload-size attacks:
+
+- **Byte Size Limits:** Individual thread payloads are capped at a maximum of 10KB of text content per message, and candidate scans are truncated if they exceed 100KB in total to prevent context exhaustion.
+- **Sanitization:** All text inputs are sanitized to strip control characters, binary payloads, and non-printable Unicode ranges.
+- **Schema Validation:** Inbound debug data and thread history are parsed against strict Zod schemas before being compiled into LLM prompts. Any candidate structure that fails schema validation is immediately discarded from the processing batch.
+- **Escaping:** All user-provided text chunks are dynamically escaped when formatted into the prompt templates to prevent prompt injections (e.g., trying to hijack the Dream loop to write arbitrary instructions).
 
 In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and open each proposal's review sheet before applying or rejecting it. Use **Settings** to edit the recurring cron schedule, source scope, timeout/concurrency limits, candidate limit, and minimum candidate threshold; use **Ensure schedule** after saving when you want the `jobs/dispatch-dream.md` recurring job materialized from those settings. The review sheet shows approval behavior, the current target content, proposed content, and source evidence. Agents use the same workflow through actions:
 

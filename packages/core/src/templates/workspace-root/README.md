@@ -106,6 +106,9 @@ pnpm exec agent-native create crm --template=starter
 The CLI detects the workspace root and scaffolds a minimal app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
+Starter is only the source scaffold: the finished app should use its own name,
+home screen, navigation, package metadata, and manifest rather than leaving
+starter or new-app UI in place.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
 app rather than adding files to `apps/starter`.
@@ -116,7 +119,7 @@ separate workspace app registry to edit. React Router apps must preserve
 For requests phrased as creating an "agent", classify the scope first: simple
 recurring Dispatch behavior can stay in Dispatch, while a robust app-like
 teammate should become a real workspace app listed with the rest of the apps.
-First-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch should be
+First-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch should be
 treated as existing hosted or connected neighbors. If a new app needs access to
 their data or agents, link/delegate to those apps through the workspace/A2A
 path rather than creating wrapper apps, child apps, or cloned template copies

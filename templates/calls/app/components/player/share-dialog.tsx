@@ -52,7 +52,12 @@ export interface ShareDialogProps {
   resourceType: ResourceType;
   resourceId: string;
   title?: string;
-  password?: string | null;
+  /**
+   * Whether a password is currently set on the call/snippet. The plaintext
+   * password is never sent to the client — the share dialog sees `hasPassword`
+   * and can replace or clear the password, but never read it.
+   */
+  hasPassword?: boolean;
   expiresAt?: string | null;
   shareIncludesSummary?: boolean;
   shareIncludesTranscript?: boolean;
@@ -68,7 +73,7 @@ export function ShareDialog(props: ShareDialogProps) {
     resourceType,
     resourceId,
     title,
-    password,
+    hasPassword,
     expiresAt,
     shareIncludesSummary,
     shareIncludesTranscript,
@@ -118,8 +123,11 @@ export function ShareDialog(props: ShareDialogProps) {
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const hasInviteEmail = email.trim().length > 0;
-  const [passwordEnabled, setPasswordEnabled] = useState(!!password);
-  const [passwordValue, setPasswordValue] = useState(password ?? "");
+  const [passwordEnabled, setPasswordEnabled] = useState(!!hasPassword);
+  // The plaintext password is never sent to the client; the input starts empty.
+  // Saving with text overwrites the stored password; toggling off + saving
+  // clears it.
+  const [passwordValue, setPasswordValue] = useState("");
   const [expiryValue, setExpiryValue] = useState(
     expiresAt ? expiresAt.slice(0, 10) : "",
   );

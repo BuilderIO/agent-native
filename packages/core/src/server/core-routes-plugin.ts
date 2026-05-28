@@ -16,12 +16,20 @@ import {
   getCookie,
   setCookie,
   deleteCookie,
+  getRequestURL,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
 import { createPollHandler } from "./poll.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createOpenRouteHandler } from "./open-route.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -116,6 +124,7 @@ import {
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
+  isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
@@ -157,6 +166,13 @@ async function detectUsageEngineName(
         /* org module not present in this template */
       }
     }
+    const envEntry = process.env.AGENT_ENGINE
+      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+      : undefined;
+    if (envEntry) {
+      return isAgentEnginePackageInstalled(envEntry) ? envEntry.name : null;
+    }
+
     const detectedFromUser = await runWithRequestContext(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
@@ -312,6 +328,8 @@ export interface CoreRoutesPluginOptions {
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
+  /** Disable the /_agent-native/embed/start iframe session launcher. */
+  disableEmbedRoute?: boolean;
   /**
    * Disable the /_agent-native/mcp/connect routes (browser Connect page +
    * CLI device-code flow that mints per-user, revocable MCP tokens) and the
@@ -485,18 +503,41 @@ export function createCoreRoutesPlugin(
             String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
         );
         if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
-        const origin = getHeader(event, "origin");
+        const readRequestHeader = (name: string): string | undefined => {
+          const lower = name.toLowerCase();
+          const raw =
+            (event as any).node?.req?.headers?.[lower] ??
+            (event as any).node?.req?.headers?.[name];
+          if (Array.isArray(raw)) return raw[0];
+          if (typeof raw === "string") return raw;
+          return getHeader(event, name) ?? undefined;
+        };
+        const origin = readRequestHeader("origin");
         const method = getMethod(event);
+        const requestedHeaders = readRequestHeader(
+          "access-control-request-headers",
+        );
+        const requestedHeaderNames = String(requestedHeaders ?? "")
+          .toLowerCase()
+          .split(",")
+          .map((header) => header.trim());
+        const mcpEmbedCorsRequest =
+          isMcpEmbedCorsOrigin(origin) &&
+          (requestedHeaderNames.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            Boolean(readRequestHeader(EMBED_TARGET_HEADER)) ||
+            Boolean(readRequestHeader("authorization")));
 
         // Decide whether this origin is allowed. We never fall back to the
         // first allowlist entry — that previously echoed `Access-Control-
         // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
         // which is permissive enough that some clients followed through.
-        const allowedOrigin = getAllowedCorsOrigin(origin, {
-          allowedOrigins: allowlist,
-          allowAnyOriginWhenNoAllowlist: false,
-          allowLocalhostWhenNoAllowlist: true,
-        });
+        const allowedOrigin = mcpEmbedCorsRequest
+          ? origin
+          : getAllowedCorsOrigin(origin, {
+              allowedOrigins: allowlist,
+              allowAnyOriginWhenNoAllowlist: false,
+              allowLocalhostWhenNoAllowlist: true,
+            });
 
         // Reject preflights from disallowed cross-origin callers BEFORE
         // returning 204. Previously the OPTIONS short-circuit returned 204
@@ -515,11 +556,13 @@ export function createCoreRoutesPlugin(
               allowedOrigin,
             );
             setResponseHeader(event, "Vary", "Origin");
-            setResponseHeader(
-              event,
-              "Access-Control-Allow-Credentials",
-              "true",
-            );
+            if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+              setResponseHeader(
+                event,
+                "Access-Control-Allow-Credentials",
+                "true",
+              );
+            }
             setResponseHeader(
               event,
               "Access-Control-Allow-Methods",
@@ -528,7 +571,7 @@ export function createCoreRoutesPlugin(
             setResponseHeader(
               event,
               "Access-Control-Allow-Headers",
-              "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+              MCP_EMBED_CORS_ALLOW_HEADERS,
             );
           }
           setResponseStatus(event, 204);
@@ -542,7 +585,9 @@ export function createCoreRoutesPlugin(
         if (!allowedOrigin) return;
         setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
         setResponseHeader(event, "Vary", "Origin");
-        setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        if (shouldAllowMcpEmbedCredentials(allowedOrigin)) {
+          setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        }
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
@@ -551,7 +596,7 @@ export function createCoreRoutesPlugin(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+          MCP_EMBED_CORS_ALLOW_HEADERS,
         );
       }),
     );
@@ -621,21 +666,18 @@ export function createCoreRoutesPlugin(
 
     const resolveBuilderOwnerContext = async (
       event: H3Event,
+      mode?: "connect" | "callback",
     ): Promise<BuilderOwnerContext> => {
       const session = await getSession(event).catch(() => null);
       if (session?.email) {
         return { email: session.email, session, anonymous: false };
       }
 
-      const rawUrl = event.node?.req?.url ?? event.path ?? "/";
-      const queryStart = rawUrl.indexOf("?");
-      const rawPath = queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
-      const search = queryStart >= 0 ? rawUrl.slice(queryStart + 1) : "";
-      const path = stripAppBasePath(rawPath);
+      const searchParams = getRequestURL(event).searchParams;
 
-      if (path === `${P}/builder/connect`) {
+      if (mode === "connect") {
         const ownerFromConnectToken = verifyBuilderConnectTokenAndGetOwner(
-          new URLSearchParams(search).get(BUILDER_CONNECT_PARAM),
+          searchParams.get(BUILDER_CONNECT_PARAM),
         );
         if (ownerFromConnectToken) {
           return {
@@ -646,7 +688,7 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      if (path === `${P}/builder/callback`) {
+      if (mode === "callback") {
         // Prefer the signed _an_state owner over the legacy
         // an_builder_connect_owner cookie. The cookie can be stale on a
         // shared browser — user A signed in earlier, user B starts a fresh
@@ -655,7 +697,7 @@ export function createCoreRoutesPlugin(
         // state is per-flow and TTL-bounded, so it's authoritative when
         // both are present.
         const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
-          new URLSearchParams(search).get(BUILDER_STATE_PARAM),
+          searchParams.get(BUILDER_STATE_PARAM),
         );
         if (ownerFromCallbackState) {
           return {
@@ -923,7 +965,7 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
       defineEventHandler(async (event) => {
-        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerContext = await resolveBuilderOwnerContext(event, "connect");
         const ownerEmail = ownerContext.email;
         if (!ownerEmail) {
           setResponseStatus(event, 401);
@@ -1180,7 +1222,10 @@ export function createCoreRoutesPlugin(
         // A real session or a template-approved anonymous owner is required;
         // the pending-row check below (combined with the same-origin gate on
         // /builder/connect) blocks CSRF and callback replay.
-        const ownerContext = await resolveBuilderOwnerContext(event);
+        const ownerContext = await resolveBuilderOwnerContext(
+          event,
+          "callback",
+        );
         const ownerEmail = ownerContext.email;
         // Diagnostic: log the resolver's inputs for debugging "No active
         // connect flow found" reports. Reveals session-vs-state owner
@@ -1867,6 +1912,21 @@ export function createCoreRoutesPlugin(
               engine,
               model: stored.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
               source: "settings" as const,
+            };
+          }
+          const envEntry = process.env.AGENT_ENGINE
+            ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+            : undefined;
+          if (envEntry) {
+            if (!isAgentEnginePackageInstalled(envEntry)) {
+              return { configured: false };
+            }
+            return {
+              configured: true,
+              engine: envEntry.name,
+              model: envEntry.defaultModel ?? DEFAULT_MODEL,
+              source: "env" as const,
+              envVar: "AGENT_ENGINE",
             };
           }
           // Per-user app_secrets — a user who connected Builder (or pasted
@@ -2611,6 +2671,16 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/open`,
         createOpenRouteHandler({ resolveOpenPath: options.resolveOpenPath }),
+      );
+    }
+
+    if (!options.disableEmbedRoute) {
+      // One-time ticket launcher for MCP Apps that embed the full React app.
+      // The ticket is minted by an authenticated MCP tool call and exchanged
+      // here for a short-lived browser session cookie + bearer fallback.
+      getH3App(nitroApp).use(
+        `${P}/embed/start`,
+        createEmbedStartRouteHandler({ getExistingSession: getSession }),
       );
     }
 

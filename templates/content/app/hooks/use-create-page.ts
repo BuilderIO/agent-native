@@ -36,6 +36,7 @@ export function useCreatePage(opts?: { onAfterNavigate?: () => void }) {
         icon: null,
         position: 9999,
         isFavorite: false,
+        hideFromSearch: false,
         visibility: "private",
         createdAt: now,
         updatedAt: now,

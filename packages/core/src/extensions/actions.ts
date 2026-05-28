@@ -5,8 +5,11 @@ import {
   deleteExtension,
   getHiddenExtensionIdsForCurrentUser,
   getExtension,
+  getExtensionHistoryVersion,
   hideExtension,
+  listExtensionHistory,
   listExtensions,
+  restoreExtensionHistoryVersion,
   unhideExtension,
   updateExtension,
   updateExtensionContent,
@@ -31,7 +34,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "list-extensions": {
       tool: {
         description:
-          "List extensions visible in the current user's Extensions list/sidebar. Use this before updating, hiding, or deleting existing extensions; do not query the legacy tools table directly for extension management.",
+          "List extensions visible in the current user's Extensions list/sidebar. Use this for browsing or when you only know a display name. If <current-screen> or <current-url> already contains extensionId for the current extension, use get-extension or update-extension with that id directly instead of listing. Do not query the legacy tools table directly for extension management.",
         parameters: {
           type: "object",
           properties: {
@@ -89,10 +92,129 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       readOnly: true,
     },
 
+    "get-extension": {
+      tool: {
+        description:
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content so you can make a targeted update-extension edit.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description:
+                "Extension id to read. Prefer the extensionId from <current-screen> or <current-url> when the user refers to the current extension.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full Alpine.js content. Defaults to true for targeted edits.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const includeContent =
+          args?.includeContent === undefined
+            ? true
+            : coerceBoolean(args.includeContent);
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        return {
+          ok: true,
+          extension: await summarizeExtension(
+            extension,
+            hiddenIds,
+            includeContent,
+          ),
+        };
+      },
+      readOnly: true,
+    },
+
+    "list-extension-history": {
+      tool: {
+        description:
+          "List saved history snapshots for one extension. Use this when the user asks what changed, wants a changelog, or wants to pick an older version to restore. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url>.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id whose history should be listed.",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum versions to return. Defaults to 50.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full HTML content for each version. Defaults to false.",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const history = await listExtensionHistory(id, {
+          limit:
+            args?.limit === undefined ? undefined : coerceLimit(args.limit),
+          includeContent: coerceBoolean(args?.includeContent),
+        });
+        return {
+          ok: true,
+          count: history.length,
+          history,
+        };
+      },
+      readOnly: true,
+    },
+
+    "get-extension-history-version": {
+      tool: {
+        description:
+          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id whose history version should be read.",
+            },
+            version: {
+              type: "number",
+              description: "History version number to inspect.",
+            },
+          },
+          required: ["id", "version"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const version = Number(args?.version);
+        if (!Number.isInteger(version) || version < 1) {
+          return "Error: version must be a positive integer.";
+        }
+        const detail = await getExtensionHistoryVersion(id, version);
+        if (!detail) {
+          return `Error: extension history version not found: ${id}#${version}`;
+        }
+        return { ok: true, ...detail };
+      },
+      readOnly: true,
+    },
+
     "create-extension": {
       tool: {
         description:
-          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data('name', () => ({...})) and reference it with x-data=\"name\" — do NOT cram methods, template literals, or branching logic into an inline x-data=\"{...}\" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object's initial state. If the extension's value depends on an LLM call, require a real key via ${keys.OPENAI_API_KEY}/${keys.ANTHROPIC_API_KEY} (and tell the user to add it in Settings → Secrets if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.",
+          "Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data('name', () => ({...})) and reference it with x-data=\"name\" — do NOT cram methods, template literals, or branching logic into an inline x-data=\"{...}\" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object's initial state. If the extension's value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in Settings → Secrets if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.",
         parameters: {
           type: "object",
           properties: {
@@ -160,13 +282,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          "Update an existing sandboxed Alpine.js mini-app extension. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
+          "Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML.",
         parameters: {
           type: "object",
           properties: {
             id: {
               type: "string",
-              description: "Extension id to update.",
+              description:
+                "Extension id to update. Prefer the extensionId from <current-screen> or <current-url> for the current extension.",
             },
             name: {
               type: "string",
@@ -293,6 +416,46 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             next: "If the user wants this gone only from their own view, call hide-extension with the same id.",
           };
         }
+      },
+    },
+
+    "restore-extension-history-version": {
+      tool: {
+        description:
+          "Restore an extension's name, description, icon, and HTML content from a saved history version. Requires editor access. This does not restore sharing visibility or ownership.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id to restore.",
+            },
+            version: {
+              type: "number",
+              description:
+                "Saved history version number to restore. Use list-extension-history first if unsure.",
+            },
+          },
+          required: ["id", "version"],
+        },
+      },
+      run: async (args) => {
+        const id = String(args?.id ?? "").trim();
+        if (!id) return "Error: id is required.";
+        const version = Number(args?.version);
+        if (!Number.isInteger(version) || version < 1) {
+          return "Error: version must be a positive integer.";
+        }
+        const result = await restoreExtensionHistoryVersion(id, version);
+        if (!result) {
+          return `Error: extension history version not found: ${id}#${version}`;
+        }
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        return {
+          ok: true,
+          restoredVersion: version,
+          extension: await summarizeExtension(result, hiddenIds, false),
+        };
       },
     },
 

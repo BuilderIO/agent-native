@@ -184,7 +184,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     mockRunAgentLoop.mockImplementation(async () => {
       attempts++;
       if (attempts === 1) {
-        throw new EngineError("Builder gateway timed out after 55s", {
+        throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
         });
       }

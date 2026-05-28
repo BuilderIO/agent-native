@@ -1,15 +1,17 @@
 # Agent-Native Brain
 
 Brain is a Company Brain template: clean company chat backed by cited
-institutional memory. The Ask route is the primary product surface for humans
+institutional knowledge. The Ask route is the primary product surface for humans
 and agents; Sources, Review, Knowledge, Ops, and Settings are support/admin
-surfaces for ingestion, trust, and operations. V1 turns raw captures (Slack
-channel messages, Clips recordings, Granola notes, transcripts, documents, and
-generic text) into reviewed, searchable, SQL-backed knowledge with source
-quotes preserved as evidence.
+surfaces for ingestion, trust, and operations. V1 turns imported captures
+(Slack channel messages, Clips recordings, Granola notes, transcripts,
+documents, and generic text) into reviewed, searchable, SQL-backed knowledge
+with source quotes preserved as evidence. Transcript-style sources are
+sanitized before storage by default so Brain stores the company-relevant
+capture, not the full raw call transcript or provider payload.
 
 Brain is not a full Glean replacement today. Position it honestly as an
-open-source, Glean-shaped foundation: durable company memory first, then a
+open-source, Glean-shaped foundation: durable company knowledge first, then a
 broader permission-aware workspace search layer over time.
 
 ## Product Direction
@@ -39,7 +41,8 @@ broader permission-aware workspace search layer over time.
 ## Data Model
 
 - `brain_sources` — shareable source configuration (`brain-source`)
-- `brain_raw_captures` — raw imported text tied to a source
+- `brain_raw_captures` — imported capture text tied to a source; transcript
+  bodies are pre-sanitized before storage by default
 - `brain_knowledge` — shareable durable knowledge (`brain-knowledge`)
 - `brain_proposals` — shareable review queue (`brain-proposal`)
 - `brain_sync_runs` — connector run history
@@ -47,42 +50,53 @@ broader permission-aware workspace search layer over time.
 
 JSON is stored in text columns. There is no vector database.
 
+## Ask Chat UX
+
+Fresh loads of the Ask route intentionally start a new empty chat instead of
+restoring the previous active thread. Past chats stay available from the left
+sidebar, sorted with pinned chats first and then most-recently-updated chats.
+Archived chats are hidden from the sidebar. Users can rename visible chats from
+the sidebar chat menu, and agents can do the same with `chat-history` action
+`rename` after finding the thread ID by searching prior conversations.
+
 ## Actions
 
-| Action                                                                              | Purpose                                                                                                                                |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                                                                            |
-| `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                                                                |
-| `list-connection-providers`                                                         | List Brain-relevant reusable provider metadata, workspace connection grants for `appId=brain`, credential key names, and source status |
-| `get-brain-health`                                                                  | Summarize first-run setup, configured/connected sources, sync freshness, queue/proposal counts, and the latest eval score              |
-| `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history                                                             |
-| `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`                                                      |
-| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, rollout next steps, and the compact #dev-fusion trust lane             |
-| `import-capture`                                                                    | Import arbitrary raw text                                                                                                              |
-| `import-transcript`                                                                 | Import meeting transcripts                                                                                                             |
-| `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                               |
-| `enqueue-distillation` / `enqueue-captures-distillation`                            | Idempotently queue one capture or a selected batch for distillation                                                                    |
-| `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                    |
-| `list-distillation-queue` / `retry-distillation`                                    | Inspect queue counts, failed/stale/retryable work, failure reasons, and safely retry one, selected, or all accessible items            |
-| `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                    |
-| `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior                                                 |
-| `preview-canonical-resource`                                                        | Preview the exact Markdown Brain will mirror under `context/company-brain/...` before approval or publish/unpublish                    |
-| `set-knowledge-canonical`                                                           | Publish or unpublish approved Brain knowledge as shared `context/company-brain/...` workspace context                                  |
-| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                    |
-| `search-everything`                                                                 | V1.5 search across Brain-indexed knowledge, raw captures, and source records, plus federated coverage/delegation hints                 |
-| `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                      |
-| `seed-demo-data` / `run-demo-eval` / `run-retrieval-eval`                           | Seed and evaluate product-decision demos and offline real-channel-style retrieval checks                                               |
-| `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                                                                             |
-| `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                                                                      |
+| Action                                                                              | Purpose                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create-source` / `update-source` / `delete-source` / `get-source` / `list-sources` | Manage source configuration                                                                                                                                                          |
+| `sync-source` / `sync-due-sources`                                                  | Run one source immediately or run due auto-sync sources                                                                                                                              |
+| `list-connection-providers`                                                         | List Brain-relevant reusable provider metadata, workspace connection grants for `appId=brain`, credential key names, and source status                                               |
+| `get-brain-health`                                                                  | Summarize first-run setup, configured/connected sources, sync freshness, queue/proposal counts, and the latest eval score                                                            |
+| `test-slack-connection`                                                             | Test Slack credentials/channel allow-lists without reading message history                                                                                                           |
+| `run-slack-pilot`                                                                   | Produce a guarded Slack pilot report; reads no history unless `readHistory: true`                                                                                                    |
+| `get-pilot-report`                                                                  | Summarize one source's sync health, queue state, privacy notes, rollout next steps, and the compact #dev-fusion trust lane                                                           |
+| `import-capture`                                                                    | Import arbitrary raw text                                                                                                                                                            |
+| `import-transcript`                                                                 | Import meeting transcripts                                                                                                                                                           |
+| `list-captures` / `get-capture`                                                     | Review raw captures by source/status, including distillation queue state                                                                                                             |
+| `resanitize-captures`                                                               | Re-run the pre-storage transcript sanitizer over existing captures; use dryRun first because non-dry-run skips captures with derived citations unless allowCitationDrift is explicit |
+| `enqueue-distillation` / `enqueue-captures-distillation`                            | Idempotently queue one capture or a selected batch for distillation                                                                                                                  |
+| `claim-distillation`                                                                | Claim one queued distillation item before a browser or worker hands it to the agent                                                                                                  |
+| `list-distillation-queue` / `retry-distillation`                                    | Inspect queue counts, failed/stale/retryable work, failure reasons, and safely retry one, selected, or all accessible items                                                          |
+| `mark-capture-distilled`                                                            | Mark a capture distilled or ignored                                                                                                                                                  |
+| `write-knowledge`                                                                   | Create/update knowledge with quote validation, redaction, tiers, and proposal behavior                                                                                               |
+| `preview-canonical-resource`                                                        | Preview the exact Markdown Brain will mirror under `context/company-brain/...` before approval or publish/unpublish                                                                  |
+| `set-knowledge-canonical`                                                           | Publish or unpublish approved Brain knowledge as shared `context/company-brain/...` workspace context                                                                                |
+| `get-knowledge` / `list-knowledge` / `search-knowledge`                             | Read and search distilled knowledge                                                                                                                                                  |
+| `search-everything`                                                                 | V1.5 search across Brain-indexed knowledge, raw captures, and source records, plus federated coverage/delegation hints                                                               |
+| `list-proposals` / `update-proposal` / `approve-proposal` / `reject-proposal`       | Review, edit, approve, or reject company-tier or forced proposals                                                                                                                    |
+| `seed-demo-data` / `run-demo-eval` / `run-retrieval-eval`                           | Seed and evaluate product-decision demos and offline real-channel-style retrieval checks                                                                                             |
+| `get-settings` / `set-settings`                                                     | Read/update Brain settings                                                                                                                                                           |
+| `navigate` / `view-screen`                                                          | Keep agent and UI context in sync                                                                                                                                                    |
 
 ## Retrieval Rules
 
-When answering company-memory questions:
+When answering company-knowledge questions:
 
 1. Call `get-brain-settings` first when current settings are not already in
    context, and apply its effective guidance. The settings control assistant
    name, company name, tone, citation requirements, source policy, default
-   publish tier, redaction, and distillation instructions.
+   publish tier, pre-save capture sanitization, redaction, and distillation
+   instructions.
 2. Start with `search-everything` when it is available. It is the V1.5
    Brain-wide search surface and should return candidate knowledge entries, raw
    captures, and sources the current user can access. Its `federatedCoverage`
@@ -99,11 +113,11 @@ When answering company-memory questions:
    only; `balanced` means use raw captures only when reviewed knowledge is
    missing or thin and label them clearly; `exploratory` means raw captures and
    source records can be included as clearly labeled leads, never as approved
-   company memory.
+   company knowledge.
 5. Cite source links from knowledge evidence or raw capture metadata. Prefer
    direct source URLs/permalinks over generic source names.
 6. Distinguish reviewed knowledge from raw captures. Raw captures can provide
-   context, but do not present them as approved company memory unless they have
+   context, but do not present them as approved company knowledge unless they have
    been distilled and reviewed.
 7. If search does not find support, say so plainly. Do not invent an answer or
    imply Brain contains information it did not return.
@@ -113,7 +127,7 @@ When answering company-memory questions:
    and Dispatch owns workspace resources, provider grants, approvals, secrets,
    recurring jobs, and cross-app routing.
 
-Use the `ask-across-everything` skill for prompts that mix Brain memory with
+Use the `ask-across-everything` skill for prompts that mix Brain knowledge with
 live/app-owned data. It encodes the Brain-first, inspect coverage, delegate,
 then synthesize-with-boundaries loop.
 
@@ -122,7 +136,7 @@ then synthesize-with-boundaries loop.
 - `write-knowledge.evidence[].quote` must be an exact substring of the referenced capture.
 - `publishTier: "private"` writes draft/private knowledge.
 - `publishTier: "team"` and `"company"` use org visibility.
-- New shared/company memory should default to org-shared visibility only after
+- New shared/company knowledge should default to org-shared visibility only after
   source allow-lists, exclusions, redaction, and review gates have been applied.
 - Company-tier writes create a proposal by default when `requireApprovalForCompanyKnowledge` is true.
 - Use `proposalMode: "never"` only when the user explicitly wants to bypass review.
@@ -130,6 +144,23 @@ then synthesize-with-boundaries loop.
 - Call `preview-canonical-resource` before approving a proposal with `publishCanonical: true` or publishing/unpublishing a knowledge item with `set-knowledge-canonical`; show the Markdown to the user when they ask what will become ambient context.
 - Use `approve-proposal --publishCanonical=true` when a reviewed item should become ambient company context for Dispatch and other apps. Otherwise leave canonical publishing off and use `set-knowledge-canonical` later for an intentional publish/unpublish decision.
 - Redactions are applied before storage. Explicit `redactions` replace matching text with `[redacted]`; settings can also auto-redact email addresses.
+
+## Capture Sanitization Rules
+
+Brain passes this `AGENTS.md` content into the model-based pre-storage
+sanitizer. Keep durable company/product/customer/GTM/technical/process
+information, but strip content that should not be saved in `brain_raw_captures`.
+
+- Recruiting is always sensitive. Remove hiring, candidate evaluation,
+  interview feedback, compensation, references, recruiting pipeline, search
+  firm, offer, and personnel-assessment content even when it mentions product,
+  GTM, strategy, or company context.
+- Remove personal life details, casual small talk, private contact details,
+  secrets, credentials, raw speaker names, and third-party biographical details.
+- Preserve only the company-relevant capture that is safe to review and distill.
+  Do not preserve raw transcript bodies as a fallback.
+- If a capture is mostly recruiting or personal context, keep the sanitized body
+  as `No company-relevant content retained from this capture.`
 
 ## Connector Notes
 
@@ -162,17 +193,17 @@ false`, and a recent default history window.
 
 For the real `#dev-fusion` Slack pilot, keep the loop concrete and narrow:
 validate the source, run one safe sample, review captures, distill/propose only
-durable company memory, approve proposal-gated items, then call
+durable company knowledge, approve proposal-gated items, then call
 `get-pilot-report`. Its `pilotTrustLane` field summarizes whether the source is
 blocked, ready to sample, waiting on distillation, waiting on review, waiting on
 retrieval eval, or ready for a narrow expansion. Use the returned
 `nextActions` and `evalQuestions` before enabling broader sync.
 
-In the Sources UI, Slack source cards expose the same safe sequence as
-first-class controls: Test connection, run a safe pilot sample, review captures,
-then approve proposals in the Review queue. Preserve that sequence when adding
-new Slack source affordances; do not make broad sync the primary first-run
-action.
+Slack pilot actions should remain progressively disclosed. Keep the main
+Sources UI focused on configured sources, sync, captures, and tuning; expose
+connection tests, safe samples, and pilot reports through advanced flows or
+agent actions rather than always-visible source-card controls. Do not make broad
+sync the primary first-run action.
 
 After a successful pilot sync, use `list-captures` first to review capture
 inventory without raw bodies. The listing includes each capture's latest
@@ -227,7 +258,10 @@ on that route.
 Granola sources use the scoped `GRANOLA_API_KEY` credential and poll Granola's
 public API for accessible Team-space notes, then fetch each note with its
 transcript. Keep the Granola cursor and sync window in the source cursor/config
-JSON instead of process memory.
+JSON instead of process memory. Granola transcript text, attendees, calendar
+objects, and transcript segments pass through the pre-storage sanitizer before
+`brain_raw_captures` is written; source metadata keeps safe linkage such as
+`sourceUrl`, connector, and sync run ids.
 
 GitHub sources are the first reusable connector proof for Brain. They resolve
 credentials from granted workspace connections first, then fall back to the
@@ -283,7 +317,7 @@ credentials. Never include resolved credential values in action responses,
 stats, errors, or logs.
 
 For "ask across everything" requests, do not treat Brain as the owner of every
-workspace system. Use Brain search for reviewed memory and accessible captures.
+workspace system. Use Brain search for reviewed knowledge and accessible captures.
 If the user asks for live metrics, dashboard numbers, CRM pipeline analysis,
 mailbox state, calendar availability, Dispatch policy, or another app-owned
 surface, call the specialized app agent/action through A2A when available and
@@ -294,7 +328,7 @@ domain rules.
 ## A2A Retrieval
 
 Brain's public A2A capability is read-only, citation-backed retrieval for
-company-memory questions. Treat the public agent card as discovery metadata, not
+company-knowledge questions. Treat the public agent card as discovery metadata, not
 anonymous data access. Actual retrieval still runs through the authenticated
 A2A/action context and must obey access filters, source policy, redaction,
 review gates, and citation requirements. If a request asks Brain to mutate
@@ -303,7 +337,7 @@ go through authenticated app actions instead of the public retrieval fallback.
 
 `ask-brain` is the external-facing public-agent company lookup. It is GET +
 read-only + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`,
-so an external coding agent or A2A peer can ask a company-memory question over
+so an external coding agent or A2A peer can ask a company-knowledge question over
 MCP and get a cited answer back. Every citation now carries a `deepLink`:
 knowledge citations link to `view: "knowledge"` + `knowledgeId`, capture
 citations to `view: "capture"` + `captureId` (resolved to the Search surface,
@@ -326,7 +360,10 @@ the agent or UI.
 Manual, generic, and Clips sources can still import fixture/exported items
 through `config.transcripts`, `config.sampleTranscripts`, or `config.messages`.
 Each item can be a string or an object with `title`, `content` or `text`, `kind`,
-`capturedAt`, and `metadata`.
+`capturedAt`, and `metadata`. Transcript imports from these paths share the
+same pre-storage sanitization boundary. Set source config
+`sanitizeBeforeStorage: false` only when the user explicitly wants raw transcript
+retention for that source.
 
 ## Demo/Eval
 
@@ -337,7 +374,7 @@ a personal aside as an ignored capture.
 
 Use `run-demo-eval` to verify recall, citations, supersede links, proposal
 gating, redaction, and personal-content exclusion. This is the fastest
-repeatable check that Brain still feels like a trustworthy company memory app.
+repeatable check that Brain still feels like a trustworthy company knowledge app.
 
 Use `run-retrieval-eval` for the offline real-channel-style retrieval checks.
 It first evaluates existing workspace Brain data; when the #dev-fusion/stale

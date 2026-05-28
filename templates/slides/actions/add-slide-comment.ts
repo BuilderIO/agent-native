@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -7,7 +6,7 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -35,7 +34,6 @@ export default defineAction({
     const { deckId, slideId, content, quotedText, parentId } = args;
     await assertAccess("deck", deckId, "viewer");
 
-    const client = getDbExec();
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
     const authorEmail = getRequestUserEmail();
@@ -44,21 +42,17 @@ export default defineAction({
       ? "AI Agent"
       : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
-    const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-    await client.execute({
-      sql: `INSERT INTO slide_comments (id, deck_id, slide_id, thread_id, parent_id, content, quoted_text, author_email, author_name, resolved, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowExpr}, ${nowExpr})`,
-      args: [
-        id,
-        deckId,
-        slideId,
-        threadId,
-        parentId ?? null,
-        content,
-        quotedText ?? null,
-        authorEmail,
-        authorName,
-        isPostgres() ? false : 0,
-      ],
+    const db = getDb();
+    await db.insert(schema.slideComments).values({
+      id,
+      deckId,
+      slideId,
+      threadId,
+      parentId: parentId ?? null,
+      content,
+      quotedText: quotedText ?? null,
+      authorEmail,
+      authorName,
     });
 
     return { id, threadId };

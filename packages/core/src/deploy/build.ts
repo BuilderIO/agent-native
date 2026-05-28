@@ -33,9 +33,12 @@ import {
   type WorkspaceCoreExports,
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -302,14 +305,34 @@ function injectHeadScript(html, script) {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+
+function applyDefaultSsrCacheHeader(headers, status) {
+  if (headers.has("cache-control")) return;
+  if (status < 200 || status >= 400) return;
+
+  const contentType = (headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/html")) return;
+
+  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+}
+
 async function rewriteMountedResponse(response, basePath) {
   const sentryClientConfigScript = getSentryClientConfigScript();
-  if (!basePath && !sentryClientConfigScript) return response;
-
   const headers = new Headers(response.headers);
+  applyDefaultSsrCacheHeader(headers, response.status);
+
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  if (!basePath && !sentryClientConfigScript) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   const contentType = headers.get("content-type") || "";
@@ -381,7 +404,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -1160,6 +1183,54 @@ function createDanglingOptionalDepStubs() {
  * Build for any non-Cloudflare preset using Nitro's programmatic build API.
  * Handles netlify, vercel, deno_deploy, aws-lambda, and all other targets.
  */
+export interface NitroBuildHooks {
+  prepare: (nitro: any) => Promise<void>;
+  copyPublicAssets: (nitro: any) => Promise<void>;
+  nitroBuild: (nitro: any) => Promise<void>;
+}
+
+export interface NitroBuildPipelineOptions {
+  nitro: any;
+  hooks: NitroBuildHooks;
+  clientDir: string;
+  publicOutputDir: string | undefined;
+  appBasePath: string;
+  cwd: string;
+}
+
+/**
+ * Run Nitro's lifecycle in the order required to ship a working React Router
+ * framework-mode build.
+ *
+ * The critical ordering constraint is that the React Router client build must
+ * be copied into `publicOutputDir` *before* `nitroBuild` runs. Nitro generates
+ * the static-asset manifest baked into the server bundle by globbing
+ * `publicDir` during the server build; files copied in after that point exist
+ * on disk but are invisible to the runtime `serveStatic` handler. Every
+ * /assets/* request then falls through to the SSR catch-all, which 404s
+ * anything with a file extension.
+ */
+export async function runNitroBuildPipeline(
+  opts: NitroBuildPipelineOptions,
+): Promise<void> {
+  const { nitro, hooks, clientDir, publicOutputDir, appBasePath, cwd } = opts;
+
+  await hooks.prepare(nitro);
+  await hooks.copyPublicAssets(nitro);
+
+  if (fs.existsSync(clientDir) && publicOutputDir) {
+    copyDir(clientDir, publicOutputDir);
+    if (appBasePath) {
+      copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
+    }
+    console.log(
+      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
+    );
+  }
+
+  await hooks.nitroBuild(nitro);
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -1248,6 +1319,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
+    routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // For edge presets (cloudflare, deno), bundle all deps — node_modules
     // aren't available at runtime. Netlify/Vercel/Node have node_modules.
     ...(preset.startsWith("cloudflare") || preset.startsWith("deno")
@@ -1255,23 +1327,14 @@ export default bundle;
       : {}),
   } as any);
 
-  await prepare(nitro);
-  await copyPublicAssets(nitro);
-  await nitroBuild(nitro);
-
-  // Copy React Router's client build into Nitro's public output dir
-  const clientDir = path.join(cwd, "build", "client");
-  const publicOutputDir = nitro.options.output.publicDir;
-  if (fs.existsSync(clientDir) && publicOutputDir) {
-    copyDir(clientDir, publicOutputDir);
-    const basePath = appBasePath;
-    if (basePath) {
-      copyDir(clientDir, path.join(publicOutputDir, basePath.slice(1)));
-    }
-    console.log(
-      `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
-    );
-  }
+  await runNitroBuildPipeline({
+    nitro,
+    hooks: { prepare, copyPublicAssets, nitroBuild },
+    clientDir: path.join(cwd, "build", "client"),
+    publicOutputDir: nitro.options.output.publicDir,
+    appBasePath,
+    cwd,
+  });
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);

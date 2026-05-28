@@ -99,7 +99,7 @@ export default defineAction({
       startMs: s.startMs,
       endMs: s.endMs,
       parentCallTitle: parentTitles.get(s.callId) ?? null,
-      password: s.password,
+      hasPassword: Boolean(s.password),
       expiresAt: s.expiresAt,
       visibility: s.visibility,
       ownerEmail: s.ownerEmail,

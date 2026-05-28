@@ -59,6 +59,11 @@ interface ModelSelection {
   effort?: ReasoningEffort;
 }
 
+interface PendingSend {
+  message: string;
+  images?: string[];
+}
+
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {
@@ -706,15 +711,16 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active thread and open tabs from localStorage. */
+  restoreActiveThread?: boolean;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
    * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
-   * the tab bar, history popover, and active-thread persistence all
-   * partition by `{type, id}` — switching resources lands the user on the
-   * thread they last had open for that resource, not whichever chat was
-   * globally active. New chats automatically inherit this scope; the user
-   * can detach a chat via the scope chip above the composer.
+   * new chats automatically inherit this scope and scoped chats tuck away when
+   * the user leaves the resource. General chats remain visible across resource
+   * navigation, and the user can detach a scoped chat via the scope chip above
+   * the composer.
    */
   scope?: ChatThreadScope | null;
 };
@@ -726,6 +732,7 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  restoreActiveThread = true,
   browserTabId,
   scope = null,
   ...props
@@ -744,7 +751,7 @@ export function MultiTabAssistantChat({
     searchThreads,
     refreshThreads,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope);
+  } = useChatThreads(apiUrl, storageKey, scope, { restoreActiveThread });
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -757,7 +764,7 @@ export function MultiTabAssistantChat({
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
-  const pendingSends = useRef<Map<string, string>>(new Map());
+  const pendingSends = useRef<Map<string, PendingSend>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
@@ -931,14 +938,17 @@ export function MultiTabAssistantChat({
             if (firstGroup) firstGroup.models.unshift(currentModel);
           }
         } else {
-          // No Builder connection — show SDK engines that have API keys.
+          // No Builder connection — show SDK engines this app can run.
           const allowedEngines = new Set([
             "anthropic",
             "ai-sdk:openai",
             "ai-sdk:google",
           ]);
           groups = enginesData.engines
-            .filter((e: any) => allowedEngines.has(e.name))
+            .filter(
+              (e: any) =>
+                allowedEngines.has(e.name) && e.packageInstalled !== false,
+            )
             .map((e: any) => {
               const models = [...e.supportedModels];
               if (
@@ -1021,6 +1031,10 @@ export function MultiTabAssistantChat({
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+    if (!restoreActiveThread && activeThreadId) {
+      for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
+      return [activeThreadId];
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1045,6 +1059,10 @@ export function MultiTabAssistantChat({
     if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
     openTabsKeyRef.current = OPEN_TABS_KEY;
     initializedRef.current = false;
+    if (!restoreActiveThread) {
+      setOpenTabIds(activeThreadId ? [activeThreadId] : []);
+      return;
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1057,7 +1075,7 @@ export function MultiTabAssistantChat({
       }
     } catch {}
     setOpenTabIds([]);
-  }, [OPEN_TABS_KEY]);
+  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
 
   // Look up the active thread's actual scope from the list — when the
   // user opens a chat from history that was scoped to a different
@@ -1271,6 +1289,13 @@ export function MultiTabAssistantChat({
       const tabId = event.data.data?.tabId;
       const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
+      const rawImages = event.data.data?.images;
+      const images = Array.isArray(rawImages)
+        ? rawImages.filter(
+            (image): image is string =>
+              typeof image === "string" && image.length > 0,
+          )
+        : undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -1310,9 +1335,9 @@ export function MultiTabAssistantChat({
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
-          ref.sendMessage(fullMessage);
+          ref.sendMessage(fullMessage, images);
         } else {
-          pendingSends.current.set(threadId, fullMessage);
+          pendingSends.current.set(threadId, { message: fullMessage, images });
         }
       };
 
@@ -1345,10 +1370,10 @@ export function MultiTabAssistantChat({
 
   // Process pending sends when refs mount
   useEffect(() => {
-    for (const [tabId, message] of pendingSends.current) {
+    for (const [tabId, pending] of pendingSends.current) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => ref.sendMessage(message), 50);
+        setTimeout(() => ref.sendMessage(pending.message, pending.images), 50);
         pendingSends.current.delete(tabId);
       }
     }
@@ -1490,6 +1515,29 @@ export function MultiTabAssistantChat({
     };
   }, [closeTab, closeAllTabs, addTab]);
 
+  useEffect(() => {
+    const handleOpenThread = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { threadId?: unknown; newThread?: unknown }
+        | undefined;
+      const threadId =
+        typeof detail?.threadId === "string" ? detail.threadId : "";
+      if (!threadId) return;
+
+      if (detail?.newThread === true) {
+        newThreadIds.current.add(threadId);
+      }
+      setOpenTabIds((prev) =>
+        prev.includes(threadId) ? prev : [...prev, threadId],
+      );
+      switchThread(threadId);
+    };
+
+    window.addEventListener("agent-chat:open-thread", handleOpenThread);
+    return () =>
+      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
+  }, [switchThread]);
+
   const clearActiveTab = useCallback(() => {
     addTab();
   }, [addTab]);
@@ -1629,6 +1677,7 @@ export function MultiTabAssistantChat({
             threadData: "",
             title,
             preview: message.slice(0, 120),
+            titleSource: "generated",
           });
         }
       });
@@ -2027,8 +2076,9 @@ export function MultiTabAssistantChat({
                   apiUrl={apiUrl}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
-                    handle?.sendMessage(
+                    handle?.sendRecoveryMessage(
                       "Continue from where you left off and finish my last request. Do not repeat completed work.",
+                      "continue",
                     );
                   }}
                 />

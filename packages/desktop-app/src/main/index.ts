@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   Notification,
@@ -62,15 +63,26 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpdateResult,
+  type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
+  formatDesktopShortcutAccelerator,
+  normalizeDesktopShortcutAccelerator,
+  shortcutOpenPathForBinding,
+  type DesktopShortcutBinding,
+  type DesktopShortcutRegistration,
+} from "@shared/desktop-shortcuts";
+import {
   FRAME_PORT,
+  getDesktopTemplateGatewayAppUrl,
   getTemplate,
-  getTemplateGatewayAppUrl,
+  isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import {
@@ -319,12 +331,29 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
+function desktopTemplateGatewayOverridesDevUrls(): boolean {
+  const value =
+    process.env["AGENT_NATIVE_USE_TEMPLATE_GATEWAY"] ||
+    process.env["VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY"];
+  return value === "1" || value === "true";
+}
+
+function resolveDesktopTemplateGatewayUrl(appConfig: AppConfig): string | null {
+  if (
+    !desktopTemplateGatewayOverridesDevUrls() &&
+    !isDefaultDesktopTemplateDevTarget(appConfig)
+  ) {
+    return null;
+  }
+  return getDesktopTemplateGatewayAppUrl(appConfig.id);
+}
+
 function resolveAppBaseUrl(appConfig: AppConfig): string | null {
   const isProdMode = appConfig.mode !== "dev";
   if (isProdMode && appConfig.url) return appConfig.url;
   if (!isProdMode) {
     return (
-      getTemplateGatewayAppUrl(appConfig.id) ||
+      resolveDesktopTemplateGatewayUrl(appConfig) ||
       appConfig.devUrl ||
       (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : null) ||
       appConfig.url ||
@@ -397,7 +426,9 @@ function getInjectionTargetForAppId(
   appId: string | null | undefined,
 ): OAuthInjectionTarget | null {
   if (!appId) return null;
-  const appConfig = loadAppsForAuthContext().find((app) => app.id === appId);
+  const appConfig = loadAppsForAuthContext().find(
+    (app) => app.id === appId && app.enabled !== false,
+  );
   if (!appConfig) return null;
   return {
     appId: appConfig.id,
@@ -469,6 +500,7 @@ function focusMainWindow(): BrowserWindow | null {
       : BrowserWindow.getAllWindows()[0];
   if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
+    if (process.platform === "darwin") app.show();
     win.show();
     win.focus();
     return win;
@@ -487,6 +519,11 @@ function sendOpenRequestToRenderer(request: DesktopOpenRequest) {
   win.webContents.send(IPC.DEEP_LINK_OPEN, request);
 }
 
+function buildAppOpenRoutePath(parsed: URL): string {
+  const query = parsed.searchParams.toString();
+  return query ? `/_agent-native/open?${query}` : "/_agent-native/open";
+}
+
 function inferCodeAgentGoalIdFromRunId(
   runId: string | undefined,
 ): string | undefined {
@@ -503,6 +540,7 @@ function inferCodeAgentGoalIdFromRunId(
 async function handleDeepLink(url: string) {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return;
     if (parsed.host === "oauth-complete") {
       const token = parsed.searchParams.get("token");
       if (token) {
@@ -563,13 +601,80 @@ async function handleDeepLink(url: string) {
           goalId: targetGoal.id,
           runId,
         });
-      } else {
-        focusMainWindow();
+      } else if (targetApp && getInjectionTargetForAppId(targetApp)) {
+        sendOpenRequestToRenderer({
+          app: targetApp,
+          path: buildAppOpenRoutePath(parsed),
+        });
       }
+    } else if (parsed.host === "shortcuts" && parsed.pathname === "/upsert") {
+      await handleShortcutUpsertDeepLink(parsed);
     }
   } catch {
     // Malformed URL — ignore
   }
+}
+
+async function handleShortcutUpsertDeepLink(parsed: URL) {
+  const accelerator = parsed.searchParams.get("accelerator") ?? "";
+  const targetApp = parsed.searchParams.get("app") ?? "";
+  const view = parsed.searchParams.get("view") ?? undefined;
+  const behavior =
+    parsed.searchParams.get("behavior") === "show" ? "show" : "toggle";
+  const apps = loadAppsForAuthContext();
+  const appConfig = apps.find(
+    (candidate) => candidate.id === targetApp && candidate.enabled !== false,
+  );
+  const normalized = normalizeDesktopShortcutAccelerator(accelerator);
+  if (!targetApp || !appConfig || !normalized.accelerator) {
+    console.warn("[main] rejected invalid shortcut deep link", {
+      targetApp,
+      hasApp: Boolean(appConfig),
+      error: normalized.error,
+    });
+    return;
+  }
+  const win = focusMainWindow();
+  const appLabel = appConfig.name;
+  const messageOptions: Electron.MessageBoxOptions = {
+    type: "question",
+    buttons: ["Add Shortcut", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    message: "Add Agent Native app shortcut?",
+    detail: [
+      `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
+      `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
+      `Behavior: ${behavior === "show" ? "show and switch" : "toggle visibility"}`,
+    ].join("\n"),
+  };
+  const result = win
+    ? await dialog.showMessageBox(win, messageOptions)
+    : await dialog.showMessageBox(messageOptions);
+
+  if (result.response !== 0) return;
+
+  const update = AppStore.upsertDesktopShortcutBinding({
+    accelerator: normalized.accelerator,
+    app: targetApp,
+    view,
+    behavior,
+    enabled: true,
+  });
+  if (!update.ok) {
+    const errorOptions: Electron.MessageBoxOptions = {
+      type: "error",
+      message: "Shortcut was not added",
+      detail: update.error,
+    };
+    if (win) {
+      await dialog.showMessageBox(win, errorOptions);
+    } else {
+      await dialog.showMessageBox(errorOptions);
+    }
+    return;
+  }
+  registerDesktopShortcutBindings();
 }
 
 async function injectSessionAndReload(
@@ -688,6 +793,12 @@ app.on("open-url", (event, url) => {
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_DESKTOP_UPDATE_FEED_URL =
+  "https://agent-native.com/api/desktop-updates";
+const DESKTOP_UPDATE_FEED_URL = (
+  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
+  DEFAULT_DESKTOP_UPDATE_FEED_URL
+).replace(/\/+$/, "");
 
 let currentUpdateStatus: UpdateStatus = IS_DEV
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -755,6 +866,13 @@ function showUpdateReadyNotification(version: string) {
 }
 
 if (!IS_DEV) {
+  // The GitHub provider reads the repository-wide latest release feed, which
+  // also contains npm package releases and Clips desktop releases. Use the
+  // Agent Native feed that filters the shared repo down to desktop assets.
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: DESKTOP_UPDATE_FEED_URL,
+  });
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -895,6 +1013,12 @@ function createWindow(): BrowserWindow {
 
 let activeAppId = "";
 let activeWebviewContentsId: number | undefined;
+let desktopShortcutRegistrations = new Map<
+  string,
+  DesktopShortcutRegistration
+>();
+const registeredDesktopShortcutAccelerators = new Set<string>();
+let desktopShortcutsActivated = false;
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
@@ -944,6 +1068,150 @@ function getActiveWebviewContents() {
       })) ||
     webviewContents[0]
   );
+}
+
+function getDesktopShortcutSettings(): DesktopShortcutSettings {
+  const bindings = AppStore.loadDesktopShortcutBindings();
+  return {
+    bindings,
+    registrations: bindings.map(
+      (binding) =>
+        desktopShortcutRegistrations.get(binding.id) ?? {
+          id: binding.id,
+          registered: false,
+          error: binding.enabled ? "Shortcut is not registered." : undefined,
+        },
+    ),
+  };
+}
+
+function unregisterDesktopShortcutBindings() {
+  for (const accelerator of registeredDesktopShortcutAccelerators) {
+    try {
+      globalShortcut.unregister(accelerator);
+    } catch {
+      // Best effort; Electron also clears global shortcuts on quit.
+    }
+  }
+  registeredDesktopShortcutAccelerators.clear();
+}
+
+function refreshDesktopShortcutBindings() {
+  if (desktopShortcutsActivated) {
+    registerDesktopShortcutBindings();
+    return;
+  }
+
+  unregisterDesktopShortcutBindings();
+  desktopShortcutRegistrations = new Map(
+    AppStore.loadDesktopShortcutBindings().map((binding) => [
+      binding.id,
+      { id: binding.id, registered: false },
+    ]),
+  );
+}
+
+function hideMainWindowForShortcut() {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+  if (process.platform === "darwin") {
+    app.hide();
+  } else if (win && !win.isDestroyed()) {
+    win.hide();
+  }
+}
+
+function handleDesktopShortcutBinding(binding: DesktopShortcutBinding) {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+  const isTargetAlreadyFrontmost =
+    Boolean(win && !win.isDestroyed() && win.isVisible() && win.isFocused()) &&
+    activeAppId === binding.app;
+
+  if (binding.behavior === "toggle" && isTargetAlreadyFrontmost) {
+    hideMainWindowForShortcut();
+    return;
+  }
+
+  const targetView = binding.view?.trim();
+  sendOpenRequestToRenderer({
+    app: binding.app,
+    ...(targetView
+      ? { path: shortcutOpenPathForBinding(binding), softOpen: true }
+      : {}),
+  });
+}
+
+function registerDesktopShortcutBindings() {
+  desktopShortcutsActivated = true;
+  unregisterDesktopShortcutBindings();
+  const registrations = new Map<string, DesktopShortcutRegistration>();
+  const bindings = AppStore.loadDesktopShortcutBindings();
+  const apps = loadAppsForAuthContext();
+  const appsById = new Map(apps.map((appConfig) => [appConfig.id, appConfig]));
+  const claimedAccelerators = new Set<string>();
+
+  for (const binding of bindings) {
+    if (!binding.enabled) {
+      registrations.set(binding.id, { id: binding.id, registered: false });
+      continue;
+    }
+
+    const targetApp = appsById.get(binding.app);
+    if (!targetApp) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Target app is not installed.",
+      });
+      continue;
+    }
+    if (targetApp.enabled === false) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Target app is disabled.",
+      });
+      continue;
+    }
+    if (claimedAccelerators.has(binding.accelerator)) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: "Another binding already uses this shortcut.",
+      });
+      continue;
+    }
+
+    try {
+      const registered = globalShortcut.register(binding.accelerator, () =>
+        handleDesktopShortcutBinding(binding),
+      );
+      if (registered) {
+        claimedAccelerators.add(binding.accelerator);
+        registeredDesktopShortcutAccelerators.add(binding.accelerator);
+        registrations.set(binding.id, { id: binding.id, registered: true });
+      } else {
+        registrations.set(binding.id, {
+          id: binding.id,
+          registered: false,
+          error: "macOS or another app is already using this shortcut.",
+        });
+      }
+    } catch (err) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  desktopShortcutRegistrations = registrations;
 }
 
 function toggleWebviewDevTools() {
@@ -1033,6 +1301,53 @@ let remoteConnectorLastExitSignal: string | null | undefined;
 let remoteConnectorNextRestartAt: string | undefined;
 let remoteConnectorError: string | undefined;
 let appIsQuitting = false;
+const permissionConfiguredSessions = new WeakSet<Electron.Session>();
+const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
+  "clipboard-read",
+  "display-capture",
+  "fullscreen",
+  "media",
+  "notifications",
+]);
+
+function isAllowedWebviewPermission(permission: string): boolean {
+  return ALLOWED_WEBVIEW_PERMISSIONS.has(permission);
+}
+
+function originFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedPermissionRequest(
+  contents: Electron.WebContents | null | undefined,
+  targetAppId: string | null,
+  requestingOrigin?: string,
+  details?: unknown,
+): boolean {
+  if (!targetAppId) return false;
+  const appConfig = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === targetAppId && candidate.enabled !== false,
+  );
+  const trustedOrigin = appConfig ? getAppOrigin(appConfig) : null;
+  if (!trustedOrigin) return false;
+
+  const detailUrl = isObject(details)
+    ? firstStringValue(details.requestingUrl, details.embeddingOrigin)
+    : undefined;
+  const requestOrigin =
+    originFromUrl(requestingOrigin) ??
+    originFromUrl(detailUrl) ??
+    originFromUrl(contents?.getURL());
+  if (requestOrigin !== trustedOrigin) return false;
+
+  const contentsOrigin = originFromUrl(contents?.getURL());
+  return !contentsOrigin || contentsOrigin === trustedOrigin;
+}
 
 function remoteDeviceConfigPath(): string {
   return path.resolve(
@@ -1071,27 +1386,55 @@ function readRemoteDeviceConfig(): {
   }
 }
 
+function writeJsonFileAtomic(
+  filePath: string,
+  value: unknown,
+  options?: { mode?: number },
+): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    const writeOptions =
+      options?.mode === undefined
+        ? "utf-8"
+        : { encoding: "utf-8" as const, mode: options.mode };
+    fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), writeOptions);
+    fs.renameSync(tempPath, filePath);
+    if (options?.mode !== undefined) {
+      try {
+        fs.chmodSync(filePath, options.mode);
+      } catch {
+        // Best effort: this is still inside the user's local config directory.
+      }
+    }
+  } catch (err) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Ignore cleanup failures for a temp file in the config directory.
+    }
+    throw err;
+  }
+}
+
 function writeRemoteDeviceConfig(config: {
   token: string;
   relayUrl: string;
   deviceId?: string;
   deviceName?: string;
 }): void {
-  const configPath = remoteDeviceConfigPath();
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(
-    configPath,
-    JSON.stringify(
-      {
-        token: config.token,
-        relayUrl: config.relayUrl,
-        deviceId: config.deviceId,
-        deviceName: config.deviceName,
-      },
-      null,
-      2,
-    ),
-    { encoding: "utf-8", mode: 0o600 },
+  writeJsonFileAtomic(
+    remoteDeviceConfigPath(),
+    {
+      token: config.token,
+      relayUrl: config.relayUrl,
+      deviceId: config.deviceId,
+      deviceName: config.deviceName,
+    },
+    { mode: 0o600 },
   );
 }
 
@@ -1241,6 +1584,18 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   } catch (err) {
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
+  }
+  return getRemoteConnectorStatus();
+}
+
+function getRemoteConnectorStatusForUserRequest(): CodeAgentRemoteConnectorStatus {
+  if (
+    remoteConnectorEnabled &&
+    !appIsQuitting &&
+    !remoteConnectorProcess?.pid &&
+    !remoteConnectorNextRestartAt
+  ) {
+    return startRemoteCodeAgentConnector();
   }
   return getRemoteConnectorStatus();
 }
@@ -3758,9 +4113,7 @@ function writeCodeAgentProjectsState(state: {
   selectedPath?: string;
   projects: CodeAgentProjectFolder[];
 }) {
-  const filePath = codeAgentProjectsFile();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(state, null, 2)}\n`);
+  writeJsonFileAtomic(codeAgentProjectsFile(), state);
 }
 
 function upsertCodeAgentProject(
@@ -4885,7 +5238,8 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus => getRemoteConnectorStatus(),
+  (): CodeAgentRemoteConnectorStatus =>
+    getRemoteConnectorStatusForUserRequest(),
 );
 
 ipcMain.handle(
@@ -4928,7 +5282,31 @@ function canOpenExternalUrl(url: string): boolean {
 
 function openExternalUrl(url: string) {
   if (!canOpenExternalUrl(url)) return;
-  shell.openExternal(url).catch(() => {});
+  if (process.platform !== "darwin" || !/^https?:/i.test(url)) {
+    shell.openExternal(url).catch(() => {});
+    return;
+  }
+
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    shell.openExternal(url).catch(() => {});
+  };
+
+  try {
+    const child = spawn("open", ["-a", "Google Chrome", url], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.once("error", fallback);
+    child.once("close", (code) => {
+      if (code !== 0) fallback();
+    });
+    child.unref();
+  } catch {
+    fallback();
+  }
 }
 
 function handleDesktopProtocolUrl(url: string): boolean {
@@ -5130,14 +5508,18 @@ ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
 ipcMain.handle(
   IPC.APPS_ADD,
   (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
-    return AppStore.addApp(app);
+    const apps = AppStore.addApp(app);
+    refreshDesktopShortcutBindings();
+    return apps;
   },
 );
 
 ipcMain.handle(
   IPC.APPS_REMOVE,
   (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
-    return AppStore.removeApp(id);
+    const apps = AppStore.removeApp(id);
+    refreshDesktopShortcutBindings();
+    return apps;
   },
 );
 
@@ -5148,12 +5530,16 @@ ipcMain.handle(
     id: string,
     updates: Partial<AppConfig>,
   ): AppConfig[] => {
-    return AppStore.updateApp(id, updates);
+    const apps = AppStore.updateApp(id, updates);
+    refreshDesktopShortcutBindings();
+    return apps;
   },
 );
 
 ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
-  return AppStore.resetToDefaults();
+  const apps = AppStore.resetToDefaults();
+  refreshDesktopShortcutBindings();
+  return apps;
 });
 
 ipcMain.handle(
@@ -5174,6 +5560,40 @@ ipcMain.handle(
   },
 );
 
+// ---------- IPC: Local app-launch shortcuts ----------
+
+ipcMain.handle(IPC.SHORTCUTS_LOAD, (): DesktopShortcutSettings => {
+  return getDesktopShortcutSettings();
+});
+
+ipcMain.handle(
+  IPC.SHORTCUTS_UPSERT,
+  (
+    _event: IpcMainInvokeEvent,
+    request: DesktopShortcutUpsertRequest,
+  ): DesktopShortcutUpdateResult => {
+    const result = AppStore.upsertDesktopShortcutBinding(request);
+    if (!result.ok) {
+      return {
+        ok: false,
+        settings: getDesktopShortcutSettings(),
+        error: result.error,
+      };
+    }
+    registerDesktopShortcutBindings();
+    return { ok: true, settings: getDesktopShortcutSettings() };
+  },
+);
+
+ipcMain.handle(
+  IPC.SHORTCUTS_REMOVE,
+  (_event: IpcMainInvokeEvent, id: string): DesktopShortcutUpdateResult => {
+    AppStore.removeDesktopShortcutBinding(id);
+    registerDesktopShortcutBindings();
+    return { ok: true, settings: getDesktopShortcutSettings() };
+  },
+);
+
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
@@ -5186,17 +5606,19 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
-// system browser. App-webview Builder connect stays in an Electron popup so the
-// callback shares the app session; the desktop Code provider has its own
-// loopback browser flow. Each provider specifies:
+// system browser. Signed Builder app-webview connects can use the system
+// browser because the callback carries email-bound state; older unsigned
+// connect URLs still use the Electron popup so the callback shares the app
+// session. The desktop Code provider has its own loopback browser flow. Each
+// provider specifies:
 //   - a `matches` predicate on the initial URL (from window.open)
 //   - a `callbackPathFragment` used to detect when the OAuth callback has
 //     been reached so we can auto-close the popup
 //
 // Builder is matched on two URL shapes: (1) the localhost 302 starter at
 // `/_agent-native/builder/connect`, which is what the in-app button opens,
-// and (2) the resolved `builder.io/cli-auth` URL, so both shapes route
-// through the same popup. Private keys delivered by the callback are
+// and (2) the resolved `builder.io/cli-auth` URL, so both shapes can be
+// routed out of the app webview. Private keys delivered by the callback are
 // written server-side (template `.env` + SQL `persisted-env-vars`) — they
 // never touch the webview/renderer. See credential-provider.ts.
 interface OAuthProvider {
@@ -5532,9 +5954,35 @@ function builderOAuthUsesDesktopProvider(url: URL): boolean {
   }
 }
 
+function builderOAuthUsesSignedBrowserProvider(url: URL): boolean {
+  if (!url.pathname.startsWith("/cli-auth")) return false;
+  const redirectUrl = url.searchParams.get("redirect_url");
+  if (!redirectUrl) return false;
+  try {
+    const callbackUrl = new URL(redirectUrl);
+    return (
+      callbackUrl.pathname.endsWith("/_agent-native/builder/callback") &&
+      callbackUrl.searchParams.has("_an_state")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function builderConnectUsesSignedBrowserProvider(url: URL): boolean {
+  return (
+    url.pathname.endsWith("/_agent-native/builder/connect") &&
+    url.searchParams.has("_an_connect")
+  );
+}
+
 function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
   if (provider.name === "builder") {
-    return builderOAuthUsesDesktopProvider(url);
+    return (
+      builderOAuthUsesDesktopProvider(url) ||
+      builderOAuthUsesSignedBrowserProvider(url) ||
+      builderConnectUsesSignedBrowserProvider(url)
+    );
   }
   // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
   // a flow id poll /desktop-exchange, so the system browser can complete the
@@ -5792,6 +6240,55 @@ function openOAuthFromWebviewNavigation(
   }
 }
 
+function normalizedNavigationHost(hostname: string): string {
+  return isLoopbackHost(hostname.toLowerCase()) ? "loopback" : hostname;
+}
+
+function defaultPortForProtocol(protocol: string): string {
+  if (protocol === "http:") return "80";
+  if (protocol === "https:") return "443";
+  return "";
+}
+
+function navigationPort(url: URL): string {
+  return url.port || defaultPortForProtocol(url.protocol);
+}
+
+function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
+  if (current.origin === next.origin) return true;
+  if (current.protocol !== next.protocol) return false;
+  return (
+    normalizedNavigationHost(current.hostname) ===
+      normalizedNavigationHost(next.hostname) &&
+    navigationPort(current) === navigationPort(next)
+  );
+}
+
+function shouldOpenWebviewNavigationExternally(
+  url: string,
+  sourceContents: Electron.WebContents,
+): boolean {
+  if (!canOpenExternalUrl(url)) return false;
+  let next: URL;
+  try {
+    next = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (next.protocol !== "http:" && next.protocol !== "https:") return true;
+
+  try {
+    const current = new URL(sourceContents.getURL());
+    if (current.protocol !== "http:" && current.protocol !== "https:") {
+      return false;
+    }
+    return !isSameWebviewAppOrigin(current, next);
+  } catch {
+    return false;
+  }
+}
+
 function handleWindowOpenForContents(
   contents: Electron.WebContents,
   url: string,
@@ -5829,25 +6326,38 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   if (webviewOAuthNavigationHandlers.has(contents)) return;
   webviewOAuthNavigationHandlers.add(contents);
 
-  const handleNavigation = (event: Electron.Event, url: string) => {
+  const handleNavigation = (
+    event: Electron.Event,
+    url: string,
+    options: { isMainFrame: boolean },
+  ) => {
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
     }
-    if (!openOAuthFromWebviewNavigation(url, contents)) return;
-    event.preventDefault();
+    if (openOAuthFromWebviewNavigation(url, contents)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      options.isMainFrame &&
+      shouldOpenWebviewNavigationExternally(url, contents)
+    ) {
+      event.preventDefault();
+      openExternalUrl(url);
+    }
   };
 
   contents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) return;
-    handleNavigation(event, event.url);
+    handleNavigation(event, event.url, { isMainFrame: false });
   });
 
   // Belt-and-suspenders for existing deployed app bundles that may still
   // fall back to assigning window.location when Electron reports a manually
   // handled popup as null. Keep Builder/Google OAuth out of the app webview.
   contents.on("will-navigate", (event) => {
-    handleNavigation(event, event.url);
+    handleNavigation(event, event.url, { isMainFrame: true });
   });
 }
 
@@ -6087,6 +6597,37 @@ function refreshApplicationMenu() {
   installApplicationMenu();
 }
 
+function configurePermissionHandlers(
+  sess: Electron.Session,
+  targetAppId: string | null,
+) {
+  if (permissionConfiguredSessions.has(sess)) return;
+  permissionConfiguredSessions.add(sess);
+
+  sess.setPermissionCheckHandler(
+    (contents, permission, requestingOrigin, details) => {
+      return (
+        isAllowedWebviewPermission(permission) &&
+        isTrustedPermissionRequest(
+          contents,
+          targetAppId,
+          requestingOrigin,
+          details,
+        )
+      );
+    },
+  );
+
+  sess.setPermissionRequestHandler(
+    (contents, permission, callback, details) => {
+      callback(
+        isAllowedWebviewPermission(permission) &&
+          isTrustedPermissionRequest(contents, targetAppId, undefined, details),
+      );
+    },
+  );
+}
+
 app.whenReady().then(() => {
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -6104,6 +6645,7 @@ app.whenReady().then(() => {
   ) {
     if (configuredSessions.has(sess)) return;
     configuredSessions.add(sess);
+    configurePermissionHandlers(sess, targetAppId);
 
     if (IS_DEV) {
       sess.webRequest.onHeadersReceived((details, callback) => {
@@ -6139,7 +6681,7 @@ app.whenReady().then(() => {
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
-          const gatewayAppUrl = getTemplateGatewayAppUrl(app.id);
+          const gatewayAppUrl = resolveDesktopTemplateGatewayUrl(app);
           const appUrl = details.url.replace(
             `http://localhost:${FRAME_PORT}`,
             gatewayAppUrl || `http://localhost:${app.devPort}`,
@@ -6189,10 +6731,10 @@ app.whenReady().then(() => {
   installApplicationMenu();
 
   reconcileInterruptedCodeAgentRuns("startup");
+  registerDesktopShortcutBindings();
 
   const win = createWindow();
   remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
-  startRemoteCodeAgentConnector();
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
@@ -6291,4 +6833,8 @@ app.on("before-quit", () => {
   }
   remoteConnectorProcess?.kill("SIGTERM");
   remoteConnectorProcess = null;
+});
+
+app.on("will-quit", () => {
+  unregisterDesktopShortcutBindings();
 });

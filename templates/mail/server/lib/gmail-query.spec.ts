@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGmailEmailSearchQuery,
+  filterInboxScopedThreadMessages,
   gmailLabelSearchClause,
 } from "./gmail-query.js";
+import type { EmailMessage } from "@shared/types.js";
 
 describe("buildGmailEmailSearchQuery", () => {
   it("scopes inbox searches to inbox results", () => {
@@ -72,5 +74,99 @@ describe("buildGmailEmailSearchQuery", () => {
 describe("gmailLabelSearchClause", () => {
   it("quotes Gmail labels that need quoting", () => {
     expect(gmailLabelSearchClause("Team/Foo Bar")).toBe('label:"Team/Foo-Bar"');
+  });
+});
+
+function message(overrides: Partial<EmailMessage>): EmailMessage {
+  return {
+    id: "message",
+    threadId: "thread",
+    from: { name: "Sender", email: "sender@example.com" },
+    to: [],
+    subject: "Subject",
+    snippet: "",
+    body: "",
+    date: "2026-05-20T00:00:00.000Z",
+    isRead: true,
+    isStarred: false,
+    isArchived: false,
+    isTrashed: false,
+    labelIds: [],
+    ...overrides,
+  };
+}
+
+describe("filterInboxScopedThreadMessages", () => {
+  it("keeps a sent latest message when the thread has an inbox message", () => {
+    const received = message({
+      id: "received-old",
+      date: "2025-10-01T00:00:00.000Z",
+      labelIds: ["inbox"],
+    });
+    const sentLatest = message({
+      id: "sent-latest",
+      date: "2026-05-21T00:00:00.000Z",
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages([received, sentLatest], "inbox").map(
+        (m) => m.id,
+      ),
+    ).toEqual(["received-old", "sent-latest"]);
+  });
+
+  it("does not let sent-only threads into the inbox", () => {
+    const sentOnly = message({
+      id: "sent-only",
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(filterInboxScopedThreadMessages([sentOnly], "inbox")).toEqual([]);
+  });
+
+  it("excludes sent replies from custom label inbox previews", () => {
+    const received = message({
+      id: "received-old",
+      date: "2025-10-01T00:00:00.000Z",
+      labelIds: ["inbox", "customer success"],
+    });
+    const sentLatest = message({
+      id: "sent-latest",
+      date: "2026-05-21T00:00:00.000Z",
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages(
+        [received, sentLatest],
+        "inbox",
+        "customer success",
+      ).map((m) => m.id),
+    ).toEqual(["received-old"]);
+  });
+
+  it("keeps the full thread preview for unread threads", () => {
+    const unread = message({
+      id: "unread-old",
+      date: "2025-10-01T00:00:00.000Z",
+      isRead: false,
+      labelIds: ["inbox"],
+    });
+    const sentLatest = message({
+      id: "sent-latest",
+      date: "2026-05-21T00:00:00.000Z",
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages([unread, sentLatest], "unread").map(
+        (m) => m.id,
+      ),
+    ).toEqual(["unread-old", "sent-latest"]);
   });
 });

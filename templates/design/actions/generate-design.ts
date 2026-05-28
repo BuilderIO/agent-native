@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -98,6 +98,16 @@ export default defineAction({
           "the design's `:root` block actually uses.",
       ),
   }),
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Design preview",
+      description: "Open the generated design in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      height: 680,
+    }),
+  },
   run: async ({
     designId,
     prompt,

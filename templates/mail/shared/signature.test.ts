@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendSignatureToBody, normalizeSignature } from "./signature";
+import {
+  appendSignatureToBody,
+  normalizeSignature,
+  splitAppendedSignature,
+} from "./signature";
 
 describe("appendSignatureToBody", () => {
   it("appends a configured signature to a new draft", () => {
@@ -44,5 +48,26 @@ describe("appendSignatureToBody", () => {
     const signature =
       "Steve\n[![Logo](https://example.com/logo.png)](https://example.com)";
     expect(normalizeSignature(signature)).toBe("Steve");
+  });
+});
+
+describe("splitAppendedSignature", () => {
+  it("splits a reply body that only contains the configured signature", () => {
+    expect(splitAppendedSignature("Best,\nSteve", "Best,\nSteve")).toEqual([
+      "",
+      "Best,\nSteve",
+    ]);
+  });
+
+  it("splits an appended configured signature from user content", () => {
+    expect(
+      splitAppendedSignature("Thanks Alice\n\nBest,\nSteve", "Best,\nSteve"),
+    ).toEqual(["Thanks Alice", "Best,\nSteve"]);
+  });
+
+  it("leaves content unchanged when the configured signature is not appended", () => {
+    expect(
+      splitAppendedSignature("Best,\nSteve should join", "Best,\nSteve"),
+    ).toEqual(["Best,\nSteve should join", ""]);
   });
 });

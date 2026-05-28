@@ -133,7 +133,10 @@ describe("createAgentChatAdapter", () => {
           },
           {
             role: "user",
-            content: [{ type: "text", text: "Review @[app.tsx|file]" }],
+            content: [
+              { type: "text", text: "Review @[app.tsx|file]" },
+              { type: "image", image: "data:image/jpeg;base64,inline" },
+            ],
             attachments: [
               {
                 name: "screen.png",
@@ -196,6 +199,7 @@ describe("createAgentChatAdapter", () => {
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("/_agent-native/agent-chat");
     expect(init.method).toBe("POST");
+    expect(init.headers["x-agent-native-surface"]).toBe("app");
 
     const body = JSON.parse(init.body);
     expect(body).toMatchObject({
@@ -241,6 +245,12 @@ describe("createAgentChatAdapter", () => {
           name: "transcript.txt",
           contentType: "text/plain",
           text: "Transcript text",
+        },
+        {
+          type: "image",
+          name: "image",
+          contentType: "image/jpeg",
+          data: "data:image/jpeg;base64,inline",
         },
       ],
     });
@@ -477,6 +487,31 @@ describe("createAgentChatAdapter", () => {
         },
       ],
     });
+  });
+
+  it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      surface: "dev-frame",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Add a feature" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.headers["x-agent-native-surface"]).toBe("dev-frame");
   });
 
   it("truncates large outbound text attachments before posting", async () => {
@@ -886,6 +921,71 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("keeps recovery prompts from replacing the original user request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-recovery",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Build a CS operations tool" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "The agent stopped before finishing.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Continue from where you left off and finish my last request.",
+              },
+            ],
+            metadata: {
+              custom: { agentNativeRecoveryAction: "continue" },
+            },
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe(
+      "Continue from where you left off and finish my last request.",
+    );
+    expect(body.displayMessage).toBe("Build a CS operations tool");
+    expect(body.history).toEqual([
+      { role: "user", content: "Build a CS operations tool" },
+      { role: "assistant", content: "The agent stopped before finishing." },
+    ]);
+  });
+
   it("auto-continues without surfacing loop limit text", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1030,6 +1130,7 @@ describe("createAgentChatAdapter", () => {
             type: "tool-result",
             toolCallId: expect.stringMatching(/^continuation_tc_/),
             toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
             content: '{"id":"doc-1","title":"Offsite rambles"}',
           },
         ],
@@ -1313,6 +1414,91 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("continues once when a run timeout happened during action input streaming", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing create-extension action",
+                tool: "create-extension",
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([
+              {
+                type: "text",
+                text: "created a compact first version",
+              },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-action-input-timeout",
+      threadId: "thread-action-input-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Build a detailed CS operations extension",
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).toContain(
+      "preparing the `create-extension` action input",
+    );
+    expect(secondBody.message).toContain("compact working v1");
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "Build a detailed CS operations extension" },
+    ]);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("created a compact first version");
+  });
+
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
@@ -1377,6 +1563,74 @@ describe("createAgentChatAdapter", () => {
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
     expect(last.content.at(-1).text).toContain("did not start streaming");
+  });
+
+  it("retries a transient missing agent-chat route on startup", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const routeMissing = {
+      error: true,
+      status: 404,
+      message:
+        "Cannot find any route matching [POST] https://design.agent-native.com/_agent-native/agent-chat",
+    };
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount < 3
+          ? jsonResponse(routeMissing, 404)
+          : sseResponse([
+              { type: "text", text: "ready after route registration" },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-route-missing",
+      threadId: "thread-route-missing",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "please respond" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    expect(postCount).toBe(3);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("ready after route registration");
   });
 
   it("uses partial stream-ended text as history without keeping it visible", async () => {
@@ -1876,6 +2130,7 @@ describe("createAgentChatAdapter", () => {
             type: "tool-result",
             toolCallId: "continuation_tc_1",
             toolName: "list-extensions",
+            toolInput: '{"search":"GitHub Stars"}',
             content: "Interrupted before this tool returned a result.",
           },
         ],

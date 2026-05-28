@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -29,6 +29,16 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Design snapshot",
+      description: "Open the current design in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      height: 680,
+    }),
+  },
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {

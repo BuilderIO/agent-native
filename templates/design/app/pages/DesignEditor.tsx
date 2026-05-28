@@ -93,6 +93,8 @@ import {
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
+const MAX_GENERATION_ATTEMPTS = 3;
+const AUTO_RETRY_DELAY_MS = 1200;
 
 type EditorMode = "comment" | "edit" | "draw";
 
@@ -219,6 +221,7 @@ export default function DesignEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [svgExporting, setSvgExporting] = useState(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
@@ -235,13 +238,21 @@ export default function DesignEditor() {
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    attempt?: number;
   } | null>(null);
   const generationOutputReadyRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
+  const autoRetryTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
     if (generationCompleteTimerRef.current !== null) {
       window.clearTimeout(generationCompleteTimerRef.current);
       generationCompleteTimerRef.current = null;
+    }
+  }, []);
+  const clearAutoRetryTimer = useCallback(() => {
+    if (autoRetryTimerRef.current !== null) {
+      window.clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
     }
   }, []);
   const staleToastShownRef = useRef(false);
@@ -254,6 +265,7 @@ export default function DesignEditor() {
         model: pending.model,
         engine: pending.engine,
         effort: pending.effort,
+        attempt: pending.attempt ?? 1,
       });
       return true;
     }
@@ -323,7 +335,12 @@ export default function DesignEditor() {
 
   const { session } = useSession();
 
-  useEffect(() => clearGenerationCompleteTimer, [clearGenerationCompleteTimer]);
+  useEffect(() => {
+    return () => clearGenerationCompleteTimer();
+  }, [clearGenerationCompleteTimer]);
+  useEffect(() => {
+    return () => clearAutoRetryTimer();
+  }, [clearAutoRetryTimer]);
 
   // Current user info for collaborative presence
   const currentUser: CollabUser | undefined = session?.email
@@ -470,6 +487,18 @@ export default function DesignEditor() {
 
   const design = isDesignData(designResult) ? designResult : null;
 
+  useEffect(() => {
+    if (!design?.title) return;
+    const nextTitle = `${design.title} — Design`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) {
+        document.title = previousTitle;
+      }
+    };
+  }, [design?.title]);
+
   const commitTitleEdit = useCallback(() => {
     setTitleEditing(false);
     if (!id) return;
@@ -572,6 +601,7 @@ export default function DesignEditor() {
     });
     patchPendingGeneration(id, {
       runTabId,
+      attempt: pending.attempt ?? 1,
       startedAt: Date.now(),
     });
     setHasPendingGeneration(true);
@@ -851,41 +881,97 @@ export default function DesignEditor() {
     setDrawMode(false);
   }, [activeFile, pinMode, viewMode]);
 
+  const startRetryGeneration = useCallback(
+    (
+      promptState: NonNullable<typeof retryablePrompt>,
+      attempt: number,
+      mode: "manual" | "auto",
+    ) => {
+      if (!id || !design) return;
+      clearAutoRetryTimer();
+      const fileContext = formatUploadedFileContext(promptState.files);
+      const retryLine =
+        mode === "auto"
+          ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
+          : "(Retrying — the previous attempt did not complete.)";
+      const context = [
+        `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+        `User request: "${promptState.prompt}"`,
+        fileContext,
+        "",
+        retryLine,
+        ...designGenerationDirectives(id),
+      ].join("\n");
+      clearGenerationCompleteTimer();
+      setGenerationIssue(null);
+      const runTabId = agentSubmit(
+        `Generate design for "${design.title}": ${promptState.prompt}`,
+        context,
+        {
+          model: promptState.model,
+          engine: promptState.engine,
+          effort: promptState.effort,
+        },
+      );
+      patchPendingGeneration(id, {
+        prompt: promptState.prompt,
+        files: promptState.files,
+        title: design.title,
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+        attempt,
+        runTabId,
+        startedAt: Date.now(),
+      });
+      setHasPendingGeneration(true);
+      setRetryablePrompt(null);
+    },
+    [
+      id,
+      design,
+      agentSubmit,
+      clearAutoRetryTimer,
+      clearGenerationCompleteTimer,
+    ],
+  );
+
   const handleRetryGeneration = useCallback(() => {
-    if (!id || !design || !retryablePrompt) return;
-    const fileContext = formatUploadedFileContext(retryablePrompt.files);
-    const context = [
-      `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
-      `User request: "${retryablePrompt.prompt}"`,
-      fileContext,
-      "",
-      "(Retrying — the previous attempt did not complete.)",
-      ...designGenerationDirectives(id),
-    ].join("\n");
-    clearGenerationCompleteTimer();
-    setGenerationIssue(null);
-    const runTabId = agentSubmit(
-      `Generate design for "${design.title}": ${retryablePrompt.prompt}`,
-      context,
-      {
-        model: retryablePrompt.model,
-        engine: retryablePrompt.engine,
-        effort: retryablePrompt.effort,
-      },
+    if (!retryablePrompt) return;
+    startRetryGeneration(
+      retryablePrompt,
+      (retryablePrompt.attempt ?? 1) + 1,
+      "manual",
     );
-    patchPendingGeneration(id, {
-      prompt: retryablePrompt.prompt,
-      files: retryablePrompt.files,
-      title: design.title,
-      model: retryablePrompt.model,
-      engine: retryablePrompt.engine,
-      effort: retryablePrompt.effort,
-      runTabId,
-      startedAt: Date.now(),
-    });
-    setHasPendingGeneration(true);
-    setRetryablePrompt(null);
-  }, [id, design, retryablePrompt, agentSubmit, clearGenerationCompleteTimer]);
+  }, [retryablePrompt, startRetryGeneration]);
+
+  useEffect(() => {
+    clearAutoRetryTimer();
+    if (
+      !retryablePrompt ||
+      !generationIssue ||
+      generating ||
+      pendingGenerationActive
+    ) {
+      return;
+    }
+    const completedAttempt = retryablePrompt.attempt ?? 1;
+    if (completedAttempt >= MAX_GENERATION_ATTEMPTS) return;
+
+    autoRetryTimerRef.current = window.setTimeout(() => {
+      autoRetryTimerRef.current = null;
+      startRetryGeneration(retryablePrompt, completedAttempt + 1, "auto");
+    }, AUTO_RETRY_DELAY_MS);
+
+    return clearAutoRetryTimer;
+  }, [
+    retryablePrompt,
+    generationIssue,
+    generating,
+    pendingGenerationActive,
+    startRetryGeneration,
+    clearAutoRetryTimer,
+  ]);
 
   const handleCopyCodingHandoff = useCallback(() => {
     if (!id) return;
@@ -1046,10 +1132,110 @@ export default function DesignEditor() {
     }
   }, [fallbackExportName, triggerBlobDownload]);
 
+  const handleDownloadSvg = useCallback(async () => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Design Preview"]',
+    );
+    const doc = iframe?.contentDocument;
+    if (!doc?.documentElement) {
+      toast.error("Open a screen before exporting SVG");
+      return;
+    }
+
+    setSvgExporting(true);
+    try {
+      const width = Math.max(
+        doc.documentElement.scrollWidth,
+        doc.body?.scrollWidth ?? 0,
+        iframe?.clientWidth ?? 0,
+      );
+      const height = Math.max(
+        doc.documentElement.scrollHeight,
+        doc.body?.scrollHeight ?? 0,
+        iframe?.clientHeight ?? 0,
+      );
+      const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+      clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+      const stylesheetLinks = Array.from(
+        doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const clonedStylesheetLinks = Array.from(
+        clone.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+      );
+      const stylesheets = Array.from(doc.styleSheets);
+
+      stylesheetLinks.forEach((link, index) => {
+        const sheet = stylesheets.find(
+          (candidate) =>
+            (candidate as StyleSheet & { ownerNode?: Node | null })
+              .ownerNode === link,
+        ) as CSSStyleSheet | undefined;
+        let cssText = "";
+        try {
+          cssText = Array.from(sheet?.cssRules ?? [])
+            .map((rule) => rule.cssText)
+            .join("\n");
+        } catch {
+          // Cross-origin stylesheets cannot be read. Leave the original link in
+          // place instead of failing the whole export.
+          return;
+        }
+        if (!cssText.trim()) return;
+        const style = doc.createElement("style");
+        style.setAttribute(
+          "data-agent-native-inlined-stylesheet",
+          link.getAttribute("href") ?? "",
+        );
+        style.textContent = cssText;
+        clonedStylesheetLinks[index]?.replaceWith(style);
+      });
+      clone.querySelectorAll("script").forEach((node) => node.remove());
+      clone.style.width = `${width}px`;
+      clone.style.minHeight = `${height}px`;
+
+      const body = clone.querySelector("body") as HTMLElement | null;
+      if (body) {
+        body.style.margin = body.style.margin || "0";
+        body.style.width = `${width}px`;
+        body.style.minHeight = `${height}px`;
+      }
+
+      const serializedHtml = new XMLSerializer().serializeToString(clone);
+      const safeTitle =
+        design?.title
+          ?.replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;") || "Design export";
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
+  <title>${safeTitle}</title>
+  <foreignObject width="${width}" height="${height}">
+${serializedHtml}
+  </foreignObject>
+</svg>`;
+
+      triggerBlobDownload(
+        new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+        fallbackExportName("svg"),
+      );
+      toast.success("SVG downloaded");
+    } catch (error) {
+      console.error("SVG export failed:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Could not export SVG",
+      );
+    } finally {
+      setSvgExporting(false);
+    }
+  }, [design?.title, fallbackExportName, triggerBlobDownload]);
+
   const exportPending =
     exportHtmlMutation.isPending ||
     exportZipMutation.isPending ||
-    createCodingHandoffMutation.isPending;
+    createCodingHandoffMutation.isPending ||
+    svgExporting;
+  const zoomLabel = `${Math.round(zoom)}%`;
 
   if (!id) {
     navigate("/");
@@ -1269,8 +1455,8 @@ export default function DesignEditor() {
               >
                 <IconZoomOut className="w-3.5 h-3.5" />
               </Button>
-              <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
-                {zoom}%
+              <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
+                {zoomLabel}
               </span>
               <Button
                 variant="ghost"
@@ -1387,6 +1573,13 @@ export default function DesignEditor() {
                 >
                   <IconPhoto className="mr-2 h-4 w-4" />
                   Download PNG
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleDownloadSvg}
+                  disabled={!activeFile || svgExporting}
+                >
+                  <IconCode className="mr-2 h-4 w-4" />
+                  Download SVG
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleDownloadZip}
@@ -1661,6 +1854,7 @@ export default function DesignEditor() {
             files: [],
             title: design.title,
             runTabId,
+            attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);
@@ -1692,6 +1886,7 @@ export default function DesignEditor() {
             title: design.title,
             ...options,
             runTabId,
+            attempt: 1,
             startedAt: Date.now(),
           });
           setHasPendingGeneration(true);

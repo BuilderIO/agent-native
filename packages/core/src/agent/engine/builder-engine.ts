@@ -21,13 +21,12 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import {
-  engineMessagesToAnthropic,
+  engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
 import {
   clearBuilderCredentialAuthFailure,
-  resolveBuilderAuthHeader,
-  resolveBuilderCredential,
   resolveBuilderCredentials,
   getBuilderGatewayBaseUrl,
   recordBuilderCredentialAuthFailure,
@@ -57,12 +56,11 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Default to the max — design generation, multi-screen prototypes, and other
-// large-output workloads need every second they can get inside Lambda's 75s
-// function budget. The cap stays at 55s to leave ~20s headroom for response
-// streaming + the soft-timeout continuation path in run-loop-with-resume.
-const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
-const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 55_000;
+// Keep the gateway timeout below the hosted run soft timeout so the agent loop
+// can append a continuation and persist terminal state before serverless hosts
+// (Netlify synchronous Functions are 60s) hard-kill the invocation.
+const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 32768;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
@@ -123,11 +121,10 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const [authHeader, spaceId, builderUserId] = await Promise.all([
-      resolveBuilderAuthHeader(),
-      resolveBuilderCredential("BUILDER_PUBLIC_KEY"),
-      resolveBuilderCredential("BUILDER_USER_ID"),
-    ]);
+    const creds = await resolveBuilderCredentials();
+    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const spaceId = creds.publicKey;
+    const builderUserId = creds.userId;
     if (!authHeader || !spaceId) {
       yield {
         type: "stop",
@@ -138,7 +135,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
@@ -167,8 +164,7 @@ class BuilderEngine implements AgentEngine {
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
     gatewayUrl.searchParams.set("apiKey", spaceId);
-    const orgLabel =
-      (await resolveBuilderCredential("BUILDER_ORG_NAME")) || "unknown-org";
+    const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
       `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
@@ -188,6 +184,7 @@ class BuilderEngine implements AgentEngine {
             "Content-Type": "application/json",
             Authorization: authHeader,
             "x-builder-api-key": spaceId,
+            ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
           body: JSON.stringify(body),
