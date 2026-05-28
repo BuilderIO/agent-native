@@ -74,6 +74,7 @@ import {
   encodeMimeHeaderValue,
   resolveComposeAttachments,
 } from "../lib/outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
@@ -1448,43 +1449,23 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
-        // Fetch the sender's display name from Gmail send-as settings,
-        // falling back to Google profile name
-        let fromHeader = selectedEmail;
-        try {
-          const sendAs = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
-            selectedToken,
-          );
-          const match = sendAs?.sendAs?.find(
-            (s: any) =>
-              s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
-          );
-          if (match?.displayName) {
-            fromHeader = `${match.displayName} <${selectedEmail}>`;
-          }
-        } catch {
-          // Fall back to profile name below
-        }
-        // If sendAs didn't have a display name, try Google profile
-        if (fromHeader === selectedEmail) {
-          try {
-            const profile = await googleFetch(
-              `https://www.googleapis.com/oauth2/v2/userinfo`,
-              selectedToken,
+        const senderIdentity = await resolveGoogleSenderIdentity({
+          accessToken: selectedToken,
+          email: selectedEmail,
+          fallbackName: settings.name,
+          cachedName: getAccountDisplayName(selectedEmail),
+          onResolvedDisplayName: (name) => {
+            setAccountDisplayName(selectedEmail, name);
+            void setOAuthDisplayName("google", selectedEmail, name).catch(
+              () => {},
             );
-            if (profile?.name) {
-              fromHeader = `${profile.name} <${selectedEmail}>`;
-            }
-          } catch {
-            // Fall back to email-only
-          }
-        }
+          },
+        });
 
         const tracking = buildTrackingContext(event, body || "", settings);
 
         const raw = buildOutgoingRawEmail({
-          from: fromHeader,
+          from: senderIdentity.header,
           to: cleanedTo,
           cc: cleanedCc,
           bcc: cleanedBcc,
@@ -1563,6 +1544,10 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           id: sent.id,
           threadId: sent.threadId,
           labelIds: sent.labelIds || ["SENT"],
+          from: {
+            name: senderIdentity.displayName || senderIdentity.email,
+            email: senderIdentity.email,
+          },
         };
       }
     } catch (error: any) {

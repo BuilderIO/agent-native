@@ -2,16 +2,18 @@ import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
 import {
-  gmailGetMessage,
-  gmailSendMessage,
-  googleFetch,
-} from "../server/lib/google-api.js";
-import { invalidateListCacheForOwner } from "../server/lib/google-auth.js";
+  getAccountDisplayName,
+  invalidateListCacheForOwner,
+  setAccountDisplayName,
+} from "../server/lib/google-auth.js";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import {
   encodeAddressHeader,
   encodeMimeHeaderValue,
 } from "../server/lib/outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
@@ -375,48 +377,21 @@ export default defineAction({
       }
     }
 
-    // Fetch sender display name from Gmail send-as settings,
-    // falling back to Google profile name, then settings.name
-    let fromHeader = settings.name
-      ? `${settings.name} <${selectedEmail}>`
-      : selectedEmail;
-    try {
-      const sendAs = await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
-        selectedToken,
-      );
-      const match = sendAs?.sendAs?.find(
-        (s: any) =>
-          s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
-      );
-      if (match?.displayName) {
-        fromHeader = `${match.displayName} <${selectedEmail}>`;
-      }
-    } catch {
-      // Fall back to profile name below
-    }
-    // If still no display name, try Google profile
-    if (
-      fromHeader === selectedEmail ||
-      (!fromHeader.includes("<") && !settings.name)
-    ) {
-      try {
-        const profile = await googleFetch(
-          `https://www.googleapis.com/oauth2/v2/userinfo`,
-          selectedToken,
-        );
-        if (profile?.name) {
-          fromHeader = `${profile.name} <${selectedEmail}>`;
-        }
-      } catch {
-        // Fall back to settings.name or email-only
-      }
-    }
+    const senderIdentity = await resolveGoogleSenderIdentity({
+      accessToken: selectedToken,
+      email: selectedEmail,
+      fallbackName: settings.name,
+      cachedName: getAccountDisplayName(selectedEmail),
+      onResolvedDisplayName: (name) => {
+        setAccountDisplayName(selectedEmail, name);
+        void setOAuthDisplayName("google", selectedEmail, name).catch(() => {});
+      },
+    });
 
     const tracking = buildTrackingContext(args.body, settings.tracking);
 
     const raw = buildRawEmail({
-      from: fromHeader,
+      from: senderIdentity.header,
       to: args.to,
       cc: args.cc,
       bcc: args.bcc,
