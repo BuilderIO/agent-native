@@ -655,6 +655,26 @@ function maxRetriesForError(err: unknown): number {
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 
+/**
+ * Hard cap on the `<current-screen>` block injected into EVERY user message.
+ *
+ * The screen snapshot comes from the template's `view-screen` action, which can
+ * be unbounded — e.g. a recording/meeting page returns the full transcript +
+ * every segment. Injected on every turn with no cap, that single block can blow
+ * past the model's context window and hard-error the chat with
+ * `context_length_exceeded` (observed: a brand-new "hi" message failing because
+ * an open recording's transcript shipped in `<current-screen>`). ~24K chars
+ * (~6K tokens) keeps the ambient snapshot useful while leaving the window for
+ * history and the response; the agent can call `view-screen` (or a data action
+ * like `get-recording-player-data`) for the full detail on demand.
+ */
+const MAX_SCREEN_CONTEXT_CHARS = 24_000;
+
+function capScreenContext(text: string): string {
+  if (text.length <= MAX_SCREEN_CONTEXT_CHARS) return text;
+  return `${text.slice(0, MAX_SCREEN_CONTEXT_CHARS)}\n\n…[current-screen snapshot truncated after ${MAX_SCREEN_CONTEXT_CHARS.toLocaleString()} chars to protect the context window. Call the view-screen action for the full snapshot, or a data action (e.g. get-recording-player-data) for full transcripts.]`;
+}
+
 function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -2179,7 +2199,7 @@ export function createProductionAgentHandler(
               typeof result === "string"
                 ? result
                 : JSON.stringify(result, null, 2);
-            return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
+            return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
           }
         } else {
           const navigation = await readAppStateForBrowserTab(
@@ -2187,7 +2207,7 @@ export function createProductionAgentHandler(
             requestBrowserTabId,
           );
           if (navigation) {
-            return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+            return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
           }
         }
       } catch {
