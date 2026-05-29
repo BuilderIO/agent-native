@@ -243,10 +243,12 @@ ${googleNoticeBodyHtml}
     align-items: center;
     gap: 0.375rem;
     font-size: 0.8125rem;
-    color: #71717a;
+    font-weight: 600;
+    color: #00B5FF;
     text-decoration: none;
+    transition: color 0.15s ease;
   }
-  .oss-link:hover { color: #a1a1aa; }
+  .oss-link:hover { color: #33C4FF; }
   .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
   .marketing-actions {
     display: flex;
@@ -344,7 +346,7 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
       }      <div class="marketing-actions">
 ${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()">Run Locally</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
-        Open source
+        100% free and open source
       </a>
       </div>
 ${

@@ -86,6 +86,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "Your AI agent manages secrets, orchestrates other agents",
     );
+    expect(html).toContain("100% free and open source");
   });
 
   it("has branded auth marketing for every core built-in template host", () => {

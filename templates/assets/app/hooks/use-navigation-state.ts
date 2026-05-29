@@ -3,7 +3,12 @@ import { useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 
-function navigationFromPath(pathname: string) {
+function optionalParam(params: URLSearchParams, key: string) {
+  const value = params.get(key)?.trim();
+  return value ? value : undefined;
+}
+
+function navigationFromPath(pathname: string, search = "") {
   const library = pathname.match(/^\/library\/([^/]+)/);
   if (library) return { view: "library", libraryId: library[1] };
   const asset = pathname.match(/^\/asset\/([^/]+)/);
@@ -11,6 +16,22 @@ function navigationFromPath(pathname: string) {
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "asset", assetId: image[1] };
   if (pathname === "/") return { view: "create" };
+  if (pathname === "/picker") {
+    const params = new URLSearchParams(search);
+    return {
+      view: "picker",
+      mediaType:
+        params.get("mediaType") === "video"
+          ? "video"
+          : params.get("mediaType") === "image"
+            ? "image"
+            : undefined,
+      libraryId: optionalParam(params, "libraryId"),
+      query: optionalParam(params, "q"),
+      prompt: optionalParam(params, "prompt"),
+      aspectRatio: optionalParam(params, "aspectRatio"),
+    };
+  }
   if (pathname === "/libraries") return { view: "libraries" };
   if (pathname === "/extensions") return { view: "extensions" };
   const extension = pathname.match(/^\/extensions\/([^/]+)/);
@@ -42,6 +63,26 @@ function pathFromCommand(command: any): string | null {
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
   if (command.view === "create") return "/";
+  if (command.view === "picker") {
+    const params = new URLSearchParams();
+    if (command.mediaType === "image" || command.mediaType === "video") {
+      params.set("mediaType", command.mediaType);
+    }
+    if (typeof command.libraryId === "string" && command.libraryId.trim()) {
+      params.set("libraryId", command.libraryId.trim());
+    }
+    if (typeof command.query === "string" && command.query.trim()) {
+      params.set("q", command.query.trim());
+    }
+    if (typeof command.prompt === "string" && command.prompt.trim()) {
+      params.set("prompt", command.prompt.trim());
+    }
+    if (typeof command.aspectRatio === "string" && command.aspectRatio.trim()) {
+      params.set("aspectRatio", command.aspectRatio.trim());
+    }
+    const query = params.toString();
+    return query ? `/picker?${query}` : "/picker";
+  }
   if (command.view === "libraries") return "/libraries";
   if (command.view === "extensions" && command.extensionId) {
     return `/extensions/${command.extensionId}`;
@@ -61,9 +102,11 @@ export function useNavigationState() {
         "content-type": "application/json",
         "x-request-source": "assets-ui",
       },
-      body: JSON.stringify(navigationFromPath(location.pathname)),
+      body: JSON.stringify(
+        navigationFromPath(location.pathname, location.search),
+      ),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   const { data: command } = useQuery({
     queryKey: ["app-state", "navigate"],

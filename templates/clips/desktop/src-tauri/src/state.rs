@@ -47,6 +47,12 @@ pub struct DictationActive(pub Mutex<bool>);
 #[derive(Default)]
 pub struct VoiceWakePopover(pub Mutex<bool>);
 
+/// Bundle identifier of the app that was focused when voice dictation started.
+/// Used to return focus before posting the paste event if a Clips overlay
+/// briefly became active while showing the dictation HUD.
+#[derive(Default)]
+pub struct VoiceTargetBundle(pub Mutex<Option<String>>);
+
 #[allow(dead_code)]
 /// Last dictation result for "paste last".
 #[derive(Default)]

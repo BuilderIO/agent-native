@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router";
 import {
   IconPhoto,
   IconLibraryPhoto,
+  IconPhotoSearch,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -24,6 +25,7 @@ import {
 
 const baseNavItems = [
   { icon: IconPhoto, label: "Create", href: "/" },
+  { icon: IconPhotoSearch, label: "Picker", href: "/picker" },
   { icon: IconLibraryPhoto, label: "Libraries", href: "/libraries" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];

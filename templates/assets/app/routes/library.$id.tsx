@@ -576,6 +576,7 @@ export default function LibraryPage() {
       </div>
     );
   }
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -891,6 +892,7 @@ export default function LibraryPage() {
                   <RunCard
                     key={run.id}
                     run={run}
+                    outputAssets={assetById}
                     rerunning={
                       rerunGeneration.isPending || refreshGeneration.isPending
                     }
@@ -1149,11 +1151,13 @@ function formatBrandAnalysisTime(value: unknown): string {
 
 function RunCard({
   run,
+  outputAssets,
   onRerun,
   onCreateHandoff,
   rerunning,
 }: {
   run: any;
+  outputAssets?: Map<string, any>;
   onRerun: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
@@ -1276,17 +1280,22 @@ function RunCard({
           </div>
           {outputIds.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              {outputIds.map((assetId) => (
-                <Button
-                  key={assetId}
-                  asChild
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
-                >
-                  <Link to={`/asset/${assetId}`}>{shortId(assetId)}</Link>
-                </Button>
-              ))}
+              {outputIds.map((assetId) => {
+                const outputAsset = outputAssets?.get(assetId);
+                return (
+                  <Button
+                    key={assetId}
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                  >
+                    <Link to={`/asset/${assetId}`}>
+                      {assetLineageLabel(outputAsset) ?? shortId(assetId)}
+                    </Link>
+                  </Button>
+                );
+              })}
             </div>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -1337,6 +1346,29 @@ function RunFact({ label, value }: { label: string; value: string }) {
   );
 }
 
+function assetLineageLabel(asset: any): string | null {
+  return typeof asset?.lineage?.label === "string" && asset.lineage.label
+    ? asset.lineage.label
+    : null;
+}
+
+function assetDisplayTitle(asset: any): string {
+  return (
+    assetLineageLabel(asset) ||
+    asset.title ||
+    asset.metadata?.category ||
+    asset.status ||
+    "Asset"
+  );
+}
+
+function assetLineageSourceText(asset: any): string | null {
+  const lineage = asset?.lineage;
+  return lineage?.kind === "variation" && lineage.sourceLabel
+    ? `from ${lineage.sourceLabel}`
+    : null;
+}
+
 function shortId(id: string) {
   return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-4)}` : id;
 }
@@ -1362,6 +1394,8 @@ function SessionCard({
   onContinue: () => void;
 }) {
   const preset = presets.find((item) => item.id === session.presetId);
+  const sessionItems = Array.isArray(session.items) ? session.items : [];
+  const assetItems = sessionItems.filter((item: any) => item.assetId);
   return (
     <article className="rounded-lg border border-border bg-background p-3">
       <div className="flex items-start justify-between gap-3">
@@ -1390,7 +1424,22 @@ function SessionCard({
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
         {preset ? <Badge variant="secondary">{preset.title}</Badge> : null}
-        {session.activeAssetId ? (
+        {assetItems.slice(0, 4).map((item: any) => (
+          <Badge
+            key={item.id}
+            variant={
+              item.assetId === session.activeAssetId ? "secondary" : "outline"
+            }
+          >
+            {item.assetId === session.activeAssetId
+              ? `${item.label} active`
+              : item.label}
+          </Badge>
+        ))}
+        {assetItems.length > 4 ? (
+          <Badge variant="outline">+{assetItems.length - 4}</Badge>
+        ) : null}
+        {!assetItems.length && session.activeAssetId ? (
           <Badge variant="outline">
             active {shortId(session.activeAssetId)}
           </Badge>
@@ -2303,108 +2352,122 @@ function AssetGrid({
           {pendingUploads.map((upload) => (
             <PendingUploadCard key={upload.id} upload={upload} />
           ))}
-          {assets.map((asset) => (
-            <div
-              key={asset.id}
-              className={[
-                "group relative overflow-hidden rounded-lg border bg-card transition",
-                selectedIds.has(asset.id)
-                  ? "border-primary ring-2 ring-primary/25"
-                  : "border-border",
-              ].join(" ")}
-            >
-              <div className="absolute left-2 top-2 z-10">
-                <Checkbox
-                  checked={selectedIds.has(asset.id)}
-                  onCheckedChange={(checked) =>
-                    toggleAsset(asset.id, checked === true)
-                  }
-                  aria-label={`Select ${asset.title || asset.metadata?.category || "asset"}`}
-                  className={[
-                    "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
-                    selectedIds.has(asset.id) ? "sm:opacity-100" : "",
-                  ].join(" ")}
-                />
-              </div>
-              <div className="absolute right-2 top-2 z-10">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon"
-                      className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-                      aria-label="Asset actions"
-                    >
-                      <IconDotsVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem asChild>
-                      <Link to={`/asset/${asset.id}`}>View details</Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>
-                        <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                        Move to
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            updateAsset.mutate({ id: asset.id, folderId: null })
-                          }
-                        >
-                          Unfiled
-                        </DropdownMenuItem>
-                        {folders.map((folder) => (
+          {assets.map((asset) => {
+            const displayTitle = assetDisplayTitle(asset);
+            const sourceText = assetLineageSourceText(asset);
+            return (
+              <div
+                key={asset.id}
+                className={[
+                  "group relative overflow-hidden rounded-lg border bg-card transition",
+                  selectedIds.has(asset.id)
+                    ? "border-primary ring-2 ring-primary/25"
+                    : "border-border",
+                ].join(" ")}
+              >
+                <div className="absolute left-2 top-2 z-10">
+                  <Checkbox
+                    checked={selectedIds.has(asset.id)}
+                    onCheckedChange={(checked) =>
+                      toggleAsset(asset.id, checked === true)
+                    }
+                    aria-label={`Select ${displayTitle}`}
+                    className={[
+                      "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+                      selectedIds.has(asset.id) ? "sm:opacity-100" : "",
+                    ].join(" ")}
+                  />
+                </div>
+                <div className="absolute right-2 top-2 z-10">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+                        aria-label="Asset actions"
+                      >
+                        <IconDotsVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link to={`/asset/${asset.id}`}>View details</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+                          Move to
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
                           <DropdownMenuItem
-                            key={folder.id}
                             onSelect={() =>
                               updateAsset.mutate({
                                 id: asset.id,
-                                folderId: folder.id,
+                                folderId: null,
                               })
                             }
                           >
-                            {folder.title}
+                            Unfiled
                           </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                      onSelect={() => confirmDelete([asset.id])}
-                    >
-                      <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                          {folders.map((folder) => (
+                            <DropdownMenuItem
+                              key={folder.id}
+                              onSelect={() =>
+                                updateAsset.mutate({
+                                  id: asset.id,
+                                  folderId: folder.id,
+                                })
+                              }
+                            >
+                              {folder.title}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        onSelect={() => confirmDelete([asset.id])}
+                      >
+                        <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <Link to={`/asset/${asset.id}`} className="block outline-none">
+                  <div className="aspect-[4/3] bg-muted">
+                    <AssetPreview asset={asset} />
+                  </div>
+                  <div className="space-y-2 p-3">
+                    <div className="flex items-center gap-2 truncate text-xs font-medium">
+                      {asset.mediaType === "video" ? (
+                        <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="truncate">{displayTitle}</span>
+                    </div>
+                    {sourceText ? (
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {sourceText}
+                      </div>
+                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{asset.status}</Badge>
+                      {asset.metadata?.category && (
+                        <Badge variant="outline">
+                          {asset.metadata.category}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </Link>
               </div>
-              <Link to={`/asset/${asset.id}`} className="block outline-none">
-                <div className="aspect-[4/3] bg-muted">
-                  <AssetPreview asset={asset} />
-                </div>
-                <div className="space-y-2 p-3">
-                  <div className="flex items-center gap-2 truncate text-xs font-medium">
-                    {asset.mediaType === "video" ? (
-                      <IconVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    {asset.title || asset.metadata?.category || asset.status}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{asset.status}</Badge>
-                    {asset.metadata?.category && (
-                      <Badge variant="outline">{asset.metadata.category}</Badge>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="flex min-h-[320px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
