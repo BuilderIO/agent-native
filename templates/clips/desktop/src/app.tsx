@@ -915,9 +915,11 @@ export function App() {
   const flushMeetingTranscript = useCallback(async () => {
     const session = meetingTranscriptionRef.current;
     if (!session || !session.lines.length) return;
+    const text = session.lines.join("\n\n");
+    session.lines = [];
     await callClipsAction("save-browser-transcript", {
       recordingId: session.recordingId,
-      fullText: session.lines.join("\n\n"),
+      fullText: text,
       source: "macos-native",
     });
   }, [callClipsAction]);
@@ -982,7 +984,7 @@ export function App() {
       const existing = meetingTranscriptionRef.current;
       if (existing && !existing.stopping) {
         if (existing.meetingId === meetingId) {
-          emit("meetings:transcription-started", { meetingId }).catch(() => {});
+          emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
         await stopMeetingTranscription("replaced");
@@ -1059,11 +1061,6 @@ export function App() {
           }),
         );
         addUnlisten(
-          listen("clips:recorder-stop", () => {
-            stopMeetingTranscription("manual").catch(() => {});
-          }),
-        );
-        addUnlisten(
           listen("meetings:silence-stop", () => {
             stopMeetingTranscription("silence").catch(() => {});
           }),
@@ -1119,8 +1116,9 @@ export function App() {
             joinUrl: payload.joinUrl,
           }).catch(() => {});
         }
-        emit("meetings:transcription-started", {
-          meetingId: resolvedMeetingId,
+
+        emit("meetings:hide-notification", {
+          meetingId,
         }).catch(() => {});
       } catch (err) {
         meetingTranscriptionRef.current = null;

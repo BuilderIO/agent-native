@@ -177,6 +177,10 @@ pub fn run() {
                 err
             })?;
 
+            if let Err(err) = notifications::show_meeting_notification_window(app.handle()) {
+                println!("[clips-tray] show meeting notification failed: {err}");
+            }
+
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
             // Re-show always-on region guides after relaunch/reboot when the
