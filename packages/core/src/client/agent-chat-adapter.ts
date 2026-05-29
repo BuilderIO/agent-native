@@ -691,6 +691,16 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
   return delay(ms, abortSignal);
 }
 
+function generateTurnId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `turn-${crypto.randomUUID()}`;
+  }
+  return `turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function isRetryableStartupError(message: string): boolean {
   const msg = message.toLowerCase();
   if (
@@ -983,6 +993,7 @@ export function createAgentChatAdapter(options?: {
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
+      const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
       let currentMessageText = normalizeMentions(
@@ -1426,6 +1437,7 @@ export function createAgentChatAdapter(options?: {
                   displayMessage: userMessageText,
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
+                  turnId,
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }

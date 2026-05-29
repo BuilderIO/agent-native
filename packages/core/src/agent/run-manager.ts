@@ -22,6 +22,8 @@ import {
 export interface ActiveRun {
   runId: string;
   threadId: string;
+  /** Logical-turn identity (see StartRunOptions.turnId). Defaults to runId. */
+  turnId: string;
   events: RunEvent[];
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
@@ -64,8 +66,16 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
  */
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
 
-/** Default SQL retention for completed/errored run event logs (24 hours). */
+/** Default SQL retention for completed run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Default SQL retention for errored/aborted run event logs (7 days). Kept
+ * longer than completed runs so cut-off / failed chats survive for pattern
+ * analysis (listErroredRuns) — these are rare and small, and they are exactly
+ * the runs we need to study to keep hardening reliability.
+ */
+export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * How recently a terminal run must have started for `/runs/active` to surface
@@ -155,6 +165,15 @@ export function resolveCompletedRunRetentionMs(): number {
   return DEFAULT_COMPLETED_RUN_RETENTION_MS;
 }
 
+export function resolveErroredRunRetentionMs(): number {
+  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
+  if (envValue !== undefined) {
+    const raw = Number(envValue);
+    if (Number.isFinite(raw) && raw >= 0) return raw;
+  }
+  return DEFAULT_ERRORED_RUN_RETENTION_MS;
+}
+
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
   return (
     event.type === "done" ||
@@ -210,6 +229,7 @@ export function startRun(
   const run: ActiveRun = {
     runId,
     threadId,
+    turnId: options?.turnId ?? runId,
     events: [],
     status: "running",
     subscribers: new Set(),
@@ -487,6 +507,38 @@ export function startRun(
         // the heartbeat-stale path.
       }
 
+      // 5b. Record terminal failure classification for errored runs so
+      //     cut-off / failed chats are queryable for pattern analysis. Read
+      //     the actual error event the run emitted (errorCode + message) so
+      //     diagnostics reflect the real cause (builder_gateway_timeout,
+      //     stale_run, context_length_exceeded, completion_error, …).
+      if (finalStatus === "errored") {
+        let errorCode: string | undefined;
+        let errorDetail: string | undefined;
+        for (let i = run.events.length - 1; i >= 0; i--) {
+          const ev = run.events[i].event as {
+            type: string;
+            error?: string;
+            errorCode?: string;
+            details?: string;
+          };
+          if (ev.type === "error") {
+            errorCode = ev.errorCode;
+            errorDetail = ev.error ?? ev.details;
+            break;
+          }
+        }
+        if (completionError && !errorCode) {
+          errorCode = "completion_error";
+          errorDetail =
+            errorDetail ??
+            (completionError instanceof Error
+              ? completionError.message
+              : String(completionError));
+        }
+        await setRunError(runId, errorCode ?? "unknown", errorDetail);
+      }
+
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
@@ -494,7 +546,10 @@ export function startRun(
           threadToRun.delete(threadId);
         }
       }, CLEANUP_DELAY_MS);
-      cleanupOldRuns(resolveCompletedRunRetentionMs()).catch(() => {});
+      cleanupOldRuns(
+        resolveCompletedRunRetentionMs(),
+        resolveErroredRunRetentionMs(),
+      ).catch(() => {});
     });
 
   // On Cloudflare Workers, keep the isolate alive for this run

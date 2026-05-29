@@ -73,8 +73,8 @@ import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
+  foldAssistantTurn,
   mergeThreadDataForClientSave,
-  upsertAssistantMessage,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import {
@@ -4168,7 +4168,13 @@ export function createAgentChatPlugin(
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
               run.runId,
-              { suppressInternalContinuation: true },
+              {
+                suppressInternalContinuation: true,
+                turnId:
+                  typeof run.turnId === "string" && run.turnId
+                    ? run.turnId
+                    : undefined,
+              },
             );
             if (!assistantMsg) {
               // No content produced — just bump timestamp
@@ -4193,7 +4199,13 @@ export function createAgentChatPlugin(
             }
             if (!Array.isArray(repo.messages)) repo.messages = [];
 
-            repo = upsertAssistantMessage(repo, assistantMsg);
+            repo = foldAssistantTurn(repo, assistantMsg, {
+              runId: run.runId,
+              turnId:
+                typeof run.turnId === "string" && run.turnId
+                  ? run.turnId
+                  : undefined,
+            });
 
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.

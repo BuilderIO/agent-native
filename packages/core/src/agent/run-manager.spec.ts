@@ -16,6 +16,7 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
+  setRunError: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
     type: "error",
     error:
@@ -30,10 +31,12 @@ vi.mock("./run-store.js", () => ({
 import {
   abortRun,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
+  DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
   HOSTED_SOFT_TIMEOUT_CEILING_MS,
   getActiveRunForThreadAsync,
   resolveCompletedRunRetentionMs,
+  resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
   startRun,
   subscribeToRun,
@@ -49,11 +52,14 @@ import {
   markRunAborted,
   updateRunStatus,
   ensureTerminalRunEvent,
+  cleanupOldRuns,
+  setRunError,
 } from "./run-store.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
+const originalErroredRetentionEnv = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
 const originalNetlify = process.env.NETLIFY;
 const originalNetlifyLocal = process.env.NETLIFY_LOCAL;
 const originalCfPages = process.env.CF_PAGES;
@@ -67,6 +73,7 @@ const originalAwsLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
 function clearHostedEnvForTest() {
   delete process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
   delete process.env.AGENT_RUN_RETENTION_MS;
+  delete process.env.AGENT_ERRORED_RUN_RETENTION_MS;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
   delete process.env.CF_PAGES;
@@ -85,6 +92,9 @@ function restoreHostedEnvAfterTest() {
   if (originalRetentionEnv === undefined)
     delete process.env.AGENT_RUN_RETENTION_MS;
   else process.env.AGENT_RUN_RETENTION_MS = originalRetentionEnv;
+  if (originalErroredRetentionEnv === undefined)
+    delete process.env.AGENT_ERRORED_RUN_RETENTION_MS;
+  else process.env.AGENT_ERRORED_RUN_RETENTION_MS = originalErroredRetentionEnv;
   if (originalNetlify === undefined) delete process.env.NETLIFY;
   else process.env.NETLIFY = originalNetlify;
   if (originalNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
@@ -118,6 +128,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(markRunAborted).mockClear();
     vi.mocked(insertRunEvent).mockClear();
     vi.mocked(updateRunStatus).mockClear();
+    vi.mocked(cleanupOldRuns).mockClear();
+    vi.mocked(setRunError).mockClear();
   });
 
   afterEach(() => {
@@ -244,6 +256,35 @@ describe("run manager soft timeout", () => {
     expect(resolveCompletedRunRetentionMs()).toBe(60000);
   });
 
+  it("keeps errored run events for seven days by default", () => {
+    expect(resolveErroredRunRetentionMs()).toBe(
+      DEFAULT_ERRORED_RUN_RETENTION_MS,
+    );
+  });
+
+  it("allows errored run event retention to be configured by environment", () => {
+    process.env.AGENT_ERRORED_RUN_RETENTION_MS = "120000";
+
+    expect(resolveErroredRunRetentionMs()).toBe(120000);
+  });
+
+  it("prunes completed and errored run events with separate retention windows", async () => {
+    process.env.AGENT_RUN_RETENTION_MS = "60000";
+    process.env.AGENT_ERRORED_RUN_RETENTION_MS = "120000";
+
+    startRun(
+      "run-retention-cleanup",
+      "thread-retention-cleanup",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => {
+      expect(cleanupOldRuns).toHaveBeenCalledWith(60000, 120000);
+    });
+  });
+
   it("persists the logical turn id for continuation runs", async () => {
     startRun(
       "run-continuation-chunk",
@@ -301,6 +342,26 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatus).toHaveBeenCalledWith(
         "run-terminal-event-order",
         "errored",
+      );
+    });
+  });
+
+  it("records terminal error diagnostics for errored runs", async () => {
+    startRun(
+      "run-error-diagnostics",
+      "thread-error-diagnostics",
+      async () => {
+        throw new Error("boom");
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => {
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-error-diagnostics",
+        "unknown",
+        "boom",
       );
     });
   });

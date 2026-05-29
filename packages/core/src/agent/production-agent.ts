@@ -1972,6 +1972,7 @@ export function createProductionAgentHandler(
       attachments,
       displayMessage,
       internalContinuation,
+      turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
@@ -2824,6 +2825,13 @@ export function createProductionAgentHandler(
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
+        // Fold continuation runs of one logical turn onto a single durable
+        // assistant message. Falls back to the runId (turn == run) when the
+        // client doesn't supply a turnId.
+        turnId:
+          typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId,
       },
     );
 
