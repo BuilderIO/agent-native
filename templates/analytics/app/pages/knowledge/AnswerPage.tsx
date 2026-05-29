@@ -10,6 +10,9 @@ import {
   IconExternalLink,
   IconRefresh,
   IconAlertCircle,
+  IconBrandGithub,
+  IconDatabase,
+  IconWorld,
 } from "@tabler/icons-react";
 import Markdown from "@/components/Markdown";
 import { cn } from "@/lib/utils";
@@ -22,84 +25,82 @@ interface Source {
   excerpt?: string;
 }
 
+function sourceIcon(type: Source["type"]) {
+  if (type === "github") return <IconBrandGithub className="h-3.5 w-3.5 shrink-0" />;
+  if (type === "dbt") return <IconDatabase className="h-3.5 w-3.5 shrink-0" />;
+  return <IconWorld className="h-3.5 w-3.5 shrink-0" />;
+}
+
 function SourceCard({ source, index }: { source: Source; index: number }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg border bg-card p-3 text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-muted text-xs font-mono font-medium">
-            {index + 1}
-          </span>
-          <span className="font-mono text-xs truncate text-foreground">
+  const inner = (
+    <div
+      className={cn(
+        "group flex flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm transition-colors",
+        source.url && "hover:border-primary/30 hover:bg-accent/30 cursor-pointer",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+          {index + 1}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium text-foreground leading-5">
             {source.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {source.type !== "github" && (
-            <Badge variant="secondary" className="text-xs">
-              {source.type}
-            </Badge>
-          )}
+          </p>
           {source.repo && (
-            <span className="text-xs text-muted-foreground truncate max-w-[120px]">
-              {source.repo}
-            </span>
+            <p className="text-[11px] text-muted-foreground">{source.repo}</p>
           )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+          <span className="text-muted-foreground/60">{sourceIcon(source.type)}</span>
           {source.url && (
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Open source"
-            >
-              <IconExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <IconExternalLink className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
           )}
         </div>
       </div>
       {source.excerpt && (
-        <p className="text-xs text-muted-foreground line-clamp-2 font-mono pl-7">
+        <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3 pl-7">
           {source.excerpt}
         </p>
       )}
     </div>
   );
+
+  if (source.url) {
+    return (
+      <a href={source.url} target="_blank" rel="noopener noreferrer">
+        {inner}
+      </a>
+    );
+  }
+  return inner;
 }
 
 const DASHBOARD_RE = /dashboard|workbook|chart|visualization|sigma/i;
 
-function StatusLabel({
-  status,
-  question,
-}: {
-  status: string;
-  question?: string;
-}) {
+function StatusLabel({ status, question }: { status: string; question?: string }) {
   if (status === "searching")
     return (
-      <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-pulse">
-        <span className="h-2 w-2 rounded-full bg-amber-400" />
-        Searching GitHub…
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        Searching sources…
       </span>
     );
   if (status === "generating") {
     const label =
-      question && DASHBOARD_RE.test(question)
-        ? "Searching Sigma…"
-        : "Consulting dbt MCP…";
+      question && DASHBOARD_RE.test(question) ? "Searching Sigma…" : "Consulting dbt MCP…";
     return (
-      <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-pulse">
-        <span className="h-2 w-2 rounded-full bg-blue-400" />
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+        <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
         {label}
       </span>
     );
   }
   if (status === "error")
     return (
-      <span className="flex items-center gap-1.5 text-sm text-destructive">
-        <IconAlertCircle className="h-4 w-4" />
-        Something went wrong
+      <span className="flex items-center gap-1.5 text-xs text-destructive">
+        <IconAlertCircle className="h-3.5 w-3.5" />
+        Error
       </span>
     );
   return null;
@@ -109,9 +110,7 @@ interface Props {
   id: string;
 }
 
-// After this long with no answer, re-trigger with sidebar open so user sees progress
 const BACKGROUND_TIMEOUT_MS = 30_000;
-// After this long total, show the retry banner
 const AGENT_TIMEOUT_MS = 90_000;
 
 export default function AnswerPage({ id }: Props) {
@@ -129,9 +128,9 @@ export default function AnswerPage({ id }: Props) {
   );
 
   const sessionNotFound = (session as any)?.notFound === true;
-  const isDone = sessionNotFound || session?.status === "done" || session?.status === "error";
+  const isDone =
+    sessionNotFound || session?.status === "done" || session?.status === "error";
 
-  // Track when we entered generating state
   useEffect(() => {
     if (session?.status === "generating" && generatingStartRef.current === null) {
       generatingStartRef.current = Date.now();
@@ -139,17 +138,14 @@ export default function AnswerPage({ id }: Props) {
     if (isDone) generatingStartRef.current = null;
   }, [session?.status, isDone]);
 
-  // Poll every 3s until agent writes the answer
   useEffect(() => {
     if (isDone) return;
     const interval = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["action", "get-session"] });
-
       const elapsed = generatingStartRef.current
         ? Date.now() - generatingStartRef.current
         : 0;
 
-      // After 30s with no answer, re-trigger with sidebar open so user sees progress
       if (elapsed > BACKGROUND_TIMEOUT_MS && !sidebarTriggeredRef.current && session && !isDone) {
         sidebarTriggeredRef.current = true;
         send({
@@ -158,22 +154,34 @@ export default function AnswerPage({ id }: Props) {
             sessionId: session.id,
             question: session.question,
             sources: session.sources,
-            instruction: /dashboard|workbook|chart|visualization|sigma/i.test(session.question)
+            instruction: DASHBOARD_RE.test(session.question)
               ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
               : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
           }),
           submit: true,
-          // Open sidebar so user can see the agent working
         });
       }
-
-      // Show retry banner after full timeout
-      if (elapsed > AGENT_TIMEOUT_MS) {
-        setTimedOut(true);
-      }
+      if (elapsed > AGENT_TIMEOUT_MS) setTimedOut(true);
     }, 3000);
     return () => clearInterval(interval);
   }, [isDone, queryClient, session, send]);
+
+  function triggerAgent(s: NonNullable<typeof session>) {
+    agentTriggeredRef.current = true;
+    send({
+      message: s.question,
+      context: JSON.stringify({
+        sessionId: s.id,
+        question: s.question,
+        sources: s.sources,
+        instruction: DASHBOARD_RE.test(s.question)
+          ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
+          : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
+      }),
+      submit: true,
+      background: true,
+    });
+  }
 
   function retriggerAgent() {
     if (!session) return;
@@ -184,30 +192,11 @@ export default function AnswerPage({ id }: Props) {
     triggerAgent(session);
   }
 
-  function triggerAgent(s: NonNullable<typeof session>) {
-    agentTriggeredRef.current = true;
-    send({
-      message: s.question,
-      context: JSON.stringify({
-        sessionId: s.id,
-        question: s.question,
-        sources: s.sources,
-        instruction: /dashboard|workbook|chart|visualization|sigma/i.test(s.question)
-          ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
-          : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
-      }),
-      submit: true,
-      background: true, // initial trigger is silent
-    });
-  }
-
-  // Trigger agent once when session enters "generating" state
   useEffect(() => {
     if (!session || agentTriggeredRef.current) return;
     if (session.status !== "generating") return;
-
     triggerAgent(session);
-  }, [session?.status, send]);
+  }, [session?.status]);
 
   const question = session?.question ?? "";
   const sources: Source[] = session?.sources ?? [];
@@ -215,114 +204,113 @@ export default function AnswerPage({ id }: Props) {
   return (
     <div className="flex flex-col min-h-screen bg-background">
       {/* Top bar */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 backdrop-blur px-6 py-3">
-        <Link to="/knowledge">
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <IconArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <span className="text-sm text-muted-foreground truncate flex-1">
-          {question}
-        </span>
-        {!isDone && <StatusLabel status={session?.status ?? "searching"} question={question} />}
-        {isDone && session?.status === "done" && (
-          <Badge variant="secondary" className="shrink-0">
-            answered
-          </Badge>
-        )}
-        {isDone && session?.status === "error" && (
-          <Badge variant="destructive" className="shrink-0">
-            error
-          </Badge>
-        )}
+      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
+        <div className="flex items-center gap-2 px-4 py-2 max-w-5xl mx-auto">
+          <Link to="/knowledge">
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+              <IconArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <span className="text-sm text-muted-foreground truncate flex-1 min-w-0">
+            {question}
+          </span>
+          <div className="shrink-0">
+            {!isDone && (
+              <StatusLabel status={session?.status ?? "searching"} question={question} />
+            )}
+            {isDone && session?.status === "done" && (
+              <Badge variant="secondary" className="text-xs">answered</Badge>
+            )}
+            {isDone && session?.status === "error" && (
+              <Badge variant="destructive" className="text-xs">error</Badge>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-8 px-6 py-8 max-w-5xl w-full mx-auto">
-        {/* Answer column */}
-        <div className="flex-1 min-w-0 flex flex-col gap-6">
-          <div>
-            <h1 className="text-xl font-semibold">{question}</h1>
-          </div>
+      {/* Body */}
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <div className="flex flex-col lg:flex-row gap-10">
 
-          {/* Answer area */}
-          <div
-            className={cn(
-              "rounded-xl border bg-card p-6 prose prose-sm max-w-none dark:prose-invert",
-              session?.status === "error" && "border-destructive/50",
-            )}
-          >
-            {sessionNotFound ? (
-              <div className="text-sm text-muted-foreground">
-                This session is no longer available. Please{" "}
-                <Link to="/knowledge" className="underline">ask a new question</Link>.
-              </div>
-            ) : isLoading || !session ? (
-              <div className="flex flex-col gap-3">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-4/6" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
-            ) : session?.answer ? (
-              <Markdown content={session.answer} />
-            ) : (
-              <div className="flex flex-col gap-3">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-4/6" />
-              </div>
-            )}
-          </div>
+          {/* ── Answer column ── */}
+          <div className="flex-1 min-w-0 flex flex-col gap-6">
+            <h1 className="text-2xl font-semibold leading-snug">{question}</h1>
 
-          {isDone && session?.status === "error" && (
-            <div className="flex items-center gap-2 text-sm text-destructive">
-              <IconAlertCircle className="h-4 w-4" />
-              The agent encountered an error. Try refreshing or asking again.
-              <Link to="/knowledge">
-                <Button variant="ghost" size="sm" className="ml-2 h-7">
-                  <IconRefresh className="h-3.5 w-3.5 mr-1" />
-                  Ask again
-                </Button>
-              </Link>
+            {/* Answer */}
+            <div
+              className={cn(
+                "prose prose-sm max-w-none dark:prose-invert",
+                session?.status === "error" && "text-destructive",
+              )}
+            >
+              {sessionNotFound ? (
+                <p className="text-muted-foreground">
+                  This session is no longer available.{" "}
+                  <Link to="/knowledge" className="underline">Ask a new question →</Link>
+                </p>
+              ) : isLoading || (!session?.answer && !isDone) ? (
+                <div className="flex flex-col gap-3 mt-1">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-11/12" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-full mt-2" />
+                  <Skeleton className="h-4 w-5/6" />
+                </div>
+              ) : session?.answer ? (
+                <Markdown content={session.answer} />
+              ) : null}
             </div>
-          )}
 
-          {timedOut && !isDone && (
-            <div className="flex items-center gap-3 text-sm text-muted-foreground rounded-lg border border-dashed p-4">
-              <IconAlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-              <span>
-                The agent is taking longer than expected. Check the chat sidebar
-                to see if it needs input, or retry.
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="ml-auto h-7 shrink-0"
-                onClick={retriggerAgent}
-              >
-                <IconRefresh className="h-3.5 w-3.5 mr-1" />
-                Retry
-              </Button>
+            {/* Error state */}
+            {isDone && session?.status === "error" && (
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <IconAlertCircle className="h-4 w-4 shrink-0" />
+                <span>Something went wrong.</span>
+                <Link to="/knowledge">
+                  <Button variant="ghost" size="sm" className="h-7 ml-1">
+                    <IconRefresh className="h-3.5 w-3.5 mr-1" />
+                    Ask again
+                  </Button>
+                </Link>
+              </div>
+            )}
+
+            {/* Timeout banner */}
+            {timedOut && !isDone && (
+              <div className="flex items-start gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                <IconAlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                <span className="flex-1">
+                  The agent is taking longer than expected. Check the chat sidebar or retry.
+                </span>
+                <Button variant="outline" size="sm" className="h-7 shrink-0" onClick={retriggerAgent}>
+                  <IconRefresh className="h-3.5 w-3.5 mr-1" />
+                  Retry
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Sources column ── */}
+          {(sources.length > 0 || isLoading) && (
+            <div className="lg:w-64 xl:w-72 shrink-0 flex flex-col gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+                Sources
+              </h2>
+              {isLoading && sources.length === 0 ? (
+                <>
+                  <Skeleton className="h-16 w-full rounded-lg" />
+                  <Skeleton className="h-16 w-full rounded-lg" />
+                </>
+              ) : (
+                sources.map((s, i) => (
+                  <SourceCard key={`${s.url ?? s.title}-${i}`} source={s} index={i} />
+                ))
+              )}
             </div>
           )}
         </div>
-
-        {/* Sources column */}
-        {sources.length > 0 && (
-          <div className="lg:w-72 shrink-0 flex flex-col gap-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Sources
-            </h2>
-            {sources.map((s, i) => (
-              <SourceCard
-                key={`${s.url ?? s.title}-${i}`}
-                source={s}
-                index={i}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
