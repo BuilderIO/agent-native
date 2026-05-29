@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.25.0
+
+### Minor Changes
+
+- ed1502b: Add "Upload Skill" option to the resources create menu so users can import an existing SKILL.md file.
+
 ## 0.24.10
 
 ### Patch Changes
