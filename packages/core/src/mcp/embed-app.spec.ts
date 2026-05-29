@@ -73,6 +73,9 @@ describe("embedApp", () => {
     expect(html).toContain("const data = await response.json()");
     expect(html).toContain('typeof data.location === "string"');
     expect(html).toContain("moduleCodeToClassicAsync");
+    expect(html).toContain("scriptSourceUrl");
+    expect(html).toContain("moduleScriptCode");
+    expect(html).toContain("await runModuleScriptAsClassic(script, config)");
     expect(html).toContain("stripDevOnlyModuleImports");
     expect(html).toContain("__x00__virtual:react-router");
     expect(html).toContain("rootRelativeSpecifierToAppUrl");
@@ -97,6 +100,10 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
     expect(html).toContain("refreshExpiredEmbedSession");
+    expect(html).toContain(
+      "if (response.status === 401 && isEmbedStartUrl(src))",
+    );
+    expect(html).toContain("await mountTransplantedHtml(html, appUrl)");
     expect(html).toContain('openStartUrl = "";');
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("function openLinkRecordFrom(value)");

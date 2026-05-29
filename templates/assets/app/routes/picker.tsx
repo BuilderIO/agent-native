@@ -432,11 +432,21 @@ export default function AssetPicker() {
     (library) => library.id === selectedLibraryId,
   );
   const usingStarterLibrary = selectedLibraryId === STARTER_LIBRARY_ID;
-  const { data: presetData } = useActionQuery(
+  const {
+    data: presetData,
+    isLoading: presetsLoading,
+    isFetching: presetsFetching,
+    isPending: presetsPending,
+  } = useActionQuery(
     "list-generation-presets",
     { libraryId: selectedLibraryId } as any,
     { enabled: Boolean(selectedLibraryId) && !usingStarterLibrary } as any,
-  ) as { data?: { presets?: GenerationPreset[] } };
+  ) as {
+    data?: { presets?: GenerationPreset[] };
+    isLoading?: boolean;
+    isFetching?: boolean;
+    isPending?: boolean;
+  };
   const generationPresets =
     presetData?.presets?.filter((preset) => preset.mediaType !== "video") ?? [];
   const selectedPreset =
@@ -444,6 +454,12 @@ export default function AssetPicker() {
       ? null
       : (generationPresets.find((preset) => preset.id === presetId) ?? null);
   const effectiveAspectRatio = selectedPreset?.aspectRatio || aspectRatio;
+  const waitingForRequestedPreset =
+    mediaType === "image" &&
+    presetId !== "none" &&
+    !usingStarterLibrary &&
+    Boolean(selectedLibraryId) &&
+    (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
   const assetsParams = useMemo(
     () => ({
@@ -557,6 +573,7 @@ export default function AssetPicker() {
 
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
+    if (waitingForRequestedPreset) return;
     generateBatch.mutate({
       libraryId: selectedLibraryId,
       presetId: selectedPreset?.id,
@@ -575,6 +592,7 @@ export default function AssetPicker() {
     prompt,
     selectedLibraryId,
     selectedPreset,
+    waitingForRequestedPreset,
   ]);
 
   useEffect(() => {
@@ -623,6 +641,7 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     !usingStarterLibrary &&
     Boolean(prompt.trim()) &&
+    !waitingForRequestedPreset &&
     !generateBatch.isPending;
   const setupNeeded = mediaType === "image" && config?.configured === false;
   const setupMessage =
@@ -671,6 +690,7 @@ export default function AssetPicker() {
     if (!hostConfig.autoGenerate) return;
     if (!prompt.trim() || mediaType !== "image") return;
     if (!canGenerate || setupNeeded || generateBatch.isPending) return;
+    if (waitingForRequestedPreset) return;
     const key = [
       selectedLibraryId,
       prompt.trim(),
@@ -693,6 +713,7 @@ export default function AssetPicker() {
     runGenerate,
     selectedLibraryId,
     setupNeeded,
+    waitingForRequestedPreset,
   ]);
 
   return (
@@ -725,9 +746,9 @@ export default function AssetPicker() {
         {embedded && (
           <div className="flex shrink-0 items-center gap-2">
             <Button asChild variant="ghost" size="icon" title="Open Assets">
-              <Link to={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
+              <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
                 <IconArrowUpRight className="h-4 w-4" />
-              </Link>
+              </a>
             </Button>
             <Button
               variant="ghost"

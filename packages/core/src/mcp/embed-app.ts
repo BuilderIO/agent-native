@@ -576,8 +576,36 @@ export function embedApp(
         .replace(/\\bimport\\((["'][^"']+["'])\\)\\s*;?/g, "await import($1);");
     }
 
-    function runModuleScriptAsClassic(script, config) {
-      const code = moduleCodeToClassicAsync(script.textContent || "", config);
+    function scriptSourceUrl(script, config) {
+      const raw = script.getAttribute("src") || "";
+      if (!raw) return "";
+      try {
+        const url = new URL(raw, config.baseHref);
+        if (url.origin === config.origin) {
+          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+        }
+        return url.toString();
+      } catch (_err) {
+        return raw;
+      }
+    }
+
+    async function moduleScriptCode(script, config) {
+      const src = scriptSourceUrl(script, config);
+      if (!src) return script.textContent || "";
+      const response = await fetch(src, {
+        credentials: "omit",
+        headers: { Accept: "text/javascript, application/javascript, */*" }
+      });
+      if (!response.ok) {
+        throw new Error("Module script returned HTTP " + response.status + ".");
+      }
+      return await response.text();
+    }
+
+    async function runModuleScriptAsClassic(script, config) {
+      const code = moduleCodeToClassicAsync(await moduleScriptCode(script, config), config);
       const runner = document.createElement("script");
       runner.textContent =
         "(async()=>{" +
@@ -587,7 +615,7 @@ export function embedApp(
       runner.remove();
     }
 
-    function mountTransplantedHtml(html, appUrl) {
+    async function mountTransplantedHtml(html, appUrl) {
       const config = embedConfigForAppUrl(appUrl);
       installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
@@ -605,7 +633,7 @@ export function embedApp(
         if (isRunnableClassicScript(script)) runClassicScript(script);
       }
       for (const script of scripts) {
-        if (isModuleScript(script)) runModuleScriptAsClassic(script, config);
+        if (isModuleScript(script)) await runModuleScriptAsClassic(script, config);
       }
     }
 
@@ -656,6 +684,10 @@ export function embedApp(
         headers: { Accept: "text/html" }
       });
       if (!response.ok) {
+        if (response.status === 401 && isEmbedStartUrl(src)) {
+          refreshExpiredEmbedSession();
+          return;
+        }
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
@@ -663,7 +695,7 @@ export function embedApp(
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
-      mountTransplantedHtml(html, appUrl);
+      await mountTransplantedHtml(html, appUrl);
       notifyHostHeightRepeatedly();
     }
 
