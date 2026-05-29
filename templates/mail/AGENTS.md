@@ -105,34 +105,7 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 
 ## Architecture
 
-```
-┌────────────────────┐     ┌────────────────────┐
-│  Frontend          │     │  Agent Chat        │
-│  (React + Vite)    │◄───►│  (AI agent)        │
-│                    │     │                    │
-│  - reads emails    │     │  - reads/writes    │
-│    via API         │     │    SQL via scripts │
-│  - sends actions   │     │  - runs scripts    │
-│    via API PATCH   │     │    via pnpm action │
-└────────┬───────────┘     └──────────┬─────────┘
-         │                            │
-         └──────────┬─────────────────┘
-                    ▼
-            ┌───────────────┐
-            │  Backend      │
-            │  (Nitro)      │
-            │               │
-            │  /api/emails  │
-            │  /api/labels  │
-            │  /api/settings│
-            └───────┬───────┘
-                    │
-                    ▼
-            ┌───────────────┐
-            │  SQL Database │
-            │  (via DB_URL) │
-            └───────────────┘
-```
+The React + Vite frontend and the agent both read and write the same data. The frontend reads emails via the API and sends actions via API PATCH; the agent reads/writes SQL and runs scripts via `pnpm action`. Both go through the Nitro backend (`/api/emails`, `/api/labels`, `/api/settings`), which talks to the SQL database (via `DATABASE_URL`).
 
 ## Data Sources
 
@@ -540,26 +513,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ## Keyboard Shortcuts
 
-| Key        | Action                       |
-| ---------- | ---------------------------- |
-| `J`        | Next email                   |
-| `K`        | Previous email               |
-| `↑` / `↓`  | Same as J/K                  |
-| `Enter`    | Open focused email           |
-| `E`        | Archive email/thread         |
-| `D`        | Trash email/thread           |
-| `S`        | Star/unstar (in thread view) |
-| `R`        | Reply                        |
-| `U`        | Toggle read/unread           |
-| `C`        | Compose new email            |
-| `/`        | Focus search bar             |
-| `⌘K`       | Open command palette         |
-| `G then I` | Go to Inbox                  |
-| `G then S` | Go to Starred                |
-| `G then T` | Go to Sent                   |
-| `G then D` | Go to Drafts                 |
-| `G then A` | Go to Archive                |
-| `Esc`      | Close thread / clear search  |
+These are human shortcuts for navigating the mail UI (J/K to move, E to archive, R to reply, C to compose, `/` to search, `G then <key>` to jump views, etc.). The agent drives the app through actions, not the keyboard — see the Actions section above for the full operation set.
 
 ## UI Components
 

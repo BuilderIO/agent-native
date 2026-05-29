@@ -34,16 +34,7 @@ bridge.
 
 ## Integration Webhooks (Slack, Telegram, WhatsApp, Email)
 
-Inbound platform webhooks follow a cross-platform queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare, etc.) without relying on platform-specific background-execution APIs:
-
-1. `POST /_agent-native/integrations/:platform/webhook` verifies the signature, parses the message into `IncomingMessage`, and **inserts a row into `integration_pending_tasks`** with `status='pending'`.
-2. The handler fires a fire-and-forget `POST /_agent-native/integrations/process-task` and returns `200` immediately so the platform doesn't retry.
-3. The processor endpoint runs in a **fresh function execution** with its own full timeout. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, sends the reply via the adapter, and marks the task `completed`.
-4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >5min and re-fires the processor. Capped at 3 attempts, then `failed`.
-
-Never run the agent loop inside the webhook handler itself, and never rely on a fire-and-forget `Promise` outliving the response — serverless freezes the function the moment the response is sent. The SQL queue + self-webhook is what makes the pattern portable.
-
-Adapters (`packages/core/src/integrations/adapters/*.ts`) are platform-specific only for verification, parsing, formatting, and delivery. The queue, processor, and retry are shared infrastructure. See the `integration-webhooks` skill for adding a new platform.
+Inbound platform webhooks use the portable SQL-queue pattern (verify + enqueue to `integration_pending_tasks` → return 200 → run the agent loop in a fresh `process-task` execution → 60s retry job sweeps stuck tasks). Never run the agent loop inside the webhook handler or rely on a fire-and-forget `Promise` outliving the response — serverless freezes the function the moment the response is sent. Adapters (`packages/core/src/integrations/adapters/*.ts`) are platform-specific only for verify/parse/format/deliver; the queue, processor, and retry are shared. See the `integration-webhooks` skill for the full flow and adding a new platform.
 
 ## Resources To Use
 
@@ -70,50 +61,14 @@ The UI writes:
 - `navigation.path`: current route path
 - Dreams may also include filters such as `sourceId`, `ownerEmail`, `status`, or `dreamId`
 
-The agent can navigate with:
-
-- `navigate(view="chat")`
-- `navigate(view="overview")`
-- `navigate(view="apps")`
-- `navigate(view="new-app")`
-- `navigate(view="vault")`
-- `navigate(view="integrations")`
-- `navigate(view="messaging")`
-- `navigate(view="workspace")`
-- `navigate(view="destinations")`
-- `navigate(view="identities")`
-- `navigate(view="approvals")`
-- `navigate(view="audit")`
-- `navigate(view="thread-debug")`
-- `navigate(view="dreams")`
-- `navigate(view="team")`
+The agent navigates with `navigate(view="<id>")` using any of the `navigation.view` ids above (e.g. `navigate(view="vault")`, `navigate(view="dreams")`), or `navigate(path="/your-route")`.
 
 Custom workspace-owned Dispatch tabs can be added without forking the Dispatch
 package. Edit `app/dispatch-extensions.tsx` to add a `navItems` entry, then add
 the matching local route file under `app/routes/`. Use `DispatchShell` from
 `@agent-native/dispatch/components` in the route so the packaged header keeps
 working. The nav item `id` becomes `navigation.view`, and the agent can navigate
-to it with `navigate(view="<id>")` or `navigate(path="/your-route")`.
-
-Example:
-
-```tsx
-import { IconChartBar } from "@tabler/icons-react";
-import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
-
-export const dispatchExtensions = {
-  navItems: [
-    {
-      id: "reports",
-      to: "/reports",
-      label: "Reports",
-      icon: IconChartBar,
-      section: "operations",
-    },
-  ],
-  queryKeys: ["list-reports"],
-} satisfies DispatchExtensionConfig;
-```
+to it with `navigate(view="<id>")` or `navigate(path="/your-route")`. Export a `dispatchExtensions` object satisfying `DispatchExtensionConfig` with a `navItems` array (each entry has `id`, `to`, `label`, `icon`, `section`) and a `queryKeys` array.
 
 ## Dispatch Actions
 

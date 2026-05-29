@@ -1910,28 +1910,7 @@ When a user asks to download a design, export a design, or get the generated HTM
 
 ### Claude Code Handoff
 
-When the user wants to convert a prototype into production code, generate a handoff prompt:
-
-```
-Convert this Alpine.js + Tailwind prototype into a production React/Next.js application.
-
-Key design tokens:
-- Primary: #0F172A
-- Accent: #0EA5E9
-- Font: Space Grotesk (headings), DM Sans (body)
-- Border radius: 12px
-
-Interactive states to preserve:
-- Mobile navigation toggle
-- Tab switching
-- Filter controls
-
-Responsive breakpoints:
-- Mobile: 375px
-- Tablet: 768px
-- Desktop: 1280px
-- Wide: 1920px
-```
+To convert a prototype into production code, prefer the canonical `export-coding-handoff --id <id>` action (above), which builds the tweak-aware prompt and raw-code bundle for you. For a hand-written prompt template (design tokens, interactive states, responsive breakpoints), see the `export-handoff` skill.
 
 ---
 

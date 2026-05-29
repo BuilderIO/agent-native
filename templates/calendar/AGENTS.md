@@ -42,14 +42,7 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 ## Architecture
 
-This is an agent-native calendar app with Google Calendar integration and a public booking page. Events come from Google Calendar API directly (not synced to local files). Bookings are stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DATABASE_URL`). Settings and availability are stored in SQL via the settings API.
-
-### How it works
-
-1. **Frontend** (React + Vite) reads state via API routes
-2. **Server** (Nitro) reads events from Google Calendar API, reads/writes bookings in SQL, reads/writes settings via settings API
-3. **Agent** reads/writes settings via scripts, uses scripts for DB operations — changes propagate to UI via SSE
-4. **Google Calendar** queried via pull-based approach (no webhooks)
+This is an agent-native calendar app with Google Calendar integration and a public booking page. The React + Vite frontend reads state via API routes; the Nitro server reads events from the Google Calendar API (pull-based, no webhooks), and reads/writes bookings in SQL (Drizzle ORM over `DATABASE_URL` — SQLite, Postgres, Turso, etc.) plus settings/availability via the settings API. The agent runs the same operations through scripts; changes propagate to the UI via SSE.
 
 ### Events
 

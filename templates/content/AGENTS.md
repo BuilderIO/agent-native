@@ -110,20 +110,14 @@ cd templates/content && pnpm action <name> [args]
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
-MCP/A2A, an A2A peer). `get-document` returns whatever is in the
-`documents.content` SQL column, which can lag behind a live editing session: the
-open editor holds the authoritative Y.Doc in memory and only debounces it back
-to SQL. `pull-document` closes that gap with a flush handshake — if a live Yjs
-collab session exists for the document it writes a one-shot `flush-request-<id>`
-application-state key (scoped to the browser session, just like `navigate`); the
-open editor sees that key, serializes its current document to markdown through
-its own existing serializer, calls `update-document`, and deletes the key;
-`pull-document` waits for the key to clear and then returns the now-fresh row.
-When no editor is open the SQL column is authoritative and the handshake is
-skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
-returns `{ id, title, content, format, deepLink }`, and surfaces an
-"Open document" deep link for external agents. Use `--format text` for a
-plain-text strip of the markdown.
+MCP/A2A, an A2A peer). `get-document` returns the `documents.content` SQL column,
+which can lag behind a live editing session (the open editor holds the
+authoritative Y.Doc in memory and only debounces it back to SQL). `pull-document`
+flushes the open editor first via a one-shot handshake so it returns the fresh
+row. It is GET + read-only + public-agent exposed (`requiresAuth: true`), returns
+`{ id, title, content, format, deepLink }`, and surfaces an "Open document" deep
+link for external agents. Use `--format text` for a plain-text strip of the
+markdown.
 
 **`export-document` is the page export action.** The UI exposes it from the
 page toolbar export menu. Use `--format pdf` when the user wants a PDF; the

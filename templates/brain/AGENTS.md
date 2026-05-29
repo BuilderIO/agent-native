@@ -316,14 +316,11 @@ secrets. It does not fall back to deploy-level environment variables for source
 credentials. Never include resolved credential values in action responses,
 stats, errors, or logs.
 
-For "ask across everything" requests, do not treat Brain as the owner of every
-workspace system. Use Brain search for reviewed knowledge and accessible captures.
-If the user asks for live metrics, dashboard numbers, CRM pipeline analysis,
-mailbox state, calendar availability, Dispatch policy, or another app-owned
-surface, call the specialized app agent/action through A2A when available and
-ground the answer in that result. Brain may summarize and cite the handoff, but
-it should not fabricate live data or bypass the owning app's permissions and
-domain rules.
+For "ask across everything" requests, follow the `ask-across-everything` skill:
+search Brain for reviewed knowledge and accessible captures, delegate live
+app-owned questions (metrics, mailbox state, calendar, Dispatch policy, etc.) to
+the owning specialist agent via A2A, and never fabricate live data or bypass the
+owning app's permissions.
 
 ## A2A Retrieval
 
