@@ -128,14 +128,25 @@ export function isReconcileLeadClient(
   localClientId: number | null | undefined,
 ): boolean {
   if (localClientId == null) return false;
-  if (!awareness) return true; // standalone / tests — act alone
+  // A backgrounded tab pauses its sync poll, so it can't reliably apply external
+  // snapshots — it must yield to a VISIBLE peer (otherwise an agent edit would
+  // never appear on the tab the user is actually looking at). When it becomes
+  // visible again the caller re-elects.
+  const localHidden =
+    typeof document !== "undefined" && document.visibilityState === "hidden";
+  if (!awareness) return !localHidden; // standalone / tests — act alone if visible
+  if (localHidden) return false;
   let min = localClientId;
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === AGENT_CLIENT_ID) return; // agent never leads
-    // Only count clients with a real user presence (skip empty/stale entries).
-    if (state && (state as { user?: unknown }).user && clientId < min) {
-      min = clientId;
-    }
+    if (clientId === localClientId) return;
+    const s = state as { user?: unknown; visible?: boolean };
+    // Only count visible peers with a real user presence. A peer that has
+    // published `visible: false` (backgrounded) can't act, so it never leads;
+    // a peer that hasn't published the field yet is treated as visible.
+    if (!s || !s.user) return;
+    if (s.visible === false) return;
+    if (clientId < min) min = clientId;
   });
   return localClientId <= min;
 }
@@ -232,7 +243,10 @@ export function useCollaborativeDoc(
   const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollVersionRef = useRef(0);
 
-  // Set local awareness state (user info for cursor labels)
+  // Set local awareness state (user info for cursor labels). Also publish this
+  // tab's visibility so peers can elect a VISIBLE client to apply external
+  // snapshots (see isReconcileLeadClient) — a backgrounded tab pauses its poll
+  // and must not hold that role.
   useEffect(() => {
     if (!awareness || !user) return;
     awareness.setLocalStateField("user", {
@@ -240,6 +254,7 @@ export function useCollaborativeDoc(
       email: user.email,
       color: user.color,
     });
+    awareness.setLocalStateField("visible", !isDocumentHidden());
   }, [awareness, user?.name, user?.email, user?.color]);
 
   // Track active users from awareness changes
@@ -477,8 +492,30 @@ export function useCollaborativeDoc(
       void poll();
     }
 
+    // Publish this tab's visibility to peers. A hidden tab pauses its poll, so
+    // we push the state immediately (keepalive) instead of waiting for the next
+    // cycle — otherwise peers keep treating a backgrounded tab as the visible
+    // lead and an agent edit never lands on the tab the user is looking at.
+    function publishVisibility(visible: boolean) {
+      if (!awareness) return;
+      awareness.setLocalStateField("visible", visible);
+      const localState = awareness.getLocalState();
+      if (!localState) return;
+      fetch(`${baseUrl}/${docId}/awareness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: ydoc.clientID,
+          state: JSON.stringify(localState),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
+      const visible = document.visibilityState === "visible";
+      publishVisibility(visible);
+      if (visible) {
         pollNow();
       } else if (pauseWhenHidden && timer) {
         clearTimeout(timer);

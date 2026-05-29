@@ -1274,17 +1274,25 @@ export function VisualEditor({
     }
     const update = () => {
       setIsLeadClient(isReconcileLeadClient(localAwareness, ydoc.clientID));
+      // Count only VISIBLE peers — a backgrounded peer can't make live Yjs
+      // edits, so it shouldn't trigger the dual-path race defer below.
       let peers = 0;
       localAwareness.getStates().forEach((state, clientId) => {
         if (clientId === ydoc.clientID) return; // self
         if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
-        if (state && (state as { user?: unknown }).user) peers += 1;
+        const s = state as { user?: unknown; visible?: boolean };
+        if (s && s.user && s.visible !== false) peers += 1;
       });
       peerCountRef.current = peers;
     };
     update();
     localAwareness.on("change", update);
-    return () => localAwareness.off("change", update);
+    // Re-elect when our own visibility flips: the lead must be a visible client.
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      localAwareness.off("change", update);
+      document.removeEventListener("visibilitychange", update);
+    };
   }, [localAwareness, ydoc]);
 
   // Clean up awareness on unmount
