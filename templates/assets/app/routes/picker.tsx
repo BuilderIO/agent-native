@@ -443,6 +443,7 @@ export default function AssetPicker() {
     presetId === "none"
       ? null
       : (generationPresets.find((preset) => preset.id === presetId) ?? null);
+  const effectiveAspectRatio = selectedPreset?.aspectRatio || aspectRatio;
   const mediaLabel = mediaType === "video" ? "video" : "image";
   const assetsParams = useMemo(
     () => ({
@@ -562,14 +563,14 @@ export default function AssetPicker() {
       slots: Array.from({ length: count }, (_, index) => ({
         slotId: `picker-candidate-${index + 1}`,
         prompt: prompt.trim(),
-        aspectRatio: selectedPreset?.aspectRatio || aspectRatio,
+        aspectRatio: effectiveAspectRatio,
         imageSize: selectedPreset?.imageSize || "2K",
       })),
       source: "ui",
     } as any);
   }, [
-    aspectRatio,
     count,
+    effectiveAspectRatio,
     generateBatch,
     prompt,
     selectedLibraryId,
@@ -673,7 +674,7 @@ export default function AssetPicker() {
     const key = [
       selectedLibraryId,
       prompt.trim(),
-      aspectRatio,
+      effectiveAspectRatio,
       presetId,
       count,
     ].join("|");
@@ -681,9 +682,9 @@ export default function AssetPicker() {
     autoGenerateKeyRef.current = key;
     runGenerate();
   }, [
-    aspectRatio,
     canGenerate,
     count,
+    effectiveAspectRatio,
     generateBatch.isPending,
     hostConfig.autoGenerate,
     mediaType,

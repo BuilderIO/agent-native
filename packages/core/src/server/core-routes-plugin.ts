@@ -2605,6 +2605,12 @@ export function createCoreRoutesPlugin(
         ),
       );
       getH3App(nitroApp).use(
+        "/.well-known/openid-configuration",
+        defineEventHandler((event: H3Event) =>
+          handleMcpOAuthAuthorizationServerMetadata(event),
+        ),
+      );
+      getH3App(nitroApp).use(
         `${P}/mcp/oauth`,
         defineEventHandler(async (event: H3Event) => {
           const subpath = event.url?.pathname || "";
