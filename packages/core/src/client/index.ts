@@ -417,6 +417,7 @@ export {
   type UseCollaborativeDocResult,
   type CollabUser,
 } from "../collab/client.js";
+export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
 export {
   ResourcesPanel,
   ResourceTree,

@@ -46,7 +46,10 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
-import { isReconcileLeadClient } from "@agent-native/core/client";
+import {
+  isReconcileLeadClient,
+  AGENT_CLIENT_ID,
+} from "@agent-native/core/client";
 import {
   getImageFiles,
   getAudioFiles,
@@ -1259,13 +1262,26 @@ export function VisualEditor({
   // (agent / Notion / full-rewrite edits) into the shared Y.Doc. Exactly one
   // client does, so the changed region isn't inserted once per open editor.
   const [isLeadClient, setIsLeadClient] = useState(true);
+  // Count of OTHER human collaborators currently present. When >0, a peer's edit
+  // also arrives through Yjs, so the SQL-content reconcile must wait-and-recheck
+  // to avoid applying the same change twice (Yjs + setContent → duplicated text).
+  const peerCountRef = useRef(0);
   useEffect(() => {
     if (!localAwareness || !ydoc) {
       setIsLeadClient(true);
+      peerCountRef.current = 0;
       return;
     }
-    const update = () =>
+    const update = () => {
       setIsLeadClient(isReconcileLeadClient(localAwareness, ydoc.clientID));
+      let peers = 0;
+      localAwareness.getStates().forEach((state, clientId) => {
+        if (clientId === ydoc.clientID) return; // self
+        if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
+        if (state && (state as { user?: unknown }).user) peers += 1;
+      });
+      peerCountRef.current = peers;
+    };
     update();
     localAwareness.on("change", update);
     return () => localAwareness.off("change", update);
@@ -1473,7 +1489,14 @@ export function VisualEditor({
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const run = () => {
+    // When peers are present, a peer's edit also arrives through Yjs. Wait one
+    // poll cycle (+margin) and re-check before applying via setContent, so we
+    // don't insert the same change the Yjs sync is about to deliver (which would
+    // duplicate the edited region). Agent/Notion edits never come through Yjs,
+    // so they survive the wait and still apply.
+    const PEER_SETTLE_MS = 2500;
+
+    const run = (deferred = false) => {
       if (cancelled || !editor || editor.isDestroyed) return;
       const nextEditorContent = parseNfmForEditor(content);
       const currentMd = serializeEditorToNfm(
@@ -1482,7 +1505,8 @@ export function VisualEditor({
       const normalizedNext = serializeEditorToNfm(nextEditorContent);
 
       // Already in sync, or our own echo: advance the applied watermark so a
-      // later write is correctly recognized as newer, then stop.
+      // later write is correctly recognized as newer, then stop. (After a peer's
+      // Yjs edit lands during a deferred wait, this is what makes us no-op.)
       if (currentMd === normalizedNext || content === lastEmittedRef.current) {
         if (contentUpdatedAt)
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
@@ -1514,8 +1538,17 @@ export function VisualEditor({
         const typingRightNow =
           editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
         if (externalNewer && isLeadClient && typingRightNow) {
-          retryTimer = setTimeout(run, 700);
+          retryTimer = setTimeout(() => run(deferred), 700);
         }
+        return;
+      }
+
+      // Race guard: with collaborators present, let Yjs deliver a peer's edit
+      // first. Defer once and re-check — if it was a peer edit, the equality
+      // check above will no-op next pass; if it was an agent/Notion edit, it
+      // still differs and we apply it below.
+      if (!deferred && !docChanged && peerCountRef.current > 0) {
+        retryTimer = setTimeout(() => run(true), PEER_SETTLE_MS);
         return;
       }
 
