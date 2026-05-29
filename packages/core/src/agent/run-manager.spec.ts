@@ -31,6 +31,7 @@ import {
   abortRun,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+  HOSTED_SOFT_TIMEOUT_CEILING_MS,
   getActiveRunForThreadAsync,
   resolveCompletedRunRetentionMs,
   resolveRunSoftTimeoutMs,
@@ -211,6 +212,23 @@ describe("run manager soft timeout", () => {
 
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       0,
+    );
+  });
+
+  it("clamps hosted soft timeout overrides under the gateway hard wall", () => {
+    process.env.NETLIFY = "true";
+
+    expect(resolveRunSoftTimeoutMs(240_000)).toBe(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
+    );
+  });
+
+  it("clamps hosted soft timeout env values under the gateway hard wall", () => {
+    process.env.NETLIFY = "true";
+    process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "240000";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
   });
 

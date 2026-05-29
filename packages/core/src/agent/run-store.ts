@@ -39,7 +39,10 @@ async function ensureRunTables(): Promise<void> {
           started_at ${intType()} NOT NULL,
           completed_at ${intType()},
           heartbeat_at ${intType()},
-          last_progress_at ${intType()}
+          last_progress_at ${intType()},
+          turn_id TEXT,
+          error_code TEXT,
+          error_detail TEXT
         )
       `);
       // Backfill heartbeat_at on older deployments.
@@ -85,6 +88,28 @@ async function ensureRunTables(): Promise<void> {
       } catch {
         // Column already exists — ignore
       }
+      // Backfill turn_id / error_code / error_detail.
+      //   turn_id    = stable identity for one logical assistant turn that may
+      //                span several continuation runs, so the durable record
+      //                can be folded across runs instead of dropped per-run.
+      //   error_code / error_detail = terminal failure classification captured
+      //                at completion so errored/cut-off runs are queryable for
+      //                pattern analysis (see listErroredRuns).
+      for (const col of ["turn_id", "error_code", "error_detail"] as const) {
+        try {
+          if (isPostgres()) {
+            await client.execute(
+              `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} TEXT`,
+            );
+          } else {
+            await client.execute(
+              `ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`,
+            );
+          }
+        } catch {
+          // Column already exists — ignore
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
@@ -98,14 +123,45 @@ async function ensureRunTables(): Promise<void> {
   return _initPromise;
 }
 
-export async function insertRun(id: string, threadId: string): Promise<void> {
+export async function insertRun(
+  id: string,
+  threadId: string,
+  turnId?: string,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at) VALUES (?, ?, 'running', ?, ?, ?)`,
-    args: [id, threadId, now, now, now],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id) VALUES (?, ?, 'running', ?, ?, ?, ?)`,
+    args: [id, threadId, now, now, now, turnId ?? id],
   });
+}
+
+/**
+ * Record terminal failure classification for a run so cut-off / errored runs
+ * can be surfaced for pattern analysis (see listErroredRuns). Best-effort —
+ * never throws, since it runs on the completion path that must not fail the run.
+ */
+export async function setRunError(
+  runId: string,
+  errorCode: string | undefined,
+  errorDetail: string | undefined,
+): Promise<void> {
+  if (!errorCode && !errorDetail) return;
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    await client.execute({
+      sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
+      args: [
+        errorCode ?? null,
+        errorDetail ? errorDetail.slice(0, 2000) : null,
+        runId,
+      ],
+    });
+  } catch {
+    // Diagnostics are best-effort; never let them break completion.
+  }
 }
 
 /** Update the run's liveness heartbeat. Called periodically by run-manager. */

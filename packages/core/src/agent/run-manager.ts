@@ -38,12 +38,30 @@ const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 /**
  * Default run chunk budget for hosted/serverless deploys.
  *
- * Netlify's synchronous Functions limit is currently 60s, so keep enough
- * headroom for abort propagation, thread_data persistence, terminal event
- * writes, and reconnect bookkeeping before the platform hard-kills the
- * invocation.
+ * This MUST fire before the two upstream hard walls that otherwise kill a run
+ * mid-turn with no chance to hand off:
+ *   1. The Builder model gateway hard-caps a single model call at 45s
+ *      (builder-engine.ts MAX_BUILDER_GATEWAY_TIMEOUT_MS) — not raisable.
+ *   2. Serverless functions are hard-killed around 60-65s (the heartbeat then
+ *      reaps the row as a stale_run).
+ * Production data showed every cutoff landing in the 44-70s window with ZERO
+ * auto_continue events ever emitted — i.e. the old 45s default raced the 45s
+ * gateway and lost, and per-template overrides (e.g. 240_000) pushed it past
+ * BOTH walls so it could never fire. 40s leaves ~5s of headroom under the
+ * gateway wall to abort, persist the partial turn, write the terminal event,
+ * and emit a clean auto_continue so the client resumes seamlessly.
  */
-export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 45_000;
+export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
+
+/**
+ * Hard ceiling for the hosted soft timeout. On a hosted runtime the
+ * auto_continue soft timeout can never usefully exceed this — the gateway
+ * (45s) / function (~60s) walls kill the run first, so a larger configured or
+ * env value just guarantees the cutoff is a hard error instead of a graceful
+ * hand-off. Any resolved value above this is clamped down when hosted. Local
+ * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ */
+export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
 
 /** Default SQL retention for completed/errored run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -98,15 +116,26 @@ export function resolveRunSoftTimeoutMs(
   overrideMs?: number,
   options?: ResolveRunSoftTimeoutOptions,
 ): number {
+  const hosted = isHostedRuntime();
+  // A configured/env soft timeout that exceeds the upstream walls can never
+  // actually fire (the gateway/function kills the run first), so clamp it down
+  // on hosted runtimes. This is what makes auto_continue reach the client
+  // instead of the run dying as builder_gateway_timeout / stale_run. `0` means
+  // "disabled" and is never clamped up.
+  const clampHosted = (ms: number): number =>
+    hosted && ms > HOSTED_SOFT_TIMEOUT_CEILING_MS
+      ? HOSTED_SOFT_TIMEOUT_CEILING_MS
+      : ms;
+
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
-    return Math.max(0, overrideMs);
+    return clampHosted(Math.max(0, overrideMs));
   }
   const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
   if (envValue !== undefined) {
     const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
+    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
   }
-  return options?.useHostedDefault && isHostedRuntime()
+  return options?.useHostedDefault && hosted
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
     : 0;
 }
