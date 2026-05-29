@@ -1926,6 +1926,22 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
+  /** Optional MCP server branding surfaced during the initialize handshake. */
+  mcpServerInfo?: {
+    /** Human-facing title. Defaults to the capitalized app id/name. */
+    title?: string;
+    /** Host-facing description. Defaults to "Agent-native <app> agent". */
+    description?: string;
+    /** Canonical app URL. Relative URLs are resolved against the request origin. */
+    websiteUrl?: string;
+    /** App icons. Relative `src` values are resolved against the request origin. */
+    icons?: Array<{
+      src: string;
+      mimeType?: string;
+      sizes?: string[];
+      theme?: "light" | "dark";
+    }>;
+  };
   /**
    * Optional callback to resolve the org ID for the current request.
    * When provided, the resolved value is set as AGENT_ORG_ID env var so
@@ -3960,8 +3976,13 @@ export function createAgentChatPlugin(
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
+        title: options?.mcpServerInfo?.title,
         appId: options?.appId,
-        description: `Agent-native ${options?.appId ?? "app"} agent`,
+        description:
+          options?.mcpServerInfo?.description ??
+          `Agent-native ${options?.appId ?? "app"} agent`,
+        websiteUrl: options?.mcpServerInfo?.websiteUrl,
+        icons: options?.mcpServerInfo?.icons,
         actions: allScripts,
         productionActions: mcpFullActions,
         askAgent: async (message: string) => {

@@ -41,6 +41,7 @@ import {
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import { MCP_CONNECT_SCOPE } from "./connect-store.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -50,6 +51,8 @@ import {
 export interface MCPConfig {
   /** App name shown in MCP server info */
   name: string;
+  /** Optional human-facing app title shown by MCP hosts that support titles. */
+  title?: string;
   /**
    * Canonical app id (directory under `apps/`, e.g. `mail`) this MCP server
    * is mounted for. Optional & back-compat: when omitted the builtin
@@ -61,6 +64,15 @@ export interface MCPConfig {
   appId?: string;
   /** App description */
   description: string;
+  /** Optional canonical website URL for hosts that surface MCP app details. */
+  websiteUrl?: string;
+  /** Optional app icons for MCP hosts that render server branding. */
+  icons?: Array<{
+    src: string;
+    mimeType?: string;
+    sizes?: string[];
+    theme?: "light" | "dark";
+  }>;
   /** Version string (default "1.0.0") */
   version?: string;
   /** Action registry — same as agent chat and A2A */
@@ -114,6 +126,8 @@ export interface MCPCallerIdentity {
 export interface MCPRequestMeta {
   /** Origin of the running app, e.g. `http://localhost:8100`. */
   origin?: string;
+  /** Optional mount prefix for path-mounted apps, e.g. `/mail`. */
+  basePath?: string;
   /** Optional client preference for which URL the *markdown* link uses. */
   target?: "browser" | "desktop" | "terminal";
   /**
@@ -560,6 +574,54 @@ function mergeBuiltinTools(
     merged[name] = entry;
   }
   return merged;
+}
+
+function absoluteMetadataUrl(
+  value: string | undefined,
+  requestMeta?: MCPRequestMeta,
+): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    if (requestMeta?.origin) {
+      const basePath = requestMeta.basePath ?? getConfiguredAppBasePath();
+      const appBase = `${requestMeta.origin.replace(/\/+$/, "")}${basePath}/`;
+      const appLocalValue =
+        trimmed.startsWith("/") && !trimmed.startsWith("//")
+          ? trimmed.replace(/^\/+/, "")
+          : trimmed;
+      return new URL(appLocalValue, appBase).href;
+    }
+    return new URL(trimmed).href;
+  } catch {
+    return trimmed;
+  }
+}
+
+function mcpServerInfo(config: MCPConfig, requestMeta?: MCPRequestMeta) {
+  const websiteUrl = absoluteMetadataUrl(config.websiteUrl, requestMeta);
+  const icons = config.icons
+    ?.map((icon) => {
+      const src = absoluteMetadataUrl(icon.src, requestMeta);
+      if (!src) return null;
+      return {
+        src,
+        ...(icon.mimeType ? { mimeType: icon.mimeType } : {}),
+        ...(icon.sizes?.length ? { sizes: icon.sizes } : {}),
+        ...(icon.theme ? { theme: icon.theme } : {}),
+      };
+    })
+    .filter((icon): icon is NonNullable<typeof icon> => Boolean(icon));
+  return {
+    name: config.name,
+    version: config.version ?? "1.0.0",
+    ...(config.title?.trim() ? { title: config.title.trim() } : {}),
+    ...(config.description?.trim()
+      ? { description: config.description.trim() }
+      : {}),
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(icons?.length ? { icons } : {}),
+  };
 }
 
 function safeUiSegment(value: string | undefined, fallback: string): string {
@@ -1014,24 +1076,21 @@ export async function createMCPServerForRequest(
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );
-  const server = new Server(
-    { name: config.name, version: config.version ?? "1.0.0" },
-    {
-      capabilities: {
-        tools: {},
-        ...(supportsMcpApps
-          ? {
-              resources: {},
-              extensions: {
-                [MCP_APP_EXTENSION_ID]: {
-                  mimeTypes: [MCP_APP_MIME_TYPE],
-                },
+  const server = new Server(mcpServerInfo(config, requestMeta), {
+    capabilities: {
+      tools: {},
+      ...(supportsMcpApps
+        ? {
+            resources: {},
+            extensions: {
+              [MCP_APP_EXTENSION_ID]: {
+                mimeTypes: [MCP_APP_MIME_TYPE],
               },
-            }
-          : {}),
-      },
+            },
+          }
+        : {}),
     },
-  );
+  });
 
   // Resolve orgId once per request (DB lookup) so subsequent wraps are
   // synchronous. The caller identity may be undefined for true dev-open —

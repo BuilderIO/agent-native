@@ -37,3 +37,10 @@ Read the relevant skill before deeper work:
   `real-time-collab` for integration surfaces.
 - `actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` as
   needed.
+
+## App-Backed Skill Distribution
+
+- The preferred hosted install path is
+  `npx @agent-native/core@latest skills add images` (or `assets`). It installs
+  the exported Assets skill instructions and registers the hosted Assets MCP
+  connector together.

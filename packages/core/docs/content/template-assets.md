@@ -108,6 +108,9 @@ The Assets app skill has app id `assets` and hosted MCP URL
 # Easiest hosted install: exported skill instructions plus MCP connector.
 npx @agent-native/core@latest skills add assets
 
+# Image-generation alias for demos and tutorials.
+npx @agent-native/core@latest skills add images
+
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 

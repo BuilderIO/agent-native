@@ -9,6 +9,7 @@ import {
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
@@ -88,8 +89,10 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     fullCatalogHeader === "1" ||
     fullCatalogHeader === "true" ||
     fullCatalogHeader === "yes";
+  const basePath = getConfiguredAppBasePath();
   return {
     origin,
+    ...(basePath ? { basePath } : {}),
     target,
     clientName,
     clientHint,

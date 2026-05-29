@@ -8,6 +8,26 @@ import "../register-secrets.js";
 
 export default createAgentChatPlugin({
   appId: "assets",
+  mcpServerInfo: {
+    title: "Agent-Native Assets",
+    description:
+      "Create, search, select, and export brand image and video assets from Assets.",
+    websiteUrl: "/",
+    icons: [
+      {
+        src: "/agent-native-icon-light.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["135x78"],
+        theme: "light",
+      },
+      {
+        src: "/agent-native-icon-dark.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["114x66"],
+        theme: "dark",
+      },
+    ],
+  },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   runSoftTimeoutMs: 240_000,

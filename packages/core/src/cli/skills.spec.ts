@@ -30,6 +30,35 @@ describe("agent-native skills", () => {
     });
   });
 
+  it("accepts image-generation aliases for the built-in Assets skill", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "agent-native-images",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("assets");
+    expect(result.skillNames).toEqual(["assets"]);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining(["--skill", "assets", "-a", "codex", "-y"]),
+    );
+  });
+
   it("installs built-in Assets instructions and MCP config", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];

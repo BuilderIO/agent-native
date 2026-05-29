@@ -1022,6 +1022,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         ".ngrok-free.dev",
         ".ngrok-free.app",
         ".ngrok.io",
+        ".trycloudflare.com",
       ],
       fs: {
         allow: [
