@@ -15,7 +15,7 @@ describe("booking OG image", () => {
 
     expect(svg).toContain("Agent-Native");
     expect(svg).toContain("Calendar");
-    expect(svg).toContain("Meet Steve Sewell");
+    expect(svg).toContain("Meet with Steve Sewell");
     expect(svg).toContain("30 min meeting");
     expect(svg).toContain('fill="#000000"');
     expect(svg).not.toContain("Pick a time");
@@ -33,6 +33,18 @@ describe("booking OG image", () => {
     expect(Array.from(png.slice(0, 8))).toEqual([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]);
+  });
+
+  it("uses custom booking link titles in place of the generated title", () => {
+    const svg = renderBookingOgImageSvg({
+      title: "Product strategy sync",
+      duration: 45,
+      username: "steve",
+      bookingPageTitle: "Meet Steve Sewell",
+    });
+
+    expect(svg).toContain("Product strategy sync");
+    expect(svg).not.toContain("Meet with Steve Sewell");
   });
 
   it("renders a profile image when provided", () => {

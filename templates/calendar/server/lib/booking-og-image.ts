@@ -77,8 +77,9 @@ function displayTitle(input: BookingOgImageInput, hostName: string): string {
   const title = cleanText(input.title);
   const pageTitle = cleanText(input.bookingPageTitle);
   if (title && !isGenericMeetingTitle(title)) return title;
-  if (pageTitle && !isGenericMeetingTitle(pageTitle)) return pageTitle;
-  return hostName ? `Meet ${hostName}` : title || pageTitle || "Book a meeting";
+  return hostName
+    ? `Meet with ${hostName}`
+    : pageTitle || title || "Book a meeting";
 }
 
 function durationLabel(input: BookingOgImageInput): string {
