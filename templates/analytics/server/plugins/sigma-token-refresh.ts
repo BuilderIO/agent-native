@@ -54,14 +54,13 @@ async function refreshSigmaToken() {
   }
 }
 
-export default function sigmaTokenRefreshPlugin(nitroApp: any) {
+export default function sigmaTokenRefreshPlugin(_nitroApp: any) {
   // Refresh on startup
   refreshSigmaToken();
 
   // Refresh every 50 minutes to stay ahead of the 60-minute expiry
   const interval = setInterval(refreshSigmaToken, REFRESH_INTERVAL_MS);
 
-  nitroApp.hooks.hookOnce("close", () => {
-    clearInterval(interval);
-  });
+  // Allow the process to exit cleanly without waiting for the interval
+  if (interval.unref) interval.unref();
 }
