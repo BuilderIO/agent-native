@@ -93,15 +93,23 @@ async function searchGitHub(
 async function fetchDashboardCatalog(): Promise<Source[]> {
   try {
     const db = getDb();
-    const rows = await (db as any)
+    const queryPromise = db
       .select({ id: schema.dashboards.id, title: schema.dashboards.title, kind: schema.dashboards.kind })
       .from(schema.dashboards)
       .where(isNull(schema.dashboards.archivedAt));
 
+    // 3s timeout so a slow DB never blocks the whole action
+    const rows = await Promise.race([
+      queryPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 3000),
+      ),
+    ]);
+
     if (!rows || rows.length === 0) return [];
 
     const list = rows
-      .map((r: { id: string; title: string; kind: string }) => `- ${r.title} (id: ${r.id}, type: ${r.kind})`)
+      .map((r) => `- ${r.title} (id: ${r.id}, type: ${r.kind})`)
       .join("\n");
 
     return [

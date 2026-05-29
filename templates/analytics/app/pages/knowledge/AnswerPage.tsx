@@ -128,7 +128,8 @@ export default function AnswerPage({ id }: Props) {
     { staleTime: 0, enabled: !!id },
   );
 
-  const isDone = session?.status === "done" || session?.status === "error";
+  const sessionNotFound = (session as any)?.notFound === true;
+  const isDone = sessionNotFound || session?.status === "done" || session?.status === "error";
 
   // Track when we entered generating state
   useEffect(() => {
@@ -250,7 +251,12 @@ export default function AnswerPage({ id }: Props) {
               session?.status === "error" && "border-destructive/50",
             )}
           >
-            {isLoading || !session ? (
+            {sessionNotFound ? (
+              <div className="text-sm text-muted-foreground">
+                This session is no longer available. Please{" "}
+                <Link to="/knowledge" className="underline">ask a new question</Link>.
+              </div>
+            ) : isLoading || !session ? (
               <div className="flex flex-col gap-3">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-5/6" />

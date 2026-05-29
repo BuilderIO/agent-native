@@ -13,7 +13,7 @@ export default defineAction({
       .select()
       .from(schema.askSessions)
       .where(eq(schema.askSessions.id, id));
-    if (!rows[0]) return null;
+    if (!rows[0]) return { notFound: true };
     const row = rows[0];
     return {
       id: row.id,
