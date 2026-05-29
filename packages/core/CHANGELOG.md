@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.26.3
+
+### Patch Changes
+
+- fc4bdb9: Set year-long immutable cache headers for content-hashed client assets in framework deploy outputs.
+
 ## 0.26.2
 
 ### Patch Changes
