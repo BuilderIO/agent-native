@@ -48,7 +48,11 @@ describe("OpenRouter builtin engine", () => {
     const createOpenRouter = vi.fn().mockReturnValue(openrouter);
     vi.doMock("@openrouter/ai-sdk-provider", () => ({ createOpenRouter }));
 
-    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const [{ createAISDKEngine }, { DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS }] =
+      await Promise.all([
+        import("./ai-sdk-engine.js"),
+        import("./output-tokens.js"),
+      ]);
     const engine = createAISDKEngine("openrouter", {
       apiKey: "or-test-key",
       appName: "My App",
@@ -74,7 +78,12 @@ describe("OpenRouter builtin engine", () => {
     expect(providerCallable).toHaveBeenCalledWith(
       "anthropic/claude-sonnet-4.5",
     );
-    expect(streamText).toHaveBeenCalled();
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: chatModel,
+        maxOutputTokens: DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
+      }),
+    );
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop).toBeDefined();
@@ -113,6 +122,40 @@ describe("OpenRouter builtin engine", () => {
 
     expect(createOpenRouter).toHaveBeenCalledWith(
       expect.objectContaining({ apiKey: "env-or-key" }),
+    );
+  });
+
+  it("honors an explicit maxOutputTokens override", async () => {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+
+    const openrouter: any = Object.assign(vi.fn().mockReturnValue({}), {
+      chat: vi.fn().mockReturnValue({}),
+    });
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({
+      createOpenRouter: vi.fn().mockReturnValue(openrouter),
+    }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openrouter", { apiKey: "or-test-key" });
+
+    for await (const _ of engine.stream({
+      model: "openai/gpt-5.5",
+      systemPrompt: "",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      tools: [],
+      maxOutputTokens: 333,
+      abortSignal: new AbortController().signal,
+    } as any)) {
+      void _;
+    }
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({ maxOutputTokens: 333 }),
     );
   });
 });

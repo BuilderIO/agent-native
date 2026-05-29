@@ -22,6 +22,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { BUILDER_ENV_KEYS } from "./builder-browser.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -315,7 +316,13 @@ export function createServer(
 
         // Only allow keys that are in the env config
         const allowedKeys = new Set(envKeys.map((k) => k.key));
-        const filtered = vars.filter((v) => allowedKeys.has(v.key));
+        const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
+        const filtered = vars.filter(
+          (v) =>
+            typeof v.key === "string" &&
+            allowedKeys.has(v.key) &&
+            !blockedEnvVarWriteKeys.has(v.key),
+        );
         if (filtered.length === 0) {
           setResponseStatus(event, 400);
           return { error: "No recognized env keys in request" };

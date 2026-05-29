@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   IconLock,
   IconClock,
@@ -20,7 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useActionMutation } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useReconciledState,
+} from "@agent-native/core/client";
 import { SPEED_OPTIONS } from "./player-controls";
 
 export interface SettingsPanelProps {
@@ -75,7 +78,13 @@ export function SettingsPanel(props: SettingsPanelProps) {
   // whether one is currently set. Saving an empty value clears it, saving a
   // non-empty value replaces it.
   const [password, setPassword] = useState("");
-  const [expiresAt, setExpiresAt] = useState(recording.expiresAt ?? "");
+  // Re-adopt the server/agent expiry when the user isn't actively editing the
+  // field, so an agent change to `expiresAt` shows up live in the open panel.
+  const expiresFocused = useRef(false);
+  const [expiresAt, setExpiresAt] = useReconciledState(
+    recording.expiresAt ?? "",
+    { active: expiresFocused.current },
+  );
 
   function patch(fields: Record<string, unknown>) {
     update.mutate({ id: recording.id, ...fields } as any);
@@ -158,6 +167,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <Input
                 type="datetime-local"
                 value={toDatetimeLocal(expiresAt)}
+                onFocus={() => {
+                  expiresFocused.current = true;
+                }}
+                onBlur={() => {
+                  expiresFocused.current = false;
+                }}
                 onChange={(e) =>
                   setExpiresAt(fromDatetimeLocal(e.target.value))
                 }
@@ -317,13 +332,36 @@ function CtaEditor({
   onSave: (fields: Record<string, unknown>) => void;
   onDelete: () => void;
 }) {
-  const [label, setLabel] = useState(cta.label);
-  const [url, setUrl] = useState(cta.url);
-  const [color, setColor] = useState(cta.color);
-  const [placement, setPlacement] = useState(cta.placement);
+  // Re-adopt the server/agent CTA fields whenever the user isn't actively
+  // editing this card, so an agent edit to the CTA shows up live. `editing`
+  // flips true while focus is anywhere inside the card.
+  const editing = useRef(false);
+  const [label, setLabel] = useReconciledState(cta.label, {
+    active: editing.current,
+  });
+  const [url, setUrl] = useReconciledState(cta.url, {
+    active: editing.current,
+  });
+  const [color, setColor] = useReconciledState(cta.color, {
+    active: editing.current,
+  });
+  const [placement, setPlacement] = useReconciledState(cta.placement, {
+    active: editing.current,
+  });
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+    <div
+      className="rounded-lg border border-border bg-card p-3 space-y-2"
+      onFocusCapture={() => {
+        editing.current = true;
+      }}
+      onBlurCapture={(e) => {
+        // Only clear when focus leaves the card entirely.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          editing.current = false;
+        }
+      }}
+    >
       <Input
         value={label}
         onChange={(e) => setLabel(e.target.value)}

@@ -28,6 +28,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -107,7 +108,10 @@ class AnthropicEngine implements AgentEngine {
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: opts.maxOutputTokens ?? 32768,
+      max_tokens: resolveMaxOutputTokensForEngine(
+        this.name,
+        opts.maxOutputTokens,
+      ),
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages,

@@ -4,11 +4,8 @@ import { resolveDocumentSyncConflict } from "../../../../../lib/notion-sync.js";
 import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
+  const id = event.context.params!.id;
   const body = await readBody(event);
-  const owner = await getDocumentOwnerEmail(event);
-  return resolveDocumentSyncConflict(
-    owner,
-    event.context.params!.id,
-    body.direction,
-  );
+  const owner = await getDocumentOwnerEmail(event, id);
+  return resolveDocumentSyncConflict(owner, id, body.direction);
 });

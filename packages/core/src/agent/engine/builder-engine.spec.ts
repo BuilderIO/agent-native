@@ -4,6 +4,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   createBuilderEngine,
 } from "./builder-engine.js";
+import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
 import * as captureErrorModule from "../../server/capture-error.js";
 import type { EngineStreamOptions } from "./types.js";
 
@@ -192,7 +193,7 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
-    expect(body.max_tokens).toBe(32768);
+    expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
@@ -444,6 +445,63 @@ describe("createBuilderEngine", () => {
       status: 403,
       code: "http_403",
       message: "Invalid token",
+    });
+  });
+
+  it("maps inactive personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("Invalid or inactive personal access token", {
+          status: 403,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid or inactive personal access token",
+    });
+  });
+
+  it("maps streamed personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Invalid or inactive personal access token",
+            requestId: "req_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      code: "builder_auth_error",
+      message: "Invalid or inactive personal access token",
     });
   });
 

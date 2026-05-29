@@ -535,14 +535,6 @@ export async function createAndLinkNotionPage(
       );
     }
   } else {
-    if (connection.accountId === "__api_key__") {
-      throw new Error(
-        "Choose a Notion parent page you can access before creating a new page.",
-      );
-    }
-
-    // OAuth connections are user-specific, so picking the most recently
-    // edited accessible page preserves the one-click create flow.
     const searchResult = await notionFetch<{
       results: Array<{ id: string; object: string }>;
     }>("/search", connection.accessToken, {

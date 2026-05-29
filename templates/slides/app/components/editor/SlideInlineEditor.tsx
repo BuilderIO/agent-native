@@ -7,9 +7,10 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
+import { isReconcileLeadClient } from "@agent-native/core/client";
 import type { Slide } from "@/context/DeckContext";
 import { SlideBubbleMenu } from "./SlideBubbleMenu";
 import {
@@ -27,6 +28,14 @@ interface SlideInlineEditorProps {
   slide: Slide;
   onContentChange: (html: string) => void;
   onExitEdit: () => void;
+  /**
+   * Deck `updatedAt` for the current slide content. Used to tell a genuinely
+   * newer external edit (agent / peer-via-SQL) apart from a stale poll echo —
+   * only newer content is reconciled into the live editor. Slides don't carry a
+   * per-slide timestamp, so the deck-level one is the signal (it advances on
+   * every update-slide / add-slide write).
+   */
+  contentUpdatedAt?: string | null;
   /** Yjs document for collaborative editing. When provided, enables real-time collab. */
   ydoc?: Y.Doc | null;
   /** Yjs Awareness for cursor/presence sync. */
@@ -114,10 +123,68 @@ function convertDivsToBlocks(el: Element): string {
   return children.map((c) => convertDivsToBlocks(c)).join("");
 }
 
+/**
+ * Decide whether an external slide-content change (an agent edit, or a peer's
+ * edit mirrored to SQL) should be applied into the live editor. Mirrors the
+ * documents template's `shouldApplyExternalContentSync` so the same "agent edit
+ * reverts on next poll" whack-a-mole can't recur here.
+ */
+export function shouldApplySlideContentSync({
+  nextContent,
+  currentContent,
+  contentUpdatedAt,
+  lastAppliedUpdatedAt,
+  isLeadClient,
+  editorFocused,
+  lastTypedAt,
+  now,
+}: {
+  /** The incoming editable HTML (already extracted from slide.content). */
+  nextContent: string;
+  /** The editable HTML the editor currently reflects. */
+  currentContent: string;
+  /** Deck updatedAt for the incoming content. */
+  contentUpdatedAt?: string | null;
+  /** updatedAt of the content this editor currently reflects. */
+  lastAppliedUpdatedAt?: string | null;
+  /** Whether this client is the elected applier (see isReconcileLeadClient). */
+  isLeadClient: boolean;
+  editorFocused: boolean;
+  lastTypedAt: number;
+  now: number;
+}): boolean {
+  // Editor already shows the incoming content — e.g. a peer's edit arrived via
+  // Yjs first, or this is our own state. Nothing to apply.
+  if (currentContent === nextContent) return false;
+
+  // Only adopt content that is genuinely NEWER than what this editor already
+  // reflects. An older-or-equal `updatedAt` is a lagging poll / stale snapshot
+  // and must never overwrite live edits. A fresh open has no baseline yet, so
+  // it always adopts the loaded content.
+  const externalNewer =
+    !lastAppliedUpdatedAt ||
+    (!!contentUpdatedAt && contentUpdatedAt > lastAppliedUpdatedAt);
+  if (!externalNewer) return false;
+
+  // Exactly one client (the lead) applies an authoritative snapshot into the
+  // shared Y.Doc; every other client receives it through Yjs. Without this, N
+  // clients would each diff the same snapshot into the CRDT and duplicate the
+  // changed region.
+  if (!isLeadClient) return false;
+
+  // Don't yank text out from under someone typing this instant; the caller
+  // retries shortly so the edit still lands once they pause.
+  const typingRightNow = editorFocused && now - lastTypedAt < 1500;
+  if (typingRightNow) return false;
+
+  return true;
+}
+
 export function SlideInlineEditor({
   slide,
   onContentChange,
   onExitEdit,
+  contentUpdatedAt,
   ydoc,
   awareness,
   collabUser,
@@ -128,6 +195,31 @@ export function SlideInlineEditor({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guard flag: prevents the seeding setContent from triggering onContentChange
   const isSettingContent = useRef(false);
+  // Tracks the last time the user actually typed, so an external edit can still
+  // apply while the editor is focused-but-idle without yanking in-progress text.
+  const lastTypedAtRef = useRef<number>(0);
+  // updatedAt of the content this editor currently reflects. An older-or-equal
+  // refetch is a stale snapshot (ignored); a newer one is an intentional
+  // external edit (applied).
+  const lastAppliedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
+
+  // Whether this client is the one that applies authoritative external snapshots
+  // (agent edits, peer edits mirrored to SQL) into the shared Y.Doc. Exactly one
+  // client does, so the changed region isn't inserted once per open editor.
+  const [isLeadClient, setIsLeadClient] = useState(true);
+  useEffect(() => {
+    if (!awareness || !ydoc) {
+      setIsLeadClient(true);
+      return;
+    }
+    const update = () =>
+      setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
+    update();
+    awareness.on("change", update);
+    return () => awareness.off("change", update);
+  }, [awareness, ydoc]);
 
   const initialContent = extractEditableContent(
     typeof slide.content === "string" ? slide.content : "",
@@ -210,6 +302,7 @@ export function SlideInlineEditor({
     autofocus: "end",
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
+      lastTypedAtRef.current = Date.now();
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
@@ -218,9 +311,12 @@ export function SlideInlineEditor({
     },
   });
 
-  // Seed the Y.XmlFragment from existing slide content on first open
+  // Seed the Y.XmlFragment from existing slide content on first open.
+  // Only the lead client seeds an empty shared doc, so two clients opening a
+  // brand-new slide at once don't both seed and duplicate the content.
   useEffect(() => {
     if (!editor || !ydoc || editor.isDestroyed) return;
+    if (!isLeadClient) return;
     const fragment = ydoc.getXmlFragment("default");
     if (fragment.length === 0) {
       const html = extractEditableContent(
@@ -230,11 +326,92 @@ export function SlideInlineEditor({
         isSettingContent.current = true;
         editor.commands.setContent(html, { emitUpdate: false });
         isSettingContent.current = false;
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
       }
     }
-    // Only re-run when editor instance or ydoc changes, not on slide content updates
+    // Only re-run when editor instance, ydoc, or lead-election changes, not on
+    // every slide content update (the reconcile effect handles those).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, ydoc]);
+  }, [editor, ydoc, isLeadClient]);
+
+  // Reconcile authoritative external slide content (an agent edit, or a peer
+  // edit mirrored to SQL) into the live editor. Driven by the deck `updatedAt`:
+  // only content genuinely newer than what this editor already reflects is
+  // applied, so a lagging poll can never revert live edits. The lead client
+  // applies it through the editor's real content pipeline (so new block
+  // structure renders) and the Yjs CRDT propagates the result to every other
+  // client and persists it.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const run = () => {
+      if (cancelled || !editor || editor.isDestroyed) return;
+
+      const nextContent = extractEditableContent(
+        typeof slide.content === "string" ? slide.content : "",
+      );
+      const currentContent = editor.getHTML();
+
+      // Already in sync: advance the applied watermark so a later write is
+      // correctly recognized as newer, then stop.
+      if (currentContent === nextContent) {
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        return;
+      }
+
+      if (
+        !shouldApplySlideContentSync({
+          nextContent,
+          currentContent,
+          contentUpdatedAt,
+          lastAppliedUpdatedAt: lastAppliedUpdatedAtRef.current,
+          isLeadClient,
+          editorFocused: editor.isFocused,
+          lastTypedAt: lastTypedAtRef.current,
+          now: Date.now(),
+        })
+      ) {
+        // If we only deferred because the user is typing right now, re-check
+        // shortly so the external edit still lands once they pause.
+        const externalNewer =
+          !lastAppliedUpdatedAtRef.current ||
+          (!!contentUpdatedAt &&
+            contentUpdatedAt > lastAppliedUpdatedAtRef.current);
+        const typingRightNow =
+          editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
+        if (externalNewer && isLeadClient && typingRightNow) {
+          retryTimer = setTimeout(run, 700);
+        }
+        return;
+      }
+
+      // Defer to a microtask so we don't trigger a synchronous React update
+      // during render — setContent dispatches PM transactions that may update
+      // React-owned state via the Collaboration extension.
+      queueMicrotask(() => {
+        if (cancelled || !editor || editor.isDestroyed) return;
+        isSettingContent.current = true;
+        // emitUpdate: false so the apply doesn't echo back through
+        // onContentChange and overwrite SQL with our own re-serialization.
+        editor.commands.setContent(nextContent, { emitUpdate: false });
+        isSettingContent.current = false;
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+      });
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [editor, slide.content, contentUpdatedAt, isLeadClient]);
 
   const { menuPosition, query, menuRef, closeMenu, executeCommand } =
     useSlashMenu(editor);

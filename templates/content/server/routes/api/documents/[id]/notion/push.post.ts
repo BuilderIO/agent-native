@@ -3,6 +3,7 @@ import { getDocumentOwnerEmail } from "../../../../../lib/notion.js";
 import { pushDocumentToNotion } from "../../../../../lib/notion-sync.js";
 
 export default defineEventHandler(async (event) => {
-  const owner = await getDocumentOwnerEmail(event);
-  return pushDocumentToNotion(owner, event.context.params!.id);
+  const id = event.context.params!.id;
+  const owner = await getDocumentOwnerEmail(event, id);
+  return pushDocumentToNotion(owner, id);
 });

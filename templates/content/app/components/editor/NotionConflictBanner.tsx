@@ -19,7 +19,10 @@ export function NotionConflictBanner({
 }: NotionConflictBannerProps) {
   // Share autoSync state (and React Query cache) with DocumentToolbar.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
-  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
+  const { data: syncStatus } = useDocumentSyncStatus(
+    canEdit ? documentId : null,
+    { autoSync },
+  );
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
   const [direction, setDirection] = useState<"pull" | "push" | null>(null);
 

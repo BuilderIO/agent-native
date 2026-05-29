@@ -3,7 +3,8 @@ import { getDocumentOwnerEmail } from "../../../../../lib/notion.js";
 import { unlinkDocumentFromNotion } from "../../../../../lib/notion-sync.js";
 
 export default defineEventHandler(async (event) => {
-  const owner = await getDocumentOwnerEmail(event);
-  await unlinkDocumentFromNotion(owner, event.context.params!.id);
+  const id = event.context.params!.id;
+  const owner = await getDocumentOwnerEmail(event, id);
+  await unlinkDocumentFromNotion(owner, id);
   return { success: true };
 });

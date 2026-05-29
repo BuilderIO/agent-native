@@ -2730,7 +2730,9 @@ function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   return (
     code === "builder_auth_error" ||
     message.includes("builder authentication failed") ||
-    (isAuthCode && message.includes("invalid token"))
+    (isAuthCode &&
+      (message.includes("invalid token") ||
+        message.includes("personal access token")))
   );
 }
 

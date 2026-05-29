@@ -384,25 +384,40 @@ export function EventDetailPopover({
   const locationRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
 
-  // Sync editing state when event changes
+  // Sync editing state when the event changes (incl. live agent/other-user
+  // edits picked up by polling). Skip the field the user is actively editing so
+  // an incoming update never yanks text out from under in-progress typing —
+  // that field re-adopts the authoritative value once the user finishes (which
+  // closes the inline editor and flips `editingField` away).
   useEffect(() => {
-    setEditDescription(event.description || "");
-    setEditLocation(event.location || "");
-    setEditDate(toDateInputValue(event.start));
-    setEditEndDate(
-      event.allDay
-        ? toAllDayEndDateInputValue(event.end)
-        : toDateInputValue(event.end),
-    );
-    setEditStartTime(toTimeInputValue(event.start));
-    setEditEndTime(toTimeInputValue(event.end));
-    setEditTimezone(event.startTimeZone || getLocalTimezone());
-    const reminderState = remindersToDraftState(event);
-    setEditReminderMode(reminderState.mode);
-    setEditReminders(reminderState.reminders);
-    setEditAttachments(attachmentsToDrafts(event.attachments));
-    setEditTimeScope("single");
+    if (editingField !== "description")
+      setEditDescription(event.description || "");
+    if (editingField !== "location") setEditLocation(event.location || "");
+    if (editingField !== "time") {
+      setEditDate(toDateInputValue(event.start));
+      setEditEndDate(
+        event.allDay
+          ? toAllDayEndDateInputValue(event.end)
+          : toDateInputValue(event.end),
+      );
+      setEditStartTime(toTimeInputValue(event.start));
+      setEditEndTime(toTimeInputValue(event.end));
+      setEditTimezone(event.startTimeZone || getLocalTimezone());
+      setEditTimeScope("single");
+    }
+    if (editingField !== "reminders") {
+      const reminderState = remindersToDraftState(event);
+      setEditReminderMode(reminderState.mode);
+      setEditReminders(reminderState.reminders);
+    }
+    if (editingField !== "attachments") {
+      setEditAttachments(attachmentsToDrafts(event.attachments));
+    }
     setFindTimeOpen(false);
+    // `editingField` is intentionally omitted: re-running this effect when the
+    // user merely opens an inline editor would re-seed the other fields and is
+    // unnecessary — we only want to resync when the underlying event changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     event.id,
     event.description,

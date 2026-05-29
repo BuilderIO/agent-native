@@ -24,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionMutation,
+  useReconciledState,
   appBasePath,
   AgentToggleButton,
   NotificationsBell,
@@ -227,7 +228,11 @@ export function CallPlayer({
   const [shareOpen, setShareOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [titleEditing, setTitleEditing] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(call.title);
+  // Re-adopt the server/agent title when not editing, so an agent rename shows
+  // up live without the user having to leave and re-open the player.
+  const [titleDraft, setTitleDraft] = useReconciledState(call.title, {
+    active: titleEditing,
+  });
   const [poiTab, setPoiTab] = useState<PoiTab>("questions");
   const [showTranscript, setShowTranscript] = useState(true);
   const [showSummary, setShowSummary] = useState(true);

@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { agentNativePath } from "../client/api-path.js";
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
 export interface CollabUser {
   name: string;
@@ -103,6 +104,57 @@ export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
     });
   }
   return Array.from(byEmail.values());
+}
+
+/**
+ * Leader election for applying authoritative external snapshots into a shared
+ * collaborative document.
+ *
+ * When the agent (or a Notion pull, or any full-document rewrite) writes new
+ * content to SQL, the open editor reconciles it into the live Y.Doc with
+ * `setContent`. If EVERY connected client did that independently, each would
+ * diff the same snapshot into the CRDT and the changed region would be inserted
+ * N times (concurrent inserts at the same position → duplicated text). So only
+ * ONE client — the "lead" — applies the snapshot; every other client receives
+ * the result through normal Yjs sync.
+ *
+ * The lead is the present client with the lowest Yjs `clientID`. The agent's
+ * awareness entry uses `AGENT_CLIENT_ID` (max int) so it can never be the lead,
+ * and a client editing alone is always the lead. This is deterministic across
+ * clients with no coordination round-trip.
+ */
+export function isReconcileLeadClient(
+  awareness: Awareness | null | undefined,
+  localClientId: number | null | undefined,
+): boolean {
+  if (localClientId == null) return false;
+  if (!awareness) return true; // standalone / tests — act alone
+
+  let hasPeer = false;
+  let minVisible = localClientId;
+  awareness.getStates().forEach((state, clientId) => {
+    if (clientId === AGENT_CLIENT_ID) return; // agent never leads
+    if (clientId === localClientId) return;
+    const s = state as { user?: unknown; visible?: boolean };
+    if (!s || !s.user) return; // skip empty/stale entries
+    hasPeer = true;
+    // Only VISIBLE peers can act; a peer published `visible: false` (backgrounded)
+    // is skipped. A peer that hasn't published the field is treated as visible.
+    if (s.visible !== false && clientId < minVisible) minVisible = clientId;
+  });
+
+  // Sole client: always the applier — no other client can duplicate the edit,
+  // so single-user agent edits apply even if this tab reports hidden.
+  if (!hasPeer) return true;
+
+  // With peers present, exactly one VISIBLE client applies (the lowest clientId
+  // among visible ones). A backgrounded tab pauses its poll and can't reliably
+  // act, so it yields — otherwise an agent edit would never reach the tab the
+  // user is actually looking at. The caller re-elects on visibility change.
+  const localHidden =
+    typeof document !== "undefined" && document.visibilityState === "hidden";
+  if (localHidden) return false;
+  return localClientId <= minVisible;
 }
 
 export interface RemoteAwarenessSnapshot {
@@ -197,7 +249,10 @@ export function useCollaborativeDoc(
   const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollVersionRef = useRef(0);
 
-  // Set local awareness state (user info for cursor labels)
+  // Set local awareness state (user info for cursor labels). Also publish this
+  // tab's visibility so peers can elect a VISIBLE client to apply external
+  // snapshots (see isReconcileLeadClient) — a backgrounded tab pauses its poll
+  // and must not hold that role.
   useEffect(() => {
     if (!awareness || !user) return;
     awareness.setLocalStateField("user", {
@@ -205,6 +260,7 @@ export function useCollaborativeDoc(
       email: user.email,
       color: user.color,
     });
+    awareness.setLocalStateField("visible", !isDocumentHidden());
   }, [awareness, user?.name, user?.email, user?.color]);
 
   // Track active users from awareness changes
@@ -442,8 +498,30 @@ export function useCollaborativeDoc(
       void poll();
     }
 
+    // Publish this tab's visibility to peers. A hidden tab pauses its poll, so
+    // we push the state immediately (keepalive) instead of waiting for the next
+    // cycle — otherwise peers keep treating a backgrounded tab as the visible
+    // lead and an agent edit never lands on the tab the user is looking at.
+    function publishVisibility(visible: boolean) {
+      if (!awareness) return;
+      awareness.setLocalStateField("visible", visible);
+      const localState = awareness.getLocalState();
+      if (!localState) return;
+      fetch(`${baseUrl}/${docId}/awareness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: ydoc.clientID,
+          state: JSON.stringify(localState),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
+      const visible = document.visibilityState === "visible";
+      publishVisibility(visible);
+      if (visible) {
         pollNow();
       } else if (pauseWhenHidden && timer) {
         clearTimeout(timer);

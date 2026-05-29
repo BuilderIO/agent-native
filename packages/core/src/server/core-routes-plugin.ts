@@ -1729,6 +1729,8 @@ export function createCoreRoutesPlugin(
 
       // Onboarding form fields are resolved per-request so late-registered
       // steps (and template overrides) are picked up without a restart.
+      // Builder CLI auth writes scoped Builder credentials through the
+      // credential provider, never through the deploy-global env sink.
       const collectOnboardingKeys = (): Set<string> => {
         const keys = new Set<string>();
         for (const step of listOnboardingSteps()) {
@@ -1737,10 +1739,6 @@ export function createCoreRoutesPlugin(
               for (const field of method.payload.fields) {
                 if (field?.key) keys.add(field.key);
               }
-            }
-            if (method.kind === "builder-cli-auth") {
-              keys.add("BUILDER_PRIVATE_KEY");
-              keys.add("BUILDER_PUBLIC_KEY");
             }
           }
         }
@@ -1816,11 +1814,14 @@ export function createCoreRoutesPlugin(
             ...envKeys.map((k) => k.key),
             ...collectOnboardingKeys(),
           ]);
+          const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
+          const isWritableEnvKey = (key: string) =>
+            allowedKeys.has(key) && !blockedEnvVarWriteKeys.has(key);
 
           const filtered = vars.filter(
             (v) =>
               typeof v.key === "string" &&
-              allowedKeys.has(v.key) &&
+              isWritableEnvKey(v.key) &&
               typeof v.value === "string" &&
               v.value.trim().length > 0,
           );
@@ -1829,7 +1830,7 @@ export function createCoreRoutesPlugin(
             const rejectedEmpty = vars.some(
               (v) =>
                 typeof v.key === "string" &&
-                allowedKeys.has(v.key) &&
+                isWritableEnvKey(v.key) &&
                 (typeof v.value !== "string" || v.value.trim().length === 0),
             );
             return {

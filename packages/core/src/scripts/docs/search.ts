@@ -47,7 +47,7 @@ function parseFrontmatter(raw: string): {
   return { data, body: match[2] };
 }
 
-function loadAllDocs(): DocFull[] {
+function loadFilesystemDocs(): DocFull[] {
   const docsDir = getDocsDir();
   if (!fs.existsSync(docsDir)) return [];
 
@@ -65,8 +65,56 @@ function loadAllDocs(): DocFull[] {
   });
 }
 
-function searchDocs(query: string): DocMeta[] {
-  const docs = loadAllDocs();
+function slugifyDocId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function loadAgentBundleDocs(): Promise<DocFull[]> {
+  try {
+    const { loadAgentsBundle } = await import("../../server/agents-bundle.js");
+    const bundle = await loadAgentsBundle();
+    const docs: DocFull[] = [];
+    if (bundle.workspaceAgentsMd?.trim()) {
+      docs.push({
+        slug: "agents-workspace",
+        title: "Workspace AGENTS.md",
+        description: "Full bundled workspace-level agent instructions.",
+        body: bundle.workspaceAgentsMd,
+      });
+    }
+    if (bundle.agentsMd?.trim()) {
+      docs.push({
+        slug: "agents-template",
+        title: "Template AGENTS.md",
+        description: "Full bundled template/app agent instructions.",
+        body: bundle.agentsMd,
+      });
+    }
+    for (const skill of Object.values(bundle.skills)) {
+      const slug = `skill-${slugifyDocId(skill.meta.name)}`;
+      docs.push({
+        slug,
+        title: `Skill: ${skill.meta.name}`,
+        description: skill.meta.description,
+        body: skill.content,
+      });
+    }
+    return docs;
+  } catch {
+    return [];
+  }
+}
+
+async function loadAllDocs(): Promise<DocFull[]> {
+  return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
+}
+
+async function searchDocs(query: string): Promise<DocMeta[]> {
+  const docs = await loadAllDocs();
   const terms = query.toLowerCase().split(/\s+/);
 
   const scored = docs
@@ -109,7 +157,7 @@ Options:
   }
 
   if (parsed.list === "true") {
-    const docs = loadAllDocs();
+    const docs = await loadAllDocs();
     const listing = docs.map((d) => ({
       slug: d.slug,
       title: d.title,
@@ -120,7 +168,7 @@ Options:
   }
 
   if (parsed.slug) {
-    const docs = loadAllDocs();
+    const docs = await loadAllDocs();
     const doc = docs.find((d) => d.slug === parsed.slug);
     if (!doc) {
       console.log(`Doc not found: ${parsed.slug}`);
@@ -134,7 +182,7 @@ Options:
   }
 
   if (parsed.query) {
-    const results = searchDocs(parsed.query);
+    const results = await searchDocs(parsed.query);
     if (results.length === 0) {
       console.log(`No docs found matching "${parsed.query}".`);
       return;

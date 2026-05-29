@@ -482,6 +482,100 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("passes the central default max output token cap to the engine", async () => {
+    let seenMaxOutputTokens: number | undefined;
+    const engine: AgentEngine = {
+      name: "ai-sdk:openrouter",
+      label: "OpenRouter",
+      defaultModel: "openai/gpt-5.5",
+      supportedModels: ["openai/gpt-5.5"],
+      capabilities: {
+        thinking: true,
+        promptCaching: true,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMaxOutputTokens = opts.maxOutputTokens;
+        yield { type: "text-delta", text: "done" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "openai/gpt-5.5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenMaxOutputTokens).toBe(1024);
+  });
+
+  it("continues internally when a response reaches the output token cap", async () => {
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(JSON.stringify(opts.messages));
+        if (streamCalls === 1) {
+          yield { type: "text-delta", text: "partial " };
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "partial " }],
+          };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+        yield { type: "text-delta", text: "finish" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "finish" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(events).toContainEqual({ type: "text", text: "partial " });
+    expect(events).toContainEqual({ type: "text", text: "finish" });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
   it("emits activity while a tool input is being assembled", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

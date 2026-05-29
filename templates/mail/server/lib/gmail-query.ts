@@ -2,6 +2,7 @@ import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
 } from "@shared/gmail-labels.js";
+import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
 export const VIEW_QUERIES: Record<string, string> = {
@@ -44,7 +45,7 @@ export function gmailAppLabelSearchClause(label: string): string {
     return `category:${id === "personal" ? "primary" : id}`;
   }
   if (id === "important") return "is:important";
-  if (id === "note-to-self") return "from:me";
+  if (id === "note-to-self") return "from:me {to:me cc:me bcc:me}";
   return gmailLabelSearchClause(label);
 }
 
@@ -101,6 +102,29 @@ function qualifiesForInboxThread(
   );
 }
 
+function noteToSelfThreadKeys(
+  emails: EmailMessage[],
+  connectedEmails: ReadonlySet<string> | undefined,
+): Set<string> {
+  if (!connectedEmails || connectedEmails.size === 0) return new Set();
+
+  const threads = new Map<string, EmailMessage[]>();
+  for (const message of emails) {
+    const key = threadKey(message);
+    const thread = threads.get(key) ?? [];
+    thread.push(message);
+    threads.set(key, thread);
+  }
+
+  const keys = new Set<string>();
+  for (const [key, thread] of threads) {
+    if (isSelfAddressedThread(thread, connectedEmails)) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
 function qualifiesForThreadPreview(
   message: EmailMessage,
   label?: string,
@@ -117,13 +141,22 @@ export function filterInboxScopedThreadMessages(
   emails: EmailMessage[],
   view: string,
   label?: string,
+  connectedEmails?: ReadonlySet<string>,
 ): EmailMessage[] {
   if (view !== "inbox" && view !== "unread") return emails;
 
   const includedThreads = new Set<string>();
+  const isNoteToSelf = label?.toLowerCase() === "note-to-self";
+  const selfNoteThreads = isNoteToSelf
+    ? noteToSelfThreadKeys(emails, connectedEmails)
+    : undefined;
   for (const message of emails) {
-    if (qualifiesForInboxThread(message, view, label)) {
-      includedThreads.add(threadKey(message));
+    const key = threadKey(message);
+    if (
+      qualifiesForInboxThread(message, view, label) &&
+      (!isNoteToSelf || selfNoteThreads?.has(key))
+    ) {
+      includedThreads.add(key);
     }
   }
 

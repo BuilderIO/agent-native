@@ -14,7 +14,7 @@ export interface CredentialProviderConfig {
 /**
  * All per-user/account credential keys. These are stored in the SQL
  * settings table, NOT as env vars. The resolveCredential() helper
- * checks process.env first for backward compat with .env files.
+ * deliberately never reads process.env because env vars are deploy-global.
  */
 export const credentialKeys: CredentialKeyConfig[] = [
   // Google Cloud / Analytics / BigQuery

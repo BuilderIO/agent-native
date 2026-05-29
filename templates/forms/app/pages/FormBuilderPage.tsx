@@ -47,6 +47,7 @@ import {
   NotificationsBell,
   ShareButton,
   appPath,
+  useReconciledState,
   useSendToAgentChat,
 } from "@agent-native/core/client";
 import {
@@ -142,19 +143,24 @@ export function FormBuilderPage() {
 
   // Local state for text inputs and fields — prevents polling-driven refetches
   // from resetting input values while the user is typing or losing optimistic
-  // updates (e.g. newly added fields).
-  const [localTitle, setLocalTitle] = useState(form?.title ?? "");
-  const [localDescription, setLocalDescription] = useState(
+  // updates (e.g. newly added fields). `useReconciledState` re-adopts the
+  // server/agent value whenever the field isn't focused, so an agent edit to
+  // the title/description shows up live without yanking in-progress typing.
+  const titleFocused = useRef(false);
+  const descriptionFocused = useRef(false);
+  const fieldsDirty = useRef(false);
+  const [localTitle, setLocalTitle] = useReconciledState(form?.title ?? "", {
+    active: titleFocused.current,
+  });
+  const [localDescription, setLocalDescription] = useReconciledState(
     form?.description ?? "",
+    { active: descriptionFocused.current },
   );
   const [localFields, setLocalFields] = useState<FormField[]>(
     normalizeFields(form?.fields),
   );
-  const titleFocused = useRef(false);
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState<number | undefined>();
-  const descriptionFocused = useRef(false);
-  const fieldsDirty = useRef(false);
 
   // Esc to deselect field
   useEffect(() => {
@@ -174,17 +180,12 @@ export function FormBuilderPage() {
     }
   }, [localTitle]);
 
-  // Sync from server when not dirty (e.g. agent updates the fields)
-  useEffect(() => {
-    if (form && !titleFocused.current) setLocalTitle(form.title);
-  }, [form?.title]);
-  useEffect(() => {
-    if (form && !descriptionFocused.current)
-      setLocalDescription(form.description || "");
-  }, [form?.description]);
+  // Sync fields from server when not dirty (e.g. agent updates the fields).
+  // Title/description re-sync is handled by `useReconciledState` above.
   useEffect(() => {
     if (form && !fieldsDirty.current)
       setLocalFields(normalizeFields(form.fields));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form?.fields]);
 
   // Clear pending publish state once the refetched form reflects the new

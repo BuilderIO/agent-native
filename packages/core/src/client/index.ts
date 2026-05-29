@@ -104,6 +104,7 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export { useReconciledState } from "./use-external-value.js";
 export {
   buildDynamicAgentSuggestions,
   dedupeSuggestions,
@@ -409,12 +410,14 @@ export {
 } from "./analytics.js";
 export {
   useCollaborativeDoc,
+  isReconcileLeadClient,
   emailToColor,
   emailToName,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
   type CollabUser,
 } from "../collab/client.js";
+export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
 export {
   ResourcesPanel,
   ResourceTree,

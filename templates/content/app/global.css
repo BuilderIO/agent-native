@@ -430,16 +430,25 @@
 .notion-editor ul:not(.notion-task-list) > li,
 .notion-editor ol > li {
   display: grid;
-  grid-template-columns: 1rem 1fr;
+  /* Marker column grows for multi-digit ordered-list numbers (10., 11., …).
+     A fixed 1rem clipped two-digit markers, wrapping "10." onto two lines. */
+  grid-template-columns: minmax(1rem, auto) 1fr;
   column-gap: 0.5em;
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before,
 .notion-editor ol > li::before {
   display: block;
-  width: 1rem;
+  min-width: 1rem;
   text-align: center;
+  white-space: nowrap;
   line-height: 1.7;
+}
+
+/* Ordered-list numbers read better right-aligned against the content gutter,
+   and never wrap regardless of digit count. */
+.notion-editor ol > li::before {
+  text-align: right;
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before {

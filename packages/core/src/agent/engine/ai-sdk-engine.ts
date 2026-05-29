@@ -28,6 +28,7 @@ import {
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export type { AISDKProvider } from "../model-config.js";
 
@@ -296,7 +297,10 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: opts.maxOutputTokens ?? 32768,
+        maxOutputTokens: resolveMaxOutputTokensForEngine(
+          this.name,
+          opts.maxOutputTokens,
+        ),
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
