@@ -96,21 +96,39 @@ function normalizeHostConfig(value: unknown): HostConfig {
   };
 }
 
+function absoluteAssetUrl(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : undefined;
+    return new URL(value, base).toString();
+  } catch {
+    return value;
+  }
+}
+
 function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const mediaType =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/")
       ? "video"
       : requestedMediaType;
+  const previewUrl = absoluteAssetUrl(asset.previewUrl);
+  const url = absoluteAssetUrl(
+    asset.previewUrl ?? asset.url ?? asset.downloadUrl,
+  );
+  const thumbnailUrl = absoluteAssetUrl(asset.thumbnailUrl);
+  const downloadUrl = absoluteAssetUrl(asset.downloadUrl);
+  const embedUrl = absoluteAssetUrl(asset.embedUrl);
   return {
     id: asset.id,
     assetId: asset.id,
     libraryId: asset.libraryId,
     mediaType,
-    url: asset.previewUrl ?? asset.url ?? asset.downloadUrl,
-    previewUrl: asset.previewUrl,
-    thumbnailUrl: asset.thumbnailUrl,
-    downloadUrl: asset.downloadUrl,
-    embedUrl: asset.embedUrl,
+    url,
+    previewUrl,
+    thumbnailUrl,
+    downloadUrl,
+    embedUrl,
     embedPath: asset.embedPath,
     altText: asset.altText ?? asset.title ?? "",
     title: asset.title ?? "",
