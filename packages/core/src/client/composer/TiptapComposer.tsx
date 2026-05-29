@@ -12,6 +12,7 @@ import {
   useComposerRuntime,
 } from "@assistant-ui/react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { FileReference } from "./extensions/FileReference.js";
@@ -103,6 +104,18 @@ export function getComposerSubmitIntentForEnterKey(
   if (!event.metaKey && !event.ctrlKey) return "immediate";
 
   return null;
+}
+
+export function insertComposerHardBreakAndScrollIntoView(
+  view: Pick<EditorView, "state" | "dispatch">,
+): boolean {
+  const hardBreak = view.state.schema.nodes.hardBreak;
+  if (!hardBreak) return false;
+
+  view.dispatch(
+    view.state.tr.replaceSelectionWith(hardBreak.create()).scrollIntoView(),
+  );
+  return true;
 }
 
 export function displayableComposerModeMessage(options: {
@@ -1251,8 +1264,14 @@ export function TiptapComposer({
           return true;
         }
 
-        // Submit on Enter. Shift+Enter falls through to Tiptap for a newline;
+        // Submit on Enter. Shift+Enter inserts a newline and keeps the
+        // composer scrolled to the caret.
         // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        if (event.key === "Enter" && event.shiftKey) {
+          event.preventDefault();
+          return insertComposerHardBreakAndScrollIntoView(view);
+        }
+
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
