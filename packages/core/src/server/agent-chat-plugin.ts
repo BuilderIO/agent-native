@@ -151,6 +151,7 @@ async function lazyFs(): Promise<typeof import("fs")> {
 }
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
+const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
 const SHARED_RESOURCE_INDEX_LIMIT = 40;
 
 function normalizeResourcePathForPrompt(path: string): string {
@@ -165,11 +166,15 @@ function truncatePromptResourceContent(
   content: string,
   path: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+  readHint?: string,
 ): string {
   const trimmed = content.trim();
   if (trimmed.length <= maxChars) return trimmed;
   const omitted = trimmed.length - maxChars;
-  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. Use resource-read --path "${path}" with the resource's scope for the full content.]`;
+  const hint =
+    readHint ??
+    `Use resource-read --path "${path}" with the resource's scope for the full content.`;
+  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
 }
 
 function promptResourceBlock(input: {
@@ -178,6 +183,7 @@ function promptResourceBlock(input: {
   content: string;
   path?: string;
   maxChars?: number;
+  readHint?: string;
 }): string | null {
   const normalizedPath = input.path
     ? normalizeResourcePathForPrompt(input.path)
@@ -186,6 +192,7 @@ function promptResourceBlock(input: {
     input.content,
     normalizedPath ?? input.name,
     input.maxChars,
+    input.readHint,
   );
   if (!content) return null;
   const pathAttr = normalizedPath
@@ -250,6 +257,7 @@ function resourceScopeForOwner(owner: string, currentOwner?: string): string {
 async function loadAgentsResourceForPrompt(
   owner: string,
   scope: string,
+  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
 ): Promise<string | null> {
   try {
     const agents = await resourceGetByPath(owner, "AGENTS.md");
@@ -259,6 +267,7 @@ async function loadAgentsResourceForPrompt(
       scope,
       path: "AGENTS.md",
       content: agents.content,
+      maxChars,
     });
   } catch {
     return null;
@@ -268,6 +277,7 @@ async function loadAgentsResourceForPrompt(
 async function loadInstructionResourcesForPrompt(
   owner: string,
   scope: string,
+  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
 ): Promise<string[]> {
   try {
     const resources = await resourceList(owner, "instructions/");
@@ -283,6 +293,7 @@ async function loadInstructionResourcesForPrompt(
         scope,
         path: resource.path,
         content: full.content,
+        maxChars,
       });
       if (block) blocks.push(block);
     }
@@ -2640,6 +2651,9 @@ export async function loadResourcesForPrompt(
   await ensurePersonalDefaults(owner);
 
   const sections: string[] = [];
+  const promptResourceMaxChars = compact
+    ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
+    : SHARED_PROMPT_RESOURCE_MAX_CHARS;
 
   // 1. Workspace AGENTS.md + skills merged into the template bundle.
   try {
@@ -2649,16 +2663,30 @@ export async function loadResourcesForPrompt(
 
     // Workspace-core AGENTS.md (enterprise-wide instructions), if present.
     if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
-      sections.push(
-        `<resource name="AGENTS.md" scope="workspace">\n${bundle.workspaceAgentsMd.trim()}\n</resource>`,
-      );
+      const block = promptResourceBlock({
+        name: "AGENTS.md",
+        scope: "workspace",
+        path: "AGENTS.md",
+        content: bundle.workspaceAgentsMd,
+        maxChars: promptResourceMaxChars,
+        readHint:
+          'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
+      });
+      if (block) sections.push(block);
     }
 
     // 2. Template AGENTS.md — always included (critical template instructions).
     if (bundle.agentsMd.trim()) {
-      sections.push(
-        `<resource name="AGENTS.md" scope="template">\n${bundle.agentsMd.trim()}\n</resource>`,
-      );
+      const block = promptResourceBlock({
+        name: "AGENTS.md",
+        scope: "template",
+        path: "AGENTS.md",
+        content: bundle.agentsMd,
+        maxChars: promptResourceMaxChars,
+        readHint:
+          'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
+      });
+      if (block) sections.push(block);
     }
 
     // In compact mode, skip the full skills block — the agent can use
@@ -2681,12 +2709,14 @@ export async function loadResourcesForPrompt(
   const workspaceAgents = await loadAgentsResourceForPrompt(
     WORKSPACE_OWNER,
     "workspace",
+    promptResourceMaxChars,
   );
   if (workspaceAgents) sections.push(workspaceAgents);
   sections.push(
     ...(await loadInstructionResourcesForPrompt(
       WORKSPACE_OWNER,
       "workspace-instruction",
+      promptResourceMaxChars,
     )),
   );
 
@@ -2695,24 +2725,31 @@ export async function loadResourcesForPrompt(
   const sharedAgents = await loadAgentsResourceForPrompt(
     SHARED_OWNER,
     "shared",
+    promptResourceMaxChars,
   );
   if (sharedAgents) sections.push(sharedAgents);
   sections.push(
     ...(await loadInstructionResourcesForPrompt(
       SHARED_OWNER,
       "shared-instruction",
+      promptResourceMaxChars,
     )),
   );
 
   // 5. Personal SQL resources. These come last in the instruction stack so a
   // user can narrow or override organization/app and workspace defaults.
   if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
-    const personalAgents = await loadAgentsResourceForPrompt(owner, "personal");
+    const personalAgents = await loadAgentsResourceForPrompt(
+      owner,
+      "personal",
+      promptResourceMaxChars,
+    );
     if (personalAgents) sections.push(personalAgents);
     sections.push(
       ...(await loadInstructionResourcesForPrompt(
         owner,
         "personal-instruction",
+        promptResourceMaxChars,
       )),
     );
   }

@@ -41,6 +41,7 @@ import {
 } from "./credential-errors.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { captureError } from "../../server/capture-error.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -61,7 +62,6 @@ export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 // (Netlify synchronous Functions are 60s) hard-kill the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 32768;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
@@ -154,7 +154,10 @@ class BuilderEngine implements AgentEngine {
       messages,
       ...(opts.systemPrompt ? { system: opts.systemPrompt } : {}),
       ...(tools.length > 0 ? { tools } : {}),
-      max_tokens: opts.maxOutputTokens ?? DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
+      max_tokens: resolveMaxOutputTokensForEngine(
+        this.name,
+        opts.maxOutputTokens,
+      ),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 

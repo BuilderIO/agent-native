@@ -4,6 +4,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   createBuilderEngine,
 } from "./builder-engine.js";
+import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
 import * as captureErrorModule from "../../server/capture-error.js";
 import type { EngineStreamOptions } from "./types.js";
 
@@ -192,7 +193,7 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
-    expect(body.max_tokens).toBe(32768);
+    expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },

@@ -22,8 +22,10 @@ import type {
   EngineTool,
   EngineMessage,
   EngineContentPart,
+  EngineEvent,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import {
   backfillEngineMessagesToolResults,
   stringifyToolUseInputForGateway,
@@ -1120,6 +1122,7 @@ export const AGENT_INTERNAL_CONTINUE_PROMPT =
 export type AgentLoopContinuationReason =
   | "run_timeout"
   | "loop_limit"
+  | "max_tokens"
   | "stream_ended"
   | "gateway_timeout"
   | "network_interrupted";
@@ -1131,13 +1134,15 @@ export function appendAgentLoopContinuation(
   const note =
     reason === "loop_limit"
       ? "The previous run reached an internal step budget."
-      : reason === "stream_ended"
-        ? "The previous stream ended before the agent sent a final completion signal."
-        : reason === "gateway_timeout"
-          ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-          : reason === "network_interrupted"
-            ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-            : "The previous run reached an internal execution budget.";
+      : reason === "max_tokens"
+        ? "The previous LLM call reached the model output-token cap before the response finished."
+        : reason === "stream_ended"
+          ? "The previous stream ended before the agent sent a final completion signal."
+          : reason === "gateway_timeout"
+            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
+            : reason === "network_interrupted"
+              ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+              : "The previous run reached an internal execution budget.";
   messages.push({
     role: "user",
     content: [
@@ -1397,6 +1402,7 @@ export async function runAgentLoop(opts: {
   orgId?: string | null;
   reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
+  maxOutputTokens?: number;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
@@ -1448,6 +1454,9 @@ export async function runAgentLoop(opts: {
 
     let assistantContent: EngineContentPart[] | undefined;
     let bufferedAssistantText = "";
+    let terminalStopReason:
+      | Extract<EngineEvent, { type: "stop" }>["reason"]
+      | undefined;
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -1456,6 +1465,7 @@ export async function runAgentLoop(opts: {
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
       bufferedAssistantText = "";
+      terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
         const streamOpts = {
@@ -1464,6 +1474,10 @@ export async function runAgentLoop(opts: {
           messages,
           tools,
           abortSignal: signal,
+          maxOutputTokens: resolveMaxOutputTokensForEngine(
+            engine.name,
+            opts.maxOutputTokens,
+          ),
           reasoningEffort: opts.reasoningEffort,
           providerOptions: opts.providerOptions,
         };
@@ -1528,11 +1542,14 @@ export async function runAgentLoop(opts: {
             usage.outputTokens += event.outputTokens;
             usage.cacheReadTokens += event.cacheReadTokens ?? 0;
             usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
-          } else if (event.type === "stop" && event.reason === "error") {
-            throw new EngineError(event.error ?? "Engine stream error", {
-              errorCode: event.errorCode,
-              upgradeUrl: event.upgradeUrl,
-            });
+          } else if (event.type === "stop") {
+            terminalStopReason = event.reason;
+            if (event.reason === "error") {
+              throw new EngineError(event.error ?? "Engine stream error", {
+                errorCode: event.errorCode,
+                upgradeUrl: event.upgradeUrl,
+              });
+            }
           }
         }
 
@@ -1611,6 +1628,11 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
+      if (terminalStopReason === "max_tokens") {
+        flushBufferedAssistantText();
+        appendAgentLoopContinuation(messages, "max_tokens");
+        continue;
+      }
       const guard = opts.finalResponseGuard
         ? await opts.finalResponseGuard({
             messages,
