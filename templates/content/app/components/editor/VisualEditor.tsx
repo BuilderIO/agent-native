@@ -1233,10 +1233,10 @@ export function VisualEditor({
   const lastTypedAtRef = useRef<number>(0);
   // updatedAt of the content this editor currently reflects. An older-or-equal
   // refetch is a stale snapshot and is ignored; a newer one is an intentional
-  // external edit and is applied.
-  const lastAppliedUpdatedAtRef = useRef<string | null>(
-    contentUpdatedAt ?? null,
-  );
+  // external edit and is applied. Starts null (no baseline) so the FIRST run
+  // reconciles a stale Y.Doc against authoritative SQL content — e.g. when an
+  // agent edited the closed doc and the persisted collab state lags behind.
+  const lastAppliedUpdatedAtRef = useRef<string | null>(null);
 
   // Reuse the synced Awareness instance when provided; fall back for tests or
   // non-template embedders that only pass a Y.Doc.
