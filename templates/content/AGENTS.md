@@ -130,6 +130,13 @@ conversion/integration workflow.
 
 ### Notion Integration
 
+Notion workspace access is per-user OAuth only. Never read `NOTION_API_KEY`
+from `process.env`, never save a user-entered Notion token through
+`/_agent-native/env-vars`, and never add a deploy-level Notion API key path for
+Content. A deploy-global Notion token exposes every page shared with that
+integration to every signed-in Content user. Sync/refresh routes that can pull
+or push Notion content must require editor access, not viewer access.
+
 | Action                  | Args                                    | Purpose                                                                                               |
 | ----------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `connect-notion-status` |                                         | Check Notion connection                                                                               |

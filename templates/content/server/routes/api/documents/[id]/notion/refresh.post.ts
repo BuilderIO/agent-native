@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const access = await assertAccess("document", id, "viewer").catch(
+      const access = await assertAccess("document", id, "editor").catch(
         () => null,
       );
       if (!access) {

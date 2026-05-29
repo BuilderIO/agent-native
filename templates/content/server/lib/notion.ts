@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import {
   deleteOAuthTokens,
-  getOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
@@ -504,29 +503,11 @@ export async function getDocumentOwnerEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
-export function getNotionApiKey(): string | null {
-  return process.env.NOTION_API_KEY || null;
-}
-
 export async function getNotionConnectionForOwner(owner: string) {
-  const apiKey = getNotionApiKey();
-  if (apiKey) {
-    return {
-      accountId: "__api_key__",
-      tokens: { access_token: apiKey } as NotionTokens,
-      accessToken: apiKey,
-      workspaceName: "API Key",
-      workspaceId: null,
-    };
-  }
-
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   if (accounts.length === 0) return null;
   const account = accounts[0];
-  const tokens = (await getOAuthTokens(
-    NOTION_PROVIDER,
-    account.accountId,
-  )) as NotionTokens | null;
+  const tokens = account.tokens as NotionTokens | null;
   if (!tokens?.access_token) return null;
   return {
     accountId: account.accountId,
@@ -538,14 +519,6 @@ export async function getNotionConnectionForOwner(owner: string) {
 }
 
 export async function disconnectNotionForOwner(owner: string) {
-  if (process.env.NOTION_API_KEY) {
-    // NOTION_API_KEY is deploy-level process configuration. Do not mutate
-    // process.env or rewrite .env from a request handler; that would affect
-    // every tenant sharing the same warm server process. Per-user OAuth
-    // connections below remain disconnectable.
-    return 0;
-  }
-
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   let deleted = 0;
   for (const account of accounts) {

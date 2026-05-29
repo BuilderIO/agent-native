@@ -87,6 +87,12 @@ const ALLOWLIST_EXACT = new Set([
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
+  // Notion OAuth app configuration. These identify the app itself; unlike
+  // NOTION_API_KEY, they do not grant access to a user's workspace content.
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
+  "NOTION_STATE_SECRET",
+  "AUTH_SECRET",
   // Framework auth gate
   "ACCESS_TOKEN",
   // Server bind
@@ -123,6 +129,68 @@ const DEV_ONLY_PATH_PATTERNS = [
 const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
 
 /**
+ * Credentials that grant access to third-party customer/workspace data. These
+ * must not be introduced as deploy-level template env vars or read from
+ * process.env in user-triggered template runtime code. Store them as scoped
+ * secrets/credentials/workspace connections instead.
+ */
+const HIGH_RISK_DATA_CREDENTIAL_KEYS = new Set([
+  "AMPLITUDE_SECRET_KEY",
+  "APOLLO_API_KEY",
+  "COMMONROOM_API_TOKEN",
+  "DATAFORSEO_PASSWORD",
+  "GONG_ACCESS_KEY",
+  "GONG_ACCESS_SECRET",
+  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  "GITHUB_TOKEN",
+  "GRAFANA_API_TOKEN",
+  "GOOGLE_SERVICE_ACCOUNT_KEY",
+  "GRANOLA_API_KEY",
+  "HUBSPOT_ACCESS_TOKEN",
+  "HUBSPOT_PRIVATE_APP_TOKEN",
+  "JIRA_API_TOKEN",
+  "MIXPANEL_SERVICE_ACCOUNT",
+  "NOTION_API_KEY",
+  "POSTGRES_URL",
+  "PROMETHEUS_BEARER_TOKEN",
+  "PROMETHEUS_PASSWORD",
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_SERVER_TOKEN",
+  "SLACK_BOT_TOKEN",
+  "SLACK_BOT_TOKEN_2",
+  "STRIPE_SECRET_KEY",
+  "TWITTER_BEARER_TOKEN",
+]);
+
+/**
+ * Narrow exceptions for deploy-level platform adapters, not data-source reads.
+ * Mail uses the Slack bot token only to verify/answer Slack intake events and
+ * map the incoming Slack sender to an org member. It must not become a general
+ * Slack search/data-source credential.
+ */
+const HIGH_RISK_ENV_KEY_ALLOWLIST = new Map([
+  ["templates/mail/server/lib/env-config.ts", new Set(["SLACK_BOT_TOKEN"])],
+  [
+    "packages/dispatch/src/server/lib/env-config.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+const HIGH_RISK_PROCESS_ENV_ALLOWLIST = new Map([
+  [
+    "templates/mail/server/lib/mail-integrations.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+const HIGH_RISK_ENV_VARS_WRITE_ALLOWLIST = new Map([
+  [
+    "packages/dispatch/src/components/messaging-setup-panel.tsx",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+/**
  * Globs of files / directories the guard scans. A path matches if any
  * predicate returns true.
  */
@@ -141,6 +209,15 @@ const FORBIDDEN_PATH_PREDICATES = [
   (rel) => /^packages\/core\/src\/agent\//.test(rel),
   // template credential libs
   (rel) => /^templates\/[^/]+\/server\/lib\/credential[^/]*\.ts$/.test(rel),
+  // Content's Notion helper is a credential-bearing integration boundary.
+  // A prior implementation read NOTION_API_KEY from process.env here and
+  // exposed that deploy-global workspace token to every signed-in user.
+  (rel) => rel === "templates/content/server/lib/notion.ts",
+  (rel) => /^templates\/content\/server\/routes\/api\/notion\//.test(rel),
+  (rel) =>
+    /^templates\/content\/server\/routes\/api\/documents\/[^/]+\/notion/.test(
+      rel,
+    ),
   // template credential routes (single + plural)
   (rel) =>
     /^templates\/[^/]+\/server\/routes\/api\/credential[^/]*$/.test(rel) ||
@@ -205,6 +282,38 @@ function pathIsForbidden(rel) {
   return FORBIDDEN_PATH_PREDICATES.some((p) => p(rel));
 }
 
+function pathIsUserFacingTemplateRuntime(rel) {
+  if (/\.(spec|test)\.[tj]sx?$/.test(rel)) return false;
+  return (
+    /^templates\/[^/]+\/actions\//.test(rel) ||
+    /^templates\/[^/]+\/server\/(?:lib|handlers|routes)\//.test(rel)
+  );
+}
+
+function pathCanWriteEnvVars(rel) {
+  return (
+    /^templates\//.test(rel) ||
+    /^packages\/dispatch\//.test(rel) ||
+    /^packages\/core\/src\/client\/onboarding\//.test(rel)
+  );
+}
+
+function isHighRiskEnvKeyAllowed(rel, key) {
+  return HIGH_RISK_ENV_KEY_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function isHighRiskProcessEnvAllowed(rel, key) {
+  return HIGH_RISK_PROCESS_ENV_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function isHighRiskEnvVarsWriteAllowed(rel, key) {
+  return HIGH_RISK_ENV_VARS_WRITE_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function lineColForOffset(contents, offset) {
   let line = 1;
   let lineStart = 0;
@@ -261,7 +370,20 @@ async function scan() {
     if (!/\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(file)) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
-    if (!pathIsForbidden(rel)) continue;
+    const scanForbiddenPath = pathIsForbidden(rel);
+    const scanEnvConfig =
+      /^templates\/[^/]+\/server\/lib\/env-config\.ts$/.test(rel) ||
+      rel === "packages/dispatch/src/server/lib/env-config.ts";
+    const scanHighRiskTemplateRuntime = pathIsUserFacingTemplateRuntime(rel);
+    const scanEnvVarsWrite = pathCanWriteEnvVars(rel);
+    if (
+      !scanForbiddenPath &&
+      !scanEnvConfig &&
+      !scanHighRiskTemplateRuntime &&
+      !scanEnvVarsWrite
+    ) {
+      continue;
+    }
 
     let contents;
     try {
@@ -269,15 +391,70 @@ async function scan() {
     } catch {
       continue;
     }
+    const lines = contents.split("\n");
+
+    if (scanEnvConfig) {
+      for (const key of HIGH_RISK_DATA_CREDENTIAL_KEYS) {
+        if (isHighRiskEnvKeyAllowed(rel, key)) continue;
+        const re = new RegExp(
+          `\\bkey\\s*:\\s*["']${escapeRegExp(key)}["']`,
+          "g",
+        );
+        let m;
+        while ((m = re.exec(contents)) !== null) {
+          const { line, col } = lineColForOffset(contents, m.index);
+          violations.push({
+            file: rel,
+            line,
+            col,
+            key,
+            reason:
+              "high-risk data credential registered as a deploy-level env var",
+            snippet: lines[line - 1]?.trim() ?? "",
+          });
+        }
+      }
+    }
+
+    if (
+      scanEnvVarsWrite &&
+      /\/_agent-native\/env-vars|_agent-native\/env-vars/.test(contents)
+    ) {
+      for (const key of HIGH_RISK_DATA_CREDENTIAL_KEYS) {
+        if (isHighRiskEnvVarsWriteAllowed(rel, key)) continue;
+        const re = new RegExp(`["']${escapeRegExp(key)}["']`, "g");
+        let m;
+        while ((m = re.exec(contents)) !== null) {
+          const { line, col } = lineColForOffset(contents, m.index);
+          const lineText = lines[line - 1] ?? "";
+          const trimmedLine = lineText.trimStart();
+          if (
+            trimmedLine.startsWith("*") ||
+            trimmedLine.startsWith("//") ||
+            trimmedLine.startsWith("/*")
+          ) {
+            continue;
+          }
+          violations.push({
+            file: rel,
+            line,
+            col,
+            key,
+            reason:
+              "high-risk data credential written to deployment env-vars endpoint",
+            snippet: lineText.trim(),
+          });
+        }
+      }
+    }
+
     if (!contents.includes("process.env")) continue;
 
-    const lines = contents.split("\n");
     ENV_READ_REGEX.lastIndex = 0;
     let m;
     while ((m = ENV_READ_REGEX.exec(contents)) !== null) {
       const key = m[1] ?? m[2];
       if (!key) continue;
-      if (isAllowlistedKey(key)) continue;
       const { line, col } = lineColForOffset(contents, m.index);
       const lineIdx = line - 1;
       // Skip matches inside comment lines so docstrings explaining a
@@ -292,6 +469,24 @@ async function scan() {
       ) {
         continue;
       }
+      if (
+        scanHighRiskTemplateRuntime &&
+        HIGH_RISK_DATA_CREDENTIAL_KEYS.has(key) &&
+        !isHighRiskProcessEnvAllowed(rel, key)
+      ) {
+        violations.push({
+          file: rel,
+          line,
+          col,
+          key,
+          reason:
+            "high-risk data credential read from process.env in user-facing template runtime",
+          snippet: lines[lineIdx]?.trim() ?? "",
+        });
+        continue;
+      }
+      if (!scanForbiddenPath) continue;
+      if (isAllowlistedKey(key)) continue;
       if (hasOptOutOnLine(lines, lineIdx)) {
         const verdict = optOutOnLineIsValid(lines, lineIdx, key, rel);
         if (verdict.ok) continue;
@@ -317,6 +512,7 @@ async function scan() {
 
     ENV_DYNAMIC_READ_REGEX.lastIndex = 0;
     while ((m = ENV_DYNAMIC_READ_REGEX.exec(contents)) !== null) {
+      if (!scanForbiddenPath) continue;
       const { line, col } = lineColForOffset(contents, m.index);
       const lineIdx = line - 1;
       const lineText = lines[lineIdx] ?? "";

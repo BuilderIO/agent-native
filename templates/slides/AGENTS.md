@@ -359,7 +359,7 @@ If `get-design-system` returns a non-empty `customInstructions` string, treat it
 | `export-html`          | `--deckId <id>`                                   | Export as standalone HTML                            |
 | `duplicate-deck`       | `--deckId <id> [--title]`                         | Create a copy of an existing deck                    |
 
-If the user provides a Google Docs URL while asking for a deck, call `import-google-doc` before creating slides. Use the returned `text` as source material. Private Docs can be read after the user connects Google Docs and chooses the file through the picker, or when the Doc is shared with the configured service account. If the action still cannot read the Doc, relay the exact access instruction and do not invent slides from the URL alone.
+If the user provides a Google Docs URL while asking for a deck, call `import-google-doc` before creating slides. Use the returned `text` as source material. Private Docs can be read only after the user connects Google Docs and chooses the file through the picker. Do not add or use a deploy-level Google service-account fallback for user-triggered imports; that would expose every Doc shared with the service account to every signed-in Slides user. If the action still cannot read the Doc, relay the exact access instruction and do not invent slides from the URL alone.
 
 ### Sharing
 
