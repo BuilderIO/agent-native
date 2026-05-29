@@ -435,18 +435,16 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("handles `initialize` without a 501", async () => {
-    const out = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "agent-native-connect", version: "1.0.0" },
-        },
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "agent-native-connect", version: "1.0.0" },
       },
-    );
+    });
     expect(out.jsonrpc).toBe("2.0");
     expect(out.id).toBe(1);
     expect(out.error).toBeUndefined();
@@ -475,18 +473,16 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("resolves MCP server branding URLs under APP_BASE_PATH", async () => {
     process.env.APP_BASE_PATH = "/dispatch";
-    const out = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 10,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "agent-native-connect", version: "1.0.0" },
-        },
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "agent-native-connect", version: "1.0.0" },
       },
-    );
+    });
 
     expect(out.error).toBeUndefined();
     expect(out.result.serverInfo.websiteUrl).toBe(
