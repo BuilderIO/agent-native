@@ -49,6 +49,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  useChangeVersions,
   agentNativePath,
   appApiPath,
   type CollabUser,
@@ -243,28 +244,60 @@ export default function ExplorerDashboardPage() {
     staleTime: 30_000,
   });
 
+  // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
+  // action runs — the same "agent writes show up without a manual refresh"
+  // pattern the SQL dashboard page uses. We depend on both because:
+  // - `dashboards` covers same-process writes from upsertDashboard
+  // - `action` covers every successful agent action and is emitted by the
+  //   agent runner unconditionally, which makes the refresh resilient even if
+  //   the dashboards-store emit is missed (different process, etc.).
+  // Without this, an agent edit to an explorer dashboard only reached the open
+  // page through the collab Y.Text channel, which is silent on the first edit
+  // (seedFromText doesn't emit) — so the title/charts could go stale.
+  const sync = useChangeVersions(["dashboards", "action"]);
+  const dashboardQuery = useQuery({
+    // dashboardId is part of the key, so React Query keeps a separate cache
+    // entry per dashboard — no `placeholderData` (it would carry the previous
+    // dashboard's data across an id switch and flash the wrong dashboard).
+    // The skeleton shows until fresh data for the current id arrives, exactly
+    // like the original one-shot load. Same-key refetches (agent writes) keep
+    // the rendered `dashboard` state until the new data lands, so there's no
+    // flicker on those.
+    queryKey: ["data", "explorer-dashboard", dashboardId, sync],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      if (!dashboardId) return null;
+      return fetchDashboard(dashboardId);
+    },
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (!dashboardId) return;
     setLoaded(false);
+    setDashboard(null);
     setResourceAccess(null);
     setEditingName(false);
-    fetchDashboard(dashboardId).then((d) => {
-      if (d) {
-        setDashboard(d.data);
-        setArchivedAt(d.archivedAt);
-        setResourceAccess({
-          role: d.role,
-          canEdit: d.canEdit,
-          canManage: d.canManage,
-        });
-      } else {
-        setDashboard({ name: "Untitled Dashboard", charts: [] });
-        setArchivedAt(null);
-        setResourceAccess(null);
-      }
-      setLoaded(true);
-    });
   }, [dashboardId]);
+
+  useEffect(() => {
+    if (!dashboardId || !dashboardQuery.isSuccess) return;
+    const d = dashboardQuery.data;
+    if (d) {
+      setDashboard(d.data);
+      setArchivedAt(d.archivedAt);
+      setResourceAccess({
+        role: d.role,
+        canEdit: d.canEdit,
+        canManage: d.canManage,
+      });
+    } else {
+      setDashboard({ name: "Untitled Dashboard", charts: [] });
+      setArchivedAt(null);
+      setResourceAccess(null);
+    }
+    setLoaded(true);
+  }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId || !canEdit) return;
@@ -308,6 +341,13 @@ export default function ExplorerDashboardPage() {
       }
       setDashboard(updated);
       pushToCollab(updated);
+      // Keep the cached dashboard query in sync with the optimistic write so a
+      // `sync` bump from our own save doesn't briefly flash stale data before
+      // the refetch lands.
+      queryClient.setQueriesData<FetchedExplorerDashboard | null>(
+        { queryKey: ["data", "explorer-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, data: updated } : prev),
+      );
       saveDashboard(dashboardId, updated).then(() => {
         queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
