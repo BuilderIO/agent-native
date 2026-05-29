@@ -532,10 +532,10 @@ function RunDetail({ runId }: { runId: string }) {
       <Separator />
       <div>
         <a
-          href={`/library/${run.libraryId}`}
+          href={`/brand-kits/${run.libraryId}`}
           className="text-xs text-muted-foreground underline-offset-4 hover:underline"
         >
-          Open library →
+          Open brand kit →
         </a>
       </div>
     </div>

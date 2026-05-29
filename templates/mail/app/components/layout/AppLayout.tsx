@@ -47,9 +47,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
+  DevDatabaseLink,
   FeedbackButton,
   NotificationsBell,
   agentNativePath,
@@ -1503,6 +1503,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
 
                 <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                  <DevDatabaseLink />
                   <FeedbackButton className="min-w-0 flex-1" />
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1799,6 +1800,7 @@ function StandardLayout({ children }: AppLayoutProps) {
               </div>
 
               <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                <DevDatabaseLink />
                 <FeedbackButton className="min-w-0 flex-1" />
                 <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>

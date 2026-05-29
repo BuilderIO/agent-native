@@ -1,11 +1,11 @@
 ---
 title: "Clips"
-description: "Async screen recording (Loom-style), calendar-synced meeting notes (Granola-style), and push-to-talk voice dictation (Wisprflow-style) — all transcribed, summarized, and searchable in one app you own."
+description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — all transcribed, summarized, and searchable in one app you own."
 ---
 
 # Clips
 
-A capture-everything app: screen recordings (Loom-style), meeting notes from your calendar (Granola-style), and Fn-hold voice dictation (Wisprflow-style). The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
+A capture-everything app: screen recordings, meeting notes from your calendar, and Fn-hold voice dictation. The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
 
 <!-- screenshot:
   app: clips
@@ -68,6 +68,46 @@ pnpm dlx @agent-native/core create my-clips --template clips --standalone
 ```
 
 Clips is a larger template with a native recorder (it ships a desktop companion for local capture). See the template `README.md` for setup specifics around screen-capture permissions and storage configuration.
+
+### Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema.ts`. Recordings, meetings, dictations, calendar accounts, and vocabulary all carry the standard `ownableColumns` and have a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+| Table                                           | What it holds                                                                                                                                                                 |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | The core resource — title, video URL/format/size, duration, thumbnails, status, non-destructive `edits_json`, `chapters_json`, privacy (password, expiry), and player toggles |
+| `recording_transcripts`                         | Per-recording transcript: `segments_json` (`{startMs,endMs,text}`), `full_text`, language, and status                                                                         |
+| `recording_tags`                                | Free-form tags on a recording                                                                                                                                                 |
+| `recording_ctas`                                | Call-to-action buttons (label, url, color, placement) overlaid on a recording                                                                                                 |
+| `recording_comments`                            | Threaded, timestamped comments with emoji-reaction map and resolved flag                                                                                                      |
+| `recording_reactions`                           | Emoji reactions pinned to a video timestamp (anonymous viewers allowed)                                                                                                       |
+| `recording_viewers` / `recording_events`        | View analytics: per-viewer watch time and completion, plus granular events (view-start, watch-progress, seek, pause, cta-click, reaction)                                     |
+| `clips_meetings`                                | Calendar-sourced or ad-hoc meetings — schedule/actual spans, platform, user notes, AI `summary_md`, `bullets_json`, `action_items_json`, and the link to its `recording_id`   |
+| `meeting_participants` / `meeting_action_items` | Attendees and extracted action items for a meeting                                                                                                                            |
+| `calendar_accounts` / `calendar_events`         | Connected calendar accounts (OAuth tokens live in `app_secrets`, only referenced here) and synced event snapshots                                                             |
+| `clips_dictations`                              | Push-to-talk dictation history — raw `full_text`, optional `cleaned_text`, source (`fn-hold`, etc.), and target app                                                           |
+| `clips_vocabulary`                              | Personal vocabulary corrections (term → preferred replacement) that bias future dictations                                                                                    |
+| `spaces` / `space_members` / `folders`          | Library organization — spaces (topic-scoped containers), their members, and nestable folders                                                                                  |
+| `organization_settings`                         | Per-org Clips sidecar: brand color, logo, default visibility                                                                                                                  |
+
+Recordings and transcripts are intentionally separate tables so the library and transcript views can each render fast. Meetings compose with recordings rather than duplicating media: a meeting owns the recording it captures, but the `recordings` row remains the source of truth for the video and per-segment transcript.
+
+Routes in the UI live under `templates/clips/app/routes/` — the authenticated app sits under `_app.*` (library, spaces, folders, meetings, dictate, insights, trash, settings), with public surfaces at `r.$recordingId`, `share.$shareId`, `embed.$shareId`, and `invite.$token`.
+
+### Key actions
+
+Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are ~80 actions; the useful groupings:
+
+- **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
+- **Transcript & AI** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features delegate to the agent chat.)
+- **Editing** — non-destructive `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences`, plus `stitch-recordings`, `undo-edit`, `clear-edits`. Edits accumulate in `edits_json`; the client concatenates/exports via ffmpeg.wasm.
+- **Meetings** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, plus calendar wiring `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.
+- **Dictation** — `create-dictation`, `cleanup-dictation`, `update-dictation`, `list-dictations`, and `add-vocabulary-term` / `list-vocabulary` for personal vocabulary biasing.
+- **Library organization** — `create-space` / `rename-space` / `delete-space`, `add-space-member` / `remove-space-member`, `create-folder` / `rename-folder` / `delete-folder`, `add-recording-to-space`.
+- **Sharing, comments & engagement** — framework sharing actions plus `create-cta` / `update-cta` / `delete-cta`, `add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`, `react-to-recording`, `list-viewers`.
+- **Organizations & members** — `create-organization`, `set-organization-branding`, `invite-member` / `accept-invite` / `decline-invite` / `get-invite`, `remove-member`, `update-member-role`, `list-organization-state`, `list-notifications`.
+- **Search, insights & export** — `search-recordings` (matches titles, descriptions, transcript text, and comments, with timestamps), `get-recording-insights`, `get-organization-insights`, `export-insights-csv`, `export-to-brain`.
+- **Context & navigation** — `view-screen` (current clip, playhead, selected transcript range) and `navigate`; `refresh-list` after mutations.
 
 ### Customize it
 

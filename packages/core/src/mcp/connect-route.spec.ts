@@ -37,6 +37,7 @@ const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
+  MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
@@ -157,6 +158,7 @@ describe("handleMcpConnect", () => {
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
   });
 
   describe("connect page", () => {
@@ -233,7 +235,10 @@ describe("handleMcpConnect", () => {
       expect(data.mcpServerEntry).toEqual({
         type: "http",
         url: "https://mail.agent-native.com/_agent-native/mcp",
-        headers: { Authorization: `Bearer ${data.token}` },
+        headers: {
+          Authorization: `Bearer ${data.token}`,
+          "X-Agent-Native-MCP-Full-Catalog": "1",
+        },
       });
       expect(data.cli).toBe(
         "agent-native connect https://mail.agent-native.com",
@@ -286,11 +291,32 @@ describe("handleMcpConnect", () => {
       expect(Math.round(lifetimeDays)).toBe(365);
     });
 
-    it("returns 503 when no A2A_SECRET is configured", async () => {
+    it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {
       delete process.env.A2A_SECRET;
+      process.env.BETTER_AUTH_SECRET = SECRET;
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
-      expect(res.status).toBe(503);
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const verified = await verifyMcpOAuthAccessToken(data.token, data.mcpUrl);
+      const decoded = jose.decodeJwt(data.token);
+      const lifetimeDays =
+        ((decoded.exp as number) - (decoded.iat as number)) / 86400;
+      expect(verified).toMatchObject({
+        userEmail: "u@example.com",
+        clientId: "agent-native-connect",
+        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+      });
+      expect(data.mcpServerEntry.headers).toMatchObject({
+        Authorization: `Bearer ${data.token}`,
+        "X-Agent-Native-MCP-Full-Catalog": "1",
+      });
+      expect(Math.round(lifetimeDays)).toBe(365);
+      expect(tokenRows[0]).toMatchObject({
+        jti: verified?.jti,
+        ownerEmail: "u@example.com",
+      });
     });
 
     it("returns a dev-open localhost entry when no A2A_SECRET is configured", async () => {
@@ -308,7 +334,10 @@ describe("handleMcpConnect", () => {
       expect(data.mcpServerEntry).toEqual({
         type: "http",
         url: "http://localhost:4321/_agent-native/mcp",
-        headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
+        headers: {
+          "X-Agent-Native-Owner-Email": "u@example.com",
+          "X-Agent-Native-MCP-Full-Catalog": "1",
+        },
       });
     });
   });
@@ -532,6 +561,57 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
+      });
+    });
+
+    it("poll mints a standard MCP OAuth token for hosted deploys without A2A_SECRET", async () => {
+      delete process.env.A2A_SECRET;
+      process.env.BETTER_AUTH_SECRET = SECRET;
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      const dc = deviceRows[0].deviceCode;
+
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-7",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+
+      getSessionMock.mockResolvedValue(null);
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.status).toBe("approved");
+
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const verified = await verifyMcpOAuthAccessToken(data.token, data.mcpUrl);
+      const decoded = jose.decodeJwt(data.token);
+      const lifetimeDays =
+        ((decoded.exp as number) - (decoded.iat as number)) / 86400;
+      expect(verified).toMatchObject({
+        userEmail: "u@example.com",
+        orgId: "org-7",
+        orgDomain: "builder.io",
+        clientId: "agent-native-connect",
+        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+      });
+      expect(data.mcpServerEntry.headers).toMatchObject({
+        Authorization: `Bearer ${data.token}`,
+        "X-Agent-Native-MCP-Full-Catalog": "1",
+      });
+      expect(Math.round(lifetimeDays)).toBe(365);
+      expect(verified?.jti).toBeTruthy();
+      expect(tokenRows[0]).toMatchObject({
+        jti: verified?.jti,
+        ownerEmail: "u@example.com",
+        orgId: "org-7",
+        label: "Device connection",
       });
     });
 

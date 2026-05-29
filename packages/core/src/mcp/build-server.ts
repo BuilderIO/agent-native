@@ -28,7 +28,10 @@ import {
   type ActionMcpAppResourceConfig,
 } from "../action.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
@@ -40,7 +43,10 @@ import {
 } from "../shared/agent-sidebar-url.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
-import { MCP_CONNECT_SCOPE } from "./connect-store.js";
+import {
+  MCP_CONNECT_OAUTH_CLIENT_ID,
+  MCP_CONNECT_SCOPE,
+} from "./connect-store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   MCP_OAUTH_SCOPES,
@@ -112,6 +118,7 @@ export interface MCPConfig {
  */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
+  orgId?: string | undefined;
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
@@ -511,6 +518,71 @@ function mcpAppEmbedOpenLinkMeta(
   };
 }
 
+async function withServerMintedMcpAppEmbedStart(
+  result: unknown,
+  meta: MCPRequestMeta | undefined,
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+
+  const out = result as Record<string, unknown>;
+  if (out.embed !== true) return result;
+  if (typeof out.embedStartUrl === "string" && out.embedStartUrl.trim()) {
+    return result;
+  }
+  if (
+    typeof out.url === "string" &&
+    out.url.trim() &&
+    isEmbedStartUrl(out.url)
+  ) {
+    return result;
+  }
+
+  const candidate = [out.url, out.path, out.deepLinkUrl].find(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  );
+  if (!candidate) return result;
+
+  const trimmed = candidate.trim();
+  const isPath = trimmed.startsWith("/") && !trimmed.startsWith("//");
+  const isAbsoluteHttp = /^https?:\/\//i.test(trimmed);
+  if (!isPath && !isAbsoluteHttp) return result;
+  if (isAbsoluteHttp && !meta?.origin) return result;
+
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  if (!ownerEmail) return result;
+
+  const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+    await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  const targetPath = normalizeEmbedTargetPath(
+    withMcpChatBridgeParam(trimmed),
+    meta?.origin,
+  );
+  if (!targetPath) return result;
+
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail,
+    orgId: ctx?.orgId,
+    targetPath,
+    scope: typeof out.chrome === "string" ? out.chrome : null,
+  });
+  const startPath = buildEmbedStartPath(ticket.ticket);
+  const embedStartUrl = meta?.origin
+    ? new URL(startPath, meta.origin).toString()
+    : startPath;
+
+  return {
+    ...out,
+    embedStartUrl,
+    embedTargetPath: targetPath,
+    embedExpiresAt: ticket.expiresAt,
+  };
+}
+
 /**
  * Build the deep-link content block + structured `_meta` for a tool result.
  * Best-effort: any throw / nullish link is swallowed so a bad `link` builder
@@ -635,7 +707,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v26";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v43";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -664,6 +736,42 @@ function versionMcpAppResourceUri(
     uri: versionedUri,
     ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
   };
+}
+
+function unversionMcpAppResourceUri(uri: string): string | null {
+  if (!uri.startsWith("ui://")) return null;
+  try {
+    const parsed = new URL(uri);
+    parsed.pathname = parsed.pathname
+      .replace(/\/+$/g, "")
+      .replace(/\/shell-v\d+$/g, "");
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMcpAppResourceUriForMatch(uri: unknown): string | null {
+  if (typeof uri !== "string") return null;
+  const trimmed = uri.trim();
+  if (!trimmed.startsWith("ui://")) return null;
+  return (
+    unversionMcpAppResourceUri(trimmed) ??
+    trimmed.replace(/\/+$/g, "").replace(/\/shell-v\d+(?=([?#]|$))/g, "")
+  );
+}
+
+function matchesMcpAppResourceUri(
+  resourceUri: VersionedMcpAppResourceUri,
+  requestedUri: unknown,
+): boolean {
+  if (typeof requestedUri !== "string") return false;
+  const requested = requestedUri.trim();
+  if (resourceUri.uri === requested) return true;
+  if (resourceUri.legacyUris?.includes(requested)) return true;
+  const requestedBase = normalizeMcpAppResourceUriForMatch(requested);
+  const currentBase = normalizeMcpAppResourceUriForMatch(resourceUri.uri);
+  return Boolean(requestedBase && currentBase && requestedBase === currentBase);
 }
 
 function getMcpAppResourceUri(
@@ -1097,7 +1205,9 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = effectiveIdentity?.orgId
+    ? Promise.resolve(effectiveIdentity.orgId)
+    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
 
   /**
    * Wrap a callback in
@@ -1274,26 +1384,37 @@ export async function createMCPServerForRequest(
 
       try {
         const result = await entry.run((args as Record<string, string>) ?? {});
-        const rawResult = isMcpActionResult(result) ? result.raw : result;
-        const resultForClient = isMcpActionResult(result)
-          ? result.text
-          : result;
+        const mcpResult = isMcpActionResult(result) ? result : null;
+        const rawResult = mcpResult ? mcpResult.raw : result;
+        const resultForClient = mcpResult ? mcpResult.text : result;
+        const mcpResultIsError =
+          !!mcpResult &&
+          !!mcpResult.raw &&
+          typeof mcpResult.raw === "object" &&
+          (mcpResult.raw as Record<string, unknown>).isError === true;
         const mcpAppResource = await resolveMcpAppResourceSafely(
           config,
           name,
           entry,
           requestMeta,
         );
+        const rawResultForClient = mcpAppResource
+          ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
+          : rawResult;
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
-          rawResult,
+          rawResultForClient,
           requestMeta,
         );
         const responseMeta: Record<string, unknown> = {
           ...(_meta ?? {}),
           ...(mcpAppResource
-            ? mcpAppEmbedOpenLinkMeta(rawResult, mcpAppResource, requestMeta)
+            ? mcpAppEmbedOpenLinkMeta(
+                rawResultForClient,
+                mcpAppResource,
+                requestMeta,
+              )
             : {}),
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
@@ -1304,7 +1425,7 @@ export async function createMCPServerForRequest(
           toolVisibility.length > 0 &&
           toolVisibility.every((v) => v === "app");
         const structuredContent = mcpAppResource
-          ? mcpAppStructuredContent(rawResult, responseMeta)
+          ? mcpAppStructuredContent(rawResultForClient, responseMeta)
           : isAppOnlyVisibility &&
               rawResult &&
               typeof rawResult === "object" &&
@@ -1320,6 +1441,7 @@ export async function createMCPServerForRequest(
         if (block) content.push(block);
         return {
           content,
+          ...(mcpResultIsError ? { isError: true } : {}),
           ...(structuredContent ? { structuredContent } : {}),
           ...(Object.keys(responseMeta).length > 0
             ? { _meta: responseMeta }
@@ -1390,11 +1512,7 @@ export async function createMCPServerForRequest(
           } | null = null;
           for (const [name, entry] of Object.entries(advertisedActions)) {
             const resourceUri = getMcpAppResourceUri(config, name, entry);
-            if (
-              !resourceUri ||
-              (resourceUri.uri !== uri &&
-                !resourceUri.legacyUris?.includes(uri))
-            ) {
+            if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
               continue;
             }
             const resource = await resolveMcpAppResourceSafely(
@@ -1405,8 +1523,11 @@ export async function createMCPServerForRequest(
             );
             if (resource) {
               found = { actionName: name, resource };
+              break;
             }
-            break;
+            // resolveMcpAppResourceSafely returned null (e.g. an async resolver
+            // threw) — keep scanning the remaining candidates rather than
+            // aborting and reporting the resource as missing.
           }
           if (!found) {
             throw new Error(`MCP App resource not found: ${uri}`);
@@ -1550,6 +1671,22 @@ async function verifyA2AJwtForMcp(
   return null;
 }
 
+async function isConnectTokenAllowed(
+  jti: string | undefined,
+): Promise<boolean> {
+  if (!jti) return false;
+  try {
+    const { isJtiRevoked, touchTokenUsed } = await import("./connect-store.js");
+    if (await isJtiRevoked(jti)) return false;
+    // Best-effort usage telemetry — never blocks / throws.
+    void touchTokenUsed(jti);
+  } catch {
+    // Store import / lookup failed — fail open. Signature verification already
+    // passed; this only gates explicit revokes.
+  }
+  return true;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
@@ -1590,7 +1727,7 @@ export async function verifyAuth(
   // established that this is a loopback/local dev request. Still honour an
   // owner hint there so the local install/connect flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET;
+  const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice(7)
     : undefined;
@@ -1600,10 +1737,17 @@ export async function verifyAuth(
       options.resourceUrl,
     );
     if (oauthIdentity) {
+      if (
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
+        !(await isConnectTokenAllowed(oauthIdentity.jti))
+      ) {
+        return { authed: false };
+      }
       return {
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
+          ...(oauthIdentity.orgId ? { orgId: oauthIdentity.orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,
@@ -1646,20 +1790,8 @@ export async function verifyAuth(
     // cryptographically verified, so failing open here only widens the
     // explicit-revoke gate, never the trust boundary.
     if (tokenScope === MCP_CONNECT_SCOPE) {
-      if (typeof payload.jti !== "string" || !payload.jti) {
+      if (!(await isConnectTokenAllowed(payload.jti as string | undefined))) {
         return { authed: false };
-      }
-      const jti = payload.jti;
-      try {
-        const { isJtiRevoked, touchTokenUsed } =
-          await import("./connect-store.js");
-        if (await isJtiRevoked(jti)) {
-          return { authed: false };
-        }
-        // Best-effort usage telemetry — never blocks / throws.
-        void touchTokenUsed(jti);
-      } catch {
-        // Store import / lookup failed — fail open (see comment above).
       }
     }
 
@@ -1690,14 +1822,28 @@ export async function verifyAuth(
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
   // per-caller claims, so derive identity from the forwarded owner-email
-  // hint (install flow) — otherwise tools would run unscoped.
-  if (accessTokens.length > 0 && accessTokens.includes(token)) {
-    return {
-      authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      // Matched a configured ACCESS_TOKEN — a real caller.
-      fullSurface: true,
-    };
+  // hint (install flow) — otherwise tools would run unscoped. Compare in
+  // constant time (matching the rest of this subsystem's secret-comparison
+  // discipline); node:crypto is imported dynamically because this module is
+  // bundled into the serverless function and avoids static Node-only imports.
+  if (accessTokens.length > 0) {
+    const { timingSafeEqual } = await import("node:crypto");
+    const candidate = Buffer.from(token, "utf8");
+    const matched = accessTokens.some((configured) => {
+      const expected = Buffer.from(configured, "utf8");
+      return (
+        expected.length === candidate.length &&
+        timingSafeEqual(expected, candidate)
+      );
+    });
+    if (matched) {
+      return {
+        authed: true,
+        identity: deriveStaticTokenIdentity(ownerEmailHeader),
+        // Matched a configured ACCESS_TOKEN — a real caller.
+        fullSurface: true,
+      };
+    }
   }
 
   return { authed: false };

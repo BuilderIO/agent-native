@@ -55,6 +55,12 @@ function getNodeReqRes(event: H3Event): {
   return { nodeReq, nodeRes };
 }
 
+function shouldUseNodeFastPath(event: H3Event): boolean {
+  if (process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH !== "1") return false;
+  const { nodeReq, nodeRes } = getNodeReqRes(event);
+  return Boolean(nodeReq && nodeRes);
+}
+
 /**
  * Derive the request origin + the markdown deep-link target from the inbound
  * headers. Identical logic for both the Node and web paths so the absolute
@@ -63,7 +69,9 @@ function getNodeReqRes(event: H3Event): {
  */
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
-  const host = getRequestHeader(event, "host");
+  const host =
+    getRequestHeader(event, "x-forwarded-host") ||
+    getRequestHeader(event, "host");
   const proto =
     forwardedProto?.split(",")[0]?.trim() ||
     (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
@@ -152,17 +160,14 @@ function buildWebRequest(event: H3Event, method: string): Request {
   // send these; we never inject/alter them — if they're absent the SDK
   // returns its spec-mandated 406/415, identical to the Node path.
 
-  const host = headers.get("host") || "localhost";
+  const host =
+    headers.get("x-forwarded-host") || headers.get("host") || "localhost";
   const forwardedProto = headers.get("x-forwarded-proto");
   const proto =
     forwardedProto?.split(",")[0]?.trim() ||
     (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
-  let url = `${proto}://${host}/_agent-native/mcp`;
-  try {
-    if (src?.url) url = new URL(src.url).href;
-  } catch {
-    // keep the synthesized URL
-  }
+  const basePath = getConfiguredAppBasePath();
+  const url = `${proto}://${host}${basePath}/_agent-native/mcp`;
 
   // No body here on purpose: the JSON-RPC payload is forwarded via the
   // transport's `parsedBody` option (the same mechanism the Node transport
@@ -177,16 +182,14 @@ function buildWebRequest(event: H3Event, method: string): Request {
 /**
  * Handle a single `{routePrefix}/mcp` request on either runtime.
  *
- * - **Node fast-path** (real Node HTTP server): unchanged — delegate to the
- *   SDK's `StreamableHTTPServerTransport.handleRequest(nodeReq, nodeRes,
- *   body)`, which writes directly to the Node response (full protocol incl.
- *   SSE).
- * - **Web-standard fallback** (Nitro 3 / Netlify web runtime, Cloudflare,
- *   Deno, Bun — where there is no Node req/res): build the SAME MCP `Server`
+ * - **Default path:** build the SAME MCP `Server`
  *   from the SAME config + identity, drive it through the SDK's
  *   `WebStandardStreamableHTTPServerTransport` (which the Node transport is
  *   itself just a thin wrapper around), and return the resulting Web
- *   `Response` as a normal h3 return value.
+ *   `Response` as a normal h3 return value. This is used for Nitro local dev
+ *   too; the direct Node writer can otherwise race h3 and double-write.
+ * - **Opt-in Node fast-path:** set `AGENT_NATIVE_MCP_NODE_FAST_PATH=1` to
+ *   delegate directly to the SDK's `StreamableHTTPServerTransport`.
  *
  * Auth, the `runWithRequestContext` identity wrap, the deep-link `_meta` /
  * markdown append, `requestMeta` origin/target derivation and the stateless
@@ -271,10 +274,9 @@ export async function handleMcpRequest(
     fullSurface: authResult.fullSurface === true,
   });
 
-  const { nodeReq, nodeRes } = getNodeReqRes(event);
-
-  if (nodeReq && nodeRes) {
-    // ---- Node fast-path (UNCHANGED behavior) --------------------------------
+  if (shouldUseNodeFastPath(event)) {
+    const { nodeReq, nodeRes } = getNodeReqRes(event);
+    // ---- Opt-in Node fast-path ---------------------------------------------
     const { StreamableHTTPServerTransport } =
       await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
     const transport = new StreamableHTTPServerTransport({
@@ -303,8 +305,8 @@ export async function handleMcpRequest(
     return undefined;
   }
 
-  // ---- Web-standard fallback (Nitro 3 / Netlify web runtime, CF, Deno,
-  // Bun) ---------------------------------------------------------------------
+  // ---- Web-standard response path (Nitro local dev, Netlify web runtime, CF,
+  // Deno, Bun) ---------------------------------------------------------------
   //
   // `StreamableHTTPServerTransport` is itself just a thin wrapper that
   // converts the Node req/res to a web Request/Response and delegates to

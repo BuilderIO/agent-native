@@ -89,12 +89,30 @@ function categoryFromForm(value: unknown): ImageCategory {
     : "style-only";
 }
 
-function roleFromCategory(category: ImageCategory): ImageRole {
+function intentFromForm(value: unknown): "subject" | null {
+  return value === "subject" ? "subject" : null;
+}
+
+function roleFromUpload(
+  category: ImageCategory,
+  intent: "subject" | null,
+): ImageRole {
+  if (intent === "subject") return "subject_reference";
   if (category === "logo") return "logo_reference";
   if (category === "product") return "product_reference";
   if (category === "diagram") return "diagram_reference";
   if (category === "video") return "video_reference";
   return "style_reference";
+}
+
+function defaultUploadTitle(
+  mediaType: "image" | "video",
+  intent: "subject" | null,
+): string {
+  if (intent === "subject") {
+    return mediaType === "video" ? "Content video" : "Content image";
+  }
+  return mediaType === "video" ? "Reference video" : "Reference image";
 }
 
 function hasAllowedSignature(mimeType: string, data: Uint8Array): boolean {
@@ -173,8 +191,11 @@ export const uploadAssets = defineEventHandler(async (event) =>
     if (folderId) {
       await assertFolderBelongsToLibrary(folderId, libraryId);
     }
-    const category = categoryFromForm(readField(parts, "category"));
-    const intent = readField(parts, "intent");
+    const rawCategory = readField(parts, "category");
+    const intent = intentFromForm(readField(parts, "intent"));
+    const category =
+      intent === "subject" ? "other" : categoryFromForm(rawCategory);
+    const role = roleFromUpload(category, intent);
     const title = readField(parts, "title") || null;
     const files =
       parts?.filter((part) => part.name === "files" && part.data) ?? [];
@@ -218,10 +239,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
         filename,
         mimeType,
         mediaType,
-        title:
-          title ||
-          filename ||
-          (mediaType === "video" ? "Reference video" : "Reference image"),
+        title: title || filename || defaultUploadTitle(mediaType, intent),
         metadata: {
           contentHash,
           ...(intent === "subject" ? { intent: "subject" } : {}),
@@ -246,6 +264,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
         and(
           eq(schema.assets.libraryId, libraryId),
           eq(schema.assets.status, "reference"),
+          eq(schema.assets.role, role),
         ),
       );
     const deduped = await filterDuplicateAssetUploads({
@@ -274,7 +293,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
             buffer: file.buffer,
             mimeType: file.mimeType,
             mediaType: file.mediaType,
-            role: roleFromCategory(category),
+            role,
             status: "reference",
             title: file.title,
             altText: file.altText,

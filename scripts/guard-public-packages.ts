@@ -7,11 +7,19 @@ const repoRoot = path.resolve(
   "..",
 );
 
+// Packages that are NOT published to npm and therefore exempt from the
+// publish-readiness checks below. Apps (desktop-app/docs/frame/mobile-app) plus
+// internal-only libraries that are consumed exclusively via `workspace:` by the
+// apps/templates above and have never been published (code-agents-ui,
+// shared-app-config). These are also listed in `.changeset/config.json` `ignore`
+// so version-packages never attempts to publish them.
 const packageAppAllowlist = new Set([
   "@agent-native/desktop-app",
   "@agent-native/docs",
   "@agent-native/frame",
   "@agent-native/mobile-app",
+  "@agent-native/code-agents-ui",
+  "@agent-native/shared-app-config",
 ]);
 
 type PackageJson = {

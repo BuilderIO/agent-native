@@ -8,7 +8,6 @@ import type {
   OutboundTarget,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
-import { getIntegrationConfig } from "../config-store.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;

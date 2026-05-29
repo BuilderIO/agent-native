@@ -50,6 +50,10 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import {
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  escapePromptAttachmentAttribute,
+} from "./prompt-attachments.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 
@@ -200,7 +204,7 @@ function formatInlineTextFile(name: string, text: string): string {
   const truncated = text.length > MAX_INLINE_TEXT_FILE_CHARS;
   const body = truncated ? text.slice(0, MAX_INLINE_TEXT_FILE_CHARS) : text;
   return [
-    `<uploaded-text-file name="${name}">`,
+    `<uploaded-text-file name="${escapePromptAttachmentAttribute(name)}">`,
     body,
     truncated
       ? `[Truncated after ${MAX_INLINE_TEXT_FILE_CHARS} characters.]`
@@ -227,7 +231,7 @@ function formatInlineImageFile(
   dataUrl: string,
 ): string {
   return [
-    `<uploaded-image name="${name}" contentType="${contentType}">`,
+    `<uploaded-image name="${escapePromptAttachmentAttribute(name)}" contentType="${escapePromptAttachmentAttribute(contentType)}">`,
     dataUrl,
     "</uploaded-image>",
   ].join("\n");
@@ -260,7 +264,11 @@ export async function buildPromptComposerSubmission(options: {
           } catch {
             // Keep the upload path fallback below.
           }
-        } else if (file.type.startsWith("image/") && !rawText.trim()) {
+        } else if (
+          file.type.startsWith("image/") &&
+          file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES &&
+          !rawText.trim()
+        ) {
           try {
             pastedTextBlocks.push(
               formatInlineImageFile(

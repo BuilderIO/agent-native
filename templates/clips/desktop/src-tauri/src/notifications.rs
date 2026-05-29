@@ -11,9 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use tauri_plugin_notification::NotificationExt;
 
 use crate::dlog;
-use crate::util::{
-    build_overlay_url, primary_monitor_physical_size, set_capture_excluded, show_without_activation,
-};
+use crate::util::{build_overlay_url, primary_monitor_physical_size, show_without_activation};
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
 const NOTIFICATION_W_LOGICAL: u32 = 380;
@@ -81,7 +79,10 @@ fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
-    set_capture_excluded(&win);
+    // Intentionally NOT capture-excluded: this is a "your meeting is starting,
+    // record it" reminder — it should behave like a normal macOS notification
+    // and stay visible, including in any screen recording in progress. (Clips's
+    // own recording chrome is still excluded elsewhere so it won't leak.)
     show_without_activation(&win);
     Ok(())
 }

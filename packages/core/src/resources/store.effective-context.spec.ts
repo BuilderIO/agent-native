@@ -267,6 +267,55 @@ describe("resourceEffectiveContext", () => {
     );
   });
 
+  it("treats resource path prefixes with LIKE wildcards as literal text", async () => {
+    const {
+      resourceDeleteByPath,
+      resourceList,
+      resourceListAccessible,
+      resourceListAllOwners,
+      resourcePut,
+    } = await import("./store.js");
+
+    const owner = "prefix-wildcards@example.test";
+    const namespace = `prefix-wildcards-${Date.now()}-`;
+    const literalUnderscore = `${namespace}literal_prefix/file.md`;
+    const underscoreDecoy = `${namespace}literalXprefix/file.md`;
+    const literalPercent = `${namespace}literal%prefix/file.md`;
+    const percentDecoy = `${namespace}literal-any-prefix/file.md`;
+    const paths = [
+      literalUnderscore,
+      underscoreDecoy,
+      literalPercent,
+      percentDecoy,
+    ];
+
+    try {
+      for (const path of paths) {
+        await resourcePut(owner, path, path);
+      }
+
+      await expect(
+        resourceList(owner, `${namespace}literal_prefix`),
+      ).resolves.toEqual([
+        expect.objectContaining({ path: literalUnderscore }),
+      ]);
+
+      await expect(
+        resourceListAccessible(owner, `${namespace}literal%prefix`),
+      ).resolves.toEqual([expect.objectContaining({ path: literalPercent })]);
+
+      await expect(
+        resourceListAllOwners(`${namespace}literal_prefix`),
+      ).resolves.toEqual([
+        expect.objectContaining({ path: literalUnderscore }),
+      ]);
+    } finally {
+      for (const path of paths) {
+        await resourceDeleteByPath(owner, path);
+      }
+    }
+  });
+
   it("resolves personal > organization/app > workspace for instruction, skill, AGENTS, and context paths", async () => {
     const {
       SHARED_OWNER,

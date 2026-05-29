@@ -25,24 +25,10 @@ import type {
   FormSettings,
 } from "../../shared/types.js";
 import { fireIntegrations } from "../lib/integrations.js";
-
-// ---------------------------------------------------------------------------
-// Field value size limits by type
-// ---------------------------------------------------------------------------
-
-const MAX_FIELD_LENGTH: Record<string, number> = {
-  text: 1000,
-  email: 1000,
-  number: 1000,
-  date: 1000,
-  select: 1000,
-  checkbox: 1000,
-  radio: 1000,
-  rating: 1000,
-  scale: 1000,
-  textarea: 10000,
-  multiselect: 10000,
-};
+import {
+  isEmptySubmissionValue,
+  validateSubmissionField,
+} from "../lib/submission-validation.js";
 
 const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
 const MIN_FILL_TIME_MS = 500; // reject submits faster than this
@@ -111,7 +97,11 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  const body = await readBody(event);
+  const body = await readBody(event).catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid submission payload" };
+  }
 
   // Check overall payload size
   const bodyStr = JSON.stringify(body);
@@ -137,47 +127,39 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Verify captcha
-  const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
-  if (!captchaResult.success) {
-    setResponseStatus(event, 403);
-    return { error: "Captcha verification failed" };
+  // Verify captcha — but only when the public site key is configured. The
+  // client (SSR renderer and React page) only renders the Turnstile widget and
+  // produces a token when VITE_TURNSTILE_SITE_KEY is set, so enforcing the
+  // secret without the site key would reject every submission with no widget
+  // ever shown. Keep the requirement symmetric: skip verification when the
+  // client could not have rendered a widget.
+  if (process.env.VITE_TURNSTILE_SITE_KEY) {
+    const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
+    if (!captchaResult.success) {
+      setResponseStatus(event, 403);
+      return { error: "Captcha verification failed" };
+    }
   }
 
   // Parse form fields and build whitelist of valid field IDs
   const fields: FormField[] = JSON.parse(form.fields);
   const fieldMap = new Map(fields.map((f) => [f.id, f]));
-  const rawData = body.data || {};
+  const rawData =
+    body.data && typeof body.data === "object" && !Array.isArray(body.data)
+      ? (body.data as Record<string, unknown>)
+      : {};
 
   // Whitelist: only accept keys matching form field IDs
   const data: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(rawData)) {
     const field = fieldMap.get(key);
     if (!field) continue; // Strip unknown fields
-
-    // Validate string length per field type
-    const maxLen = MAX_FIELD_LENGTH[field.type] ?? 1000;
-    if (typeof value === "string" && value.length > maxLen) {
-      setResponseStatus(event, 400);
-      return {
-        error: `${field.label} exceeds maximum length of ${maxLen} characters`,
-      };
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === "string" && item.length > maxLen) {
-          setResponseStatus(event, 400);
-          return {
-            error: `${field.label} contains a value exceeding maximum length`,
-          };
-        }
-      }
-    }
-
     data[key] = value;
   }
 
-  // Validate required fields (respecting conditional visibility)
+  // Validate required fields and field-specific constraints. Recompute
+  // conditional visibility on the server so direct POSTs cannot submit hidden
+  // field values or bypass client-side validation.
   function isFieldVisible(field: FormField): boolean {
     if (!field.conditional) return true;
     const { fieldId, operator, value: condValue } = field.conditional;
@@ -195,18 +177,21 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   }
 
   for (const field of fields) {
-    if (field.required && isFieldVisible(field)) {
-      const val = data[field.id];
-      const isEmpty =
-        val === undefined ||
-        val === null ||
-        val === "" ||
-        val === false ||
-        (Array.isArray(val) && val.length === 0);
-      if (isEmpty) {
-        setResponseStatus(event, 400);
-        return { error: `${field.label} is required` };
-      }
+    if (!isFieldVisible(field)) {
+      delete data[field.id];
+      continue;
+    }
+
+    const val = data[field.id];
+    if (field.required && isEmptySubmissionValue(val)) {
+      setResponseStatus(event, 400);
+      return { error: `${field.label} is required` };
+    }
+
+    const validationError = validateSubmissionField(field, val);
+    if (validationError) {
+      setResponseStatus(event, 400);
+      return { error: validationError };
     }
   }
 

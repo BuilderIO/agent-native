@@ -17,6 +17,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 function actionEntry(opts: {
   description?: string;
@@ -1415,6 +1416,107 @@ describe("runAgentLoop", () => {
           toolCallId: "bad-call",
           toolName: "add-slide",
           toolInput: expect.any(String),
+          isError: true,
+        },
+      ],
+    });
+  });
+
+  it("marks MCP isError results as errored tool results for the next model turn", async () => {
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(structuredClone(opts.messages));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "mcp-call",
+                name: "mcp__x__fail",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "I handled the tool failure." };
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text" as const,
+              text: "I handled the tool failure.",
+            },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        mcp__x__fail: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Error calling MCP tool mcp__x__fail: boom",
+            raw: {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: "Error calling MCP tool mcp__x__fail: boom",
+                },
+              ],
+            },
+            serverId: "x",
+            toolName: "mcp__x__fail",
+            originalToolName: "fail",
+            input: {},
+          }),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({
+      type: "tool_done",
+      tool: "mcp__x__fail",
+      result: "Error calling MCP tool mcp__x__fail: boom",
+    });
+    expect(seenMessages[1].at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "mcp-call",
+          toolName: "mcp__x__fail",
+          content: "Error calling MCP tool mcp__x__fail: boom",
           isError: true,
         },
       ],

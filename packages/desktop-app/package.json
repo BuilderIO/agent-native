@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
+    "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@radix-ui/react-select": "2.2.6",
     "@tabler/icons-react": "^3.40.0",

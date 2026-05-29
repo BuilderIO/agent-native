@@ -30,7 +30,11 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Existing deployments already have the column after the first run.
       }
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

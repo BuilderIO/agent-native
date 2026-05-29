@@ -11,7 +11,7 @@
 
 import path from "path";
 import { getDatabaseUrl } from "../../db/client.js";
-import { parseArgs, fail } from "../utils.js";
+import { parseArgs } from "../utils.js";
 import {
   createSqliteScriptClient,
   type SqliteScriptClient,

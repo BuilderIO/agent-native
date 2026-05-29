@@ -420,7 +420,7 @@ export default function ConnectionsRoute() {
 
       {apps.length > 0 && (
         <Collapsible className="mt-6 rounded-2xl border bg-card">
-          <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-sm">
             <span className="flex items-center gap-2 text-muted-foreground">
               <IconPlugConnected size={14} />
               Per-app status

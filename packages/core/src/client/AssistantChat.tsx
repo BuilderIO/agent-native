@@ -52,7 +52,7 @@ import {
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError, trackEvent } from "./analytics.js";
+import { captureError } from "./analytics.js";
 import { cn } from "./utils.js";
 import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
@@ -76,6 +76,10 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
 import {
@@ -227,6 +231,7 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
+const SHOW_AGENT_ACTIVITY_STEPS = false;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -1723,12 +1728,7 @@ function ToolCallFallback({
 // assistant-ui's runtime). Uses the same visual styling as normal messages.
 
 function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
   const chatRunning = React.useContext(ChatRunningContext);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [content]);
 
   return (
     <div className="flex justify-start">
@@ -1765,7 +1765,6 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
           }
           return null;
         })}
-        <div ref={endRef} />
       </div>
     </div>
   );
@@ -2301,7 +2300,9 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const activityTrail = activityTrailFromMetadata(msg);
+  const activityTrail = SHOW_AGENT_ACTIVITY_STEPS
+    ? activityTrailFromMetadata(msg)
+    : [];
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -2374,7 +2375,7 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {isComplete && activityTrail.length > 0 && (
+      {SHOW_AGENT_ACTIVITY_STEPS && isComplete && activityTrail.length > 0 && (
         <RunActivityTrail steps={activityTrail} />
       )}
       {isComplete && (
@@ -2442,12 +2443,21 @@ interface ActivityStep {
   tool?: string;
 }
 
-function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
+function ActivitySteps({
+  steps,
+  className,
+}: {
+  steps: ActivityStep[];
+  className?: string;
+}) {
   if (steps.length === 0) return null;
   const visibleSteps = steps.slice(-4);
   return (
     <div
-      className="max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+      className={cn(
+        "max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground",
+        className,
+      )}
       aria-live="polite"
     >
       <div className="space-y-1">
@@ -2464,6 +2474,25 @@ function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function RunningActivityStatus({
+  steps,
+  label,
+}: {
+  steps: ActivityStep[];
+  label: string;
+}) {
+  return (
+    <div className="agent-running-activity shrink-0 px-4 pb-2">
+      <div className="flex flex-col gap-2">
+        {SHOW_AGENT_ACTIVITY_STEPS && (
+          <ActivitySteps steps={steps} className="max-w-full" />
+        )}
+        <ThinkingIndicator label={label} />
       </div>
     </div>
   );
@@ -2774,6 +2803,71 @@ function getMessageText(message: unknown): string {
       .trim();
   }
   return typeof content === "string" ? content.trim() : "";
+}
+
+function contentPartFollowKey(part: any): string {
+  const type = typeof part?.type === "string" ? part.type : "unknown";
+  if (type === "text") return `t:${String(part.text ?? "").length}`;
+  if (type === "tool-call") {
+    return [
+      "tool",
+      part.toolCallId ?? "",
+      part.toolName ?? "",
+      part.status?.type ?? "",
+      String(part.argsText ?? "").length,
+      String(part.result ?? "").length,
+      part.mcpApp ? 1 : 0,
+    ].join(":");
+  }
+  if (type === "image") return `image:${String(part.image ?? "").length}`;
+  return `${type}:${String(part.text ?? part.result ?? "").length}`;
+}
+
+function contentFollowKey(content: unknown): string {
+  if (typeof content === "string") return `t:${content.length}`;
+  if (Array.isArray(content))
+    return content.map(contentPartFollowKey).join("|");
+  return "";
+}
+
+function messageFollowKey(message: unknown): string {
+  const msg = ((message as { message?: unknown })?.message ?? message) as {
+    id?: unknown;
+    role?: unknown;
+    status?: { type?: unknown; reason?: unknown };
+    content?: unknown;
+  };
+  return [
+    String(msg?.id ?? ""),
+    String(msg?.role ?? ""),
+    String(msg?.status?.type ?? ""),
+    String(msg?.status?.reason ?? ""),
+    contentFollowKey(msg?.content),
+  ].join(",");
+}
+
+function queuedMessageFollowKey(message: {
+  id: string;
+  text: string;
+  images?: string[];
+  attachments?: QueuedAttachment[];
+  references?: Reference[];
+  requestMode?: AgentRequestMode;
+  recoveryAction?: AgentRecoveryAction;
+}): string {
+  return [
+    message.id,
+    message.text.length,
+    message.images?.length ?? 0,
+    message.attachments?.length ?? 0,
+    message.references?.length ?? 0,
+    message.requestMode ?? "",
+    message.recoveryAction ?? "",
+  ].join(":");
+}
+
+function reconnectContentFollowKey(content: ContentPart[]): string {
+  return content.map(contentPartFollowKey).join("|");
 }
 
 const RECOVERY_USER_MESSAGE_PREFIXES = [
@@ -4010,6 +4104,11 @@ const AssistantChatInner = forwardRef<
           setIsRestoring(false);
         }
       })();
+    } else if (threadId && isNewThread) {
+      // Client-created empty tabs do not have a server row until the first
+      // message is sent. Avoid probing /threads/:id on mount; that request
+      // can only 404 and makes normal app startup look broken in DevTools.
+      setIsRestoring(false);
     } else if (threadId) {
       (async () => {
         try {
@@ -4057,6 +4156,7 @@ const AssistantChatInner = forwardRef<
     importThreadData,
     reconnectActiveRunForThread,
     loadHistoryRepository,
+    isNewThread,
   ]);
 
   useEffect(() => {
@@ -4430,7 +4530,11 @@ const AssistantChatInner = forwardRef<
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (typeof detail?.label === "string" && detail.label.trim()) {
+      if (
+        SHOW_AGENT_ACTIVITY_STEPS &&
+        typeof detail?.label === "string" &&
+        detail.label.trim()
+      ) {
         const label = detail.label.trim();
         const tool = detail.tool?.trim() || undefined;
         setActivityLabel(label);
@@ -4725,6 +4829,16 @@ const AssistantChatInner = forwardRef<
     [addToQueue, messages.length, thread.isRunning, threadRuntime],
   );
 
+  const autoscrollFollowKey = useMemo(
+    () =>
+      [
+        messages.map(messageFollowKey).join(";"),
+        `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
+        `r:${reconnectContentFollowKey(reconnectContent)}`,
+      ].join(";;"),
+    [messages, queuedMessages, reconnectContent],
+  );
+
   const {
     scrollRef,
     isNearBottomRef,
@@ -4733,7 +4847,7 @@ const AssistantChatInner = forwardRef<
     scrollToBottom,
     scrollToBottomAfterPaint,
   } = useNearBottomAutoscroll<HTMLDivElement>({
-    followKey: [messages, queuedMessages],
+    followKey: autoscrollFollowKey,
     streaming: isRunning,
   });
 
@@ -4744,13 +4858,13 @@ const AssistantChatInner = forwardRef<
 
     let stopped = false;
     const observer = new ResizeObserver(() => {
-      if (!stopped) scrollToBottom();
+      if (!stopped && isNearBottomRef.current) scrollToBottom();
     });
     observer.observe(el);
     const timeout = window.setTimeout(() => {
       stopped = true;
       observer.disconnect();
-      scrollToBottom();
+      if (isNearBottomRef.current) scrollToBottom();
     }, 1600);
 
     return () => {
@@ -4758,7 +4872,7 @@ const AssistantChatInner = forwardRef<
       window.clearTimeout(timeout);
       observer.disconnect();
     };
-  }, [scrollToBottom, scrollToBottomAfterPaint]);
+  }, [isNearBottomRef, scrollToBottom, scrollToBottomAfterPaint]);
 
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);
@@ -4845,6 +4959,25 @@ const AssistantChatInner = forwardRef<
     !authError &&
     !missingApiKey;
   const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+
+  // Clarifying-question surface: the `ask-question` action writes a
+  // GuidedQuestionPayload to application_state under "guided-questions". The
+  // hook polls that key, and on submit/skip composes the answer as a normal
+  // user turn (via the shared sendToAgentChat) and clears the persisted key so
+  // the question does not reappear.
+  const {
+    questions: guidedQuestions,
+    title: guidedQuestionsTitle,
+    description: guidedQuestionsDescription,
+    skipLabel: guidedQuestionsSkipLabel,
+    submitLabel: guidedQuestionsSubmitLabel,
+    handleSubmit: handleGuidedQuestionsSubmit,
+    handleSkip: handleGuidedQuestionsSkip,
+  } = useGuidedQuestionFlow({
+    stateKey: "guided-questions",
+    queryKey: ["guided-questions"],
+    ...(browserTabId ? { browserTabId } : {}),
+  });
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -5104,24 +5237,6 @@ const AssistantChatInner = forwardRef<
                     reconnectContent.length > 0 && (
                       <ReconnectStreamMessage content={reconnectContent} />
                     )}
-                  {/* Always show the thinking indicator while the agent is working,
-                including during reconnect. The indicator sits BELOW any
-                already-streamed reconnect content so the user sees both
-                "what it did so far" and "it's still working". Swap the label
-                to "Reconnecting" during reconnect so the user knows the
-                system is actively recovering, not just stuck. */}
-                  {showRunningInUI && (
-                    <>
-                      <ActivitySteps steps={activitySteps} />
-                      <ThinkingIndicator
-                        label={
-                          isReconnecting
-                            ? "Reconnecting"
-                            : (activityLabel ?? "Thinking")
-                        }
-                      />
-                    </>
-                  )}
                   {queuedMessages.map((msg) => {
                     const displayText = msg.text
                       .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
@@ -5181,6 +5296,30 @@ const AssistantChatInner = forwardRef<
             )}
 
             {composerSlot}
+            {guidedQuestions && guidedQuestions.length > 0 && (
+              <div className="shrink-0 px-3 pb-2 pt-1">
+                <div className="rounded-lg border border-border bg-card/60 shadow-sm">
+                  <GuidedQuestionFlow
+                    questions={guidedQuestions}
+                    onSubmit={handleGuidedQuestionsSubmit}
+                    onSkip={handleGuidedQuestionsSkip}
+                    {...(guidedQuestionsTitle
+                      ? { title: guidedQuestionsTitle }
+                      : {})}
+                    {...(guidedQuestionsDescription
+                      ? { description: guidedQuestionsDescription }
+                      : {})}
+                    {...(guidedQuestionsSkipLabel
+                      ? { skipLabel: guidedQuestionsSkipLabel }
+                      : {})}
+                    {...(guidedQuestionsSubmitLabel
+                      ? { submitLabel: guidedQuestionsSubmitLabel }
+                      : {})}
+                    className="h-auto items-stretch justify-stretch bg-transparent"
+                  />
+                </div>
+              </div>
+            )}
             {showPlanModeCallout && (
               <PlanModeCallout
                 canImplementPlan={canImplementPlan}
@@ -5189,6 +5328,20 @@ const AssistantChatInner = forwardRef<
               />
             )}
             <SelectionAttachedPill />
+            {/* Keep live run progress pinned in the composer footer while the
+                completed/collapsed trail remains attached to the transcript. */}
+            {showRunningInUI && (
+              <RunningActivityStatus
+                steps={activitySteps}
+                label={
+                  isReconnecting
+                    ? "Reconnecting"
+                    : SHOW_AGENT_ACTIVITY_STEPS
+                      ? (activityLabel ?? "Thinking")
+                      : "Thinking"
+                }
+              />
+            )}
             {/* Input area */}
             <AgentComposerFrame
               layoutVariant={composerLayoutVariant}

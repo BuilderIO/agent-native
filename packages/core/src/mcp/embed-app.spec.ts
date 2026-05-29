@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("renders a controlled app frame for ChatGPT and direct/transplant paths for Claude", () => {
+  it("transplants app documents in ChatGPT and Claude MCP sandboxes", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -18,6 +18,8 @@ describe("embedApp", () => {
     expect(html).toContain("app.callServerTool");
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
+    expect(html).toContain('return await rpcRequest("ui/message"');
+    expect(html).not.toContain('rpcNotify("ui/message"');
     expect(html).toContain("window.openai");
     expect(html).toContain('"openai:set_globals"');
     expect(html).toContain("bridge.toolInput");
@@ -28,12 +30,18 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("prompt: message");
+    expect(html).toContain("const modelContext = {");
+    expect(html).toContain("agentNativeModelContext: modelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
     );
     expect(html).toContain("function embedStartUrlFrom(params, data)");
+    expect(html).toContain("function toolResultMeta(params)");
+    expect(html).toContain("return toolResultMeta(params.result)");
+    expect(html).toContain("return toolResultMeta(params.toolResult)");
     expect(html).toContain('"agent-native/embedStart"');
+    expect(html).toContain("const meta = toolResultMeta(params)");
     expect(html).toContain("embedStartRecord.startUrl");
     expect(html).toContain("openStartUrl = embedStartUrlFrom(params, data)");
     expect(html).toContain(
@@ -45,6 +53,9 @@ describe("embedApp", () => {
     expect(html).toContain("const launchUrl = openStartUrl || openUrl");
     expect(html).toContain("if (openUrl || openStartUrl)");
     expect(html).toContain("shouldSelfNavigateToApp");
+    expect(html).toContain("function renderModeSource()");
+    expect(html).toContain('typeof result.embedMode === "string"');
+    expect(html).toContain('typeof result.frame === "string"');
     expect(html).toContain("isChatGptSandboxHost");
     expect(html).toContain("oaiusercontent");
     expect(html).toContain('appParam === "chatgpt"');
@@ -60,12 +71,39 @@ describe("embedApp", () => {
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain("mountTransplantedHtml");
+    expect(html).toContain("resolveTransplantAppDocumentSource");
+    expect(html).toContain('"X-Agent-Native-Embed-Transplant": "1"');
+    expect(html).toContain('Accept: "application/json"');
+    expect(html).toContain("const data = await response.json()");
+    expect(html).toContain('typeof data.location === "string"');
     expect(html).toContain("moduleCodeToClassicAsync");
+    expect(html).toContain("scriptSourceUrl");
+    expect(html).toContain("moduleScriptCode");
+    expect(html).toContain("relativeModuleSpecifiersToAbsolute");
+    expect(html).toContain(
+      String.raw`.replace(/(\bimport\s+(?:[^"']+?\s+from\s+)?)(["'])(\.\.?\/[^"']*)\2/g`,
+    );
+    expect(html).toContain(String.raw`/\bapplication\/json\b/i`);
+    expect(html).toContain("namedImportBindings");
+    expect(html).toContain("const { default:");
+    expect(html).toContain("await runModuleScriptAsClassic(script, config)");
+    expect(html).toContain("stripDevOnlyModuleImports");
+    expect(html).toContain("__x00__virtual:react-router");
+    expect(html).toContain("__vite_plugin_react_preamble_installed__");
+    expect(html).toContain("$RefreshReg$");
+    expect(html).toContain("$RefreshSig$");
+    expect(html).toContain("rootRelativeSpecifierToAppUrl");
+    expect(html).toContain("url.searchParams.set(config.embedTokenParam");
     expect(html).toContain("await import($1)");
     expect(html).toContain("claudemcpcontent");
     expect(html).toContain('mode === "transplant"');
-    expect(html).toContain('toolInput.frame === "transplant"');
+    expect(html).toContain('render.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
+    expect(html).toContain("if (isClaudeMcpContentHost()) return true;");
+    expect(html).toContain(
+      "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
+    );
+    expect(html).toContain("if (shouldTransplantAppDocument())");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
@@ -81,6 +119,10 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
     expect(html).toContain("refreshExpiredEmbedSession");
+    expect(html).toContain(
+      "if (response.status === 401 && isEmbedStartUrl(src))",
+    );
+    expect(html).toContain("await mountTransplantedHtml(html, appUrl)");
     expect(html).toContain('openStartUrl = "";');
     expect(html).toContain("app.requestDisplayMode");
     expect(html).toContain("function openLinkRecordFrom(value)");
@@ -120,6 +162,27 @@ describe("embedApp", () => {
     expect(resource.csp?.baseUriDomains).toEqual([
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
     ]);
+  });
+
+  it("leaves dev runtime module URLs untokenized in transplanted app documents", () => {
+    const resource = embedApp({ title: "Assets" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open-asset-picker", appId: "assets" })
+        : resource.html;
+
+    expect(html).toContain("function isEmbedRuntimeModulePath(pathname)");
+    expect(html).toContain(
+      "@(?:id|vite|fs|react-refresh)|app|node_modules|packages|src",
+    );
+    expect(html).toContain("function appendEmbedParamsToAppUrl(url, config)");
+    expect(html).toContain(
+      "if (isEmbedRuntimeModulePath(url.pathname)) return url;",
+    );
+    expect(html).toContain(
+      "return appendEmbedParamsToAppUrl(url, config).toString();",
+    );
+    expect(html).toContain("appendEmbedParamsToAppUrl(url, config);");
   });
 
   it("retains nested iframe mode as an explicit diagnostic fallback", () => {
@@ -164,7 +227,7 @@ describe("embedApp", () => {
     expect(html).toContain("}, frameReadyTimeoutMs)");
     expect(html).toContain("}, frameLoadTimeoutMs)");
     expect(html).toContain('mode === "iframe" || mode === "nested"');
-    expect(html).toContain('toolInput.frame === "iframe"');
+    expect(html).toContain('render.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
     expect(resource.csp?.connectDomains).toContain(
@@ -191,6 +254,20 @@ describe("embedApp", () => {
     expect(openAiIndex).toBeGreaterThanOrEqual(0);
     expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
     expect(html).not.toContain('import { App } from "https://esm.sh');
+  });
+
+  it("waits longer for ChatGPT's bridge before falling back to the generic MCP Apps module", () => {
+    const resource = embedApp({ title: "Mail" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "manage-draft", appId: "mail" })
+        : resource.html;
+
+    expect(html).toContain("chatGptOpenAiBridgeWaitMs = 5000");
+    expect(html).toContain(
+      'new URLSearchParams(window.location.search).get("app") === "chatgpt"',
+    );
+    expect(html).toContain("openAiBridgePollMs = 50");
   });
 
   it("allows full-app embeds to request a 900px canvas", () => {

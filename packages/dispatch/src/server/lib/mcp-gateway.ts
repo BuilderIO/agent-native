@@ -8,15 +8,13 @@ import {
   buildEmbedStartPath,
   createEmbedSessionTicket,
   getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
   discoverAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
 import { getOrgA2ASecret, getOrgDomain } from "@agent-native/core/org";
 import {
   getDispatchMcpAppAccessSettings,
@@ -154,12 +152,6 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   } catch {
     return null;
   }
-}
-
-function appOrigin(app: DispatchMcpAccessibleApp): string {
-  const origin = safeAppOrigin(app);
-  if (!origin) throw new Error(`Invalid app URL for "${app.id}": ${app.url}`);
-  return origin;
 }
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {

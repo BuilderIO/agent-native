@@ -12,6 +12,7 @@ import {
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -1933,7 +1934,7 @@ function reconcileInterruptedCodeAgentRun(
     updatedAt: now,
     status: approvalInterrupted ? "needs-approval" : "paused",
     phase: approvalInterrupted ? "approval-required" : "stopped",
-    needsApproval: approvalInterrupted ? true : false,
+    needsApproval: approvalInterrupted,
     progress: approvalInterrupted
       ? {
           label: "Approval required",
@@ -2074,36 +2075,6 @@ function firstStringValue(...values: unknown[]): string | undefined {
       const trimmed = value.trim();
       if (trimmed) return trimmed;
     }
-  }
-  return undefined;
-}
-
-function textFromUnknown(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (!isObject(item)) return "";
-        return firstStringValue(item.text, item.content, item.message) ?? "";
-      })
-      .map((part) => part.trim())
-      .filter(Boolean);
-    return parts.length > 0 ? parts.join("\n") : undefined;
-  }
-  if (isObject(value)) {
-    return firstStringValue(value.text, value.content, value.message);
-  }
-  return undefined;
-}
-
-function firstTextValue(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    const text = textFromUnknown(value);
-    if (text) return text;
   }
   return undefined;
 }
@@ -3759,7 +3730,6 @@ async function appendCodeAgentFollowUp(
   }
 
   try {
-    const goalId = firstStringValue(payload.goalId);
     const runRecord = readCodeAgentRunRecord(runId);
     if (runRecord)
       reconcileInterruptedCodeAgentRun(runId, "follow-up", runRecord);
@@ -5599,7 +5569,7 @@ ipcMain.handle(
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
-ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
+ipcMain.on(IPC.INTER_APP_SEND, (_event: IpcMainEvent, msg: InterAppMessage) => {
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
   });
@@ -6378,15 +6348,18 @@ app.on("web-contents-created", (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) =>
       handleWindowOpenForContents(contents, url),
     );
-    contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
-      installContextMenu(wc);
-      installWebviewReloadGuard(wc);
-      installWebviewOAuthNavigationHandler(wc);
+    contents.on(
+      "did-attach-webview",
+      (_event, webviewContents: WebContents) => {
+        installContextMenu(webviewContents);
+        installWebviewReloadGuard(webviewContents);
+        installWebviewOAuthNavigationHandler(webviewContents);
 
-      wc.setWindowOpenHandler(({ url }: any) => {
-        return handleWindowOpenForContents(wc, url);
-      });
-    });
+        webviewContents.setWindowOpenHandler(({ url }) => {
+          return handleWindowOpenForContents(webviewContents, url);
+        });
+      },
+    );
     return;
   }
 

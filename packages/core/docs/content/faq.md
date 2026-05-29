@@ -65,6 +65,7 @@ The framework ships with production-ready templates you can use as daily drivers
 - **[Brain](/docs/template-brain)** — full-page company chat, cited memory, sources, and review queue
 - **[Assets](/docs/template-assets)** — brand asset libraries, uploads, and generated media
 - **[Slides](/docs/template-slides)** — presentation builder
+- **[Video](/docs/template-videos)** — Remotion-based video editor
 - **[Analytics](/docs/template-analytics)** — data platform (like Amplitude/Mixpanel)
 - **[Mail](/docs/template-mail)** — full-featured email client (like Superhuman)
 - **[Clips](/docs/template-clips)** — async screen + camera recording (replaces Loom)

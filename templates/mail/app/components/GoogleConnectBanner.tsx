@@ -6,7 +6,6 @@ import {
   IconCheck,
   IconCircle,
   IconLoader2,
-  IconChevronDown,
   IconChevronUp,
   IconUpload,
   IconAlertTriangle,
@@ -302,11 +301,7 @@ export function GoogleConnectBanner({
       signInViaDesktopBrowser();
       return;
     }
-    if (showWizard && allConfigured) {
-      setWantAuthUrl(true);
-    } else {
-      setWantAuthUrl(true);
-    }
+    setWantAuthUrl(true);
   }
 
   function handleAddAccount() {

@@ -12,7 +12,8 @@
  *   - claude-code / claude-code-cli → `.mcp.json` (project) or
  *     `~/.claude.json` (user). JSON `mcpServers[name] = entry`.
  *   - cowork                        → `~/.cowork/mcp.json`. Same JSON shape.
- *   - codex                         → `~/.codex/config.toml`.
+ *   - codex                         → `$CODEX_HOME/config.toml` when set,
+ *     otherwise `~/.codex/config.toml`.
  *     `[mcp_servers.<name>]` block.
  *
  * Node-only. No new npm deps — hand-rolled JSON merge + minimal TOML block
@@ -77,6 +78,8 @@ export function claudeCodeUserConfig(): string {
 }
 
 export function codexConfigPath(): string {
+  const codexHome = process.env.CODEX_HOME?.trim();
+  if (codexHome) return path.join(codexHome, "config.toml");
   return path.join(os.homedir(), ".codex", "config.toml");
 }
 

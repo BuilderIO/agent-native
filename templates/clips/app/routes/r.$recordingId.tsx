@@ -47,8 +47,9 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
-export function meta({ params }: { params: { recordingId?: string } }) {
+export function meta() {
   return [{ title: "Clip recording · Clips" }];
 }
 
@@ -61,14 +62,6 @@ export function HydrateFallback() {
 }
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
-
-function isStorageSetupFailureReason(
-  reason: string | null | undefined,
-): boolean {
-  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
-    reason ?? "",
-  );
-}
 
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(

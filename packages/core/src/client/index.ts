@@ -1,6 +1,8 @@
 import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
+import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 
 installRouteChunkRecovery();
+stripAuthRedirectParamFromUrl();
 
 export {
   sendToAgentChat,
@@ -8,7 +10,7 @@ export {
   type AgentChatMessage,
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
-export { useDevMode } from "./use-dev-mode.js";
+export { useCodeMode, useDevMode } from "./use-dev-mode.js";
 export {
   agentNativePath,
   appApiPath,
@@ -123,6 +125,7 @@ export {
   onFrameMessage,
   requestUserInfo,
   getFrameOrigin,
+  getFramePostMessageTargetOrigin,
   getCallbackOrigin,
   oauthRedirectUri,
   isInFrame,
@@ -377,6 +380,10 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  DevDatabaseLink,
+  type DevDatabaseLinkProps,
+} from "./db-admin/DevDatabaseLink.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 export { ClientOnly } from "./ClientOnly.js";

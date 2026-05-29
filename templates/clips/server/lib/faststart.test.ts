@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { applyFaststart, hasPlayableMp4Metadata } from "./faststart";
 
 function atom(type: string, payload: Uint8Array = new Uint8Array()) {
@@ -38,7 +37,7 @@ describe("MP4 faststart helpers", () => {
       atom("mdat", new Uint8Array([1, 2, 3, 4])),
     );
 
-    assert.equal(hasPlayableMp4Metadata(missingMoov), false);
+    expect(hasPlayableMp4Metadata(missingMoov)).toBe(false);
   });
 
   it("moves a trailing moov atom before mdat", () => {
@@ -50,7 +49,9 @@ describe("MP4 faststart helpers", () => {
 
     const fastStart = applyFaststart(slowStart);
 
-    assert.equal(hasPlayableMp4Metadata(fastStart), true);
-    assert.ok(atomOffset(fastStart, "moov") < atomOffset(fastStart, "mdat"));
+    expect(hasPlayableMp4Metadata(fastStart)).toBe(true);
+    expect(atomOffset(fastStart, "moov")).toBeLessThan(
+      atomOffset(fastStart, "mdat"),
+    );
   });
 });

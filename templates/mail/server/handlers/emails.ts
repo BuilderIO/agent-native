@@ -78,7 +78,7 @@ import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
-import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 
 /**
  * Strip CRLF from any value that flows into an RFC 2822 header line. Without
@@ -1985,10 +1985,6 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
 }
 
 /**
- * Convert a compose body to HTML, properly formatting reply/forward quotes
- * with Gmail-compatible blockquote structure so email clients can clip them.
- */
-/**
  * Build a tracking context for an outgoing message. Returns undefined when
  * both open- and click-tracking are disabled so the caller skips injection
  * entirely.
@@ -2579,23 +2575,28 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
     // localhost loopback, or internal cluster services and exfiltrate cloud
     // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
-      if (isBlockedToolUrl(url)) {
-        console.warn(
-          "[unsubscribe] one-click POST blocked: SSRF-protected URL",
-        );
-        // Don't echo the URL — that would let an attacker probe via the
-        // error response to map internal infrastructure.
-        setResponseStatus(event, 400);
-        return { error: "Unsubscribe URL is not allowed" };
-      }
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "List-Unsubscribe=One-Click",
-        });
+        const res = await ssrfSafeFetch(
+          url,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "List-Unsubscribe=One-Click",
+            signal: AbortSignal.timeout(10_000),
+          },
+          { maxRedirects: 3 },
+        );
         return { ok: true, method: "one-click", status: res.status, url };
       } catch (e: any) {
+        if (String(e?.message ?? "").startsWith("SSRF blocked:")) {
+          console.warn(
+            "[unsubscribe] one-click POST blocked: SSRF-protected URL",
+          );
+          // Don't echo the URL — that would let an attacker probe via the
+          // error response to map internal infrastructure.
+          setResponseStatus(event, 400);
+          return { error: "Unsubscribe URL is not allowed" };
+        }
         // One-click failed, fall through to other methods
         console.warn("[unsubscribe] one-click POST failed:", e.message);
       }

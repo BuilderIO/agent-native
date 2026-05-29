@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
   writeAppState,
-  readAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -33,7 +32,6 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
-  type AssetVariantState,
   type ImageCategory,
   type ImageModel,
   type ImageQualityTier,
@@ -43,6 +41,7 @@ import {
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
+import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
 function resolveModelForTier(
   tier: ImageQualityTier | undefined,
@@ -58,7 +57,7 @@ function resolveModelForTier(
 
 export default defineAction({
   description:
-    "Generate one brand-consistent image from a library. Returns a verified image artifact with preview/download/embed URLs. Use generate-image-batch for multiple independent slots.",
+    "Generate one brand-consistent image from a library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z.string(),
     collectionId: z.string().optional(),
@@ -80,6 +79,12 @@ export default defineAction({
       ),
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
+    dismissible: z.coerce
+      .boolean()
+      .default(true)
+      .describe(
+        "When false, always create the finished asset even if live variant slot UI state is cleared before the provider returns. Picker batch candidates use this so every requested option is returned.",
+      ),
     sourceAssetId: z.string().optional(),
     subjectAssetId: z
       .string()
@@ -309,8 +314,11 @@ export default defineAction({
       sessionId: session?.id ?? null,
       customInstructions: library.customInstructions ?? "",
     };
+    const slotId = args.slotId ?? runId;
+    const dismissibleSlot = args.dismissible !== false && Boolean(slotId);
     const baseMetadata = {
-      slotId: args.slotId,
+      slotId,
+      dismissible: dismissibleSlot,
       sourceAssetId: args.sourceAssetId,
       subjectAssetId: args.subjectAssetId,
       intent: args.intent,
@@ -345,7 +353,6 @@ export default defineAction({
       createdAt: now,
     });
 
-    const slotId = args.slotId ?? runId;
     await upsertVariantSlot({
       runId,
       libraryId: args.libraryId,
@@ -391,7 +398,10 @@ export default defineAction({
           mimeType = "image/png";
         }
       }
-      if (await wasSlotDismissed(args.libraryId, slotId)) {
+      if (
+        dismissibleSlot &&
+        (await wasVariantSlotDismissed(args.libraryId, slotId))
+      ) {
         await db
           .update(schema.assetGenerationRuns)
           .set({
@@ -527,7 +537,12 @@ export default defineAction({
         .update(schema.assetGenerationRuns)
         .set({ status: "failed", error: message, completedAt: nowIso() })
         .where(eq(schema.assetGenerationRuns.id, runId));
-      if (await wasSlotDismissed(args.libraryId, slotId)) throw err;
+      if (
+        dismissibleSlot &&
+        (await wasVariantSlotDismissed(args.libraryId, slotId))
+      ) {
+        throw err;
+      }
       await upsertVariantSlot({
         runId,
         libraryId: args.libraryId,
@@ -543,78 +558,3 @@ export default defineAction({
     }
   },
 });
-
-async function wasSlotDismissed(
-  libraryId: string,
-  slotId: string,
-): Promise<boolean> {
-  const raw = (await readAppState("asset-variants")) as unknown | null;
-  const legacyRaw =
-    raw ??
-    ((await readAppState("image-variants").catch(() => null)) as
-      | unknown
-      | null);
-  const state = (legacyRaw ?? null) as AssetVariantState | null;
-  if (!state) return true;
-  if (state.libraryId !== libraryId) return false;
-  return !state.slots.some((s) => s.slotId === slotId);
-}
-
-async function upsertVariantSlot(input: {
-  runId: string;
-  libraryId: string;
-  collectionId?: string | null;
-  presetId?: string | null;
-  sessionId?: string | null;
-  prompt: string;
-  slotId: string;
-  status: "pending" | "ready" | "failed";
-  assetId?: string;
-  previewUrl?: string;
-  thumbnailUrl?: string;
-  error?: string;
-}) {
-  const current = (await readAppState("asset-variants")) as unknown | null;
-  const legacyCurrent =
-    current ??
-    ((await readAppState("image-variants").catch(() => null)) as
-      | unknown
-      | null);
-  const previous = (legacyCurrent ?? null) as AssetVariantState | null;
-  const state: AssetVariantState =
-    previous?.libraryId === input.libraryId &&
-    (previous.sessionId ?? null) === (input.sessionId ?? null)
-      ? previous
-      : {
-          runId: input.runId,
-          libraryId: input.libraryId,
-          collectionId: input.collectionId,
-          presetId: input.presetId ?? null,
-          sessionId: input.sessionId ?? null,
-          prompt: input.prompt,
-          slots: [],
-          updatedAt: nowIso(),
-        };
-  state.runId = input.runId;
-  state.collectionId = input.collectionId ?? null;
-  state.presetId = input.presetId ?? null;
-  state.sessionId = input.sessionId ?? null;
-  state.prompt = input.prompt;
-  const nextSlot = {
-    slotId: input.slotId,
-    status: input.status,
-    assetId: input.assetId,
-    previewUrl: input.previewUrl,
-    thumbnailUrl: input.thumbnailUrl,
-    error: input.error,
-  };
-  const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);
-  if (index >= 0) state.slots[index] = nextSlot;
-  else state.slots.push(nextSlot);
-  state.updatedAt = nowIso();
-  await writeAppState(
-    "asset-variants",
-    state as unknown as Record<string, unknown>,
-  );
-  await deleteAppState("image-variants").catch(() => {});
-}

@@ -1,6 +1,4 @@
-import type { H3Event } from "h3";
 import { eq, or, sql, type SQL } from "drizzle-orm";
-import { getSession } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -56,13 +54,4 @@ export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
   return email;
-}
-
-export async function getEventOwnerEmail(event: H3Event): Promise<string> {
-  const session = await getSession(event);
-  if (!session?.email) {
-    const { createError } = await import("h3");
-    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
-  }
-  return session.email;
 }

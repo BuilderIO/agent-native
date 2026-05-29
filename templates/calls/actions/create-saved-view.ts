@@ -11,16 +11,9 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -43,14 +36,10 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+      minRole: "creator-lite",
+    });
 
     const id = nanoid();
     const now = new Date().toISOString();
@@ -76,9 +65,3 @@ export default defineAction({
     };
   },
 });
-
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void accessFilter;
-void assertAccess;

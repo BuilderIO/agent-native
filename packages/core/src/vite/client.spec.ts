@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+import { signEmbedSessionToken } from "../server/embed-session.js";
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -15,6 +16,16 @@ function findPlugin(name: string) {
 }
 
 describe("dev server mounted path helpers", () => {
+  const previousSecret = process.env.OAUTH_STATE_SECRET;
+
+  afterEach(() => {
+    if (previousSecret === undefined) {
+      delete process.env.OAUTH_STATE_SECRET;
+    } else {
+      process.env.OAUTH_STATE_SECRET = previousSecret;
+    }
+  });
+
   it("strips mounted API paths including the /api index route", () => {
     expect(stripMountedDevApiPath("/docs/api/events", "/docs/")).toBe(
       "/api/events",
@@ -40,6 +51,159 @@ describe("dev server mounted path helpers", () => {
     expect(isFrameworkDevPath("/docs-extra/_agent-native/ping", "/docs/")).toBe(
       false,
     );
+  });
+
+  it("serves base-prefixed Vite module requests for embed sessions", async () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: {
+        load: vi.fn(async (id: string) => ({
+          code: `window.__loaded = ${JSON.stringify(id)};`,
+        })),
+      },
+      transformRequest: vi.fn(async (url: string) => ({
+        code: `export const url = ${JSON.stringify(url)};`,
+      })),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const req = {
+      method: "GET",
+      url:
+        `/assets/@id/__x00__virtual:react-router/browser-manifest` +
+        `?__an_embed_token=${token}&__an_mcp_chat_bridge=1`,
+      headers: {},
+    };
+    const res = {
+      headersSent: false,
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(() => {
+        res.headersSent = true;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
+
+    expect(next).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+      "\0virtual:react-router/browser-manifest",
+    );
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "text/javascript",
+    );
+    expect(res.end).toHaveBeenCalledWith(
+      'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+    );
+  });
+
+  it("serves absolute React Router browser manifests to external MCP embeds", async () => {
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: {
+        load: vi.fn(async () => ({
+          code:
+            "window.__reactRouterManifest={" +
+            "'url':'/@id/__x00__virtual:react-router/browser-manifest'," +
+            "'entry':{'module':'/app/entry.client.tsx'}," +
+            "'hmr':{'runtime':'/@id/__x00__virtual:react-router/inject-hmr-runtime'}," +
+            "'routes':{'root':{'module':'/app/root.tsx'}}" +
+            "};",
+        })),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const req = {
+      method: "GET",
+      url: "/@id/__x00__virtual:react-router/browser-manifest",
+      headers: {
+        origin: "http://127.0.0.1:9310",
+        host: "assets-local.trycloudflare.com",
+        "x-forwarded-proto": "https",
+      },
+    };
+    const res = {
+      headersSent: false,
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(() => {
+        res.headersSent = true;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
+
+    expect(next).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+      "\0virtual:react-router/browser-manifest",
+    );
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "text/javascript",
+    );
+    expect(String(res.end.mock.calls[0][0])).toContain(
+      '"https://assets-local.trycloudflare.com/app/entry.client.tsx"',
+    );
+    expect(String(res.end.mock.calls[0][0])).toContain(
+      '"https://assets-local.trycloudflare.com/@id/__x00__virtual:react-router/browser-manifest"',
+    );
+  });
+
+  it("does not serve base-prefixed Vite modules without embed auth", () => {
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "GET",
+        url: "/assets/@id/__x00__virtual:react-router/browser-manifest",
+        headers: {},
+      },
+      { setHeader: vi.fn() },
+      next,
+    );
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
   });
 });
 

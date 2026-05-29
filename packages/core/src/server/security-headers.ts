@@ -44,10 +44,11 @@
  *     MCP embed-session page loads use `cross-origin` so COEP hosts such as
  *     Claude's MCP Apps proxy can frame the short-lived app document.
  *
- * NOTE: We don't set `Cross-Origin-Embedder-Policy` because it requires every
- * embedded subresource to opt in via CORP/CORS, which would break Builder's
- * iframe editor and template embed use cases. COOP + CORP without COEP gives
- * us most of the protection.
+ * NOTE: `Cross-Origin-Embedder-Policy` is NOT set by default because it
+ * requires every embedded subresource to opt in via CORP/CORS, which would
+ * break Builder's iframe editor and template embed use cases. COOP + CORP
+ * without COEP gives us most of the protection on normal responses; COEP is
+ * only added for validated MCP embed-session page loads (see above).
  */
 
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";
@@ -82,6 +83,15 @@ function isHttpsRequest(event: any): boolean {
   return false;
 }
 
+function isMcpEndpointRequest(event: any): boolean {
+  const pathname =
+    event?.url?.pathname ??
+    String(event?.node?.req?.url ?? event?.path ?? "/").split("?")[0];
+  return (
+    pathname === "/_agent-native/mcp" || pathname.endsWith("/_agent-native/mcp")
+  );
+}
+
 /**
  * Create the security-headers h3 middleware. Mount this BEFORE other route
  * handlers so the headers are present on every response (including 4xx/5xx
@@ -93,6 +103,7 @@ export function createSecurityHeadersMiddleware() {
   const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
     const embedFrameRequest = requestHasEmbedAuthMarker(event);
+    const mcpEndpointRequest = isMcpEndpointRequest(event);
     const requestOrigin = getHeader(event, "origin");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     if (isProduction && !embedFrameRequest) {
@@ -111,7 +122,7 @@ export function createSecurityHeadersMiddleware() {
     setResponseHeader(
       event,
       "Cross-Origin-Resource-Policy",
-      embedFrameRequest ? "cross-origin" : "same-site",
+      embedFrameRequest || mcpEndpointRequest ? "cross-origin" : "same-site",
     );
     if (embedFrameRequest && isMcpEmbedCorsOrigin(requestOrigin)) {
       setResponseHeader(event, "Access-Control-Allow-Origin", requestOrigin);

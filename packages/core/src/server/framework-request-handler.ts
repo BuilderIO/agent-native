@@ -183,14 +183,13 @@ export function getH3App(nitroApp: any): H3AppShim {
  */
 function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
   const h3 = nitroApp?.h3;
-  if (!h3 || h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY]) return;
+  if (!h3) return;
+  const current = h3["~getMiddleware"];
+  if (h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] === current) return;
 
-  const original =
-    typeof h3["~getMiddleware"] === "function"
-      ? h3["~getMiddleware"].bind(h3)
-      : undefined;
+  const original = typeof current === "function" ? current.bind(h3) : undefined;
 
-  h3["~getMiddleware"] = (event: H3Event, route: unknown) => {
+  const wrappedGetMiddleware = (event: H3Event, route: unknown) => {
     const originalResult = original ? original(event, route) : [];
     const originalList = Array.isArray(originalResult)
       ? originalResult
@@ -211,7 +210,8 @@ function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
       : originalList;
   };
 
-  h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = true;
+  h3["~getMiddleware"] = wrappedGetMiddleware;
+  h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = wrappedGetMiddleware;
 }
 
 /**

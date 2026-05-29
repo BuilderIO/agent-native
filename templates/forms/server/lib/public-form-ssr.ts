@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 import { getAppBasePath } from "@agent-native/core/server";
 import { DEFAULT_SSR_CACHE_CONTROL } from "@agent-native/core/server/ssr-handler";
 import { getDb, schema } from "../db/index.js";
-import type { FormField, FormSettings } from "../../shared/types.js";
+import {
+  toPublicFormSettings,
+  type FormField,
+  type FormSettings,
+  type PublicFormSettings,
+} from "../../shared/types.js";
 
 // In-memory cache
 const cache = new Map<string, { data: any; ts: number }>();
@@ -38,12 +43,16 @@ async function getFormBySlugOrId(slugOrId: string) {
 
   if (!row || row.status !== "published" || row.deletedAt) return null;
 
+  // Project settings through the public allowlist before caching/rendering so
+  // owner-private integration webhook URLs and allowed-origins never reach the
+  // anonymous SSR payload.
+  const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,
     title: row.title,
     description: row.description,
     fields: JSON.parse(row.fields) as FormField[],
-    settings: JSON.parse(row.settings) as FormSettings,
+    settings: toPublicFormSettings(settings),
   };
 
   cache.set(slugOrId, { data: result, ts: Date.now() });
@@ -262,9 +271,9 @@ function renderFormPage(form: {
   title: string;
   description?: string | null;
   fields: FormField[];
-  settings: FormSettings;
+  settings: PublicFormSettings;
 }): string {
-  const settings: FormSettings = form.settings || {};
+  const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();

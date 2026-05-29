@@ -15,16 +15,9 @@ export default createAgentChatPlugin({
     websiteUrl: "/",
     icons: [
       {
-        src: "/agent-native-icon-light.svg",
-        mimeType: "image/svg+xml",
-        sizes: ["135x78"],
-        theme: "light",
-      },
-      {
-        src: "/agent-native-icon-dark.svg",
-        mimeType: "image/svg+xml",
-        sizes: ["114x66"],
-        theme: "dark",
+        src: "/agent-native-icon-light-512.png?v=20260530",
+        mimeType: "image/png",
+        sizes: ["512x512"],
       },
     ],
   },

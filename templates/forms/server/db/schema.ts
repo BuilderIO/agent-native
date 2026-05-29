@@ -1,7 +1,6 @@
 import {
   table,
   text,
-  integer,
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";

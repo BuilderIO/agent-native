@@ -41,17 +41,17 @@ CREATE TABLE IF NOT EXISTS form_shares (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-        sqlite: `ALTER TABLE forms ADD COLUMN owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+        sqlite: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
       },
     },
     {
       version: 4,
-      sql: { sqlite: `ALTER TABLE forms ADD COLUMN org_id TEXT` },
+      sql: { sqlite: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS org_id TEXT` },
     },
     {
       version: 5,
       sql: {
-        sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'`,
+        sqlite: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
       },
     },
     {
@@ -72,14 +72,14 @@ CREATE TABLE IF NOT EXISTS form_shares (
       version: 7,
       sql: {
         postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS submitter_email TEXT`,
-        sqlite: `ALTER TABLE responses ADD COLUMN submitter_email TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS submitter_email TEXT`,
       },
     },
     {
       version: 8,
       sql: {
         postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
-        sqlite: `ALTER TABLE forms ADD COLUMN deleted_at TEXT`,
+        sqlite: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
       },
     },
     {

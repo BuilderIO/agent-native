@@ -26,7 +26,7 @@
 //! On 401 the watcher emits `meetings:auth-needed` so the renderer can
 //! re-push a fresh cookie or surface a re-login prompt.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -38,6 +38,25 @@ use crate::dlog;
 use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
 const MEETING_POLL_LIMIT: u8 = 10;
+
+/// Notify when a meeting starts within this many seconds (the reminder lead).
+const NOTIFY_LEAD_SECS: i64 = 300;
+
+/// Forget de-dupe / snooze entries once a meeting's start is this far past, so
+/// the maps don't grow unbounded across a long-running session.
+const STALE_AFTER_SECS: i64 = 30 * 60;
+
+/// Seconds until the given RFC3339 instant (negative = past). Unparseable
+/// strings sort as far-past so they get pruned.
+fn parse_secs_until(rfc3339: &str, now: chrono::DateTime<chrono::Utc>) -> i64 {
+    chrono::DateTime::parse_from_rfc3339(rfc3339)
+        .map(|s| {
+            s.with_timezone(&chrono::Utc)
+                .signed_duration_since(now)
+                .num_seconds()
+        })
+        .unwrap_or(i64::MIN)
+}
 
 /// Shared state for the watcher loop. Lives behind a Mutex; the watcher task
 /// reads it on every tick. The frontend pokes `set_server_url` /
@@ -54,7 +73,13 @@ struct MeetingsWatcherInner {
     session_cookie: Option<String>,
     /// Legacy framework session token persisted by the desktop renderer.
     auth_token: Option<String>,
-    notified_meeting_ids: HashSet<String>,
+    /// meetingId -> the scheduledStart we last alerted for. Keyed by start time
+    /// so a rescheduled meeting (same id, new time) re-notifies instead of
+    /// being suppressed forever; pruned once the start is well in the past.
+    notified: HashMap<String, String>,
+    /// meetingId -> unix-seconds deadline. While now < deadline the meeting is
+    /// skipped; once it passes we re-fire the reminder exactly once.
+    snoozed_until: HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -125,6 +150,26 @@ pub async fn meetings_watcher_set_session(
         } else {
             Some(trimmed_token)
         };
+    }
+    Ok(())
+}
+
+/// Snooze an upcoming-meeting reminder for `minutes` (default 5). Recorded in
+/// the watcher so the next tick skips the meeting until the deadline, then
+/// re-fires once. The renderer just invokes this and closes the banner — a
+/// `setTimeout` inside the overlay webview would die when the window closes.
+#[tauri::command]
+pub async fn meetings_snooze(
+    state: tauri::State<'_, MeetingsWatcherState>,
+    meeting_id: String,
+    minutes: Option<i64>,
+) -> Result<(), String> {
+    let mins = minutes.unwrap_or(5).clamp(1, 120);
+    let until = chrono::Utc::now().timestamp() + mins * 60;
+    if let Ok(mut g) = state.inner.lock() {
+        g.snoozed_until.insert(meeting_id.clone(), until);
+        // Clear the de-dupe entry so it can alert again after the snooze.
+        g.notified.remove(&meeting_id);
     }
     Ok(())
 }
@@ -233,27 +278,49 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     );
 
     let now = chrono::Utc::now();
+    let now_ts = now.timestamp();
     for m in meetings {
         let Some(start_str) = m.scheduled_start.as_deref() else {
             continue;
         };
-        let Ok(start) = chrono::DateTime::parse_from_rfc3339(start_str) else {
-            continue;
-        };
-        let secs_until = start
-            .with_timezone(&chrono::Utc)
-            .signed_duration_since(now)
-            .num_seconds();
-        if !(0..=300).contains(&secs_until) {
+        if chrono::DateTime::parse_from_rfc3339(start_str).is_err() {
             continue;
         }
-        // Have we already alerted on this meeting?
-        let already = {
+        let current_start = start_str.to_string();
+        let secs_until = parse_secs_until(start_str, now);
+
+        // Decide whether to alert, under a single lock: honor snooze, prune
+        // stale entries, and de-dupe on (meetingId, scheduledStart) so a moved
+        // meeting re-notifies instead of being suppressed forever.
+        let should_notify = {
             let state = app.state::<MeetingsWatcherState>();
             let mut g = state.inner.lock().map_err(|e| e.to_string())?;
-            !g.notified_meeting_ids.insert(m.id.clone())
+
+            g.notified
+                .retain(|_, s| parse_secs_until(s, now) > -STALE_AFTER_SECS);
+            g.snoozed_until
+                .retain(|_, until| *until > now_ts - STALE_AFTER_SECS);
+
+            let eligible = match g.snoozed_until.get(&m.id).copied() {
+                Some(until) if now_ts < until => false, // still snoozed
+                Some(_) => {
+                    // Snooze elapsed — re-fire now regardless of the lead window.
+                    g.snoozed_until.remove(&m.id);
+                    true
+                }
+                None => (0..=NOTIFY_LEAD_SECS).contains(&secs_until),
+            };
+
+            if !eligible {
+                false
+            } else if g.notified.get(&m.id).map(String::as_str) == Some(current_start.as_str()) {
+                false // already alerted for this exact start time
+            } else {
+                g.notified.insert(m.id.clone(), current_start.clone());
+                true
+            }
         };
-        if already {
+        if !should_notify {
             continue;
         }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual

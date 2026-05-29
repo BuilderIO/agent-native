@@ -2,13 +2,17 @@ import {
   getServiceAccountAccessToken,
   getServiceAccountEmail,
   getStartPageToken,
+  googleDocsAdapter,
   listChanges,
   listDocComments,
-  type GoogleDocComment,
 } from "./adapters/google-docs.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import { createThread, getThread } from "../chat-threads/store.js";
+import {
+  createThread,
+  getThread,
+  updateThreadData,
+} from "../chat-threads/store.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
@@ -23,8 +27,6 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
-import { updateThreadData } from "../chat-threads/store.js";
-import { googleDocsAdapter } from "./adapters/google-docs.js";
 import type { IncomingMessage } from "./types.js";
 
 const PLATFORM = "google-docs";
@@ -237,6 +239,16 @@ async function checkDocumentComments(
     const existingMapping = await getThreadMapping(PLATFORM, key);
 
     if (existingMapping) {
+      // Durable per-reply dedup: the in-memory `processedComments` Set does not
+      // survive serverless cold starts (see pending-tasks-store H3 note), which
+      // would let already-answered replies be reprocessed and double-posted.
+      // Persist processed reply ids in the existing SQL thread mapping instead.
+      const persistedReplyIds =
+        existingMapping.platformContext.processedReplyIds;
+      const processedReplyIds = new Set<string>(
+        Array.isArray(persistedReplyIds) ? (persistedReplyIds as string[]) : [],
+      );
+
       // Check for new follow-up replies from users
       const newUserReplies = (comment.replies ?? []).filter((r) => {
         if (
@@ -246,7 +258,8 @@ async function checkDocumentComments(
           return false;
         }
         const replyKey = `${key}:reply:${r.id}`;
-        if (processedComments.has(replyKey)) return false;
+        if (processedReplyIds.has(r.id) || processedComments.has(replyKey))
+          return false;
         if (!isAgentMention(r.content, triggerKeyword)) return false;
         return true;
       });
@@ -254,6 +267,18 @@ async function checkDocumentComments(
       for (const reply of newUserReplies) {
         const replyKey = `${key}:reply:${reply.id}`;
         processedComments.add(replyKey);
+        processedReplyIds.add(reply.id);
+        // Persist immediately so a crash/cold-start between replies cannot
+        // re-answer this reply on the next invocation.
+        await saveThreadMapping(
+          PLATFORM,
+          key,
+          existingMapping.internalThreadId,
+          {
+            ...existingMapping.platformContext,
+            processedReplyIds: Array.from(processedReplyIds),
+          },
+        );
 
         const text = reply.content
           .replace(

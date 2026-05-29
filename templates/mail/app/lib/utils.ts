@@ -3,13 +3,7 @@ import {
   decodeCommonHtmlEntities,
   normalizeMarkdownHardBreaks,
 } from "@shared/markdown";
-import {
-  formatDistanceToNow,
-  format,
-  isToday,
-  isYesterday,
-  isThisYear,
-} from "date-fns";
+import { format, isToday, isYesterday, isThisYear } from "date-fns";
 
 export function formatEmailDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -214,7 +208,7 @@ export function isMac(): boolean {
 
 export function formatShortcut(key: string): string {
   const isMacPlatform = isMac();
-  const mod = isMac() ? "⌘" : "Ctrl";
+  const mod = isMacPlatform ? "⌘" : "Ctrl";
   return key
     .split("+")
     .map((part) => {

@@ -1,10 +1,8 @@
 import {
-  defineEventHandler,
   getQuery,
   getRouterParam,
   setResponseHeader,
   setResponseStatus,
-  getMethod,
   readMultipartFormData,
 } from "h3";
 import {
@@ -12,7 +10,6 @@ import {
   resourceGetByPath,
   resourcePut,
   resourceDelete,
-  resourceDeleteByPath,
   resourceList,
   resourceListAccessible,
   resourceMove,
@@ -20,7 +17,6 @@ import {
   ensurePersonalDefaults,
   SHARED_OWNER,
   WORKSPACE_OWNER,
-  type Resource,
   type ResourceMeta,
 } from "./store.js";
 import {
@@ -48,7 +44,6 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return SHARED_OWNER;
   const session = await getSession(event);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;
@@ -61,7 +56,6 @@ function canReadOwner(owner: string, email: string): boolean {
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;

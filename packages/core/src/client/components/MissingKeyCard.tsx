@@ -1,5 +1,3 @@
-import React from "react";
-
 export interface MissingKeyCardProps {
   label: string;
   message: string;

@@ -1,10 +1,5 @@
 import { useMemo, useState } from "react";
-import {
-  IconChartBar,
-  IconChartLine,
-  IconDownload,
-  IconUsers,
-} from "@tabler/icons-react";
+import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
 import { appBasePath, useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

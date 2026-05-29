@@ -2,7 +2,6 @@ import * as jose from "jose";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   defineEventHandler,
-  setResponseHeader,
   setResponseStatus,
   getMethod,
   getRequestHeader,

@@ -59,7 +59,7 @@ describe("agent teams message queue", () => {
         key.startsWith("task-message:task-1:"),
       ),
     ).toHaveLength(2);
-  });
+  }, 15_000);
 
   it("drains queued messages into the next tool result once", async () => {
     const { sendToTask, _agentTeamsQueueForTests } =

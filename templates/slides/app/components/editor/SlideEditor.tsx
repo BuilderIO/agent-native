@@ -11,6 +11,8 @@ import {
   agentNativePath,
   sendToAgentChat,
   usePinchZoom,
+  useAvatarUrl,
+  type CollabUser,
 } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
@@ -248,6 +250,74 @@ interface SlideEditorProps {
    *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
    *  agent retry commands. */
   deckId?: string;
+  /** Other users (besides the current user) currently viewing/editing THIS
+   *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
+   *  knows before they clobber someone else's last-writer-wins text edit. */
+  presentUsers?: CollabUser[];
+}
+
+/**
+ * Soft same-slide presence indicator. Renders a small stacked-avatar chip on
+ * the canvas when another user is on the SAME slide the current user is
+ * editing — a non-blocking heads-up so people don't unknowingly clobber each
+ * other's edits (sync is last-writer-wins at deck granularity). No hard lock:
+ * it only warns. Reuses the avatar + tooltip pattern from the sidebar.
+ */
+function SamePresenceAvatar({ user }: { user: CollabUser }) {
+  const avatarUrl = useAvatarUrl(user.email);
+  const initial = (user.name || user.email).slice(0, 1).toUpperCase();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-2 ring-popover first:ml-0"
+          style={{
+            backgroundColor: avatarUrl ? undefined : user.color,
+            fontSize: 9,
+          }}
+          aria-label={`${user.name} is on this slide`}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initial
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {user.name} ({user.email}) is on this slide
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
+  if (users.length === 0) return null;
+  const visible = users.slice(0, 3);
+  const overflow = users.length - visible.length;
+  const label =
+    users.length === 1
+      ? `${users[0].name} is here`
+      : `${users.length} others here`;
+  return (
+    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg backdrop-blur">
+      <div className="flex items-center">
+        {visible.map((u) => (
+          <SamePresenceAvatar key={u.email} user={u} />
+        ))}
+        {overflow > 0 && (
+          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-2 ring-popover">
+            +{overflow}
+          </span>
+        )}
+      </div>
+      <span className="font-medium leading-none">{label}</span>
+    </div>
+  );
 }
 
 /** Selection outline rendered over a selected image */
@@ -434,6 +504,7 @@ export default function SlideEditor({
   slideId,
   slideTitle,
   deckId,
+  presentUsers = [],
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
@@ -1410,6 +1481,15 @@ export default function SlideEditor({
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
                           <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
+                      {presentUsers.length > 0 && (
+                        <div
+                          className={`absolute right-2 z-10 ${
+                            agentActive ? "top-11" : "top-2"
+                          }`}
+                        >
+                          <SameSlidePresenceIndicator users={presentUsers} />
                         </div>
                       )}
                       {overflowInfo && !readOnly && !agentActive && (

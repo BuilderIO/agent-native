@@ -3,10 +3,10 @@ import {
   useCallback,
   useRef,
   useEffect,
-  useMemo,
   lazy,
   Suspense,
 } from "react";
+import type { ComponentType } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
 import {
   DndContext,
@@ -17,7 +17,6 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import { useDecks } from "@/context/DeckContext";
-import type { SlideLayout } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { shortcutLabel } from "@/lib/utils";
 import EditorSidebar from "@/components/editor/EditorSidebar";
@@ -68,9 +67,11 @@ import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { nanoid } from "nanoid";
 import { TAB_ID } from "@/lib/tab-id";
-const Pinpoint = lazy(() =>
+import type { PinpointProps } from "@agent-native/pinpoint/react";
+
+const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint,
+    default: m.Pinpoint as ComponentType<PinpointProps>,
   })),
 );
 
@@ -992,6 +993,7 @@ export default function DeckEditor() {
                   `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
                 );
               })()}
+              presentUsers={slidePresence.get(currentSlide.id) ?? []}
             />
           )}
 

@@ -4,7 +4,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, isEmbedAuthActive } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
@@ -31,13 +31,14 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
-  const isPicker = location.pathname === "/picker";
+  const isPicker = location.pathname === "/library";
   const hideHeader =
-    location.pathname === "/picker" ||
+    location.pathname === "/library" ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =
-    (isPicker && isEmbeddedWindow()) || location.pathname.endsWith("/embed");
+    (isPicker && (isEmbeddedWindow() || isEmbedAuthActive())) ||
+    location.pathname.endsWith("/embed");
 
   if (chromeless) {
     return (

@@ -131,18 +131,7 @@ export default defineAction({
       .from(schema.documents)
       .where(eq(schema.documents.id, id));
 
-    // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });
-
-    const updated: string[] = [];
-    if (args.title) updated.push(`title="${args.title}"`);
-    if (content !== undefined) updated.push("content");
-    if (args.icon !== undefined) {
-      updated.push(args.icon ? `icon="${args.icon}"` : "icon removed");
-    }
-    if (updated.length > 0) {
-      console.log(`Updated document ${id}: ${updated.join(", ")}`);
-    }
 
     return {
       id: doc.id,

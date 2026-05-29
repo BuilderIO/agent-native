@@ -5,7 +5,7 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 # MCP Clients
 
-Agent-native apps can also act as MCP **clients** — connecting to locally installed MCP servers and exposing their tools to the agent chat. This is the symmetric counterpart to the [MCP Protocol](./mcp-protocol.md) (which makes your app an MCP server).
+Agent-native apps can also act as MCP **clients** — connecting to locally installed MCP servers and exposing their tools to the agent chat. This is the symmetric counterpart to the [MCP Protocol](/docs/mcp-protocol) (which makes your app an MCP server).
 
 Looking for the other direction — connecting Claude, ChatGPT, Claude Code, Codex, Cursor, or Claude Cowork to an agent-native app? Use [External Agents](/docs/external-agents).
 
@@ -15,7 +15,11 @@ You can also [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — 
 
 ## Built-in browser and computer-use capabilities {#built-in-capabilities}
 
-Agent-native includes built-in toggles for common local MCP servers. They are off by default and can be enabled per user or per organization:
+Agent-native includes local-development toggles for common stdio MCP servers.
+They are off by default and can be enabled per user or per organization only
+when the app is running locally. Production and hosted serverless runtimes skip
+these built-ins even if old settings rows exist, and the Workspace Resources
+tree does not show them as default `mcp-servers/*.json` resources.
 
 | Capability         | Server id         | Command                                                                 |
 | ------------------ | ----------------- | ----------------------------------------------------------------------- |
@@ -101,13 +105,21 @@ MCP configuration is resolved in this order, first match wins:
 
 ## Production deploys: `MCP_SERVERS` {#mcp-servers-env}
 
-For production deploys set the full config shape (or the inner server map) as an environment variable:
+For production deploys, prefer remote HTTP MCP servers and set the full config
+shape (or the inner server map) as an environment variable:
 
 ```bash
-MCP_SERVERS='{"servers":{"playwright":{"command":"npx","args":["-y","@playwright/mcp@0.0.75"]}}}'
+MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer paste-token-value-here"}}}}'
 ```
 
-MCP tools only activate in Node runtimes — Cloudflare Workers and other edge targets silently skip MCP and continue with the rest of the app working normally.
+`MCP_SERVERS` is parsed as JSON, so `${...}` placeholders are not expanded
+inside the string. If you store the token in another secret, expand it before
+writing the final JSON value.
+
+Stdio MCP servers spawn local binaries and are intended for local development.
+MCP tools only activate in Node runtimes — Cloudflare Workers and other edge
+targets silently skip MCP and continue with the rest of the app working
+normally.
 
 ## Auto-detect: `claude-in-chrome` {#autodetect}
 

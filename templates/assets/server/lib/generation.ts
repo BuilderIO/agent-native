@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderAuthHeader,
+  resolveBuilderCredentials,
   resolveSecret,
 } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
@@ -146,7 +146,7 @@ class BuilderImageGenerationError extends Error {
 function isRetryableBuilderImageGenerationError(err: unknown): boolean {
   return (
     err instanceof BuilderImageGenerationError &&
-    [429, 503, 504].includes(err.status ?? 0)
+    [429, 500, 503, 504].includes(err.status ?? 0)
   );
 }
 
@@ -176,11 +176,18 @@ interface BuilderImageGenerationResponse {
 export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  const authHeader = await resolveBuilderAuthHeader();
-  if (!authHeader) {
+  const builderCredentials = await resolveBuilderCredentials();
+  if (!builderCredentials.privateKey || !builderCredentials.publicKey) {
+    const detail =
+      !builderCredentials.privateKey && !builderCredentials.publicKey
+        ? "Builder private and public keys are missing"
+        : !builderCredentials.privateKey
+          ? "Builder private key is missing"
+          : "Builder public key is missing";
     throw new BuilderImageGenerationError(
-      "Builder.io is not connected for managed image generation.",
+      "Builder.io is not fully connected for managed image generation. Reconnect Builder.io so both Builder private and public keys are available.",
       401,
+      detail,
     );
   }
 
@@ -188,13 +195,14 @@ export async function generateWithBuilderImageApi(
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
-      Authorization: authHeader,
+      Authorization: `Bearer ${builderCredentials.privateKey}`,
+      "x-builder-api-key": builderCredentials.publicKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       idempotencyKey: input.runId,
       prompt: input.compiledPrompt,
-      model: input.model,
+      model: toBuilderImageModel(input.model),
       count: 1,
       aspectRatio: toBuilderAspectRatio(input.aspectRatio),
       size: toBuilderImageSize(input.imageSize),
@@ -355,7 +363,7 @@ function builderImageGenerationFallbackMessage(
   const detail = err.detail ? `: ${err.detail}` : ".";
   switch (err.status) {
     case 401:
-      return "Image generation needs Builder.io connected or reconnected. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.";
+      return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;
     case 402:
       return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 403:
@@ -684,6 +692,16 @@ function toBuilderImageSize(size: ImageSize) {
   return size === "512" ? "0.5K" : size;
 }
 
+function toBuilderImageModel(model: ImageModel) {
+  if (model === "gemini-3.1-flash-image") {
+    return "gemini-3.1-flash-image-preview";
+  }
+  if (model === "gemini-3-pro-image") {
+    return "gemini-3-pro-image-preview";
+  }
+  return model;
+}
+
 function toBuilderReferenceRole(role: string) {
   switch (role) {
     case "style_reference":
@@ -885,7 +903,8 @@ export async function selectReferences(input: {
         item.isSubject ||
         item.isSource ||
         item.isAnchor ||
-        item.metadata.intent !== "subject",
+        (item.metadata.intent !== "subject" &&
+          item.asset.role !== "subject_reference"),
     );
 
   const byId = new Map(candidates.map((item) => [item.asset.id, item]));
@@ -932,11 +951,7 @@ export async function selectReferences(input: {
   return loadReferenceData(
     selected.map((item) => item.asset),
     (asset) =>
-      asset.id === input.subjectAssetId
-        ? "subject_reference"
-        : asset.id === input.sourceAssetId
-          ? undefined
-          : undefined,
+      asset.id === input.subjectAssetId ? "subject_reference" : undefined,
     (asset) => {
       if (asset.id === input.subjectAssetId) return "subject";
       if (asset.id === input.sourceAssetId) return "source";

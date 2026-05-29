@@ -137,6 +137,15 @@ describe("selectReferences", () => {
         objectKey: "unused-subject-bytes",
         metadata: JSON.stringify({ intent: "subject" }),
       },
+      {
+        id: "subject-role-not-selected",
+        role: "subject_reference",
+        mimeType: "image/png",
+        status: "reference",
+        createdAt: "2026-05-26T00:00:00.000Z",
+        objectKey: "unused-subject-role-bytes",
+        metadata: "{}",
+      },
     ];
     getDbMock.mockReturnValue(
       createDb({ canonicalStyleAssetIds: ["anchor-json"] }, assets),
@@ -179,6 +188,9 @@ describe("selectReferences", () => {
       "scored",
     ]);
     expect(refs.some((ref) => ref.id === "subject-upload-not-selected")).toBe(
+      false,
+    );
+    expect(refs.some((ref) => ref.id === "subject-role-not-selected")).toBe(
       false,
     );
     expect(randomSpy).not.toHaveBeenCalled();

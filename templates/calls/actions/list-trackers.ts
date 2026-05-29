@@ -7,10 +7,9 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { parseJson } from "../server/lib/calls.js";
-import { readAppState } from "@agent-native/core/application-state";
+import { parseJson, resolveWorkspaceIdForAction } from "../server/lib/calls.js";
 
 export default defineAction({
   description:
@@ -26,23 +25,9 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) {
-      const [row] = await db
-        .select({ id: schema.workspaces.id })
-        .from(schema.workspaces)
-        .orderBy(desc(schema.workspaces.createdAt))
-        .limit(1);
-      workspaceId = row?.id ?? null;
-    }
-    if (!workspaceId) return { trackers: [] };
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
 
     const rows = await db
       .select()

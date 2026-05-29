@@ -18,6 +18,7 @@ import {
   resolveBuiltInAuthMarketing,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
+import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -1067,7 +1068,7 @@ ${
         return;
       }
       __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
-      window.location.href = ret || '/';
+      __anRedirectToSignedInApp(ret);
     }
     function __anGetReturnPath() {
       try {
@@ -1076,6 +1077,53 @@ ${
       } catch(e) {}
       return window.location.pathname + window.location.search;
     }
+    function __anMountedPathname(pathname) {
+      var base = __anBasePath();
+      if (base && pathname.indexOf(base + '/') === 0) return pathname.slice(base.length);
+      if (base && pathname === base) return '/';
+      return pathname || '/';
+    }
+    function __anIsAuthEntryPath(pathname) {
+      var p = __anMountedPathname(pathname);
+      return p === '/login' || p === '/signup' || p === '/_agent-native/sign-in';
+    }
+    function __anGetSignedInReturnPath() {
+      try {
+        var inner = new URLSearchParams(window.location.search).get('return');
+        if (inner) return inner;
+      } catch(e) {}
+      if (__anIsAuthEntryPath(window.location.pathname)) return __anPath('/');
+      return window.location.pathname + window.location.search + window.location.hash;
+    }
+    function __anWithAuthCacheBypass(ret) {
+      try {
+        var url = new URL(ret || __anPath('/'), window.location.origin);
+        url.searchParams.set('${AUTH_REDIRECT_QUERY_PARAM}', Date.now().toString(36));
+        return url.pathname + url.search + url.hash;
+      } catch(e) {
+        var fallback = ret || __anPath('/');
+        var hashIndex = fallback.indexOf('#');
+        var beforeHash = hashIndex === -1 ? fallback : fallback.slice(0, hashIndex);
+        var hash = hashIndex === -1 ? '' : fallback.slice(hashIndex);
+        var sep = beforeHash.indexOf('?') === -1 ? '?' : '&';
+        return beforeHash + sep + '${AUTH_REDIRECT_QUERY_PARAM}=' + Date.now().toString(36) + hash;
+      }
+    }
+    function __anRedirectToSignedInApp(ret) {
+      window.location.replace(__anWithAuthCacheBypass(ret || __anGetSignedInReturnPath()));
+    }
+    (function __anRedirectIfAlreadySignedIn() {
+      fetch(__anPath('/_agent-native/auth/session'), {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+      }).then(function(res) {
+        if (!res.ok) return null;
+        return res.json().catch(function() { return null; });
+      }).then(function(data) {
+        if (data && data.email && !data.error) __anRedirectToSignedInApp();
+      }).catch(function() {});
+    })();
     var __anBuilderPreviewSeen = false;
     function __anRememberBuilderPreview() {
       __anBuilderPreviewSeen = true;
@@ -1418,7 +1466,7 @@ ${
         body: JSON.stringify({ email: email, password: password }),
       });
       if (res.ok) {
-        window.location.reload();
+        __anRedirectToSignedInApp();
         return { ok: true };
       }
       var data = await res.json().catch(function() { return {}; });
@@ -1450,7 +1498,7 @@ ${
         });
         var data = await res.json().catch(function() { return {}; });
         if (res.ok && data && data.email && !data.error) {
-          window.location.reload();
+          __anRedirectToSignedInApp();
           return;
         }
         var loginResult = await signInWithPendingSignup();
@@ -1617,7 +1665,7 @@ ${
         if (loginRes.ok) {
           msg.textContent = 'Account created — signing you in…';
           msg.classList.add('show', 'success');
-          window.location.reload();
+          __anRedirectToSignedInApp();
           return;
         }
           btn.disabled = false;
@@ -1739,7 +1787,7 @@ ${
         }),
       });
       if (res.ok) {
-        window.location.reload();
+        __anRedirectToSignedInApp();
         return;
       }
       var data = await res.json().catch(function() { return {}; });

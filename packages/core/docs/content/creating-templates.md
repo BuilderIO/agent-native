@@ -282,7 +282,7 @@ Projects are the top-level resource. They contain tasks and notes.
 - For shared projects, check access through framework sharing helpers.
 ```
 
-Update `AGENTS.md` whenever you add a new action, route, state key, or recurring workflow.
+Update `AGENTS.md` whenever you add a new action, route, state key, or recurring workflow. See [Writing Agent Instructions](/docs/writing-agent-instructions) for how to keep `AGENTS.md` skimmable and word skill and tool descriptions so the agent triggers them reliably.
 
 ## Add Skills {#skills}
 

@@ -1,23 +1,5 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * CODE PANEL ORGANISM
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A complete code explorer panel showing file changes and project structure.
- * Demonstrates atomic design composition (organism made of atoms).
- *
- * Features:
- * - Top bar with user avatars and action buttons
- * - Changes section (modified files)
- * - File explorer with folder tree
- * - Bottom action buttons
- * - All interactive elements with hover effects
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, useVideoConfig } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
 import { AnimatedElement } from "@/remotion/components/AnimatedElement";

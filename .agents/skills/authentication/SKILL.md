@@ -16,13 +16,20 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 
 | Mode                      | Behavior                                                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Development (default)** | Auth is automatically bypassed. `getSession()` falls back to `{ email: "local@localhost" }` when nothing else succeeds. No config.      |
+| **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in (credentials printed once to the console; disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
-| **`AUTH_MODE=local`**     | Explicit escape hatch. `getSession()` always returns `{ email: "local@localhost" }`. Set via `.env` or the onboarding page's "Use locally" button. |
+| **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
 | **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
+
+> **Never** use `local@localhost` as a fallback identity in app code
+> (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
+> etc.). There is no dev auth shim. That pattern pools every unauthenticated
+> request into one shared tenant and caused the 2026-04-29 credentials leak.
+> When there is no session, **throw or return 401** — never substitute a
+> sentinel. Enforced by `scripts/guard-no-localhost-fallback.mjs`.
 
 ## Remote MCP OAuth
 
@@ -48,9 +55,9 @@ Templates with legacy global settings can provide `POST /api/local-migration` fo
 
 ## Organizations
 
-Better Auth's organization plugin is built in. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member).
+Organizations are **framework-managed**, not handled by Better Auth's organization plugin (which is intentionally NOT registered). Org data lives in the framework's own `organizations`, `org_members`, and `org_invitations` tables. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member).
 
-The active org flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
+The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
 **If your template requires an org to function** (data is scoped by `organization_id`, core features can't run without one), set `AUTO_CREATE_DEFAULT_ORG=1` in your `.env`. The framework will auto-create a default org (named after the user) on first login when no memberships exist. This happens inside `getOrgContext` — no template integration needed.
 

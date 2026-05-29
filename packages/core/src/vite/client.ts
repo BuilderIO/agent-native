@@ -1,12 +1,19 @@
 import path from "path";
 import fs from "fs";
 import { createRequire } from "module";
+import type { IncomingMessage, ServerResponse } from "http";
 import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -213,11 +220,13 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/extensions",
   "@agent-native/core/client/tools", // legacy alias
   "@agent-native/core/client/org",
+  "@agent-native/core/client/db-admin",
   "@agent-native/core/client/observability",
   "@agent-native/core/client/onboarding",
   "@agent-native/core/client/sharing",
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
+  "@agent-native/core/client/transcription/use-live-transcription",
 ];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -329,6 +338,10 @@ function getCoreSourceAliases(
       "client/extensions/index.ts",
     ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
+    "@agent-native/core/client/db-admin": path.join(
+      coreSrc,
+      "client/db-admin/index.ts",
+    ),
     "@agent-native/core/client/observability": path.join(
       coreSrc,
       "client/observability/index.ts",
@@ -348,6 +361,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/progress": path.join(
       coreSrc,
       "client/progress/index.ts",
+    ),
+    "@agent-native/core/client/transcription/use-live-transcription": path.join(
+      coreSrc,
+      "client/transcription/use-live-transcription.ts",
     ),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
@@ -386,6 +403,11 @@ function getCoreSourceAliases(
       "adapters/cli/index.ts",
     ),
     "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
+    "@agent-native/core/brand-kit": path.join(coreSrc, "brand-kit/index.ts"),
+    "@agent-native/core/server/design-token-utils": path.join(
+      coreSrc,
+      "server/design-token-utils.ts",
+    ),
     // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
     // take effect live in dev instead of silently loading the stale built
     // copy at dist/styles/. From src/styles/ the `@source "../client/**"`
@@ -607,6 +629,12 @@ function baseRedirectGuard(): Plugin {
             // original path so the normal dev-server error handling applies.
           }
         }
+        if (serveExternalEmbedBrowserManifest(server, req, res)) {
+          return;
+        }
+        if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
+          return;
+        }
         req.url = stripMountedDevApiPath(req.url, base);
         if (
           req.method === "HEAD" &&
@@ -627,6 +655,221 @@ function baseRedirectGuard(): Plugin {
       });
     },
   };
+}
+
+const VITE_RUNTIME_PATH_PREFIXES = [
+  "/@fs/",
+  "/@id/",
+  "/@vite/",
+  "/app/",
+  "/node_modules/",
+  "/packages/",
+  "/src/",
+];
+
+function cookieValue(req: IncomingMessage, name: string): string | undefined {
+  const header = req.headers.cookie;
+  if (typeof header !== "string" || !header) return undefined;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      return part.slice(index + 1).trim();
+    }
+  }
+  return undefined;
+}
+
+function hasValidEmbedRuntimeToken(req: IncomingMessage): boolean {
+  try {
+    const url = new URL(req.url ?? "/", "http://agent-native.local");
+    const queryToken = url.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
+    const cookieToken = cookieValue(req, EMBED_SESSION_COOKIE);
+    return [queryToken, cookieToken].some(
+      (token) => verifyEmbedSessionToken(token).ok,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function mountedEmbedRuntimeModuleUrl(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string | null {
+  if (!reqUrl || !base || base === "/") return null;
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  if (!reqUrl.startsWith(normalizedBase)) return null;
+
+  const runtimeUrl = reqUrl.slice(normalizedBase.length - 1) || "/";
+  let url: URL;
+  try {
+    url = new URL(runtimeUrl, "http://agent-native.local");
+  } catch {
+    return null;
+  }
+  if (
+    !VITE_RUNTIME_PATH_PREFIXES.some((prefix) =>
+      url.pathname.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+  url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
+  url.searchParams.delete(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function virtualModuleIdFromRuntimeUrl(runtimeUrl: string): string | null {
+  try {
+    const pathname = new URL(runtimeUrl, "http://agent-native.local").pathname;
+    const prefix = "/@id/__x00__";
+    if (!pathname.startsWith(prefix)) return null;
+    return `\0${decodeURIComponent(pathname.slice(prefix.length))}`;
+  } catch {
+    return null;
+  }
+}
+
+async function loadMountedEmbedRuntimeModule(
+  server: any,
+  runtimeUrl: string,
+): Promise<string | null> {
+  const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+  if (virtualId) {
+    const loaded = await server.pluginContainer?.load?.(virtualId);
+    if (typeof loaded === "string") return loaded;
+    if (loaded && typeof loaded.code === "string") return loaded.code;
+  }
+  const result = await server.transformRequest(runtimeUrl);
+  return result?.code ?? null;
+}
+
+function serveMountedEmbedRuntimeModule(
+  server: any,
+  req: IncomingMessage,
+  res: ServerResponse,
+  base: string | undefined,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!hasValidEmbedRuntimeToken(req)) return false;
+  const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, base);
+  if (!runtimeUrl) return false;
+
+  void loadMountedEmbedRuntimeModule(server, runtimeUrl)
+    .then((code: string | null) => {
+      if (!code) {
+        if (!res.headersSent) {
+          res.statusCode = 404;
+          res.end();
+        }
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(code);
+    })
+    .catch((err: unknown) => {
+      if (res.headersSent) return;
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain");
+      res.end(err instanceof Error ? err.message : String(err));
+    });
+  return true;
+}
+
+function publicOriginFromDevRequest(req: IncomingMessage): string | null {
+  const forwardedHost = String(req.headers["x-forwarded-host"] ?? "")
+    .split(",")[0]
+    ?.trim();
+  const host =
+    forwardedHost ||
+    String(req.headers.host ?? "")
+      .split(",")[0]
+      ?.trim();
+  if (!host) return null;
+  const forwardedProto = String(req.headers["x-forwarded-proto"] ?? "")
+    .split(",")[0]
+    ?.trim();
+  const proto =
+    forwardedProto ||
+    (/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host)
+      ? "http"
+      : "https");
+  return `${proto}://${host}`;
+}
+
+function isReactRouterBrowserManifestUrl(reqUrl: string | undefined): boolean {
+  if (!reqUrl) return false;
+  try {
+    const url = new URL(reqUrl, "http://agent-native.local");
+    return (
+      virtualModuleIdFromRuntimeUrl(url.pathname) ===
+      "\0virtual:react-router/browser-manifest"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rewriteRootRelativeManifestUrls(
+  code: string,
+  publicOrigin: string,
+): string {
+  return code.replace(/'\/(?!\/)([^']*)'/g, (match, rest: string) => {
+    try {
+      return JSON.stringify(new URL(`/${rest}`, publicOrigin).toString());
+    } catch {
+      return match;
+    }
+  });
+}
+
+function serveExternalEmbedBrowserManifest(
+  server: any,
+  req: IncomingMessage,
+  res: ServerResponse,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!isMcpEmbedCorsOrigin(String(req.headers.origin ?? ""))) return false;
+  if (!isReactRouterBrowserManifestUrl(req.url)) return false;
+  const publicOrigin = publicOriginFromDevRequest(req);
+  if (!publicOrigin) return false;
+  const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, "/") ?? req.url;
+  if (!runtimeUrl) return false;
+
+  void loadMountedEmbedRuntimeModule(server, runtimeUrl)
+    .then((code: string | null) => {
+      if (!code) {
+        if (!res.headersSent) {
+          res.statusCode = 404;
+          res.end();
+        }
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(rewriteRootRelativeManifestUrls(code, publicOrigin));
+    })
+    .catch((err: unknown) => {
+      if (res.headersSent) return;
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain");
+      res.end(err instanceof Error ? err.message : String(err));
+    });
+  return true;
 }
 
 function embedDevFrameHeaders(): Plugin {
@@ -770,11 +1013,6 @@ function rolldownInputFix(): Plugin {
 }
 
 /**
- * Expose the resolved Vite dev server port as process.env.PORT so that
- * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
- * hit the right address even when Vite auto-increments the port.
- */
-/**
  * Replace caller-specified packages with an empty proxy stub during SSR
  * builds. For apps whose heavy browser-only deps would otherwise bloat the
  * edge worker past CF Pages' 25 MiB Functions limit.
@@ -817,6 +1055,11 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
   };
 }
 
+/**
+ * Expose the resolved Vite dev server port as process.env.PORT so that
+ * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
+ * hit the right address even when Vite auto-increments the port.
+ */
 function portExposer(): Plugin {
   return {
     name: "agent-native-port-exposer",

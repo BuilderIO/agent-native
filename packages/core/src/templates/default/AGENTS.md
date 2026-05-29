@@ -21,12 +21,12 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Authentication
 
-Auth is automatic and environment-driven:
+Auth is real Better Auth in every environment — there is **no dev bypass**:
 
-- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts.
+- **Development**: the same Better Auth flow as production. On first run the framework auto-creates a throwaway dev account and signs you in (so you are not stuck at a login wall). `getSession()` returns the signed-in user or `null` — it never returns a `local@localhost` sentinel.
+- **Production**: Better Auth with email/password + social providers; organizations built in.
 
-Use `getSession(event)` server-side and `useSession()` client-side.
+Use `getSession(event)` server-side and `useSession()` client-side. When there is no session, **throw or return 401** — never fall back to `local@localhost` (that pools every unauthenticated request into one shared tenant).
 
 ## Resources
 
@@ -93,6 +93,7 @@ You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at t
 - Use `db-exec UPDATE` only when no domain action exists and you need a small ad-hoc change.
 - Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
 - If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
+- **Database admin (dev only):** in development, `db-admin-query` / `db-admin-mutate` / `db-admin-rows` / `db-admin-tables` / `db-admin-schema` give **unscoped, full-database** access to ANY table — including framework tables and tables without `owner_email`/`org_id`. Prefer these over `db-exec`/`db-query` for database-admin work and for any non-owner-scoped table: `db-exec`/`db-query` auto-scope to the current user and return **0 rows** on unscoped tables. These mirror the in-app Database admin UI, so prompts and the UI do the same thing.
 
 ## Skills
 

@@ -14,6 +14,7 @@ import {
   getHeader,
 } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isAgentActionStopError } from "../action.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { notifyActionChange } from "./action-change.js";
@@ -21,6 +22,12 @@ import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -40,28 +47,45 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-function getAllowedCorsOrigin(origin: string | undefined): string | null {
-  return resolveAllowedCorsOrigin(origin, {
+type CorsOrigin = {
+  origin: string;
+  credentials: boolean;
+};
+
+function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
+  const allowedOrigin = resolveAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
     allowLocalhostWhenNoAllowlist: true,
   });
+  if (allowedOrigin) {
+    return { origin: allowedOrigin, credentials: true };
+  }
+  if (isMcpEmbedCorsOrigin(origin)) {
+    return {
+      origin,
+      credentials: shouldAllowMcpEmbedCredentials(origin),
+    };
+  }
+  return null;
 }
 
 function handleOptionsRequest(event: any): string {
   const origin = getHeader(event, "origin");
-  const allowedOrigin = getAllowedCorsOrigin(
+  const cors = getAllowedCorsOrigin(
     typeof origin === "string" ? origin : undefined,
   );
 
-  if (origin && !allowedOrigin) {
+  if (origin && !cors) {
     setResponseStatus(event, 403);
     return "";
   }
 
-  if (allowedOrigin) {
-    setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+  if (cors) {
+    setResponseHeader(event, "Access-Control-Allow-Origin", cors.origin);
     setResponseHeader(event, "Vary", "Origin");
-    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    if (cors.credentials) {
+      setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    }
     setResponseHeader(
       event,
       "Access-Control-Allow-Methods",
@@ -70,7 +94,9 @@ function handleOptionsRequest(event: any): string {
     setResponseHeader(
       event,
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id",
+      cors.credentials
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id`,
     );
   }
 
@@ -235,16 +261,34 @@ export function mountActionRoutes(
               return result;
             } catch (err: any) {
               const msg = err?.message ?? String(err);
-              // Return 400 for validation errors, 500 for everything else
-              setResponseStatus(
-                event,
-                msg.startsWith("Invalid action parameters")
-                  ? 400
-                  : typeof err?.statusCode === "number"
-                    ? err.statusCode
-                    : 500,
+              const isValidationError = msg.startsWith(
+                "Invalid action parameters",
               );
-              return { error: msg };
+              const explicitStatus =
+                typeof err?.statusCode === "number"
+                  ? err.statusCode
+                  : undefined;
+              // Return 400 for validation errors, the explicit statusCode if
+              // set, otherwise 500.
+              const status = isValidationError ? 400 : (explicitStatus ?? 500);
+              setResponseStatus(event, status);
+
+              // Only echo the raw message for known-safe cases:
+              //  - validation errors (deterministic, parameter-shape only)
+              //  - explicit user-facing errors (AgentActionStopError / fail())
+              //  - errors with an explicit statusCode < 500 (client errors)
+              // For uncategorized 500s, return a generic message and keep the
+              // real detail server-side only — it can contain DB/driver/
+              // upstream text we must not leak to HTTP callers.
+              const isUserFacing =
+                isValidationError ||
+                isAgentActionStopError(err) ||
+                (explicitStatus !== undefined && explicitStatus < 500);
+              if (isUserFacing) {
+                return { error: msg };
+              }
+              console.error(`[agent-native] action '${name}' failed:`, err);
+              return { error: "Internal server error" };
             }
           },
         ); // end runWithRequestContext
