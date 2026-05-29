@@ -603,6 +603,7 @@ function HomeGeneratePanel({
     let uploadedAssets: { id: string; title: string }[] = [];
     if (imageFiles.length > 0 && selectedLibrary) {
       const uploadChunks = chunkAssetUploads(imageFiles);
+      const attachedAssetIds = new Set<string>();
       const uploadingToast = toast.loading(
         `Uploading ${imageFiles.length} content image${imageFiles.length === 1 ? "" : "s"}...`,
         {
@@ -632,12 +633,27 @@ function HomeGeneratePanel({
           const data = (await res.json()) as AssetUploadResult;
           skippedCount += getSkippedDuplicateCount(data);
           failedCount += getFailedUploadCount(data);
-          uploadedAssets.push(
-            ...(data.assets ?? []).map((a: any) => ({
-              id: a.id,
-              title: a.title || "Content image",
+          const attachedAssets = [
+            ...(data.assets ?? []).map((asset) => ({
+              id: asset.id,
+              title: asset.title || "Content image",
             })),
-          );
+            ...(data.skippedDuplicates ?? [])
+              .filter(
+                (duplicate) =>
+                  duplicate.reason === "existing-asset" &&
+                  Boolean(duplicate.assetId),
+              )
+              .map((duplicate) => ({
+                id: duplicate.assetId!,
+                title: duplicate.title || "Content image",
+              })),
+          ];
+          for (const asset of attachedAssets) {
+            if (attachedAssetIds.has(asset.id)) continue;
+            attachedAssetIds.add(asset.id);
+            uploadedAssets.push(asset);
+          }
         }
         const uploadedCount = uploadedAssets.length;
         if (failedCount > 0) {
