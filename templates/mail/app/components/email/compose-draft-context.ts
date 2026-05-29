@@ -14,6 +14,42 @@ type MarkdownEditor = {
   };
 };
 
+/** How long after the user's last keystroke we treat the body as "actively
+ *  being typed" and defer an incoming external (agent) edit. Mirrors the
+ *  content editor's typing guard so an agent draft update lands the moment the
+ *  user pauses, instead of waiting for them to blur the field. */
+export const COMPOSE_TYPING_GRACE_MS = 1500;
+
+/**
+ * Decide whether an external `content` value (e.g. an agent-written draft body
+ * reconciled in via the `compose-drafts` query) should replace what the editor
+ * currently shows.
+ *
+ * - Never re-apply content the editor already reflects (no-op / our own echo).
+ * - Adopt external content even while the editor is focused, as long as the
+ *   user isn't typing *right now* — so an agent edit appears live.
+ * - Only defer while the user is actively typing, so we never yank text out
+ *   from under in-progress keystrokes (the caller retries once they pause).
+ */
+export function shouldApplyComposeContent({
+  currentMarkdown,
+  nextContent,
+  editorFocused,
+  lastTypedAt,
+  now,
+}: {
+  currentMarkdown: string;
+  nextContent: string;
+  editorFocused: boolean;
+  lastTypedAt: number;
+  now: number;
+}): boolean {
+  if (currentMarkdown === nextContent) return false;
+  const typingRightNow =
+    editorFocused && now - lastTypedAt < COMPOSE_TYPING_GRACE_MS;
+  return !typingRightNow;
+}
+
 export function splitQuotedContent(body: string): [string, string] {
   const replyMatch = body.match(/\n*— On .+? wrote:\n/);
   const fwdMatch = body.match(/\n*— Forwarded message —\n/);

@@ -992,6 +992,7 @@ export default function DeckEditor() {
                   `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
                 );
               })()}
+              presentUsers={slidePresence.get(currentSlide.id) ?? []}
             />
           )}
 
