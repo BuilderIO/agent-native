@@ -46,6 +46,7 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import { isReconcileLeadClient } from "@agent-native/core/client";
 import {
   getImageFiles,
   getAudioFiles,
@@ -696,6 +697,12 @@ const NormalizeTableHeaders = Extension.create({
 interface VisualEditorProps {
   documentId?: string;
   content: string;
+  /**
+   * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
+   * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
+   * lagging poll — only newer content is reconciled into the live editor.
+   */
+  contentUpdatedAt?: string | null;
   onChange: (markdown: string) => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
@@ -707,7 +714,6 @@ interface VisualEditorProps {
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
-  forceExternalContentSync?: boolean;
 }
 
 export function shouldSeedCollaborativeContent({
@@ -728,56 +734,61 @@ export function shouldSeedCollaborativeContent({
 }
 
 export function shouldApplyExternalContentSync({
-  collaborationActive,
-  hasLiveCollaborativeEdits,
   docChanged,
   content,
   lastEmittedMarkdown,
   currentMarkdown,
   nextMarkdown,
+  contentUpdatedAt,
+  lastAppliedUpdatedAt,
+  isLeadClient,
   editorFocused,
   lastTypedAt,
   now,
-  forceExternalContentSync = false,
 }: {
-  collaborationActive: boolean;
-  hasLiveCollaborativeEdits: boolean;
   docChanged: boolean;
   content: string;
   lastEmittedMarkdown: string;
   currentMarkdown: string;
   nextMarkdown: string;
+  /** Server updatedAt for the incoming `content`. */
+  contentUpdatedAt?: string | null;
+  /** updatedAt of the content this editor currently reflects. */
+  lastAppliedUpdatedAt?: string | null;
+  /** Whether this client is the elected applier (see isReconcileLeadClient). */
+  isLeadClient: boolean;
   editorFocused: boolean;
   lastTypedAt: number;
   now: number;
-  forceExternalContentSync?: boolean;
 }): boolean {
+  // Editor already shows the incoming content — e.g. a peer's edit arrived via
+  // Yjs first, or this is our own state. Nothing to apply.
   if (currentMarkdown === nextMarkdown) return false;
 
-  // Own-save echo from SQL polling.
+  // Our own save echoing back from the server.
   if (content === lastEmittedMarkdown) return false;
 
-  // Once Yjs has live edits, ordinary SQL refetches are only snapshots. Applying
-  // them with setContent() would turn a stale whole-document save into a Yjs
-  // replacement and can revert collaborators' newer CRDT updates.
-  if (
-    collaborationActive &&
-    hasLiveCollaborativeEdits &&
-    !docChanged &&
-    !forceExternalContentSync
-  ) {
-    return false;
-  }
+  // Only adopt content that is genuinely NEWER than what this editor already
+  // reflects. An older-or-equal `updatedAt` is a lagging poll / stale snapshot
+  // and must never overwrite live edits — this is what stops the "agent edit
+  // reverts on next poll" whack-a-mole. A fresh mount / doc-switch has no
+  // baseline yet, so it always adopts the loaded content.
+  const externalNewer =
+    docChanged ||
+    !lastAppliedUpdatedAt ||
+    (!!contentUpdatedAt && contentUpdatedAt > lastAppliedUpdatedAt);
+  if (!externalNewer) return false;
 
-  const typedRecently = now - lastTypedAt < 2000;
-  if (
-    editorFocused &&
-    typedRecently &&
-    !docChanged &&
-    !forceExternalContentSync
-  ) {
-    return false;
-  }
+  // Exactly one client (the lead) applies an authoritative snapshot into the
+  // shared Y.Doc; every other client receives it through Yjs. Without this, N
+  // clients would each diff the same snapshot into the CRDT and duplicate the
+  // changed region. Mount / doc-switch loads are local-only, so always allowed.
+  if (!isLeadClient && !docChanged) return false;
+
+  // Don't yank text out from under someone typing this instant; the caller
+  // retries shortly so the edit still lands once they pause.
+  const typingRightNow = editorFocused && now - lastTypedAt < 1500;
+  if (typingRightNow && !docChanged) return false;
 
   return true;
 }
@@ -1196,6 +1207,7 @@ export function createVisualEditorExtensions({
 export function VisualEditor({
   documentId,
   content,
+  contentUpdatedAt,
   onChange,
   ydoc,
   awareness,
@@ -1203,7 +1215,6 @@ export function VisualEditor({
   editable = true,
   onComment,
   onJoinTitle,
-  forceExternalContentSync = false,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
@@ -1211,14 +1222,18 @@ export function VisualEditor({
   onChangeRef.current = onChange;
   const prevDocIdRef = useRef(documentId);
   // Track the last content the editor emitted via onChange, so we can
-  // distinguish external SQL changes (Notion pull) from our own saves.
+  // distinguish external SQL changes (agent/Notion/peer) from our own saves.
   const lastEmittedRef = useRef<string>("");
-  // Tracks the last time the user actually typed (not just had focus). The
-  // focus guard in the content-sync effect uses this so a Notion pull or
-  // agent edit can still apply when the user is idle but happens to have
-  // the editor focused — without yanking in-progress typing.
+  // Tracks the last time the user actually typed (not just had focus), so an
+  // external edit can still apply when the user is idle but happens to have the
+  // editor focused — without yanking in-progress typing.
   const lastTypedAtRef = useRef<number>(0);
-  const hasLiveCollaborativeEditsRef = useRef(false);
+  // updatedAt of the content this editor currently reflects. An older-or-equal
+  // refetch is a stale snapshot and is ignored; a newer one is an intentional
+  // external edit and is applied.
+  const lastAppliedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
 
   // Reuse the synced Awareness instance when provided; fall back for tests or
   // non-template embedders that only pass a Y.Doc.
@@ -1239,6 +1254,22 @@ export function VisualEditor({
       localAwareness.setLocalStateField("user", user);
     }
   }, [localAwareness, user?.name, user?.email, user?.color]);
+
+  // Whether this client is the one that applies authoritative external snapshots
+  // (agent / Notion / full-rewrite edits) into the shared Y.Doc. Exactly one
+  // client does, so the changed region isn't inserted once per open editor.
+  const [isLeadClient, setIsLeadClient] = useState(true);
+  useEffect(() => {
+    if (!localAwareness || !ydoc) {
+      setIsLeadClient(true);
+      return;
+    }
+    const update = () =>
+      setIsLeadClient(isReconcileLeadClient(localAwareness, ydoc.clientID));
+    update();
+    localAwareness.on("change", update);
+    return () => localAwareness.off("change", update);
+  }, [localAwareness, ydoc]);
 
   // Clean up awareness on unmount
   useEffect(() => {
@@ -1377,7 +1408,6 @@ export function VisualEditor({
     editable,
     onUpdate: ({ editor }) => {
       if (isSettingContent.current) return;
-      if (ydoc) hasLiveCollaborativeEditsRef.current = true;
       lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
@@ -1407,6 +1437,9 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed || !ydoc || !content) return;
     // Skip if already seeded for this document
     if (seededDocRef.current === documentId) return;
+    // Only the lead client seeds an empty shared doc, so two clients opening a
+    // brand-new doc at once don't both seed and duplicate the content.
+    if (!isLeadClient) return;
     const fragment = ydoc.getXmlFragment("default");
     const currentMd = serializeEditorToNfm(
       (editor.storage as any).markdown.getMarkdown(),
@@ -1421,67 +1454,100 @@ export function VisualEditor({
       isSettingContent.current = true;
       editor.commands.setContent(parseNfmForEditor(content));
       isSettingContent.current = false;
+      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
     }
     seededDocRef.current = documentId ?? null;
-  }, [editor, ydoc, content, documentId]);
+  }, [editor, ydoc, content, documentId, isLeadClient, contentUpdatedAt]);
 
-  // Sync content from outside (e.g. Notion pull, update-document action).
-  // In collab mode this is only safe before live Yjs edits have started:
-  // after that, SQL content is a lagging snapshot and Yjs owns the document.
+  // Reconcile authoritative external content (agent edit, Notion pull, or a peer
+  // edit mirrored to SQL) into the live editor. Driven by `updatedAt`: only
+  // content genuinely newer than what this editor already reflects is applied,
+  // so a lagging poll can never revert live edits. The lead client applies it
+  // through the real markdown pipeline (so new block structure renders) and the
+  // Yjs CRDT propagates the result to every other client and persists it.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
     if (docChanged) prevDocIdRef.current = documentId;
-    const nextEditorContent = parseNfmForEditor(content);
-    const currentMd = serializeEditorToNfm(
-      (editor.storage as any).markdown.getMarkdown(),
-    );
-    const normalizedNext = serializeEditorToNfm(nextEditorContent);
-    if (
-      !shouldApplyExternalContentSync({
-        collaborationActive: !!ydoc,
-        hasLiveCollaborativeEdits: hasLiveCollaborativeEditsRef.current,
-        docChanged,
-        content,
-        lastEmittedMarkdown: lastEmittedRef.current,
-        currentMarkdown: currentMd,
-        nextMarkdown: normalizedNext,
-        editorFocused: editor.isFocused,
-        lastTypedAt: lastTypedAtRef.current,
-        now: Date.now(),
-        forceExternalContentSync,
-      })
-    ) {
-      return;
-    }
 
-    // Defer to a microtask so we don't trigger flushSync during a React
-    // render — TipTap's setContent dispatches PM transactions that may
-    // synchronously update React-owned state via the Collaboration extension.
     let cancelled = false;
-    queueMicrotask(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const run = () => {
       if (cancelled || !editor || editor.isDestroyed) return;
-      isSettingContent.current = true;
-      // Use addToHistory: false so cmd+z doesn't erase loaded content.
-      // External content changes (load, sync) should never be undoable.
-      editor
-        .chain()
-        .command(({ tr }) => {
-          tr.setMeta("addToHistory", false);
-          return true;
-        })
-        .setContent(nextEditorContent)
-        .run();
-      isSettingContent.current = false;
-      if (forceExternalContentSync) {
-        hasLiveCollaborativeEditsRef.current = false;
-        lastEmittedRef.current = normalizedNext;
+      const nextEditorContent = parseNfmForEditor(content);
+      const currentMd = serializeEditorToNfm(
+        (editor.storage as any).markdown.getMarkdown(),
+      );
+      const normalizedNext = serializeEditorToNfm(nextEditorContent);
+
+      // Already in sync, or our own echo: advance the applied watermark so a
+      // later write is correctly recognized as newer, then stop.
+      if (currentMd === normalizedNext || content === lastEmittedRef.current) {
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        return;
       }
-    });
+
+      if (
+        !shouldApplyExternalContentSync({
+          docChanged,
+          content,
+          lastEmittedMarkdown: lastEmittedRef.current,
+          currentMarkdown: currentMd,
+          nextMarkdown: normalizedNext,
+          contentUpdatedAt,
+          lastAppliedUpdatedAt: lastAppliedUpdatedAtRef.current,
+          isLeadClient,
+          editorFocused: editor.isFocused,
+          lastTypedAt: lastTypedAtRef.current,
+          now: Date.now(),
+        })
+      ) {
+        // If we only deferred because the user is typing right now, re-check
+        // shortly so the external edit still lands once they pause.
+        const externalNewer =
+          docChanged ||
+          !lastAppliedUpdatedAtRef.current ||
+          (!!contentUpdatedAt &&
+            contentUpdatedAt > lastAppliedUpdatedAtRef.current);
+        const typingRightNow =
+          editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
+        if (externalNewer && isLeadClient && typingRightNow) {
+          retryTimer = setTimeout(run, 700);
+        }
+        return;
+      }
+
+      // Defer to a microtask so we don't trigger flushSync during a React
+      // render — TipTap's setContent dispatches PM transactions that may
+      // synchronously update React-owned state via the Collaboration extension.
+      queueMicrotask(() => {
+        if (cancelled || !editor || editor.isDestroyed) return;
+        isSettingContent.current = true;
+        // addToHistory: false so cmd+z doesn't erase externally-loaded content.
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(nextEditorContent)
+          .run();
+        isSettingContent.current = false;
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        lastEmittedRef.current = normalizedNext;
+      });
+    };
+
+    run();
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [content, editor, documentId, forceExternalContentSync, ydoc]);
+  }, [content, contentUpdatedAt, editor, documentId, isLeadClient]);
 
   if (!editor) {
     return (

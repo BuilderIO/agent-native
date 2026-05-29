@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { agentNativePath } from "../client/api-path.js";
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
 export interface CollabUser {
   name: string;
@@ -103,6 +104,40 @@ export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
     });
   }
   return Array.from(byEmail.values());
+}
+
+/**
+ * Leader election for applying authoritative external snapshots into a shared
+ * collaborative document.
+ *
+ * When the agent (or a Notion pull, or any full-document rewrite) writes new
+ * content to SQL, the open editor reconciles it into the live Y.Doc with
+ * `setContent`. If EVERY connected client did that independently, each would
+ * diff the same snapshot into the CRDT and the changed region would be inserted
+ * N times (concurrent inserts at the same position → duplicated text). So only
+ * ONE client — the "lead" — applies the snapshot; every other client receives
+ * the result through normal Yjs sync.
+ *
+ * The lead is the present client with the lowest Yjs `clientID`. The agent's
+ * awareness entry uses `AGENT_CLIENT_ID` (max int) so it can never be the lead,
+ * and a client editing alone is always the lead. This is deterministic across
+ * clients with no coordination round-trip.
+ */
+export function isReconcileLeadClient(
+  awareness: Awareness | null | undefined,
+  localClientId: number | null | undefined,
+): boolean {
+  if (localClientId == null) return false;
+  if (!awareness) return true; // standalone / tests — act alone
+  let min = localClientId;
+  awareness.getStates().forEach((state, clientId) => {
+    if (clientId === AGENT_CLIENT_ID) return; // agent never leads
+    // Only count clients with a real user presence (skip empty/stale entries).
+    if (state && (state as { user?: unknown }).user && clientId < min) {
+      min = clientId;
+    }
+  });
+  return localClientId <= min;
 }
 
 export interface RemoteAwarenessSnapshot {

@@ -152,6 +152,13 @@ async function lazyFs(): Promise<typeof import("fs")> {
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
 const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
+const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
+
+function compactPromptLine(value: string, maxChars: number): string {
+  const line = value.replace(/\s+/g, " ").trim();
+  if (line.length <= maxChars) return line;
+  return `${line.slice(0, maxChars - 1)}…`;
+}
 const SHARED_RESOURCE_INDEX_LIMIT = 40;
 
 function normalizeResourcePathForPrompt(path: string): string {
@@ -2867,85 +2874,65 @@ function generateActionsPrompt(
 ): string {
   if (!registry || Object.keys(registry).length === 0) return "";
 
-  const lines = Object.entries(registry).map(([name, entry]) => {
+  const actionEntries = Object.entries(registry);
+
+  if (mode === "tool") {
+    const summaryLines = actionEntries.map(([name, entry]) => {
+      const desc = compactPromptLine(
+        entry.tool.description,
+        MAX_ACTION_SUMMARY_DESCRIPTION_CHARS,
+      );
+      return `- \`${name}\` — ${desc}`;
+    });
+
+    return `\n\n## Available Actions
+
+**Use these actions directly as tool calls.** They handle database access, validation, and business logic internally. The native tool schemas contain the full parameter details.
+
+${summaryLines.join("\n")}`;
+  }
+
+  const lines = actionEntries.map(([name, entry]) => {
     const desc = entry.tool.description;
     const params = entry.tool.parameters?.properties;
     const requiredFields = new Set(entry.tool.parameters?.required ?? []);
 
-    if (mode === "cli") {
-      // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
-      if (!params || Object.keys(params).length === 0) {
-        return `- \`pnpm action ${name}\` — ${desc}`;
-      }
-      const entries = Object.entries(params);
-      // Required first (alphabetical), then optional (alphabetical)
-      entries.sort(([a], [b]) => {
-        const ar = requiredFields.has(a) ? 0 : 1;
-        const br = requiredFields.has(b) ? 0 : 1;
-        if (ar !== br) return ar - br;
-        return a.localeCompare(b);
-      });
-      const required: string[] = [];
-      const optional: string[] = [];
-      const requiredNames: string[] = [];
-      for (const [k, v] of entries) {
-        const type = (v as { type?: string }).type ?? "any";
-        const flag = `--${k} <${type}>`;
-        if (requiredFields.has(k)) {
-          required.push(flag);
-          requiredNames.push(`--${k}`);
-        } else {
-          optional.push(`[${flag}]`);
-        }
-      }
-      const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
-      const requiredNote =
-        requiredNames.length > 0
-          ? ` Required: ${requiredNames.join(", ")}.`
-          : "";
-      return `- \`${cmd}\` — ${desc}.${requiredNote}`;
+    // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
+    if (!params || Object.keys(params).length === 0) {
+      return `- \`pnpm action ${name}\` — ${desc}`;
     }
-
-    // tool mode (production / native tool calls)
-    if (params) {
-      // Order required params first, then optional. Mark required with "*"
-      // and include type + description so the agent knows exactly how to call.
-      const entries = Object.entries(params);
-      entries.sort(([a], [b]) => {
-        const ar = requiredFields.has(a) ? 0 : 1;
-        const br = requiredFields.has(b) ? 0 : 1;
-        if (ar !== br) return ar - br;
-        return a.localeCompare(b);
-      });
-      const paramList = entries
-        .map(([k, v]) => {
-          const isRequired = requiredFields.has(k);
-          const type = (v as { type?: string }).type ?? "any";
-          const marker = isRequired ? "*" : "?";
-          const descPart = v.description ? ` — ${v.description}` : "";
-          return `${k}${marker}: ${type}${descPart}`;
-        })
-        .join("; ");
-      return `- \`${name}\`(${paramList}) — ${desc}`;
+    const entries = Object.entries(params);
+    // Required first (alphabetical), then optional (alphabetical)
+    entries.sort(([a], [b]) => {
+      const ar = requiredFields.has(a) ? 0 : 1;
+      const br = requiredFields.has(b) ? 0 : 1;
+      if (ar !== br) return ar - br;
+      return a.localeCompare(b);
+    });
+    const required: string[] = [];
+    const optional: string[] = [];
+    const requiredNames: string[] = [];
+    for (const [k, v] of entries) {
+      const type = (v as { type?: string }).type ?? "any";
+      const flag = `--${k} <${type}>`;
+      if (requiredFields.has(k)) {
+        required.push(flag);
+        requiredNames.push(`--${k}`);
+      } else {
+        optional.push(`[${flag}]`);
+      }
     }
-    return `- \`${name}\`() — ${desc}`;
+    const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
+    const requiredNote =
+      requiredNames.length > 0 ? ` Required: ${requiredNames.join(", ")}.` : "";
+    return `- \`${cmd}\` — ${desc}.${requiredNote}`;
   });
 
-  if (mode === "cli") {
-    return `\n\n## Available Actions
+  return `\n\n## Available Actions
 
 **These template actions are NOT exposed as direct tools in dev mode. To run any of them, use the \`bash\` tool with the exact command shown below.** Example: \`bash(command="pnpm action add-slide --deckId abc --content 'Hello'")\`.
 
 Do NOT try to call these by name as if they were tools — they will not exist in your tool list. Always go through \`bash\`.
-
-${lines.join("\n")}`;
-  }
-
-  return `\n\n## Available Actions
-
-**Use these actions directly as tool calls.** They are your primary tools — they handle database access, validation, and business logic internally. Prefer these over lower-level tools like \`web-request\` or \`db-query\`.
-
-Parameter notation: \`name*\` = required, \`name?\` = optional. Pass parameters as a JSON object.
 
 ${lines.join("\n")}`;
 }

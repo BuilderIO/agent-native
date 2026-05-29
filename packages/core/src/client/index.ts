@@ -104,6 +104,7 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export { useReconciledState } from "./use-external-value.js";
 export {
   buildDynamicAgentSuggestions,
   dedupeSuggestions,
@@ -409,6 +410,7 @@ export {
 } from "./analytics.js";
 export {
   useCollaborativeDoc,
+  isReconcileLeadClient,
   emailToColor,
   emailToName,
   type UseCollaborativeDocOptions,

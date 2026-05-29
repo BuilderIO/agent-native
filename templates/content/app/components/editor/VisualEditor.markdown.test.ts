@@ -645,13 +645,14 @@ describe("VisualEditor markdown round-tripping", () => {
   it("does not apply stale SQL snapshots over live collaborative edits", () => {
     expect(
       shouldApplyExternalContentSync({
-        collaborationActive: true,
-        hasLiveCollaborativeEdits: true,
         docChanged: false,
         content: "Older collaborator snapshot",
         lastEmittedMarkdown: "Merged live content",
         currentMarkdown: "Merged live content",
         nextMarkdown: "Older collaborator snapshot",
+        contentUpdatedAt: "2026-05-29T10:00:00.000Z",
+        lastAppliedUpdatedAt: "2026-05-29T10:01:00.000Z",
+        isLeadClient: true,
         editorFocused: false,
         lastTypedAt: 0,
         now: 10_000,
@@ -659,20 +660,20 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
-  it("applies explicit external sync over live collaborative edits", () => {
+  it("applies newer external sync through the lead client", () => {
     expect(
       shouldApplyExternalContentSync({
-        collaborationActive: true,
-        hasLiveCollaborativeEdits: true,
         docChanged: false,
         content: "Pulled from Notion",
         lastEmittedMarkdown: "Local editor state",
         currentMarkdown: "Local editor state",
         nextMarkdown: "Pulled from Notion",
-        editorFocused: true,
-        lastTypedAt: 9_500,
+        contentUpdatedAt: "2026-05-29T10:02:00.000Z",
+        lastAppliedUpdatedAt: "2026-05-29T10:01:00.000Z",
+        isLeadClient: true,
+        editorFocused: false,
+        lastTypedAt: 0,
         now: 10_000,
-        forceExternalContentSync: true,
       }),
     ).toBe(true);
   });
@@ -680,13 +681,14 @@ describe("VisualEditor markdown round-tripping", () => {
   it("still applies external content before collaborative edits begin", () => {
     expect(
       shouldApplyExternalContentSync({
-        collaborationActive: true,
-        hasLiveCollaborativeEdits: false,
         docChanged: false,
         content: "Pulled from Notion",
         lastEmittedMarkdown: "",
         currentMarkdown: "Saved body",
         nextMarkdown: "Pulled from Notion",
+        contentUpdatedAt: "2026-05-29T10:00:00.000Z",
+        lastAppliedUpdatedAt: null,
+        isLeadClient: true,
         editorFocused: false,
         lastTypedAt: 0,
         now: 10_000,

@@ -449,6 +449,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
+      const connectedEmails = new Set(
+        accountTokens.map((account) => account.email.toLowerCase()),
+      );
       const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
         await listGmailMessages(searchQuery, pageLimit, email, pageTokens, {
@@ -476,7 +479,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
-      emails = filterInboxScopedThreadMessages(emails, view, label);
+      emails = filterInboxScopedThreadMessages(
+        emails,
+        view,
+        label,
+        connectedEmails,
+      );
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -530,6 +538,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       ),
       view,
       label,
+      new Set([email.toLowerCase()]),
     );
   } else {
     // Filter by view
