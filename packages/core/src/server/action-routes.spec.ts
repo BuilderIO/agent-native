@@ -210,6 +210,47 @@ describe("mountActionRoutes", () => {
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });
 
+  it("allows Claude MCP app embed action preflights without credentials", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: {
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(204);
+    expect(event._responseHeaders["access-control-allow-origin"]).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(
+      event._responseHeaders["access-control-allow-credentials"],
+    ).toBeUndefined();
+    const allowHeaders =
+      event._responseHeaders["access-control-allow-headers"].toLowerCase();
+    expect(allowHeaders).toContain("x-agent-native-embed-target");
+    expect(allowHeaders).toContain("x-user-timezone");
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
   it("emits refresh events for mutating GET actions with readOnly false", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

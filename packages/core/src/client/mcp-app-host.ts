@@ -39,6 +39,7 @@ export interface McpAppModelContextUpdate {
 export interface McpAppHostChatMessage {
   message: string;
   context?: string;
+  content?: McpAppModelContextContentPart[];
 }
 
 export interface McpAppHostCapabilities {
@@ -134,6 +135,15 @@ function isMcpAppBridgeEnabled(): boolean {
   );
 }
 
+function isClaudeMcpContentHost(): boolean {
+  if (!isBrowserWindow()) return false;
+  try {
+    return /(^|\.)claudemcpcontent\.com$/i.test(window.location.hostname || "");
+  } catch {
+    return false;
+  }
+}
+
 function hasWrapperBridge(): boolean {
   if (!isBrowserWindow()) return false;
   const params = new URLSearchParams(window.location.search || "");
@@ -146,6 +156,7 @@ function hasWrapperBridge(): boolean {
   if (params.get("nested") === "1" || params.get("frame") === "iframe") {
     return true;
   }
+  if (isClaudeMcpContentHost()) return false;
   return Boolean(getFrameOrigin());
 }
 
@@ -318,6 +329,26 @@ function postHostRequest(
   });
 }
 
+function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
+  try {
+    window.parent.postMessage(
+      {
+        type: "agentNative.submitChat",
+        data: {
+          message: chat.message,
+          context: chat.context?.trim() || "",
+          submit: true,
+          ...(chat.content?.length ? { content: chat.content } : {}),
+        },
+      },
+      "*",
+    );
+    return Promise.resolve(true);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
 interface OpenAiAppBridge {
   widgetState?: unknown;
   displayMode?: unknown;
@@ -480,18 +511,24 @@ async function postDirectHostRequest(
 export function sendMcpAppHostMessage(
   chat: McpAppHostChatMessage,
 ): Promise<boolean> | false {
-  if (
-    !chat.message.trim() ||
-    !isInChildFrame() ||
-    !isMcpAppBridgeEnabled() ||
-    hasWrapperBridge()
-  ) {
+  if (!chat.message.trim() || !isInChildFrame() || !isMcpAppBridgeEnabled()) {
     return false;
   }
+
+  if (hasWrapperBridge()) return postWrapperHostChat(chat);
 
   return (async () => {
     const openAiBridge = readOpenAiBridge();
     const context = chat.context?.trim() || null;
+    const content = chat.content?.length
+      ? chat.content
+      : [{ type: "text", text: chat.message }];
+    const contextContent = context
+      ? [
+          { type: "text", text: context },
+          ...content.filter((part) => part && part.type !== "text"),
+        ]
+      : content.filter((part) => part && part.type !== "text");
     if (
       openAiBridge &&
       typeof openAiBridge.sendFollowUpMessage === "function"
@@ -513,7 +550,7 @@ export function sendMcpAppHostMessage(
     await waitForDirectMcpAppInitialized();
     try {
       await postJsonRpcRequest("ui/update-model-context", {
-        content: context ? [{ type: "text", text: context }] : [],
+        content: contextContent,
       });
     } catch {
       // Best effort: a host without model-context support should still receive
@@ -521,7 +558,7 @@ export function sendMcpAppHostMessage(
     }
     await postJsonRpcRequest("ui/message", {
       role: "user",
-      content: { type: "text", text: chat.message },
+      content,
     });
     return true;
   })().catch(() => false);

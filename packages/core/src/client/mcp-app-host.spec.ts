@@ -15,6 +15,16 @@ import {
 } from "./mcp-app-host.js";
 import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
+function setTestUrl(url: string): void {
+  const happyDom = (window as unknown as { happyDOM?: { setURL?: unknown } })
+    .happyDOM;
+  if (happyDom && typeof happyDom.setURL === "function") {
+    happyDom.setURL(url);
+    return;
+  }
+  window.history.replaceState(null, "", url);
+}
+
 function setParent(parent: Window): void {
   Object.defineProperty(window, "parent", {
     configurable: true,
@@ -24,9 +34,7 @@ function setParent(parent: Window): void {
 
 function setDirectParent(parent: Window): void {
   setParent(parent);
-  window.history.replaceState(
-    null,
-    "",
+  setTestUrl(
     "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
   );
   _resetMcpAppHostForTests();
@@ -34,10 +42,16 @@ function setDirectParent(parent: Window): void {
 
 function setNestedParent(parent: Window): void {
   setParent(parent);
-  window.history.replaceState(
-    null,
-    "",
+  setTestUrl(
     "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&embedMode=iframe",
+  );
+  _resetMcpAppHostForTests();
+}
+
+function setClaudeTransplantParent(parent: Window): void {
+  setParent(parent);
+  setTestUrl(
+    "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com/picker?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1",
   );
   _resetMcpAppHostForTests();
 }
@@ -74,9 +88,7 @@ async function flushMicrotasks() {
 }
 
 function enableMcpEmbedBridge(): void {
-  window.history.replaceState(
-    null,
-    "",
+  setTestUrl(
     "/?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&embedMode=iframe",
   );
 }
@@ -99,7 +111,7 @@ describe("MCP app host client helpers", () => {
     container.remove();
     vi.unstubAllGlobals();
     setParent(window);
-    window.history.replaceState(null, "", "/");
+    setTestUrl("http://localhost:3000/");
     _resetMcpAppHostForTests();
     _resetEmbedAuthForTests();
     sessionStorage.clear();
@@ -339,7 +351,7 @@ describe("MCP app host client helpers", () => {
     expect(messageCall).toMatchObject({
       params: {
         role: "user",
-        content: { type: "text", text: "Continue with this selection" },
+        content: [{ type: "text", text: "Continue with this selection" }],
       },
     });
 
@@ -426,6 +438,131 @@ describe("MCP app host client helpers", () => {
     expect(JSON.stringify(sendFollowUpMessage.mock.calls)).not.toContain(
       "application-state/compose.json",
     );
+  });
+
+  it("sends follow-up prompts through the wrapper bridge in nested MCP app frames", async () => {
+    const parent = parentWindow();
+    setNestedParent(parent);
+
+    const result = sendMcpAppHostMessage({
+      context: "Hidden selected asset context",
+      message: "Use the selected Assets image",
+    });
+
+    await expect(result).resolves.toBe(true);
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.submitChat",
+        data: {
+          context: "Hidden selected asset context",
+          message: "Use the selected Assets image",
+          submit: true,
+        },
+      },
+      "*",
+    );
+    expect(getJsonRpcCalls(parent)).toEqual([]);
+  });
+
+  it("uses direct MCP Apps chat messages in Claude transplanted frames", async () => {
+    const parent = parentWindow();
+    setClaudeTransplantParent(parent);
+
+    const result = sendMcpAppHostMessage({
+      context: "Hidden selected asset context",
+      message: "Use the selected Assets image",
+    });
+    await flushMicrotasks();
+
+    expect(parent.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agentNative.submitChat" }),
+      "*",
+    );
+
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: {
+        content: [{ type: "text", text: "Hidden selected asset context" }],
+      },
+    });
+    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const messageCall = calls.find((call) => call.method === "ui/message")!;
+    expect(messageCall).toMatchObject({
+      params: {
+        role: "user",
+        content: [{ type: "text", text: "Use the selected Assets image" }],
+      },
+    });
+    dispatchHostMessage({ jsonrpc: "2.0", id: messageCall.id, result: {} });
+
+    await expect(result).resolves.toBe(true);
+  });
+
+  it("passes rich content blocks through direct MCP Apps chat messages", async () => {
+    const parent = parentWindow();
+    setClaudeTransplantParent(parent);
+
+    const content = [
+      { type: "text", text: "Use the selected Assets image" },
+      { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+    ];
+    const result = sendMcpAppHostMessage({
+      context: "Hidden selected asset context",
+      content,
+      message: "Use the selected Assets image",
+    });
+    await flushMicrotasks();
+
+    let calls = getJsonRpcCalls(parent);
+    const initCall = calls.find((call) => call.method === "ui/initialize")!;
+    dispatchHostMessage({
+      jsonrpc: "2.0",
+      id: initCall.id,
+      result: { protocolVersion: "2026-01-26" },
+    });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const contextCall = calls.find(
+      (call) => call.method === "ui/update-model-context",
+    )!;
+    expect(contextCall).toMatchObject({
+      params: {
+        content: [
+          { type: "text", text: "Hidden selected asset context" },
+          { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+        ],
+      },
+    });
+    dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
+    await flushMicrotasks();
+
+    calls = getJsonRpcCalls(parent);
+    const messageCall = calls.find((call) => call.method === "ui/message")!;
+    expect(messageCall).toMatchObject({
+      params: {
+        role: "user",
+        content,
+      },
+    });
+    dispatchHostMessage({ jsonrpc: "2.0", id: messageCall.id, result: {} });
+
+    await expect(result).resolves.toBe(true);
   });
 
   it("clears ChatGPT hidden context when a follow-up has no context", async () => {
@@ -534,7 +671,7 @@ describe("MCP app host client helpers", () => {
     expect(firstMessageCall).toMatchObject({
       params: {
         role: "user",
-        content: { type: "text", text: "Rewrite the selected sentence" },
+        content: [{ type: "text", text: "Rewrite the selected sentence" }],
       },
     });
     expect(JSON.stringify(firstMessageCall)).not.toContain(
@@ -574,7 +711,7 @@ describe("MCP app host client helpers", () => {
     expect(secondMessageCall).toMatchObject({
       params: {
         role: "user",
-        content: { type: "text", text: "Continue without selection" },
+        content: [{ type: "text", text: "Continue without selection" }],
       },
     });
     expect(JSON.stringify(secondMessageCall)).not.toContain(

@@ -238,7 +238,6 @@ Discovery endpoints:
 | ----------------------------------------- | ------------------------------------------- |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 protected-resource metadata        |
 | `/.well-known/oauth-authorization-server` | OAuth authorization server metadata         |
-| `/.well-known/openid-configuration`       | OIDC-compatible metadata alias              |
 | `/_agent-native/mcp/oauth/register`       | Dynamic public-client registration          |
 | `/_agent-native/mcp/oauth/authorize`      | Browser authorization + consent             |
 | `/_agent-native/mcp/oauth/token`          | Authorization-code and refresh-token grants |

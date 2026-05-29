@@ -96,6 +96,11 @@ for inline hosts. When a user selects an asset, the picker emits `chooseAsset`,
 the legacy `chooseImage` alias for image assets, and updates MCP App model
 context where the host supports it.
 
+For generate-and-choose flows, call `open-asset-picker` with `prompt`,
+`autoGenerate: true`, and `count: 3` (customizable from 1-6). The picker opens
+with candidate images and lets the user adjust count, aspect ratio, or a
+generation preset before choosing the final asset URL.
+
 Use A2A when another agent needs to create, search, or export assets without a
 human picker UI.
 

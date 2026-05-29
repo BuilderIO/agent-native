@@ -154,4 +154,30 @@ describe("security headers middleware", () => {
     expect(headers.get("Vary")).toBe("Origin");
     vi.unstubAllEnvs();
   });
+
+  it("relaxes resource headers for Vite module requests carrying an embed token", () => {
+    headers.clear();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OAUTH_STATE_SECRET", "embed-test-secret");
+    const token = signEmbedSessionToken({
+      ownerEmail: "user@example.test",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+
+    const handler = createSecurityHeadersMiddleware();
+    handler({
+      path: `/@vite/client?__an_embed_token=${token}`,
+      query: { __an_embed_token: token },
+      url: { protocol: "https:" },
+      node: {
+        req: { url: `/@vite/client?__an_embed_token=${token}`, headers: {} },
+      },
+    });
+
+    expect(headers.get("X-Frame-Options")).toBeUndefined();
+    expect(headers.get("Cross-Origin-Embedder-Policy")).toBe("require-corp");
+    expect(headers.get("Cross-Origin-Resource-Policy")).toBe("cross-origin");
+    vi.unstubAllEnvs();
+  });
 });

@@ -21,6 +21,23 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Optional preferred aspect ratio for generation."),
+  presetId: z
+    .string()
+    .optional()
+    .describe("Optional generation preset to preselect in the picker."),
+  count: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(6)
+    .default(3)
+    .describe("Number of image candidates to generate in the picker."),
+  autoGenerate: z.coerce
+    .boolean()
+    .default(false)
+    .describe(
+      "When true and prompt is provided, generate candidates as soon as the picker opens.",
+    ),
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
@@ -34,12 +51,15 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   if (args.aspectRatio?.trim()) {
     params.set("aspectRatio", args.aspectRatio.trim());
   }
+  if (args.presetId?.trim()) params.set("presetId", args.presetId.trim());
+  if (args.count && args.count !== 3) params.set("count", String(args.count));
+  if (args.autoGenerate) params.set("autoGenerate", "1");
   return `/picker?${params.toString()}`;
 }
 
 export default defineAction({
   description:
-    "Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. Use this for human-in-the-loop asset choice; use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
+    "Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. Use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
   schema,
   http: { method: "GET" },
   readOnly: true,
@@ -90,11 +110,16 @@ export default defineAction({
       message:
         args.mediaType === "video"
           ? "Assets video picker is ready."
-          : "Assets image picker is ready.",
+          : args.autoGenerate && args.prompt
+            ? "Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration."
+            : "Assets image picker is ready.",
       query: args.query ?? null,
       prompt: args.prompt ?? null,
       libraryId: args.libraryId ?? null,
       aspectRatio: args.aspectRatio ?? null,
+      presetId: args.presetId ?? null,
+      count: args.count,
+      autoGenerate: args.autoGenerate,
     };
   },
 });

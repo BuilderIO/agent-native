@@ -21,6 +21,12 @@ import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -40,28 +46,45 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-function getAllowedCorsOrigin(origin: string | undefined): string | null {
-  return resolveAllowedCorsOrigin(origin, {
+type CorsOrigin = {
+  origin: string;
+  credentials: boolean;
+};
+
+function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
+  const allowedOrigin = resolveAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
     allowLocalhostWhenNoAllowlist: true,
   });
+  if (allowedOrigin) {
+    return { origin: allowedOrigin, credentials: true };
+  }
+  if (isMcpEmbedCorsOrigin(origin)) {
+    return {
+      origin,
+      credentials: shouldAllowMcpEmbedCredentials(origin),
+    };
+  }
+  return null;
 }
 
 function handleOptionsRequest(event: any): string {
   const origin = getHeader(event, "origin");
-  const allowedOrigin = getAllowedCorsOrigin(
+  const cors = getAllowedCorsOrigin(
     typeof origin === "string" ? origin : undefined,
   );
 
-  if (origin && !allowedOrigin) {
+  if (origin && !cors) {
     setResponseStatus(event, 403);
     return "";
   }
 
-  if (allowedOrigin) {
-    setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+  if (cors) {
+    setResponseHeader(event, "Access-Control-Allow-Origin", cors.origin);
     setResponseHeader(event, "Vary", "Origin");
-    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    if (cors.credentials) {
+      setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    }
     setResponseHeader(
       event,
       "Access-Control-Allow-Methods",
@@ -70,7 +93,9 @@ function handleOptionsRequest(event: any): string {
     setResponseHeader(
       event,
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id",
+      cors.credentials
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id`,
     );
   }
 

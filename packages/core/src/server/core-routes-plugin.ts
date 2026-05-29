@@ -26,6 +26,7 @@ import { createOpenRouteHandler } from "./open-route.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
@@ -524,7 +525,9 @@ export function createCoreRoutesPlugin(
         const mcpEmbedCorsRequest =
           isMcpEmbedCorsOrigin(origin) &&
           (requestedHeaderNames.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            requestedHeaderNames.includes(EMBED_TRANSPLANT_HEADER) ||
             Boolean(readRequestHeader(EMBED_TARGET_HEADER)) ||
+            Boolean(readRequestHeader(EMBED_TRANSPLANT_HEADER)) ||
             Boolean(readRequestHeader("authorization")));
 
         // Decide whether this origin is allowed. We never fall back to the
@@ -2597,12 +2600,6 @@ export function createCoreRoutesPlugin(
       );
       getH3App(nitroApp).use(
         "/.well-known/oauth-authorization-server",
-        defineEventHandler((event: H3Event) =>
-          handleMcpOAuthAuthorizationServerMetadata(event),
-        ),
-      );
-      getH3App(nitroApp).use(
-        "/.well-known/openid-configuration",
         defineEventHandler((event: H3Event) =>
           handleMcpOAuthAuthorizationServerMetadata(event),
         ),

@@ -13,6 +13,8 @@ describe("open-asset-picker", () => {
       path: "/picker?mediaType=image",
       url: "/picker?mediaType=image",
       embed: true,
+      count: 3,
+      autoGenerate: false,
     });
     expect(action.http).toEqual({ method: "GET" });
     expect(action.readOnly).toBe(true);
@@ -26,13 +28,19 @@ describe("open-asset-picker", () => {
       query: "launch clip",
       libraryId: "lib_123",
       aspectRatio: "16:9",
+      presetId: "preset_hero",
+      count: 4,
+      autoGenerate: true,
     };
     const result = await action.run(args);
     const link = action.link?.({ args, result });
 
     expect(result).toMatchObject({
       mediaType: "video",
-      path: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9",
+      path: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      presetId: "preset_hero",
+      count: 4,
+      autoGenerate: true,
     });
     expect(link).toEqual({
       url: result.url,

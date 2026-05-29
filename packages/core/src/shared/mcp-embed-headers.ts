@@ -1,5 +1,6 @@
 export const MCP_EMBED_CORS_ALLOW_HEADERS =
-  "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Embed-Target";
+  "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Embed-Target,X-Agent-Native-Embed-Transplant";
+export const EMBED_TRANSPLANT_HEADER = "x-agent-native-embed-transplant";
 
 const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
 
@@ -41,6 +42,7 @@ const STATIC_ASSET_PATTERNS = [
   "/manifest.json",
   "/icon-*.svg",
   "/agent-native-*.svg",
+  "/library-presets/**",
 ];
 
 function normalizeBasePath(basePath: string | undefined): string {
