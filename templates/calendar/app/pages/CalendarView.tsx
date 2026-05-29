@@ -512,6 +512,7 @@ export default function CalendarView() {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
       if (committingDraftIdsRef.current.has(draftId)) return;
+      committingDraftIdsRef.current.add(draftId);
       const draft = pendingPatch
         ? applyDraftPatch(eventDraft, pendingPatch)
         : eventDraft;
@@ -528,6 +529,7 @@ export default function CalendarView() {
             : "";
       if (!title || title === "(No title)") {
         if (!isSlotDraftId(draftId)) {
+          committingDraftIdsRef.current.delete(draftId);
           toast.error("Add a title before creating the event");
           return;
         }
@@ -535,6 +537,7 @@ export default function CalendarView() {
 
       const { start, end } = draftRange(draft, selectedDate);
       if (end.getTime() <= start.getTime()) {
+        committingDraftIdsRef.current.delete(draftId);
         toast.error("End time must be after start time");
         return;
       }
@@ -556,7 +559,6 @@ export default function CalendarView() {
                   : draft.workingLocationLabel,
             };
 
-      committingDraftIdsRef.current.add(draftId);
       createEvent.mutate(
         {
           _tempId: eventId,

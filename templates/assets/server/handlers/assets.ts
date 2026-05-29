@@ -194,9 +194,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
     const rawCategory = readField(parts, "category");
     const intent = intentFromForm(readField(parts, "intent"));
     const category =
-      intent === "subject" && (!rawCategory || rawCategory === "style-only")
-        ? "other"
-        : categoryFromForm(rawCategory);
+      intent === "subject" ? "other" : categoryFromForm(rawCategory);
     const title = readField(parts, "title") || null;
     const files =
       parts?.filter((part) => part.name === "files" && part.data) ?? [];

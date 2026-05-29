@@ -225,6 +225,20 @@ export default (event) =>
     );
   });
 
+  it("preserves React Router's default no-cache policy on authenticated Cloudflare worker data responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox.data", {
+        headers: { cookie: "an_session=active" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
   it("preserves explicit private cache policies on Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 

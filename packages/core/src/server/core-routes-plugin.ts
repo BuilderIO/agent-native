@@ -83,7 +83,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession } from "./auth.js";
+import { getSession, type AuthSession } from "./auth.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
@@ -277,6 +277,83 @@ function clearBuilderConnectOwnerCookie(event: H3Event): void {
   });
 }
 
+function isAgentNativeAnonymousOwner(email: string | undefined): boolean {
+  return /^anon-[^@]+@agent-native\.com$/i.test(email ?? "");
+}
+
+type BuilderAnonymousOwnerResolver = (
+  event: H3Event,
+) => string | null | Promise<string | null>;
+
+export type BuilderOwnerContext = {
+  email: string | undefined;
+  session: AuthSession | null;
+  anonymous: boolean;
+};
+
+export async function resolveBuilderOwnerContextForRequest(
+  event: H3Event,
+  options: {
+    anonymousOwner?: BuilderAnonymousOwnerResolver;
+    getSessionForEvent?: (event: H3Event) => Promise<AuthSession | null>;
+  } = {},
+  mode?: "connect" | "callback",
+): Promise<BuilderOwnerContext> {
+  const searchParams = getRequestURL(event).searchParams;
+  const signedOwner =
+    mode === "connect"
+      ? verifyBuilderConnectTokenAndGetOwner(
+          searchParams.get(BUILDER_CONNECT_PARAM),
+        )
+      : mode === "callback"
+        ? verifyBuilderCallbackStateAndGetOwner(
+            searchParams.get(BUILDER_STATE_PARAM),
+          )
+        : null;
+  const cookieOwner =
+    mode === "callback" ? readBuilderConnectOwnerCookie(event) : null;
+  const session = await (options.getSessionForEvent ?? getSession)(event).catch(
+    () => null,
+  );
+  if (session?.email) {
+    if (
+      signedOwner &&
+      (signedOwner === session.email ||
+        (isAgentNativeAnonymousOwner(signedOwner) &&
+          isAgentNativeAnonymousOwner(session.email)))
+    ) {
+      // Public docs/app surfaces can mint a new anonymous session inside the
+      // popup when cookies do not round-trip. Keep the signed flow owner in
+      // that anonymous-only case, but do not override a real user session.
+      return {
+        email: signedOwner,
+        session: signedOwner === session.email ? session : null,
+        anonymous: isAgentNativeAnonymousOwner(signedOwner),
+      };
+    }
+    return { email: session.email, session, anonymous: false };
+  }
+
+  if (signedOwner) {
+    return {
+      email: signedOwner,
+      session: null,
+      anonymous: isAgentNativeAnonymousOwner(signedOwner),
+    };
+  }
+
+  if (cookieOwner) {
+    return { email: cookieOwner, session: null, anonymous: false };
+  }
+
+  const anonymousOwner = await options.anonymousOwner?.(event);
+  if (anonymousOwner) {
+    return { email: anonymousOwner, session: null, anonymous: true };
+  }
+
+  return { email: undefined, session: null, anonymous: false };
+}
+
 /**
  * Resolves the page-level legacy `/tools` → `/extensions` redirect target.
  *
@@ -353,7 +430,7 @@ export interface CoreRoutesPluginOptions {
    * pages that let anonymous viewers connect Builder credentials for their
    * own browser-scoped agent session.
    */
-  anonymousOwner?: (event: H3Event) => string | null | Promise<string | null>;
+  anonymousOwner?: BuilderAnonymousOwnerResolver;
 }
 
 /**
@@ -658,67 +735,15 @@ export function createCoreRoutesPlugin(
 
     mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
-    type BuilderOwnerContext = {
-      email: string | undefined;
-      session: Awaited<ReturnType<typeof getSession>> | null;
-      anonymous: boolean;
-    };
-
     const resolveBuilderOwnerContext = async (
       event: H3Event,
       mode?: "connect" | "callback",
-    ): Promise<BuilderOwnerContext> => {
-      const session = await getSession(event).catch(() => null);
-      if (session?.email) {
-        return { email: session.email, session, anonymous: false };
-      }
-
-      const searchParams = getRequestURL(event).searchParams;
-
-      if (mode === "connect") {
-        const ownerFromConnectToken = verifyBuilderConnectTokenAndGetOwner(
-          searchParams.get(BUILDER_CONNECT_PARAM),
-        );
-        if (ownerFromConnectToken) {
-          return {
-            email: ownerFromConnectToken,
-            session: null,
-            anonymous: false,
-          };
-        }
-      }
-
-      if (mode === "callback") {
-        // Prefer the signed _an_state owner over the legacy
-        // an_builder_connect_owner cookie. The cookie can be stale on a
-        // shared browser — user A signed in earlier, user B starts a fresh
-        // callback with a signed state for B — and using the cookie first
-        // would mis-attribute B's Builder credentials to A. The signed
-        // state is per-flow and TTL-bounded, so it's authoritative when
-        // both are present.
-        const ownerFromCallbackState = verifyBuilderCallbackStateAndGetOwner(
-          searchParams.get(BUILDER_STATE_PARAM),
-        );
-        if (ownerFromCallbackState) {
-          return {
-            email: ownerFromCallbackState,
-            session: null,
-            anonymous: false,
-          };
-        }
-        const ownerFromCookie = readBuilderConnectOwnerCookie(event);
-        if (ownerFromCookie) {
-          return { email: ownerFromCookie, session: null, anonymous: false };
-        }
-      }
-
-      const anonymousOwner = await options.anonymousOwner?.(event);
-      if (anonymousOwner) {
-        return { email: anonymousOwner, session: null, anonymous: true };
-      }
-
-      return { email: undefined, session: null, anonymous: false };
-    };
+    ): Promise<BuilderOwnerContext> =>
+      resolveBuilderOwnerContextForRequest(
+        event,
+        { anonymousOwner: options.anonymousOwner },
+        mode,
+      );
 
     getH3App(nitroApp).use(
       `${P}/builder/status`,

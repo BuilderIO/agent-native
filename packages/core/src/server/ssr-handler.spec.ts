@@ -141,6 +141,27 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("preserves React Router's default no-cache policy on authenticated .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('[{"_1":2},"routes/account"]', {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/account.data", "GET", {
+        headers: { cookie: "an_session=active" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
   it("preserves explicit private cache policies on .data responses", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response('[{"_1":2},"routes/private"]', {

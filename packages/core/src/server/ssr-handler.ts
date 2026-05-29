@@ -217,6 +217,7 @@ function shouldUseDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  hasAuthSignal: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
 
@@ -226,6 +227,7 @@ function shouldUseDefaultSsrCacheHeader(
   }
 
   if (!pathname.endsWith(".data")) return false;
+  if (hasAuthSignal) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   const cacheControl = headers.get("cache-control");
@@ -236,8 +238,13 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  hasAuthSignal: boolean,
 ) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
+  if (
+    !shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)
+  ) {
+    return;
+  }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -263,10 +270,11 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
+  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -347,12 +355,14 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
+          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
+        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

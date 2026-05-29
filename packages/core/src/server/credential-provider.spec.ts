@@ -272,6 +272,19 @@ describe("writeBuilderCredentials", () => {
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
+  it("rejects blank public keys after trimming before clearing existing rows", async () => {
+    await expect(
+      writeBuilderCredentials(
+        "owner@b.com",
+        { privateKey: "bpk-test-private", publicKey: "   " },
+        { orgId: "builder_io", role: "owner" },
+      ),
+    ).rejects.toThrow("public API key");
+
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
   it("trims the returned Builder keys before storing them", async () => {
     await writeBuilderCredentials("owner@b.com", {
       privateKey: "  bpk-trimmed-private  ",
