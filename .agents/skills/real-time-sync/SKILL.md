@@ -164,9 +164,40 @@ useDbSync({
 
 `refresh-screen` remains available for unusual cases — e.g. the agent mutated data via a path the framework can't see (external system the app mirrors), or the agent wants to pass a `scope` hint for narrower invalidation.
 
+## Keeping Stateful Components In Sync
+
+The `useChangeVersion` / `useActionQuery` pattern above keeps the **query layer** fresh. But components that copy a server value into local React state still go stale on agent edits — refetching the query updates the prop, yet the local copy never re-adopts it. This is a recurring bug.
+
+**Never do this** for a value the agent can mutate:
+
+```ts
+// BUG: `title` is captured once and never re-reads the prop.
+const [title, setTitle] = useState(props.title);
+```
+
+When the agent renames the record, the query refetches, `props.title` updates, but the input still shows the stale value until the component remounts.
+
+**Derived-state surfaces (form fields, inline editors, popovers): use `useReconciledState`.** It re-adopts the authoritative external value when it changes, except while the user is actively editing that field — so agent mutations show up live without clobbering in-progress typing:
+
+```ts
+import { useReconciledState } from "@agent-native/core/client";
+
+// `active` = true while the user is editing this field (focused / dirty).
+const [title, setTitle] = useReconciledState(props.title, { active: isEditing });
+```
+
+**Collaborative rich-text editors are different** — they don't copy a value into `useState`. They reconcile authoritative SQL content into a shared Y.Doc under an `updatedAt` gate with lead-client election. See `real-time-collab` → "Agent edits as a real-time peer editor". Don't reach for `useReconciledState` for a Yjs-backed editor.
+
+| Surface | Keep it fresh with |
+| ------- | ------------------ |
+| React Query reads | `useChangeVersion` / `useActionQuery` (above) |
+| Local edit state copied from a server value (inputs, popovers, inline editors) | `useReconciledState(externalValue, { active })` |
+| Collaborative rich-text editor (Yjs) | `updatedAt`-gated reconcile + `isReconcileLeadClient` — see `real-time-collab` |
+
 ## Related Skills
 
 - **storing-data** — Application-state and settings are data stores that sync through change events
 - **context-awareness** — Navigation state writes use jitter prevention to avoid overwriting active edits
 - **actions** — Action routes auto-expose actions as HTTP endpoints; database writes trigger change events
 - **self-modifying-code** — Agent code edits trigger change events; rapid edits can cause event storms
+- **real-time-collab** — Collaborative editors reconcile agent edits into a shared Y.Doc, driven by the same change-sync `updatedAt` bump
