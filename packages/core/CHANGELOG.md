@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.26.2
+
+### Patch Changes
+
+- 1b4800f: Update signup marketing copy to say Agent Native is 100% free and open source.
+
 ## 0.26.1
 
 ### Patch Changes
