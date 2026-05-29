@@ -89,14 +89,7 @@ export async function isObjectStorageConfigured(): Promise<boolean> {
   } catch {
     /* fall through */
   }
-  return Boolean(process.env.BUILDER_PRIVATE_KEY);
-}
-
-/** Synchronous variant for hot-path checks (env-only signal). */
-export function isObjectStorageConfiguredSync(): boolean {
-  const active = getActiveFileUploadProvider();
-  if (active && active.id !== "sql") return true;
-  return Boolean(process.env.BUILDER_PRIVATE_KEY);
+  return false;
 }
 
 /**

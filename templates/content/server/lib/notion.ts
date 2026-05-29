@@ -4,8 +4,9 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { getSession } from "@agent-native/core/server";
-import type { H3Event } from "h3";
+import { assertAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { createError, type H3Event } from "h3";
 import {
   normalizeNfmForNotion,
   normalizeNfmForStorage,
@@ -494,13 +495,32 @@ export async function createNotionPageWithMarkdown(args: {
   });
 }
 
-export async function getDocumentOwnerEmail(event: H3Event): Promise<string> {
-  const session = await getSession(event);
+export async function getDocumentOwnerEmail(
+  event: H3Event,
+  documentId?: string,
+): Promise<string> {
+  const session = await getSession(event).catch(() => null);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
-  return session.email;
+  if (!documentId) return session.email;
+
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const access = await assertAccess("document", documentId, "editor").catch(
+        () => null,
+      );
+      const owner = access?.resource?.ownerEmail;
+      if (typeof owner !== "string" || owner.length === 0) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Document not found",
+        });
+      }
+      return owner;
+    },
+  );
 }
 
 export async function getNotionConnectionForOwner(owner: string) {

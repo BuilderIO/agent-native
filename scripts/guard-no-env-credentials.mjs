@@ -137,6 +137,8 @@ const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
 const HIGH_RISK_DATA_CREDENTIAL_KEYS = new Set([
   "AMPLITUDE_SECRET_KEY",
   "APOLLO_API_KEY",
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
   "COMMONROOM_API_TOKEN",
   "DATAFORSEO_PASSWORD",
   "GONG_ACCESS_KEY",
@@ -373,7 +375,9 @@ async function scan() {
     const scanForbiddenPath = pathIsForbidden(rel);
     const scanEnvConfig =
       /^templates\/[^/]+\/server\/lib\/env-config\.ts$/.test(rel) ||
-      rel === "packages/dispatch/src/server/lib/env-config.ts";
+      /^templates\/[^/]+\/server\/plugins\/core-routes\.ts$/.test(rel) ||
+      rel === "packages/dispatch/src/server/lib/env-config.ts" ||
+      rel === "packages/dispatch/src/server/plugins/core-routes.ts";
     const scanHighRiskTemplateRuntime = pathIsUserFacingTemplateRuntime(rel);
     const scanEnvVarsWrite = pathCanWriteEnvVars(rel);
     if (
@@ -403,6 +407,15 @@ async function scan() {
         let m;
         while ((m = re.exec(contents)) !== null) {
           const { line, col } = lineColForOffset(contents, m.index);
+          const lineText = lines[line - 1] ?? "";
+          const trimmedLine = lineText.trimStart();
+          if (
+            trimmedLine.startsWith("*") ||
+            trimmedLine.startsWith("//") ||
+            trimmedLine.startsWith("/*")
+          ) {
+            continue;
+          }
           violations.push({
             file: rel,
             line,
@@ -410,7 +423,7 @@ async function scan() {
             key,
             reason:
               "high-risk data credential registered as a deploy-level env var",
-            snippet: lines[line - 1]?.trim() ?? "",
+            snippet: lineText.trim(),
           });
         }
       }

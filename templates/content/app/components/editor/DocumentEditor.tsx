@@ -133,9 +133,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
+  const canEdit = document.canEdit ?? true;
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
-  useDocumentSyncStatus(documentId, { autoSync });
+  useDocumentSyncStatus(canEdit ? documentId : null, { autoSync });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -155,7 +156,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
-  const canEdit = document.canEdit ?? true;
 
   // An external write is authoritative (agent edit, Notion pull, or a peer's
   // edit mirrored to SQL) when the server `updatedAt` is newer than the last
