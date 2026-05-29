@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.24.8
+
+### Patch Changes
+
+- aa80e15: Clamp hosted run soft timeouts below upstream hard walls and surface Anthropic tool input progress.
+- aa80e15: Add shared default social image metadata helpers and SSR injection.
+- aa80e15: Update the open source badge copy to mention Agent Native is 100% free and open source.
+- aa80e15: Keep the chat composer scrolled to the caret when inserting Shift+Enter line breaks.
+- aa80e15: Recover client API paths from the live workspace mount when a stale app base path points at another workspace app.
+- aa80e15: Stop losing agent chat turns that span a serverless timeout. A turn that is cut off mid-stream (the Builder gateway's 45s wall or the function/heartbeat limit) and resumed via auto-continuation now folds every continuation run onto a single durable assistant message keyed by a stable `turnId`, instead of each run persisting only its own events and dropping the earlier text. This fixes the "the agent stopped, then the last paragraphs disappear and it says it's just getting started" failure: the streamed text and completed tool calls are preserved in `thread_data` (monotonic, never-shrinking) so reloads and follow-up turns keep full context. Errored/cut-off runs are also now classified (`error_code`/`error_detail`) and retained longer than completed runs so failure patterns can be analyzed.
+- aa80e15: Inject the default Agent-Native social image into SSR HTML when templates do not provide an OG image.
+- aa80e15: Harden workspace scaffold test cleanup against transient filesystem races.
+
 ## 0.24.7
 
 ### Patch Changes
