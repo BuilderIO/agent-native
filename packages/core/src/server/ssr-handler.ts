@@ -226,6 +226,7 @@ function shouldUseDefaultSsrCacheHeader(
   }
 
   if (!pathname.endsWith(".data")) return false;
+  if (!contentType.includes("text/x-script")) return false;
 
   const cacheControl = headers.get("cache-control");
   return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";

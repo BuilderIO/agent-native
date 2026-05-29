@@ -158,6 +158,22 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("does not replace no-cache on non-React Router .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('{"ok":true}', {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/custom.data"));
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
   it("injects the default social image into SSR HTML without one", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response(
