@@ -98,6 +98,8 @@ describe("document database layout", () => {
     expect(source).toContain("const [addViewOpen, setAddViewOpen]");
     expect(source).toContain("setAddViewOpen(false)");
     expect(source).toContain("const [menuOpen, setMenuOpen]");
+    expect(source).toContain("const [actionsMenuOpen, setActionsMenuOpen]");
+    expect(source).toContain("setActionsMenuOpen(false)");
     expect(source).toContain("setMenuOpen(false)");
   });
 

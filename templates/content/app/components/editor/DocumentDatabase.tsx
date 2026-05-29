@@ -1520,6 +1520,7 @@ function DatabaseItemPreview({
   const [localTitle, setLocalTitle] = useState(item.document.title);
   const [localContent, setLocalContent] = useState(item.document.content);
   const [localIcon, setLocalIcon] = useState(item.document.icon);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1642,6 +1643,7 @@ function DatabaseItemPreview({
   }
 
   async function duplicatePreviewRow() {
+    setActionsMenuOpen(false);
     try {
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
       const duplicatedItem = response.items.find(
@@ -1746,7 +1748,10 @@ function DatabaseItemPreview({
               Open page
             </Button>
             {canEdit || canManage ? (
-              <DropdownMenu>
+              <DropdownMenu
+                open={actionsMenuOpen}
+                onOpenChange={setActionsMenuOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -1777,6 +1782,7 @@ function DatabaseItemPreview({
                       className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                       onSelect={(event) => {
                         event.preventDefault();
+                        setActionsMenuOpen(false);
                         setConfirmDeleteOpen(true);
                       }}
                     >
