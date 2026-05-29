@@ -221,15 +221,7 @@ Example:
 
 ## Architecture
 
-```
-Frontend (React)  <-->  Backend (Nitro)  <-->  Data Sources (BigQuery, HubSpot, etc.)
-     |                       |
-     v                       v
-Agent Chat  ------>  Actions (pnpm action)
-     |                       |
-     v                       v
-         SQL Database (shared state)
-```
+React frontend and Nitro backend share one SQL database for all app/UI state; the backend reaches external data sources (BigQuery, HubSpot, etc.). The agent runs the same actions (`pnpm action`) the frontend calls, keeping agent and UI in parity.
 
 ### Data Storage
 

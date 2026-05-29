@@ -28,38 +28,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 ## Architecture
 
-```
-┌──────────────────────┐     ┌──────────────────────┐
-│  Frontend            │     │  Agent Chat          │
-│  (React + Vite)      │◄───►│  (AI agent)          │
-│                      │     │                      │
-│  - MediaRecorder     │     │  - calls actions     │
-│    chunked upload    │     │  - edits metadata    │
-│  - player + editor   │     │  - delegates AI      │
-│  - writes app-state  │     │    via sendToAgent   │
-└──────────┬───────────┘     └──────────┬───────────┘
-           │                            │
-           └──────────────┬─────────────┘
-                          ▼
-                  ┌───────────────┐
-                  │  Nitro server │
-                  │               │
-                  │  actions/     │  ←  auto-mounted at
-                  │  /api/*       │     /_agent-native/actions/:name
-                  └───────┬───────┘
-                          │
-                          ▼
-                  ┌───────────────┐
-                  │  SQL Database │
-                  │  (Neon/PG/SQL)│
-                  └───────────────┘
-                          │
-                          ▼
-                  ┌───────────────┐
-                  │  Video storage│
-                  │  (disk/R2/S3) │
-                  └───────────────┘
-```
+React + Vite frontend (MediaRecorder chunked upload, player + editor, writes app-state) and the agent chat both drive a Nitro server. `actions/` auto-mount at `/_agent-native/actions/:name`; `/api/*` covers uploads/streaming/webhooks. Everything persists to SQL (Neon/PG/SQLite) via Drizzle; video bytes go to disk/R2/S3.
 
 ## Data Sources
 
@@ -324,34 +293,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 
 ## Keyboard Shortcuts
 
-| Key                   | Action                                       |
-| --------------------- | -------------------------------------------- |
-| `Cmd+Shift+L`         | Start a new recording (global)               |
-| `Space`               | Play / pause                                 |
-| `J`                   | Skip back 10s                                |
-| `K`                   | Play / pause                                 |
-| `L`                   | Skip forward 10s                             |
-| `←` / `→`             | Skip back / forward 5s                       |
-| `Shift+←` / `Shift+→` | Previous / next chapter                      |
-| `↑` / `↓`             | Volume up / down                             |
-| `F`                   | Fullscreen                                   |
-| `M`                   | Mute / unmute                                |
-| `,` / `.`             | Step one frame back / forward (while paused) |
-| `-` / `+`             | Slower / faster playback                     |
-| `C`                   | Toggle captions                              |
-| `I`                   | Mark In-point (editor)                       |
-| `O`                   | Mark Out-point (editor)                      |
-| `X`                   | Cut selection (editor)                       |
-| `S`                   | Split at playhead (editor)                   |
-| `/`                   | Focus library search                         |
-| `⌘K`                  | Command menu                                 |
-| `Esc`                 | Close player / clear selection               |
-| `G then L`            | Go to Library                                |
-| `G then S`            | Go to Spaces                                 |
-| `G then A`            | Go to Archive                                |
-| `G then T`            | Go to Trash                                  |
-| `G then M`            | Go to Meetings                               |
-| `G then D`            | Go to Dictate                                |
+These are human player/editor shortcuts (Space play/pause, J/K/L, `[`/`]` trim, `G then L/S/A/T/M/D` to navigate, `⌘K` command menu, etc.). The agent drives the app through actions, not the keyboard — see the `recording` and `video-editing` skills if you need the full key map for documentation.
 
 ## UI Components
 

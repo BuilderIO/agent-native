@@ -286,162 +286,16 @@ This project is a **Remotion-based animation studio** — a web UI for composing
 
 ---
 
-### Core Data Types (`app/types.ts`)
+### Core Data Types, Registry, and Helpers
 
-#### `AnimationTrack`
+The `AnimationTrack` / `AnimatedProp` types (`app/types.ts`), the `CompositionEntry` registry shape (`app/remotion/registry.ts`), the `findTrack` / `trackProgress` / `getPropValue` helpers (`app/remotion/trackAnimation.ts`), the composition component pattern (props + `FALLBACK_TRACKS`), and the steps to add a new composition are all documented in the **`animation-tracks`** and **`composition-management`** skills. Read those before editing animations or compositions.
 
-```typescript
-interface AnimationTrack {
-  id: string; // Unique, stable — e.g. "lr-ring". Used by findTrack().
-  label: string; // Display name in the timeline
-  startFrame: number;
-  endFrame: number;
-  easing: EasingKey; // "linear" | "ease-in" | "ease-out" | "ease-in-out" | "spring"
-  animatedProps?: AnimatedProp[];
-}
-```
+Template-specific notes not in the skills:
 
-#### `AnimatedProp`
-
-```typescript
-interface AnimatedProp {
-  property: string; // Property name — e.g. "opacity", "translateY", "radius"
-  from: string; // Numeric start value as string — e.g. "0"
-  to: string; // Numeric end value as string — e.g. "1"
-  unit: string; // CSS unit appended on output — e.g. "px", "deg", "" (none)
-
-  // Optional transparency / documentation fields:
-  description?: string; // Plain-English explanation shown in the Properties panel
-  codeSnippet?: string; // Read-only source shown in the Properties panel code viewer
-  programmatic?: boolean; // true → no editable from/to; only description + code shown
-  isCustom?: boolean; // true → from/to are raw CSS value strings, not plain numbers
-
-  // Adjustable parameters for programmatic animations:
-  parameters?: Array<{
-    name: string; // Key for accessing value (e.g., "avgCharWidth")
-    label: string; // UI label (e.g., "Character Width")
-    default: number; // Default value
-    min?: number; // Minimum allowed value
-    max?: number; // Maximum allowed value
-    step?: number; // Increment step (e.g., 0.05)
-  }>;
-  parameterValues?: Record<string, number>; // User-adjusted parameter values
-}
-```
-
-**Rule:** Every `animatedProps` entry that has a `codeSnippet` or `programmatic: true` will render as an **expression** (`fx`) in the timeline and Properties panel. Always provide a `description` alongside a `codeSnippet` so users understand what the code does.
-
-**Note:** For programmatic animations, expose internal values as `parameters` to give users control without code editing. See "Exposing Adjustable Parameters" section below for details.
-
----
-
-### The Registry (`app/remotion/registry.ts`)
-
-`compositions` is the authoritative array of `CompositionEntry` objects. Each entry has:
-
-```typescript
-type CompositionEntry = {
-  id: string; // URL slug — e.g. "logo-reveal" → /c/logo-reveal
-  title: string;
-  description: string;
-  component: React.FC<any>; // The Remotion composition component
-  durationInFrames: number; // Default duration (overrideable per-user in localStorage)
-  fps: number; // Default fps (overrideable per-user in localStorage)
-  width: number;
-  height: number;
-  defaultProps: Record<string, any>; // Passed as inputProps to <Player>
-  tracks: AnimationTrack[]; // Default track data (overrideable per-user in localStorage)
-};
-```
-
-**Important:** `defaultProps` is shown in `PropsEditor` as editable fields. Do **not** include `tracks` in `defaultProps` — tracks are passed separately and merged in `CompositionView`.
-
-#### Adding a new composition
-
-1. Create `app/remotion/compositions/MyComp.tsx` — the Remotion component
-2. Export it from `app/remotion/compositions/index.ts`
-3. Add a `CompositionEntry` to the `compositions` array in `app/remotion/registry.ts`
-4. Define `tracks` with meaningful IDs, labels, frame ranges, and `animatedProps`
-
----
-
-### Composition Components (`app/remotion/compositions/*.tsx`)
-
-Each composition:
-
-- Receives `tracks?: AnimationTrack[]` as a prop alongside its own visual props
-- Declares `FALLBACK_TRACKS` — a local copy of the default tracks used when the prop is absent (prevents crashes during development or if the registry changes)
-- Uses `findTrack(tracks, "track-id", FALLBACK_TRACKS[n])` to locate each track
-- Uses `trackProgress(frame, fps, track)` to get a 0→1 progress value
-- Uses `getPropValue(progress, track, "property", defaultFrom, defaultTo)` to read interpolated numeric values from `animatedProps`
-
-#### Template pattern for a new composition
-
-```tsx
-import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
-import type { AnimationTrack } from "@/types";
-import { trackProgress, getPropValue, findTrack } from "../trackAnimation";
-
-export type MyCompProps = {
-  title: string;
-  // ... other visual props
-  tracks?: AnimationTrack[];
-};
-
-const FALLBACK_TRACKS: AnimationTrack[] = [
-  {
-    id: "mc-intro",
-    label: "Intro",
-    startFrame: 0,
-    endFrame: 30,
-    easing: "spring",
-    animatedProps: [
-      { property: "opacity", from: "0", to: "1", unit: "" },
-      { property: "translateY", from: "40", to: "0", unit: "px" },
-    ],
-  },
-];
-
-export const MyComp: React.FC<MyCompProps> = ({
-  title,
-  tracks = FALLBACK_TRACKS,
-}) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-
-  const introTrack = findTrack(tracks, "mc-intro", FALLBACK_TRACKS[0]);
-  const p = trackProgress(frame, fps, introTrack);
-  const opacity = getPropValue(p, introTrack, "opacity", 0, 1);
-  const transY = getPropValue(p, introTrack, "translateY", 40, 0);
-
-  return (
-    <AbsoluteFill>
-      <div style={{ opacity, transform: `translateY(${transY}px)` }}>
-        {title}
-      </div>
-    </AbsoluteFill>
-  );
-};
-```
-
----
-
-### `trackAnimation.ts` — Helper Reference
-
-```typescript
-// Returns 0→1 progress for the track at the given frame.
-// Handles spring (Remotion spring()) and polynomial easings.
-trackProgress(frame, fps, track): number
-
-// Looks up track.animatedProps by property name and interpolates from→to.
-// Falls back to defaultFrom/defaultTo if the property isn't defined.
-getPropValue(progress, track, property, defaultFrom, defaultTo): number
-
-// Finds a track by id; returns fallback if not found.
-findTrack(tracks, id, fallback): AnimationTrack
-```
-
-**Never** hard-code animation values in a composition when those values should be user-editable via the timeline. Use `getPropValue()` instead.
+- `AnimatedProp.isCustom?: boolean` — when `true`, `from`/`to` are raw CSS value strings, not plain numbers.
+- **Rule:** Any `animatedProps` entry with a `codeSnippet` or `programmatic: true` renders as an expression (`fx`) in the timeline and Properties panel. Always pair a `codeSnippet` with a plain-English `description`.
+- **Important:** `defaultProps` is shown in `PropsEditor` as editable fields — do **not** include `tracks` in `defaultProps`; tracks are passed separately and merged in `CompositionView`.
+- **Never** hard-code animation values that should be user-editable via the timeline — read them through `getPropValue()` instead.
 
 ---
 
@@ -551,14 +405,7 @@ In `Timeline.tsx`, keyframe-style tracks (where `startFrame === endFrame`) are a
 
 This is **automatic** - no special code needed in compositions. Just set `startFrame === endFrame` in the registry.
 
-#### Benefits of Track-Based Animation
-
-✅ **User Control** — Every timing can be adjusted in the timeline UI
-✅ **Visibility** — Users see what animations exist and when they happen
-✅ **Consistency** — All animations follow the same pattern
-✅ **No Mysteries** — No hidden hardcoded behaviors
-
-**See:** `BlankComposition.tsx` for an example of track-based composition setup
+Track-based animation gives users full timing control in the timeline UI and keeps every animation visible (no hidden hardcoded behaviors). **See:** `BlankComposition.tsx` for an example of track-based composition setup.
 
 ---
 
@@ -913,38 +760,7 @@ const driftX = startOffset * (1 - easedProgress);
 - Changes are **auto-saved to localStorage**
 - Click **Save button** to persist to the registry file
 
-**Visual hierarchy:**
-
-```
-┌─────────────────────────────────────┐
-│ fx  typing reveal         [CODE] [X]│
-├─────────────────────────────────────┤
-│ PARAMETERS                          │
-│ Character Width  [0.6    ]          │
-│ Drift Distance   [0.125  ]          │
-└─────────────────────────────────────┘
-```
-
-Expanded (after clicking CODE):
-
-```
-┌─────────────────────────────────────┐
-│ fx  typing reveal         [HIDE] [X]│
-├─────────────────────────────────────┤
-│ PARAMETERS                          │
-│ Character Width  [0.6    ]          │
-│ Drift Distance   [0.125  ]          │
-├─────────────────────────────────────┤
-│ ✨ HOW IT WORKS                     │
-│ Letters appear one by one...        │
-├─────────────────────────────────────┤
-│ EXPRESSION (read-only)              │
-│ ┌─────────────────────────────────┐ │
-│ │ const charsToShow = Math.floor…│ │
-│ │ ...                            │ │
-│ └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
-```
+**Visual hierarchy:** the card header shows the `fx` badge, prop name, and a CODE/HIDE toggle. The PARAMETERS section (a number input per parameter) is always visible below it. Clicking CODE expands a "How it works" description followed by the read-only EXPRESSION code block.
 
 #### Best Practices
 
@@ -1407,8 +1223,6 @@ export const MyComp = createInteractiveComposition<MyCompProps>({
 
 ### Architecture
 
-### Architecture
-
 **Storage** (`CurrentElementContext`)
 
 - `getCursorType(compositionId, elementType)` — Reads from localStorage
@@ -1431,19 +1245,7 @@ export const MyComp = createInteractiveComposition<MyCompProps>({
 
 ### Legacy Manual Pattern (Removed)
 
-**⚠️ The legacy manual pattern has been completely removed from the codebase.**
-
-The old manual registration pattern required:
-
-- 6-8 imports per composition
-- Manual `getCursorType()` calls for reactive cursor types
-- Manual `useHoverAnimationSmooth()` + `useRegisterInteractiveElement()` for each element
-- Manual cursor type aggregation with `useCursorTypeFromHover()`
-- Manual `<CameraHost>` wrapper
-
-This resulted in 729 lines for a 6-card interactive composition.
-
-**For all new code:** Use `createInteractiveComposition()` (145 lines) or `useInteractiveComponent()` (177 lines) patterns instead.
+The old manual registration pattern has been removed from the codebase. For all new code use `createInteractiveComposition()` or `useInteractiveComponent()` (see the Recommended Patterns above).
 
 ### User Workflow
 
@@ -1641,8 +1443,6 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 ### Icons
 
 - **Never use the Sparkles icon** — it is reserved and must not be used anywhere in the UI.
-
-### Agent Chat Integration
 
 ---
 

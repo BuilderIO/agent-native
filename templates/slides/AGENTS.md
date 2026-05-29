@@ -727,18 +727,7 @@ When generating outbound content (deck slides, marketing copy), use only the aud
 
 ## Skills (for code editing only)
 
-These skills are **only** needed when modifying source code, styles, or architecture. They are **not** needed for creating slides — the slide HTML templates above have everything you need for slide generation.
-
-The framework auto-injects a `<skills>` block in your system prompt listing every available skill with its directory path and description. Skills are folders at `.agents/skills/<name>/` containing `SKILL.md` plus any supporting files.
-
-Read a skill via shell (dev mode):
-
-```
-shell(command="cat .agents/skills/actions/SKILL.md")
-shell(command="ls .agents/skills/actions/")
-```
-
-In production mode (no shell): critical content should be inlined in this AGENTS.md. For this template, all slide HTML templates are already inlined above — skills are only needed for code modification, which happens in dev.
+These skills are **only** needed when modifying source code, styles, or architecture — **not** for creating slides (the slide HTML templates above have everything you need). The framework auto-injects a `<skills>` block listing every skill with its `.agents/skills/<name>/` path and description; read one via shell in dev mode (`cat .agents/skills/<name>/SKILL.md`). In production there is no shell, so all slide-generation content is already inlined above; skills cover code modification, which happens in dev.
 
 ## Inline Previews in Chat
 
@@ -828,61 +817,17 @@ title: Slide 2 — Key Metrics
 
 ## Design Philosophy Reference
 
-When the user's request is vague about visual direction, recommend from these schools:
-
-### Information Architecture School
-
-- **Pentagram**: Grid-first, black/white/red, structured information hierarchy
-- **Stamen Design**: Data-driven, cartographic precision, clear visual encoding
-
-### Motion Poetics School
-
-- **Locomotive**: Smooth scroll, parallax depth, cinematic pacing
-- **Active Theory**: WebGL experiments, particle systems, immersive 3D
-- **Field.io**: Generative art, algorithmic beauty, mathematical precision
-
-### Minimalism School
-
-- **Experimental Jetset**: Swiss typography, geometric forms, pure structure
-- **Muller-Brockmann**: Grid systems, objective communication, typographic hierarchy
-- **Build**: Reduction to essence, mono-font, pure whitespace
-
-### Eastern Philosophy School
-
-- **Kenya Hara**: Ma (negative space), simplicity as depth, emptiness as design
-- **Takram**: Craft meets technology, material honesty, subtle animation
-
-**Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications.
+When the user's request is vague about visual direction, describe a mood rather than a layout — short emotional prompts outperform detailed layout specs. For a fuller catalog of design schools (information-architecture, motion, minimalism, Eastern) and named studios to draw from, see the `frontend-design` skill.
 
 ---
 
 ## Slide Design Patterns
 
-### Batch Production Strategy
+**Batch production:** make 2 showcase slides first (title + key content), get user approval on the visual grammar, then produce the rest following the established grammar.
 
-Always make 2 showcase slides first to lock the visual grammar before scaling:
+**Layout types:** title, data/charts, comparison (side-by-side / before-after / pros-cons), timeline/process, quote, image gallery, annotated code.
 
-1. Generate 2 hero slides (title + key content)
-2. Get user approval on the visual language
-3. Then produce remaining slides following the established grammar
-
-### Slide Layout Types
-
-- **Title**: Large heading, minimal text, strong visual impact
-- **Data**: Charts, numbers, clear data visualization
-- **Comparison**: Side-by-side, before/after, pros/cons
-- **Timeline**: Sequential events, process flows
-- **Quote**: Large pull quote with attribution
-- **Gallery**: Image grid with captions
-- **Code**: Syntax-highlighted code with annotations
-
-### Typography on Slides
-
-- Heading: 48-72px on the 960x540 native slide canvas
-- Body: 22-32px minimum
-- Caption: 18-20px
-- Use `font-variation-settings` for weight morphing (if variable font available)
-- Two-tier shadow: 1px tight shadow + 8px ambient shadow (never single shadow)
+**Typography on the 960x540 native canvas:** headings 48-72px, body 22-32px minimum, captions 18-20px. Use `font-variation-settings` for weight morphing when a variable font is available, and a two-tier shadow (1px tight + 8px ambient, never a single shadow).
 
 ---
 
