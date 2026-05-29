@@ -319,15 +319,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     };
     return;
   }
-  const lowerMessage = message.toLowerCase();
-  if (
-    status === 403 &&
-    (lowerMessage.includes("unauthorized") ||
-      lowerMessage.includes("private key") ||
-      lowerMessage.includes("invalid token") ||
-      lowerMessage.includes("invalid_token") ||
-      lowerMessage.includes("token invalid"))
-  ) {
+  if (status === 403 && isBuilderCredentialAuthError(message)) {
     await recordBuilderCredentialAuthFailure({ status, code, message });
     yield {
       type: "stop",
@@ -566,13 +558,24 @@ async function* parseJsonlStream(
             const errMsg =
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
-            const errCode =
-              event.errorCode ??
-              event.code ??
-              (!explicitErrMsg ? "builder_gateway_error" : undefined);
+            const gatewayErrCode = event.errorCode ?? event.code;
+            const isCredentialAuthError =
+              Boolean(explicitErrMsg) &&
+              isBuilderCredentialAuthError(String(errMsg));
+            const errCode = isCredentialAuthError
+              ? "builder_auth_error"
+              : (gatewayErrCode ??
+                (!explicitErrMsg ? "builder_gateway_error" : undefined));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
+            if (isCredentialAuthError) {
+              await recordBuilderCredentialAuthFailure({
+                code:
+                  typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
+                message: String(errMsg),
+              });
+            }
             // No-detail gateway errors are opaque to the chat client — the
             // only way to debug them is from the gateway side. Capture rich
             // tags here (model, gatewayOrigin, requestId) so the gateway
@@ -738,6 +741,26 @@ function createGatewayAbortSignal(
       parentSignal.removeEventListener("abort", abortFromParent);
     },
   };
+}
+
+function isBuilderCredentialAuthError(message: string): boolean {
+  const lowerMessage = message.toLowerCase();
+  const referencesAccessToken =
+    lowerMessage.includes("personal access token") ||
+    lowerMessage.includes("access token");
+  const rejectedToken =
+    lowerMessage.includes("invalid") ||
+    lowerMessage.includes("inactive") ||
+    lowerMessage.includes("expired") ||
+    lowerMessage.includes("revoked");
+  return (
+    lowerMessage.includes("unauthorized") ||
+    lowerMessage.includes("private key") ||
+    lowerMessage.includes("invalid token") ||
+    lowerMessage.includes("invalid_token") ||
+    lowerMessage.includes("token invalid") ||
+    (referencesAccessToken && rejectedToken)
+  );
 }
 
 function normalizeBuilderGatewayFetchError(
