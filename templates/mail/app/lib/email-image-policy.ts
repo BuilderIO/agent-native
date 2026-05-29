@@ -200,6 +200,32 @@ export function processHtmlImages(
         blocked++;
       }
     });
+
+    root.querySelectorAll<Element>("*").forEach((el) => {
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+        if (
+          name === "style" ||
+          name === "href" ||
+          name === "xlink:href" ||
+          name === "src" ||
+          name === "background" ||
+          name === "poster"
+        ) {
+          continue;
+        }
+        if (!/(?:url\s*\(|@import)/i.test(attr.value)) continue;
+
+        const [value, count] = stripCssRemoteResources(attr.value);
+        if (count === 0) continue;
+        blocked += count;
+        if (value.trim()) {
+          el.setAttribute(attr.name, value);
+        } else {
+          el.removeAttribute(attr.name);
+        }
+      }
+    });
   }
 
   return [template.innerHTML, blocked];
