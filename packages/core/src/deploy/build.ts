@@ -377,13 +377,22 @@ function injectDefaultSocialImageMeta(html) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function applyDefaultSsrCacheHeader(headers, status) {
-  if (headers.has("cache-control")) return;
-  if (status < 200 || status >= 400) return;
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
+  if (status < 200 || status >= 400) return false;
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
-  if (!contentType.includes("text/html")) return;
+  if (contentType.includes("text/html")) {
+    return !headers.has("cache-control");
+  }
 
+  if (!pathname.endsWith(".data")) return false;
+
+  const cacheControl = headers.get("cache-control");
+  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+}
+
+function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -407,10 +416,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath) {
+async function rewriteMountedResponse(response, basePath, pathname) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -531,9 +540,10 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
+        p,
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p);
   }));
 
   _handler = app.fetch.bind(app);

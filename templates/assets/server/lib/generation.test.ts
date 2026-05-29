@@ -6,7 +6,7 @@ import {
 } from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
-const resolveBuilderAuthHeaderMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 
@@ -35,7 +35,7 @@ vi.mock("@agent-native/core/server", () => {
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
-    resolveBuilderAuthHeader: resolveBuilderAuthHeaderMock,
+    resolveBuilderCredentials: resolveBuilderCredentialsMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -66,7 +66,13 @@ describe("generateWithManagedImageProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "true");
-    resolveBuilderAuthHeaderMock.mockResolvedValue("Bearer builder-key");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-builder-key",
+      publicKey: "space-test",
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
     resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
     resolveSecretMock.mockResolvedValue(null);
   });
@@ -99,7 +105,13 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("keeps missing Builder credentials on reconnect guidance", async () => {
-    resolveBuilderAuthHeaderMock.mockResolvedValue(null);
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
 
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
@@ -111,7 +123,13 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
-    resolveBuilderAuthHeaderMock.mockResolvedValue(null);
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -145,7 +163,13 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
-    resolveBuilderAuthHeaderMock.mockResolvedValue(null);
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
@@ -236,6 +260,15 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "https://builder.test/agent-native/images/v1/generations",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer bpk-builder-key",
+          "x-builder-api-key": "space-test",
+        }),
+      }),
+    ]);
   });
 });
 

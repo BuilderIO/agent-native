@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderAuthHeader,
+  resolveBuilderCredentials,
   resolveSecret,
 } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
@@ -176,8 +176,8 @@ interface BuilderImageGenerationResponse {
 export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  const authHeader = await resolveBuilderAuthHeader();
-  if (!authHeader) {
+  const builderCredentials = await resolveBuilderCredentials();
+  if (!builderCredentials.privateKey) {
     throw new BuilderImageGenerationError(
       "Builder.io is not connected for managed image generation.",
       401,
@@ -188,7 +188,10 @@ export async function generateWithBuilderImageApi(
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
-      Authorization: authHeader,
+      Authorization: `Bearer ${builderCredentials.privateKey}`,
+      ...(builderCredentials.publicKey
+        ? { "x-builder-api-key": builderCredentials.publicKey }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

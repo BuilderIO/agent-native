@@ -213,13 +213,30 @@ function isAuthenticatedCookieName(name: string): boolean {
   );
 }
 
-function applyDefaultSsrCacheHeader(headers: Headers, status: number) {
-  if (headers.has("cache-control")) return;
-  if (status < 200 || status >= 400) return;
+function shouldUseDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+): boolean {
+  if (status < 200 || status >= 400) return false;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/html")) return;
+  if (contentType.includes("text/html")) {
+    return !headers.has("cache-control");
+  }
 
+  if (!pathname.endsWith(".data")) return false;
+
+  const cacheControl = headers.get("cache-control");
+  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+}
+
+function applyDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -244,10 +261,11 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
+  pathname: string,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -327,11 +345,13 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
             headers: response.headers,
           }),
           basePath,
+          p,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
+        p,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
