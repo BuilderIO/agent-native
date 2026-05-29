@@ -184,7 +184,8 @@ export default function LibraryPage() {
       asset.mimeType,
       asset.status,
       asset.role,
-      asset.metadata?.category,
+      assetCategoryLabel(asset),
+      asset.metadata?.intent,
       asset.metadata?.originalName,
     ]
       .filter((value): value is string => typeof value === "string")
@@ -478,8 +479,31 @@ export default function LibraryPage() {
     const selectedPreset = options.presetId
       ? generationPresets.find((preset) => preset.id === options.presetId)
       : null;
+    const trimmedPrompt = prompt.trim();
+    const chatMessage =
+      trimmedPrompt ||
+      (options.mediaType === "video"
+        ? "Generate a video for this library."
+        : "Generate images for this library.");
     const context = [
       "## Assets library context",
+      options.mediaType === "video"
+        ? "Requested output: 1 video candidate for this library"
+        : `Requested output: ${options.count} image candidate${options.count === 1 ? "" : "s"} for this library`,
+      `User prompt: ${trimmedPrompt || "(no text prompt provided)"}`,
+      options.presetId ? `Preset ID: ${options.presetId}` : "Preset ID: none",
+      `Aspect ratio: ${options.aspectRatio}`,
+      options.mediaType === "video"
+        ? `Duration: ${options.durationSeconds}s\nResolution: ${options.resolution}`
+        : `Image size: ${options.imageSize}`,
+      `Model: ${options.model}`,
+      activeFolderId && activeFolderId !== "all"
+        ? `Folder ID: ${activeFolderId}`
+        : "Folder ID: none",
+      `Reference categories: ${options.category}`,
+      `Include canonical logo: ${options.includeLogo ? "yes" : "no"}`,
+      "",
+      "## Selected library",
       `Library: ${library.title} (${library.id})`,
       `Description: ${library.description || ""}`,
       `Folder: ${activeFolderId && activeFolderId !== "all" ? folders.find((folder) => folder.id === activeFolderId)?.title : "All assets"}`,
@@ -498,23 +522,7 @@ export default function LibraryPage() {
         : "Use the asset generation actions. If a generation preset ID is present, pass presetId to generate-image or generate-image-batch. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
     ].join("\n");
     sendToAgentChat({
-      message: [
-        options.mediaType === "video"
-          ? "Generate 1 video candidate for this library."
-          : `Generate ${options.count} image candidate${options.count === 1 ? "" : "s"} for this library.`,
-        `Prompt: ${prompt}`,
-        options.presetId ? `Preset ID: ${options.presetId}` : "Preset ID: none",
-        `Aspect ratio: ${options.aspectRatio}`,
-        options.mediaType === "video"
-          ? `Duration: ${options.durationSeconds}s\nResolution: ${options.resolution}`
-          : `Image size: ${options.imageSize}`,
-        `Model: ${options.model}`,
-        activeFolderId && activeFolderId !== "all"
-          ? `Folder ID: ${activeFolderId}`
-          : "Folder ID: none",
-        `Reference categories: ${options.category}`,
-        `Include canonical logo: ${options.includeLogo ? "yes" : "no"}`,
-      ].join("\n"),
+      message: chatMessage,
       context,
       submit: true,
       newTab: true,
@@ -603,7 +611,7 @@ export default function LibraryPage() {
                 "Upload, generate, describe, and organize reusable assets across agents."}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap lg:shrink-0">
             <ShareButton
               resourceType="asset-library"
               resourceId={library.id}
@@ -624,7 +632,7 @@ export default function LibraryPage() {
             </Button>
             <Button
               variant="outline"
-              className="gap-2"
+              className="hidden gap-2 xl:inline-flex"
               onClick={() => setFolderOpen(true)}
             >
               <IconFolderPlus className="h-4 w-4" />
@@ -649,6 +657,17 @@ export default function LibraryPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  className="xl:hidden"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setFolderOpen(true);
+                  }}
+                >
+                  <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+                  New folder
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="xl:hidden" />
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
@@ -721,13 +740,6 @@ export default function LibraryPage() {
       ) : null}
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <BrandSummaryCard
-          library={library}
-          assets={assets}
-          referencesCount={references.length}
-          onGenerate={() => setGenerateOpen(true)}
-        />
-
         <section className="mb-5 space-y-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1020,135 +1032,6 @@ type PendingUpload = {
 
 type LibraryTab = "references" | "generated" | "runs" | "settings";
 
-function BrandSummaryCard({
-  library,
-  assets,
-  referencesCount,
-  onGenerate,
-}: {
-  library: any;
-  assets: any[];
-  referencesCount: number;
-  onGenerate: () => void;
-}) {
-  const style = library.styleBrief ?? {};
-  const settings = library.settings ?? {};
-  const analysis = settings.brandAnalysis ?? {};
-  const canonicalIds = Array.isArray(settings.canonicalStyleAssetIds)
-    ? settings.canonicalStyleAssetIds.filter(
-        (id: unknown): id is string => typeof id === "string",
-      )
-    : [];
-  const anchors = assets
-    .filter(
-      (asset) =>
-        asset.metadata?.isStyleAnchor === true ||
-        canonicalIds.includes(asset.id),
-    )
-    .slice(0, 4);
-  const palette = Array.isArray(style.palette) ? style.palette.slice(0, 6) : [];
-  const constraints = Array.isArray(style.doNot) ? style.doNot.slice(0, 2) : [];
-  const traits = [style.medium, style.mood, style.texture]
-    .filter((item): item is string => typeof item === "string" && !!item.trim())
-    .slice(0, 3);
-  const analyzedCount =
-    typeof analysis.analyzedImageCount === "number"
-      ? analysis.analyzedImageCount
-      : typeof analysis.referenceCount === "number"
-        ? analysis.referenceCount
-        : referencesCount;
-
-  return (
-    <section className="mb-5 rounded-lg border border-border bg-card p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold">Brand summary</h3>
-            <Badge variant={analysis.analyzedAt ? "secondary" : "outline"}>
-              {analysis.analyzedAt ? "Learned" : "Needs analysis"}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              {analyzedCount} reference{analyzedCount === 1 ? "" : "s"}
-              {analysis.analyzedAt
-                ? ` · Last analyzed ${formatBrandAnalysisTime(
-                    analysis.analyzedAt,
-                  )}`
-                : ""}
-            </span>
-          </div>
-          <p className="line-clamp-2 max-w-4xl text-sm leading-relaxed text-foreground">
-            {style.description ||
-              "Upload example assets, analyze the brand in Settings, then generate from a prompt with the library look applied."}
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            {palette.length ? (
-              <div className="flex items-center gap-1.5">
-                {palette.map((color: string) => (
-                  <span
-                    key={color}
-                    className="h-5 w-5 rounded border border-border"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            ) : null}
-            {traits.map((trait) => (
-              <Badge
-                key={trait}
-                variant="outline"
-                className="max-w-52 truncate"
-              >
-                {trait}
-              </Badge>
-            ))}
-            {constraints.map((constraint: string) => (
-              <Badge
-                key={constraint}
-                variant="outline"
-                className="max-w-64 truncate text-muted-foreground"
-              >
-                Avoid {constraint}
-              </Badge>
-            ))}
-          </div>
-          {anchors.length ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                Anchors
-              </span>
-              <div className="flex -space-x-2">
-                {anchors.map((asset) => (
-                  <img
-                    key={asset.id}
-                    src={assetMediaUrl(asset.thumbnailUrl || asset.previewUrl)}
-                    alt=""
-                    className="h-8 w-8 rounded-md border border-background object-cover"
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <Button className="shrink-0 gap-2" onClick={onGenerate}>
-          <IconMessageCircle className="h-4 w-4" />
-          Generate
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function formatBrandAnalysisTime(value: unknown): string {
-  if (typeof value !== "string" || !value) return "unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function RunCard({
   run,
   outputAssets,
@@ -1356,10 +1239,23 @@ function assetDisplayTitle(asset: any): string {
   return (
     assetLineageLabel(asset) ||
     asset.title ||
-    asset.metadata?.category ||
+    assetCategoryLabel(asset) ||
     asset.status ||
     "Asset"
   );
+}
+
+function assetCategoryLabel(asset: any): string | null {
+  if (
+    asset?.metadata?.intent === "subject" ||
+    asset?.role === "subject_reference"
+  ) {
+    return "content only";
+  }
+  const category = asset?.metadata?.category;
+  if (typeof category !== "string") return null;
+  if (category === "style-only") return "style reference";
+  return category.replace(/-/g, " ");
 }
 
 function assetLineageSourceText(asset: any): string | null {
@@ -2457,9 +2353,9 @@ function AssetGrid({
                     ) : null}
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">{asset.status}</Badge>
-                      {asset.metadata?.category && (
+                      {assetCategoryLabel(asset) && (
                         <Badge variant="outline">
-                          {asset.metadata.category}
+                          {assetCategoryLabel(asset)}
                         </Badge>
                       )}
                     </div>

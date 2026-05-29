@@ -885,7 +885,8 @@ export async function selectReferences(input: {
         item.isSubject ||
         item.isSource ||
         item.isAnchor ||
-        item.metadata.intent !== "subject",
+        (item.metadata.intent !== "subject" &&
+          item.asset.role !== "subject_reference"),
     );
 
   const byId = new Map(candidates.map((item) => [item.asset.id, item]));

@@ -112,6 +112,10 @@ function calendarDraftIdFromEventId(eventId: string) {
     : null;
 }
 
+function isSlotDraftId(id: string) {
+  return id.startsWith("slot-");
+}
+
 function parseValidDate(value: string | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
@@ -297,6 +301,7 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const committingDraftIdsRef = useRef<Set<string>>(new Set());
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
@@ -349,6 +354,7 @@ export default function CalendarView() {
     data: rawEventsData,
     error: eventsError,
     isLoading,
+    isPlaceholderData,
   } = useEvents(from, to, overlayEmails);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
   const draftEvent = useMemo(
@@ -407,7 +413,7 @@ export default function CalendarView() {
 
   // Show skeleton only when loading with no cached data (new date range).
   // Tab refocus keeps cached data visible and refetches in background.
-  const eventsLoading = isLoading;
+  const eventsLoading = isLoading || isPlaceholderData;
 
   // Apply overlay colors and filter hidden calendars
   const events = useMemo(() => {
@@ -501,42 +507,11 @@ export default function CalendarView() {
     viewMode,
   ]);
 
-  const updateDraftEvent = useCallback(
-    (eventId: string, patch: DraftEventPatch) => {
-      const draftId = calendarDraftIdFromEventId(eventId);
-      if (!draftId || !eventDraft || eventDraft.id !== draftId) return null;
-      const nextDraft = applyDraftPatch(eventDraft, patch);
-      setEventDraft(nextDraft);
-      persistCalendarDraft(nextDraft);
-      return nextDraft;
-    },
-    [eventDraft, setEventDraft],
-  );
-
-  const discardDraftEvent = useCallback(
-    (eventId: string) => {
-      const draftId = calendarDraftIdFromEventId(eventId);
-      if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
-      deletePersistedCalendarDraft(draftId);
-      setEventDraft(null);
-      setQuickEditEventId(null);
-      if (sidebarEvent?.id === eventId) setSidebarEvent(null);
-      if (focusedEvent?.id === eventId) setFocusedEvent(null);
-    },
-    [
-      eventDraft,
-      focusedEvent,
-      setEventDraft,
-      setFocusedEvent,
-      setSidebarEvent,
-      sidebarEvent,
-    ],
-  );
-
   const createDraftEvent = useCallback(
     (eventId: string, pendingPatch?: DraftEventPatch) => {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
+      if (committingDraftIdsRef.current.has(draftId)) return;
       const draft = pendingPatch
         ? applyDraftPatch(eventDraft, pendingPatch)
         : eventDraft;
@@ -544,10 +519,18 @@ export default function CalendarView() {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
-      const title = draft.title?.trim();
+      const trimmedTitle = draft.title?.trim();
+      const title =
+        trimmedTitle && trimmedTitle !== "(No title)"
+          ? trimmedTitle
+          : isSlotDraftId(draftId)
+            ? "(No title)"
+            : "";
       if (!title || title === "(No title)") {
-        toast.error("Add a title before creating the event");
-        return;
+        if (!isSlotDraftId(draftId)) {
+          toast.error("Add a title before creating the event");
+          return;
+        }
       }
 
       const { start, end } = draftRange(draft, selectedDate);
@@ -573,8 +556,10 @@ export default function CalendarView() {
                   : draft.workingLocationLabel,
             };
 
+      committingDraftIdsRef.current.add(draftId);
       createEvent.mutate(
         {
+          _tempId: eventId,
           title,
           description: draft.description ?? "",
           start: start.toISOString(),
@@ -632,10 +617,53 @@ export default function CalendarView() {
             toast.error(
               error instanceof Error ? error.message : "Failed to create event",
             ),
+          onSettled: () => {
+            committingDraftIdsRef.current.delete(draftId);
+          },
         },
       );
     },
     [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
+  );
+
+  const updateDraftEvent = useCallback(
+    (eventId: string, patch: DraftEventPatch) => {
+      const draftId = calendarDraftIdFromEventId(eventId);
+      if (!draftId || !eventDraft || eventDraft.id !== draftId) return null;
+
+      if (isSlotDraftId(draftId)) {
+        const nextDraft = applyDraftPatch(eventDraft, patch);
+        createDraftEvent(eventId, patch);
+        return nextDraft;
+      }
+
+      const nextDraft = applyDraftPatch(eventDraft, patch);
+      setEventDraft(nextDraft);
+      persistCalendarDraft(nextDraft);
+      return nextDraft;
+    },
+    [createDraftEvent, eventDraft, setEventDraft],
+  );
+
+  const discardDraftEvent = useCallback(
+    (eventId: string) => {
+      const draftId = calendarDraftIdFromEventId(eventId);
+      if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
+      if (committingDraftIdsRef.current.has(draftId)) return;
+      deletePersistedCalendarDraft(draftId);
+      setEventDraft(null);
+      setQuickEditEventId(null);
+      if (sidebarEvent?.id === eventId) setSidebarEvent(null);
+      if (focusedEvent?.id === eventId) setFocusedEvent(null);
+    },
+    [
+      eventDraft,
+      focusedEvent,
+      setEventDraft,
+      setFocusedEvent,
+      setSidebarEvent,
+      sidebarEvent,
+    ],
   );
 
   const selectedEvent = useMemo(() => {

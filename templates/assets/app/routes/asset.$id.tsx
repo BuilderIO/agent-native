@@ -51,6 +51,7 @@ export default function AssetDetailPage() {
   const isVideo =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
   const previewUrl = assetMediaUrl(asset.previewUrl);
+  const categoryLabel = assetCategoryLabel(asset);
 
   function refine() {
     sendToAgentChat({
@@ -119,9 +120,7 @@ export default function AssetDetailPage() {
           <Badge variant="secondary">{asset.status}</Badge>
           <Badge variant="outline">{asset.role}</Badge>
           <Badge variant="outline">{isVideo ? "video" : "image"}</Badge>
-          {asset.metadata?.category && (
-            <Badge variant="outline">{asset.metadata.category}</Badge>
-          )}
+          {categoryLabel && <Badge variant="outline">{categoryLabel}</Badge>}
         </div>
         <Separator className="my-5" />
         <div className="space-y-4 text-sm">
@@ -244,6 +243,19 @@ export default function AssetDetailPage() {
       </div>
     </div>
   );
+}
+
+function assetCategoryLabel(asset: any): string | null {
+  if (
+    asset?.metadata?.intent === "subject" ||
+    asset?.role === "subject_reference"
+  ) {
+    return "content only";
+  }
+  const category = asset?.metadata?.category;
+  if (typeof category !== "string") return null;
+  if (category === "style-only") return "style reference";
+  return category.replace(/-/g, " ");
 }
 
 function AssetImagePreview({

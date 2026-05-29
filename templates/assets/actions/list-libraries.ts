@@ -3,6 +3,7 @@ import { z } from "zod";
 import { and, desc, inArray, isNull } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
+import { parseJson } from "../server/lib/json.js";
 import { serializeAsset, serializeLibrary } from "./_helpers.js";
 
 function isImageAsset(asset: typeof schema.assets.$inferSelect): boolean {
@@ -12,8 +13,22 @@ function isImageAsset(asset: typeof schema.assets.$inferSelect): boolean {
   );
 }
 
+function isContentOnlyReference(
+  asset: typeof schema.assets.$inferSelect,
+): boolean {
+  if (asset.role === "subject_reference") return true;
+  const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
+  return metadata.intent === "subject";
+}
+
+function isReusableReference(
+  asset: typeof schema.assets.$inferSelect,
+): boolean {
+  return asset.status === "reference" && !isContentOnlyReference(asset);
+}
+
 function previewPriority(asset: typeof schema.assets.$inferSelect): number {
-  if (asset.status === "reference") return 0;
+  if (isReusableReference(asset)) return 0;
   if (asset.status === "saved") return 1;
   if (asset.role === "generated") return 2;
   return 3;
@@ -89,8 +104,8 @@ export default defineAction({
         ? { id: base.id, title: base.title, description: base.description }
         : {
             ...base,
-            referenceCount: libAssets.filter(
-              (asset) => asset.status === "reference",
+            referenceCount: libAssets.filter((asset) =>
+              isReusableReference(asset),
             ).length,
             generatedCount: libAssets.filter(
               (asset) => asset.role === "generated",

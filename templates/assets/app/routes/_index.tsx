@@ -590,13 +590,13 @@ function HomeGeneratePanel({
 
     if (unsupportedFiles.length > 0) {
       toast.error(
-        "Attach image files as references, or text files as prompt context.",
+        "Attach image files as content references, or text files as prompt context.",
       );
       return;
     }
 
     if (imageFiles.length > 0 && !selectedLibrary) {
-      toast.error("Pick a library to attach reference images.");
+      toast.error("Pick a library to attach content images.");
       return;
     }
 
@@ -604,7 +604,7 @@ function HomeGeneratePanel({
     if (imageFiles.length > 0 && selectedLibrary) {
       const uploadChunks = chunkAssetUploads(imageFiles);
       const uploadingToast = toast.loading(
-        `Uploading ${imageFiles.length} reference${imageFiles.length === 1 ? "" : "s"}...`,
+        `Uploading ${imageFiles.length} content image${imageFiles.length === 1 ? "" : "s"}...`,
         {
           description:
             uploadChunks.length > 1
@@ -618,7 +618,8 @@ function HomeGeneratePanel({
         for (const chunk of uploadChunks) {
           const form = new FormData();
           form.append("libraryId", selectedLibrary.id);
-          form.append("category", "style-only");
+          form.append("category", "other");
+          form.append("intent", "subject");
           for (const file of chunk) form.append("files", file);
           const res = await fetch(`${appBasePath()}/api/assets/upload`, {
             method: "POST",
@@ -634,14 +635,14 @@ function HomeGeneratePanel({
           uploadedAssets.push(
             ...(data.assets ?? []).map((a: any) => ({
               id: a.id,
-              title: a.title || "Reference image",
+              title: a.title || "Content image",
             })),
           );
         }
         const uploadedCount = uploadedAssets.length;
         if (failedCount > 0) {
           toast.warning(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
             }; ${failedCount} failed.`,
             {
@@ -654,7 +655,7 @@ function HomeGeneratePanel({
           );
         } else if (uploadedCount > 0 && skippedCount > 0) {
           toast.success(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
             }; skipped ${skippedCount} duplicate${
               skippedCount === 1 ? "" : "s"
@@ -663,14 +664,14 @@ function HomeGeneratePanel({
           );
         } else if (uploadedCount > 0) {
           toast.success(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
-            } to ${selectedLibrary.title}`,
+            } for this request`,
             { id: uploadingToast, description: null },
           );
         } else if (skippedCount > 0) {
           toast.warning(
-            `Skipped ${skippedCount} duplicate reference${
+            `Skipped ${skippedCount} duplicate content image${
               skippedCount === 1 ? "" : "s"
             }.`,
             {
@@ -679,13 +680,13 @@ function HomeGeneratePanel({
             },
           );
         } else {
-          toast.warning("No new references were added.", {
+          toast.warning("No new content images were attached.", {
             id: uploadingToast,
             description: null,
           });
         }
       } catch (err: any) {
-        toast.error(err?.message || "Couldn't upload references.", {
+        toast.error(err?.message || "Couldn't upload content images.", {
           id: uploadingToast,
           description: null,
         });
@@ -707,30 +708,40 @@ function HomeGeneratePanel({
       }
     }
 
-    const messageLines = [
+    const chatMessage =
+      trimmed ||
+      (uploadedAssets.length > 0
+        ? "Generate from the attached content images."
+        : "Generate from the attached context.");
+    const requestLines = [
       requestedMediaType === "video"
-        ? "Generate 1 video candidate."
-        : `Generate ${count} image candidate${count === 1 ? "" : "s"}.`,
-      `Prompt: ${trimmed}`,
+        ? "Requested output: 1 video candidate"
+        : `Requested output: ${count} image candidate${count === 1 ? "" : "s"}`,
+      `User prompt: ${trimmed || "(no text prompt provided)"}`,
       `Aspect ratio: ${aspectRatio}`,
       selectedLibrary
         ? `Use library: ${selectedLibrary.title} (${selectedLibrary.id})`
         : "No library selected; match-library if you find a strong fit, otherwise generate generic.",
     ];
     if (uploadedAssets.length > 0) {
-      messageLines.push(
-        `Just uploaded ${uploadedAssets.length} new reference${
+      requestLines.push(
+        `Attached ${uploadedAssets.length} content image${
           uploadedAssets.length === 1 ? "" : "s"
-        } to the library - prioritize them: ${uploadedAssets
+        } for this request - use as source/content context, not reusable style inspiration: ${uploadedAssets
           .map((a) => a.id)
           .join(", ")}`,
+        uploadedAssets.length === 1
+          ? `If the user wants the attached image preserved or restyled, pass subjectAssetId: ${uploadedAssets[0].id}.`
+          : "Pass these IDs explicitly as referenceAssetIds or subjectAssetId values when the content needs to influence generation.",
       );
     }
 
-    const contextLines = ["## Assets create composer"];
+    const contextLines = ["## Assets create composer", ...requestLines];
     if (selectedLibrary) {
       const customInstructions = getLibraryCustomInstructions(selectedLibrary);
       contextLines.push(
+        "",
+        "## Selected library",
         `Library: ${selectedLibrary.title} (${selectedLibrary.id})`,
         `Description: ${selectedLibrary.description || ""}`,
         `References: ${selectedLibrary.referenceCount ?? 0}`,
@@ -746,22 +757,20 @@ function HomeGeneratePanel({
     if (uploadedAssets.length > 0) {
       contextLines.push(
         "",
-        "## Newly uploaded references (this turn)",
+        "## Attached content images (this turn)",
         ...uploadedAssets.map((a) => `- ${a.id} - ${a.title}`),
         "",
-        "These were just added to the library. Treat them as the highest-weight style references for this generation.",
+        "These are content-only source images for this request. Use them for subject, product, composition, or source-image context; do not treat them as style-guide inspiration or reusable style anchors.",
       );
     }
     if (textContextSnippets.length > 0) {
       contextLines.push(
         "",
-        "## Attached text context (this turn)",
-        ...textContextSnippets,
-      );
-      messageLines.push(
         `Use ${textContextSnippets.length} attached text context file${
           textContextSnippets.length === 1 ? "" : "s"
         } from the request context.`,
+        "## Attached text context (this turn)",
+        ...textContextSnippets,
       );
     }
     contextLines.push(
@@ -772,7 +781,7 @@ function HomeGeneratePanel({
     );
 
     sendToAgentChat({
-      message: messageLines.join("\n"),
+      message: chatMessage,
       context: contextLines.join("\n"),
       submit: true,
       newTab: true,
@@ -803,8 +812,8 @@ function HomeGeneratePanel({
               placeholder={
                 selectedLibrary
                   ? mediaType === "video"
-                    ? "Describe the video - attach image references or text context with +"
-                    : "Describe the asset - attach references or text context with +"
+                    ? "Describe the video - attach content images or text context with +"
+                    : "Describe the asset - attach content images or text context with +"
                   : mediaType === "video"
                     ? "Describe the video you want to generate"
                     : "Describe the asset you want to generate"
