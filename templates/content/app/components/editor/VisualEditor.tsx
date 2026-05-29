@@ -1326,7 +1326,13 @@ export function VisualEditor({
 
   const editor = useEditor({
     extensions,
-    content: parseNfmForEditor(content),
+    // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
+    // the seed effect populates an empty doc and the reconcile applies external
+    // edits. Passing `content` here would make the editor initialize from the
+    // prop AND the Y.Doc, firing an initial (non-remote) update that could
+    // autosave a stale value over newer SQL. Only seed `content` when there is
+    // no ydoc (tests / non-collaborative embedders).
+    content: ydoc ? undefined : parseNfmForEditor(content),
     editorProps: {
       attributes: {
         class: "notion-editor",
