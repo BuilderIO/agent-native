@@ -15,6 +15,7 @@ import {
   bumpRunProgress,
   reapIfStale,
   ensureTerminalRunEvent,
+  setRunError,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 
@@ -82,6 +83,11 @@ export interface StartRunOptions {
   /** Opt into the hosted/serverless default chunk budget. Only callers with
    * automatic continuation support should enable this. */
   useHostedSoftTimeoutDefault?: boolean;
+  /** Stable identity for the logical assistant turn this run belongs to. A
+   * turn may span several continuation runs (each chunk is its own run); they
+   * share one `turnId` so the durable assistant message can be folded across
+   * them instead of dropped per-run. Defaults to the runId (turn == run). */
+  turnId?: string;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -217,7 +223,9 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertRunPromise = insertRun(runId, threadId).catch(() => {});
+  const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
+    () => {},
+  );
 
   // Throttle the durable progress timestamp to at most once per second so
   // a chatty token-by-token stream doesn't translate into one DB write per

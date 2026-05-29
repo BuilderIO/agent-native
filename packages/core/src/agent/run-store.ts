@@ -405,13 +405,20 @@ export async function reapAllStaleRuns(): Promise<number> {
   return rowsAffected ?? 0;
 }
 
-/** Delete completed/errored runs older than the given threshold,
- *  and expire stale "running" rows that haven't had activity
- *  (e.g. worker crashed before updating status). */
-export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
+/** Delete old runs and expire stale "running" rows that haven't had activity
+ *  (e.g. worker crashed before updating status). Completed runs are pruned at
+ *  `olderThanMs`; errored/aborted runs are kept until `erroredOlderThanMs` (a
+ *  longer window, falling back to `olderThanMs`) so their event log survives
+ *  for cut-off pattern analysis via listErroredRuns. */
+export async function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const cutoff = Date.now() - olderThanMs;
+  const erroredCutoff =
+    Date.now() - Math.max(erroredOlderThanMs ?? 0, olderThanMs);
   // Expire stale running rows on the absolute-age threshold — safety net
   // for runs that never received a heartbeat (very old deployments). The
   // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
@@ -449,16 +456,85 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
       );
     }
   }
-  // Delete events for old non-running runs
+  // Delete events for old terminal runs. Completed runs prune at `cutoff`;
+  // errored/aborted runs are retained until the (longer) `erroredCutoff`.
   await client.execute({
     sql: `DELETE FROM agent_run_events WHERE run_id IN (
-      SELECT id FROM agent_runs WHERE status != 'running' AND completed_at < ?
+      SELECT id FROM agent_runs
+      WHERE (status = 'completed' AND completed_at < ?)
+         OR (status IN ('errored', 'aborted') AND completed_at < ?)
     )`,
-    args: [cutoff],
+    args: [cutoff, erroredCutoff],
   });
   await client.execute({
-    sql: `DELETE FROM agent_runs WHERE status != 'running' AND completed_at < ?`,
-    args: [cutoff],
+    sql: `DELETE FROM agent_runs
+          WHERE (status = 'completed' AND completed_at < ?)
+             OR (status IN ('errored', 'aborted') AND completed_at < ?)`,
+    args: [cutoff, erroredCutoff],
+  });
+}
+
+/**
+ * List recent errored/aborted runs for cut-off pattern analysis. Read-only,
+ * bounded, and ordered newest-first. Surfaced via the list-errored-runs action
+ * so the team can see why chats are failing (terminal error code, duration,
+ * turn linkage) instead of discovering it ad hoc.
+ */
+export async function listErroredRuns(options?: {
+  limit?: number;
+  sinceMs?: number;
+}): Promise<
+  Array<{
+    id: string;
+    threadId: string;
+    turnId: string | null;
+    status: string;
+    errorCode: string | null;
+    errorDetail: string | null;
+    startedAt: number;
+    completedAt: number | null;
+    durationMs: number | null;
+  }>
+> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const limit = Math.min(Math.max(Math.floor(options?.limit ?? 100), 1), 1000);
+  const since =
+    options?.sinceMs && options.sinceMs > 0 ? Date.now() - options.sinceMs : 0;
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_id, turn_id, status, error_code, error_detail, started_at, completed_at
+          FROM agent_runs
+          WHERE status IN ('errored', 'aborted')
+            AND COALESCE(completed_at, started_at) >= ?
+          ORDER BY COALESCE(completed_at, started_at) DESC
+          LIMIT ${limit}`,
+    args: [since],
+  });
+  return rows.map((r) => {
+    const row = r as {
+      id: string;
+      thread_id: string;
+      turn_id: string | null;
+      status: string;
+      error_code: string | null;
+      error_detail: string | null;
+      started_at: number | string;
+      completed_at: number | string | null;
+    };
+    const startedAt = Number(row.started_at);
+    const completedAt =
+      row.completed_at == null ? null : Number(row.completed_at);
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      turnId: row.turn_id ?? null,
+      status: row.status,
+      errorCode: row.error_code ?? null,
+      errorDetail: row.error_detail ?? null,
+      startedAt,
+      completedAt,
+      durationMs: completedAt == null ? null : completedAt - startedAt,
+    };
   });
 }
 

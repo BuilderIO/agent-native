@@ -153,4 +153,26 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("old-but-heartbeating-run");
     expect(insert?.args[2] as string).toContain('"errorCode":"stale_run"');
   });
+
+  it("keeps errored runs longer than completed runs during cleanup", async () => {
+    await cleanupOldRuns(24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+
+    const deleteEvents = execCalls.find((call) =>
+      /DELETE FROM agent_run_events/i.test(call.sql),
+    );
+    expect(deleteEvents?.sql).toContain("status = 'completed'");
+    expect(deleteEvents?.sql).toContain("status IN ('errored', 'aborted')");
+    expect(Number(deleteEvents?.args[1])).toBeLessThan(
+      Number(deleteEvents?.args[0]),
+    );
+
+    const deleteRuns = execCalls.find((call) =>
+      /DELETE FROM agent_runs/i.test(call.sql),
+    );
+    expect(deleteRuns?.sql).toContain("status = 'completed'");
+    expect(deleteRuns?.sql).toContain("status IN ('errored', 'aborted')");
+    expect(Number(deleteRuns?.args[1])).toBeLessThan(
+      Number(deleteRuns?.args[0]),
+    );
+  });
 });

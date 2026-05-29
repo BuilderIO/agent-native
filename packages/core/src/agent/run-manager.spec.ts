@@ -244,6 +244,24 @@ describe("run manager soft timeout", () => {
     expect(resolveCompletedRunRetentionMs()).toBe(60000);
   });
 
+  it("persists the logical turn id for continuation runs", async () => {
+    startRun(
+      "run-continuation-chunk",
+      "thread-continuation-chunk",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0, turnId: "turn-original" },
+    );
+
+    await vi.waitFor(() => {
+      expect(insertRun).toHaveBeenCalledWith(
+        "run-continuation-chunk",
+        "thread-continuation-chunk",
+        "turn-original",
+      );
+    });
+  });
+
   it("persists terminal error events before marking errored runs complete", async () => {
     let releaseTerminalEvent!: () => void;
     const terminalEventPersisted = new Promise<void>((resolve) => {
