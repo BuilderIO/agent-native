@@ -155,8 +155,8 @@ export default function AnswerPage({ id }: Props) {
             question: session.question,
             sources: session.sources,
             instruction: DASHBOARD_RE.test(session.question)
-              ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
-              : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
+              ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only."
+              : "Use dbt MCP to look up the model or metric. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
           }),
           submit: true,
         });
@@ -176,7 +176,7 @@ export default function AnswerPage({ id }: Props) {
         sources: s.sources,
         instruction: DASHBOARD_RE.test(s.question)
           ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search). Call store-answer when done."
-          : "Use dbt MCP to look up the model or metric. Call store-answer when done.",
+          : "Use dbt MCP to look up the model or metric. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
       }),
       submit: true,
       background: true,
