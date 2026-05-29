@@ -19,6 +19,7 @@ import {
   PopoverContent,
 } from "../components/ui/popover.js";
 import { useOrg } from "../org/hooks.js";
+import { agentNativePath } from "../api-path.js";
 import {
   formatMcpServerError,
   getMcpUrlValidationError,
@@ -45,7 +46,16 @@ interface ComposerPlusMenuProps {
   mode?: "full" | "upload-only";
 }
 
-type View = "menu" | "mcp-server";
+type View = "menu" | "mcp-server" | "skill-upload";
+
+function slugifyName(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "uploaded-skill"
+  );
+}
 
 function UploadOnlyAttachButton() {
   return (
@@ -106,6 +116,42 @@ function ComposerPlusMenuFull({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const fileUploadRef = useRef<HTMLButtonElement>(null);
+  const skillFileInputRef = useRef<HTMLInputElement>(null);
+  const skillHoverTimerRef = useRef<number | null>(null);
+  const [skillUploadSlug, setSkillUploadSlug] = useState("");
+  const [skillUploadContent, setSkillUploadContent] = useState("");
+  const [skillUploadFileName, setSkillUploadFileName] = useState("");
+  const [skillUploadStatus, setSkillUploadStatus] = useState<{
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
+  const [skillUploadBusy, setSkillUploadBusy] = useState(false);
+  const [skillFlyoutOpen, setSkillFlyoutOpen] = useState(false);
+  const [skillFlyoutSide, setSkillFlyoutSide] = useState<"right" | "left">(
+    "right",
+  );
+  const skillFlyoutCloseTimerRef = useRef<number | null>(null);
+  const openSkillFlyout = (rowEl?: HTMLElement | null) => {
+    if (skillFlyoutCloseTimerRef.current) {
+      window.clearTimeout(skillFlyoutCloseTimerRef.current);
+      skillFlyoutCloseTimerRef.current = null;
+    }
+    if (rowEl && typeof window !== "undefined") {
+      const rect = rowEl.getBoundingClientRect();
+      const FLYOUT_WIDTH = 248;
+      setSkillFlyoutSide(
+        window.innerWidth - rect.right < FLYOUT_WIDTH ? "left" : "right",
+      );
+    }
+    setSkillFlyoutOpen(true);
+  };
+  const scheduleSkillFlyoutClose = () => {
+    if (skillFlyoutCloseTimerRef.current)
+      window.clearTimeout(skillFlyoutCloseTimerRef.current);
+    skillFlyoutCloseTimerRef.current = window.setTimeout(() => {
+      setSkillFlyoutOpen(false);
+    }, 160);
+  };
 
   useEffect(() => {
     if (open) {
@@ -118,6 +164,12 @@ function ComposerPlusMenuFull({
       setMcpError(null);
       setMcpTestResult(null);
       setMcpBusy(false);
+      setSkillUploadSlug("");
+      setSkillUploadContent("");
+      setSkillUploadFileName("");
+      setSkillUploadStatus(null);
+      setSkillUploadBusy(false);
+      setSkillFlyoutOpen(false);
     }
   }, [open, defaultMcpScope]);
 
@@ -209,11 +261,63 @@ function ComposerPlusMenuFull({
     }
   };
 
+  const handleSkillFileSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const text = await file.text();
+    const baseName = file.name.replace(/\.[^./]+$/, "");
+    const slug = slugifyName(
+      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
+    );
+    setSkillUploadSlug(slug);
+    setSkillUploadContent(text);
+    setSkillUploadFileName(file.name);
+    setSkillUploadStatus(null);
+    setView("skill-upload");
+  };
+
+  const submitSkillUpload = async () => {
+    if (skillUploadBusy) return;
+    const slug = slugifyName(skillUploadSlug || "uploaded-skill");
+    const path = `skills/${slug}/SKILL.md`;
+    setSkillUploadBusy(true);
+    setSkillUploadStatus(null);
+    try {
+      const res = await fetch(agentNativePath("/_agent-native/resources"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path,
+          content: skillUploadContent,
+          mimeType: "text/markdown",
+          shared: false,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(body || `Upload failed (${res.status})`);
+      }
+      setSkillUploadStatus({
+        kind: "ok",
+        message: `Skill "${skillUploadFileName || `${slug}/SKILL.md`}" added`,
+      });
+      window.setTimeout(() => setOpen(false), 1200);
+    } catch (err: any) {
+      setSkillUploadStatus({
+        kind: "err",
+        message: err?.message || "Failed to save skill file",
+      });
+    } finally {
+      setSkillUploadBusy(false);
+    }
+  };
+
   const menuItems: {
     icon: React.ReactNode;
     label: string;
     desc: string;
     action: () => void;
+    hoverAction?: () => void;
   }[] = [
     {
       icon: <IconUpload className="h-3.5 w-3.5" />,
@@ -228,10 +332,8 @@ function ComposerPlusMenuFull({
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: () => {
-        onSelectMode?.("skill");
-        setOpen(false);
-      },
+      action: openSkillFlyout,
+      hoverAction: openSkillFlyout,
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
@@ -295,6 +397,16 @@ function ComposerPlusMenuFull({
           aria-hidden
         />
       </ComposerPrimitive.AddAttachment>
+      <input
+        ref={skillFileInputRef}
+        type="file"
+        accept=".md,text/markdown"
+        className="hidden"
+        onChange={(e) => {
+          void handleSkillFileSelected(e.target.files);
+          e.target.value = "";
+        }}
+      />
 
       <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
@@ -314,29 +426,212 @@ function ComposerPlusMenuFull({
           side="top"
           align="start"
           sideOffset={8}
-          className="w-[260px] p-0 rounded-lg"
+          className={cn(
+            "p-0 rounded-lg",
+            view === "skill-upload" || view === "mcp-server"
+              ? "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto"
+              : "w-[260px]",
+          )}
           style={{ fontSize: 13, lineHeight: "normal" }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {view === "menu" && (
             <div className="py-1">
-              {menuItems.map((item) => (
-                <button
-                  key={item.label}
-                  onClick={item.action}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
-                >
-                  <span className="text-muted-foreground">{item.icon}</span>
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-medium text-foreground">
-                      {item.label}
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                      {item.desc}
-                    </div>
+              {menuItems.map((item) => {
+                const isSkill = item.label === "Create Skill";
+                return (
+                  <div
+                    key={item.label}
+                    className={cn("relative", isSkill && "group/skill")}
+                    onMouseEnter={(e) => {
+                      if (isSkill) {
+                        openSkillFlyout(e.currentTarget);
+                        return;
+                      }
+                      if (!item.hoverAction) return;
+                      if (skillHoverTimerRef.current)
+                        window.clearTimeout(skillHoverTimerRef.current);
+                      skillHoverTimerRef.current = window.setTimeout(() => {
+                        item.hoverAction?.();
+                      }, 180);
+                    }}
+                    onMouseLeave={() => {
+                      if (isSkill) {
+                        scheduleSkillFlyoutClose();
+                        return;
+                      }
+                      if (skillHoverTimerRef.current) {
+                        window.clearTimeout(skillHoverTimerRef.current);
+                        skillHoverTimerRef.current = null;
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={item.action}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50",
+                        isSkill && skillFlyoutOpen && "bg-accent/50",
+                      )}
+                    >
+                      <span className="text-muted-foreground">{item.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12px] font-medium text-foreground">
+                          {item.label}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                          {item.desc}
+                        </div>
+                      </div>
+                      {isSkill && (
+                        <span className="ml-auto text-muted-foreground/60">
+                          ›
+                        </span>
+                      )}
+                    </button>
+                    {isSkill && skillFlyoutOpen && (
+                      <div
+                        role="menu"
+                        onMouseEnter={() => openSkillFlyout()}
+                        onMouseLeave={scheduleSkillFlyoutClose}
+                        className={cn(
+                          "absolute top-0 z-20 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md",
+                          skillFlyoutSide === "right"
+                            ? "left-full ml-1"
+                            : "right-full mr-1",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectMode?.("skill");
+                            setSkillFlyoutOpen(false);
+                            setOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                        >
+                          <span className="text-muted-foreground">
+                            <IconBulb className="h-3.5 w-3.5" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[12px] font-medium text-foreground">
+                              Create new skill
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                              Describe a skill and let the agent draft it
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSkillFlyoutOpen(false);
+                            skillFileInputRef.current?.click();
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                        >
+                          <span className="text-muted-foreground">
+                            <IconUpload className="h-3.5 w-3.5" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[12px] font-medium text-foreground">
+                              Upload skill file
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
+                              Import an existing SKILL.md file
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+          )}
+
+          {view === "skill-upload" && (
+            <div className="p-3">
+              <button
+                type="button"
+                onClick={() => setView("menu")}
+                className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                <IconArrowLeft className="h-3 w-3" />
+                Back
+              </button>
+              <label className="mb-1 block text-[11px] font-semibold text-foreground">
+                Upload skill file
+              </label>
+              <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground/60">
+                Review the content from{" "}
+                <span className="font-mono">
+                  {skillUploadFileName || "the selected file"}
+                </span>{" "}
+                before saving.
+              </p>
+              <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                Skill name
+              </label>
+              <input
+                value={skillUploadSlug}
+                onChange={(e) => setSkillUploadSlug(e.target.value)}
+                className="mb-2 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                placeholder="my-skill"
+              />
+              <p className="mb-2 text-[10px] text-muted-foreground/60">
+                Saved at{" "}
+                <span className="font-mono">
+                  skills/{slugifyName(skillUploadSlug || "uploaded-skill")}
+                  /SKILL.md
+                </span>
+              </p>
+              <label className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                Content
+              </label>
+              <textarea
+                value={skillUploadContent}
+                onChange={(e) => setSkillUploadContent(e.target.value)}
+                rows={10}
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-foreground outline-none focus:ring-1 focus:ring-accent"
+              />
+              {skillUploadStatus && (
+                <div
+                  className={cn(
+                    "mt-2 text-[11px] leading-snug",
+                    skillUploadStatus.kind === "ok"
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-red-600 dark:text-red-400",
+                  )}
+                >
+                  {skillUploadStatus.message}
+                </div>
+              )}
+              <div className="mt-2.5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView("menu")}
+                  className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-accent/40"
+                >
+                  Cancel
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={submitSkillUpload}
+                  disabled={
+                    skillUploadBusy ||
+                    !skillUploadContent.trim() ||
+                    !skillUploadSlug.trim()
+                  }
+                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  {skillUploadBusy ? (
+                    <IconLoader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
