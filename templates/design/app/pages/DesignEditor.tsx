@@ -691,12 +691,12 @@ export default function DesignEditor() {
     const ytext = ydoc.getText("content");
     const text = ytext.toString();
     if (text.length > 0) {
+      // Y.Doc snapshots are a render seed, not the SQL source of truth; the
+      // reconcile effect below advances the updatedAt watermark only after it
+      // confirms or applies the current DB content.
       setCollabContent(text);
-      // Adopt the loaded file's watermark so a later equal-or-older poll can't
-      // revert it, and a genuinely newer agent edit is still recognized.
-      lastAppliedFileUpdatedAtRef.current = activeFile?.updatedAt ?? null;
     }
-  }, [ydoc, isSynced, activeFileId, activeFile?.updatedAt]);
+  }, [ydoc, isSynced, activeFileId]);
 
   // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
   useEffect(() => {

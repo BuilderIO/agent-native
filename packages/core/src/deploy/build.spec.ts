@@ -212,7 +212,11 @@ export default (event) =>
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
-    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [], [], [], null, [
+        "/assets/entry.client-aB12_cdE.js",
+      ]),
+    );
     const env = {
       APP_BASE_PATH: "/docs",
       ASSETS: {
@@ -244,6 +248,15 @@ export default (event) =>
     expect(await unhashed.text()).toBe("asset");
     expect(unhashed.headers.get("cache-control")).toBeNull();
     expect(unhashed.headers.get("cdn-cache-control")).toBeNull();
+
+    const manuallyVersioned = await worker.fetch(
+      new Request("https://app.test/docs/assets/logo-20240501.png"),
+      env,
+      {},
+    );
+    expect(await manuallyVersioned.text()).toBe("asset");
+    expect(manuallyVersioned.headers.get("cache-control")).toBeNull();
+    expect(manuallyVersioned.headers.get("cdn-cache-control")).toBeNull();
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {

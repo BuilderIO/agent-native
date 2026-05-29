@@ -81,6 +81,7 @@ export const ComposeEditor = forwardRef<
   // external/agent edit reconcile in even while the editor is focused but idle,
   // without yanking text out from under in-progress keystrokes.
   const lastTypedAtRef = useRef(0);
+  const pendingComposeContentRef = useRef<string | null>(null);
   const onChangeRef = useRef(onChange);
   const onSendRef = useRef(onSend);
   const onCloseRef = useRef(onClose);
@@ -170,9 +171,23 @@ export const ComposeEditor = forwardRef<
       const currentMd = (editor.storage as any).markdown.getMarkdown();
 
       if (
+        content !== currentMd &&
+        content !== pendingComposeContentRef.current
+      ) {
+        pendingComposeContentRef.current = content;
+      }
+
+      const nextContent = pendingComposeContentRef.current;
+      if (nextContent == null) return;
+      if (currentMd === nextContent) {
+        pendingComposeContentRef.current = null;
+        return;
+      }
+
+      if (
         !shouldApplyComposeContent({
           currentMarkdown: currentMd,
-          nextContent: content,
+          nextContent,
           editorFocused: editor.isFocused,
           lastTypedAt: lastTypedAtRef.current,
           now: Date.now(),
@@ -180,14 +195,13 @@ export const ComposeEditor = forwardRef<
       ) {
         // Differs but the user is mid-keystroke — re-check once they pause so
         // the agent edit still appears without clobbering their typing.
-        if (currentMd !== content) {
-          retryTimer = setTimeout(run, COMPOSE_TYPING_GRACE_MS);
-        }
+        retryTimer = setTimeout(run, COMPOSE_TYPING_GRACE_MS);
         return;
       }
 
+      pendingComposeContentRef.current = null;
       isSettingContent.current = true;
-      editor.commands.setContent(content);
+      editor.commands.setContent(nextContent);
       isSettingContent.current = false;
     };
 

@@ -39,7 +39,6 @@ import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
   IMMUTABLE_ASSET_CACHE_HEADERS,
-  IMMUTABLE_ASSET_PATH_PATTERN,
   prefixAssetPath,
 } from "./immutable-assets.js";
 
@@ -117,6 +116,7 @@ export function generateWorkerEntry(
   defaultPluginStems: string[] = [],
   actions: DiscoveredAction[] = [],
   workspaceCore: WorkspaceCoreExports | null = null,
+  immutableAssetPaths: string[] = [],
 ): string {
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -345,7 +345,9 @@ function injectHeadScript(html, script) {
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
-const IMMUTABLE_ASSET_PATH_RE = new RegExp(${JSON.stringify(IMMUTABLE_ASSET_PATH_PATTERN)});
+const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
+    [...new Set(immutableAssetPaths)].sort(),
+  )});
 const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
     AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   )};
@@ -387,7 +389,7 @@ function applyDefaultSsrCacheHeader(headers, status) {
 
 function isImmutableAssetRequest(request) {
   const pathname = stripAppBasePath(new URL(request.url).pathname);
-  return IMMUTABLE_ASSET_PATH_RE.test(pathname);
+  return IMMUTABLE_ASSET_PATHS.has(pathname);
 }
 
 function applyImmutableAssetCacheHeaders(response, request) {
@@ -643,12 +645,14 @@ async function buildCloudflarePages() {
   );
 
   // Generate the worker entry
+  const immutableAssetPaths = collectImmutableAssetPaths(clientDir);
   const entrySource = generateWorkerEntry(
     routes,
     plugins,
     missingDefaults,
     actions,
     workspaceCore,
+    immutableAssetPaths,
   );
 
   // Create _worker.js output directory
