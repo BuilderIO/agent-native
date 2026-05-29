@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.26.1
+
+### Patch Changes
+
+- 119397a: Add image-generation aliases for the built-in Assets skill installer.
+- 119397a: Expose optional MCP server branding metadata from agent chat plugins and let embedded MCP App hosts open Builder connect links.
+- 119397a: Allow Cloudflare quick tunnel hostnames in the default Vite dev server host allowlist.
+
 ## 0.26.0
 
 ### Minor Changes
