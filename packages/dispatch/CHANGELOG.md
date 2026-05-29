@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.22
+
+### Patch Changes
+
+- aa80e15: Improve Dispatch overview stat card wrapping in narrow embedded windows.
+
 ## 0.8.21
 
 ### Patch Changes
