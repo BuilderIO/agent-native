@@ -296,7 +296,6 @@
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
-    "firebase-admin": "^13.0.0",
     "node-pty": "^1.1.0",
     "playwright": "^1.60.0",
     "react": "^19.2.5",

@@ -152,6 +152,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const documentUpdatedAtRef = useRef<string | null>(
+    document.updatedAt ?? null,
+  );
+  documentUpdatedAtRef.current = document.updatedAt ?? null;
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -294,6 +298,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(async () => {
+        // Never clobber a newer server version (e.g. an agent edit we haven't
+        // reconciled into the editor yet) with the editor's current — possibly
+        // stale — content. This can happen when a lagging Yjs state load fires
+        // onChange with older content; the pending reconcile will bring the
+        // editor up to date instead.
+        if (
+          documentUpdatedAtRef.current &&
+          lastSavedRef.current.updatedAt &&
+          documentUpdatedAtRef.current > lastSavedRef.current.updatedAt
+        ) {
+          return;
+        }
+
         const updates: Record<string, string> = {};
         if (title !== lastSavedRef.current.title) updates.title = title;
         if (content !== lastSavedRef.current.content) updates.content = content;
