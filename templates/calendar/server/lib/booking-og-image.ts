@@ -20,6 +20,9 @@ const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
 const FG = "#ededed";
 const MUTED = "#a0a0a0";
+const AVATAR_CX = 996;
+const AVATAR_CY = 170;
+const AVATAR_SIZE = 172;
 
 const LOGO_MARK = `
   <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
@@ -172,11 +175,12 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
   );
   const titleFontSize = titleLines.length > 1 ? 66 : 82;
   const titleLineHeight = titleLines.length > 1 ? 76 : 92;
-  const durationY = titleLines.length > 1 ? 214 : 150;
+  const titleGroupY = titleLines.length > 1 ? 350 : 382;
+  const durationY = titleLines.length > 1 ? 186 : 150;
   const avatarContent = profileImageDataUrl
-    ? `<image x="910" y="106" width="172" height="172" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
-    : `<circle cx="996" cy="192" r="72" fill="url(#brand)" fill-opacity="0.2"/>
-       <text x="996" y="212" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
+    ? `<image x="${AVATAR_CX - AVATAR_SIZE / 2}" y="${AVATAR_CY - AVATAR_SIZE / 2}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
+    : `<circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
+       <text x="${AVATAR_CX}" y="${AVATAR_CY + 20}" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>Agent-Native Calendar booking link</title>
@@ -190,7 +194,7 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     </pattern>
     <mask id="avatarMask">
       <rect width="${WIDTH}" height="${HEIGHT}" fill="black"/>
-      <circle cx="996" cy="192" r="78" fill="white"/>
+      <circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="78" fill="white"/>
     </mask>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
@@ -205,11 +209,11 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     <text x="91" y="58" font-family="Inter, Arial, system-ui, sans-serif" font-size="18" font-weight="600" fill="${MUTED}">Calendar</text>
   </g>
   <g>
-    <circle cx="996" cy="192" r="86" fill="${SURFACE}" stroke="${BORDER}" stroke-width="2"/>
+    <circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="86" fill="${SURFACE}" stroke="${BORDER}" stroke-width="2"/>
     ${avatarContent}
-    <circle cx="996" cy="192" r="78" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
+    <circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="78" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
   </g>
-  <g transform="translate(80 348)">
+  <g transform="translate(80 ${titleGroupY})">
     ${textBlock({
       lines: titleLines,
       x: 0,
