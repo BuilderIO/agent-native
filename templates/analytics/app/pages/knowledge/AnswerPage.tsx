@@ -13,9 +13,42 @@ import {
   IconBrandGithub,
   IconDatabase,
   IconWorld,
+  IconCopy,
+  IconCheck,
 } from "@tabler/icons-react";
 import Markdown from "@/components/Markdown";
 import { cn } from "@/lib/utils";
+
+function refId(id: string) {
+  return `KQ-${id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+}
+
+function CopyRefId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const ref = refId(id);
+
+  function copy() {
+    navigator.clipboard.writeText(ref).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className="flex items-center gap-1 font-mono text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+      aria-label="Copy reference ID"
+    >
+      {ref}
+      {copied ? (
+        <IconCheck className="h-3 w-3 text-green-500" />
+      ) : (
+        <IconCopy className="h-3 w-3" />
+      )}
+    </button>
+  );
+}
 
 interface Source {
   type: "github" | "dbt" | "notion" | "other";
@@ -234,7 +267,10 @@ export default function AnswerPage({ id }: Props) {
 
           {/* ── Answer column ── */}
           <div className="flex-1 min-w-0 flex flex-col gap-6">
-            <h1 className="text-2xl font-semibold leading-snug">{question}</h1>
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="text-2xl font-semibold leading-snug">{question}</h1>
+              {session?.id && <CopyRefId id={session.id} />}
+            </div>
 
             {/* Answer */}
             <div

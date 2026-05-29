@@ -13,6 +13,11 @@ import {
   IconArrowRight,
   IconLoader2,
 } from "@tabler/icons-react";
+
+/** First 6 chars of the UUID used as a short human-readable reference, e.g. KQ-d8e0cb */
+function refId(id: string) {
+  return `KQ-${id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+}
 import { cn } from "@/lib/utils";
 import { Link } from "react-router";
 
@@ -170,7 +175,10 @@ export default function KnowledgeHome() {
           >
             <div className="flex items-center gap-3 min-w-0">
               <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{s.question}</span>
+              <div className="min-w-0">
+                <span className="truncate block">{s.question}</span>
+                <span className="text-[11px] font-mono text-muted-foreground/60">{refId(s.id)}</span>
+              </div>
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-3">
               <Badge variant={statusVariant(s.status)}>
