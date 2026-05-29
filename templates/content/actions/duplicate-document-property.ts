@@ -4,7 +4,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { listPropertiesForDocument, nanoid } from "./_property-utils.js";
+import {
+  listPropertiesForDocument,
+  nanoid,
+  resolvePropertyDatabaseForDocument,
+} from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -17,6 +21,8 @@ export default defineAction({
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
+    const database = await resolvePropertyDatabaseForDocument(document);
+    if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
       .select()
@@ -28,6 +34,7 @@ export default defineAction({
             schema.documentPropertyDefinitions.ownerEmail,
             document.ownerEmail,
           ),
+          eq(schema.documentPropertyDefinitions.databaseId, database.id),
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
@@ -43,9 +50,7 @@ export default defineAction({
             schema.documentPropertyDefinitions.ownerEmail,
             document.ownerEmail,
           ),
-          document.orgId
-            ? eq(schema.documentPropertyDefinitions.orgId, document.orgId)
-            : sql`${schema.documentPropertyDefinitions.orgId} IS NULL`,
+          eq(schema.documentPropertyDefinitions.databaseId, database.id),
         ),
       );
 
@@ -55,6 +60,7 @@ export default defineAction({
       id: newPropertyId,
       ownerEmail: definition.ownerEmail,
       orgId: definition.orgId,
+      databaseId: database.id,
       name: `${definition.name} copy`,
       type: definition.type,
       visibility: definition.visibility,
@@ -86,6 +92,7 @@ export default defineAction({
 
     return {
       documentId,
+      databaseId: database.id,
       properties: await listPropertiesForDocument(document),
     };
   },

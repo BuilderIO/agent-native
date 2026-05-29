@@ -5,6 +5,9 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
   "multi_select",
   "status",
   "date",
+  "person",
+  "place",
+  "files_media",
   "checkbox",
   "url",
   "email",
@@ -12,10 +15,12 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
 ] as const;
 
 export const COMPUTED_DOCUMENT_PROPERTY_TYPES = [
+  "formula",
   "id",
   "created_time",
   "created_by",
   "last_edited_time",
+  "last_edited_by",
 ] as const;
 
 export const DOCUMENT_PROPERTY_TYPES = [
@@ -59,6 +64,7 @@ export interface DocumentPropertyOption {
 
 export interface DocumentPropertyOptions {
   options?: DocumentPropertyOption[];
+  formula?: string;
 }
 
 export type DocumentPropertyValue = string | number | boolean | string[] | null;
@@ -73,14 +79,19 @@ export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
   multi_select: "Multi-select",
   status: "Status",
   date: "Date",
+  person: "Person",
+  place: "Place",
+  files_media: "Files & media",
   checkbox: "Checkbox",
   url: "URL",
   email: "Email",
   phone: "Phone",
+  formula: "Formula",
   id: "ID",
   created_time: "Created time",
   created_by: "Created by",
   last_edited_time: "Last edited time",
+  last_edited_by: "Last edited by",
 };
 
 export const DOCUMENT_PROPERTY_VISIBILITY_LABELS: Record<
@@ -117,6 +128,10 @@ export function defaultPropertyOptions(
     };
   }
 
+  if (type === "formula") {
+    return { formula: "" };
+  }
+
   return {};
 }
 
@@ -130,6 +145,7 @@ export function parsePropertyOptions(
     return {
       ...parsed,
       options: Array.isArray(parsed.options) ? parsed.options : undefined,
+      formula: typeof parsed.formula === "string" ? parsed.formula : undefined,
     };
   } catch {
     return {};
@@ -196,16 +212,148 @@ export function normalizePropertyValue(
       return Boolean(value);
     }
     case "multi_select":
+    case "files_media":
       return Array.isArray(value)
-        ? value.filter((item): item is string => typeof item === "string")
-        : [];
+        ? value
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : String(value)
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean);
     case "text":
     case "select":
     case "status":
     case "date":
+    case "person":
+    case "place":
     case "url":
     case "email":
     case "phone":
       return String(value);
   }
+}
+
+export function formulaValueText(value: DocumentPropertyValue): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+export function evaluatePropertyFormula(
+  formula: string | null | undefined,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): DocumentPropertyValue {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed) return null;
+
+  const expression = trimmed.replace(/\{([^{}]+)\}/g, (_match, name) => {
+    const value = valuesByName[String(name).trim()];
+    const numericValue = Number(formulaValueText(value));
+    return Number.isFinite(numericValue) ? String(numericValue) : "NaN";
+  });
+  const numericValue = evaluateNumericExpression(expression);
+  if (numericValue !== null) return numericValue;
+
+  return trimmed.replace(/\{([^{}]+)\}/g, (_match, name) =>
+    formulaValueText(valuesByName[String(name).trim()]),
+  );
+}
+
+export function evaluateNumericExpression(expression: string): number | null {
+  const tokens = tokenizeNumericExpression(expression);
+  if (!tokens) return null;
+  let index = 0;
+
+  function peek() {
+    return tokens[index];
+  }
+
+  function consume(expected?: string) {
+    const token = tokens[index];
+    if (expected && token !== expected) return null;
+    index += 1;
+    return token;
+  }
+
+  function parseFactor(): number | null {
+    const token = peek();
+    if (token === "+" || token === "-") {
+      consume();
+      const value = parseFactor();
+      if (value === null) return null;
+      return token === "-" ? -value : value;
+    }
+    if (token === "(") {
+      consume("(");
+      const value = parseExpression();
+      if (value === null || consume(")") === null) return null;
+      return value;
+    }
+    if (!token || Number.isNaN(Number(token))) return null;
+    consume();
+    return Number(token);
+  }
+
+  function parseTerm(): number | null {
+    let value = parseFactor();
+    if (value === null) return null;
+
+    while (peek() === "*" || peek() === "/") {
+      const operator = consume();
+      const right = parseFactor();
+      if (right === null) return null;
+      value = operator === "*" ? value * right : value / right;
+    }
+
+    return value;
+  }
+
+  function parseExpression(): number | null {
+    let value = parseTerm();
+    if (value === null) return null;
+
+    while (peek() === "+" || peek() === "-") {
+      const operator = consume();
+      const right = parseTerm();
+      if (right === null) return null;
+      value = operator === "+" ? value + right : value - right;
+    }
+
+    return value;
+  }
+
+  const result = parseExpression();
+  if (result === null || index !== tokens.length || !Number.isFinite(result)) {
+    return null;
+  }
+  return result;
+}
+
+function tokenizeNumericExpression(expression: string): string[] | null {
+  const tokens: string[] = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if ("+-*/()".includes(char)) {
+      tokens.push(char);
+      index += 1;
+      continue;
+    }
+    const numberMatch = expression.slice(index).match(/^\d+(?:\.\d+)?/);
+    if (numberMatch) {
+      tokens.push(numberMatch[0]);
+      index += numberMatch[0].length;
+      continue;
+    }
+    return null;
+  }
+
+  return tokens.length > 0 ? tokens : null;
 }

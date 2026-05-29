@@ -124,6 +124,13 @@ export default defineAction({
         .update(schema.documents)
         .set(updates)
         .where(eq(schema.documents.id, id));
+
+      if (titleChanged && args.title !== undefined) {
+        await db
+          .update(schema.contentDatabases)
+          .set({ title: args.title, updatedAt: updates.updatedAt as string })
+          .where(eq(schema.contentDatabases.documentId, id));
+      }
     }
 
     const [doc] = await db

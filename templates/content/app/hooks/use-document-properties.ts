@@ -32,6 +32,9 @@ export function useConfigureDocumentProperty(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: documentId }],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
     },
   });
 }
@@ -48,6 +51,9 @@ export function useSetDocumentProperty(documentId: string) {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
       });
     },
   });
@@ -66,6 +72,9 @@ export function useDuplicateDocumentProperty(documentId: string) {
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: documentId }],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
     },
   });
 }
@@ -82,6 +91,9 @@ export function useDeleteDocumentProperty(documentId: string) {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
       });
     },
   });

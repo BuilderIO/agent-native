@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Editor } from "@tiptap/react";
 import {
@@ -18,6 +19,10 @@ import {
   IconArrowUp,
   IconInfoCircle,
   IconPhoto,
+  IconFileText,
+  IconDatabase,
+  IconMusic,
+  IconVideo,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -26,6 +31,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useCreateContentDatabase } from "@/hooks/use-content-database";
+import { useCreatePage } from "@/hooks/use-create-page";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 
@@ -44,7 +51,7 @@ interface CommandItem {
   description: string;
   shortcut?: string;
   icon: React.ElementType;
-  action: (editor: Editor) => void;
+  action: (editor: Editor) => void | boolean | Promise<void>;
 }
 
 function QuoteCommandIcon({ size = 22 }: { size?: number; stroke?: number }) {
@@ -332,6 +339,9 @@ export function SlashCommandMenu({
   documentId,
 }: SlashCommandMenuProps) {
   const { send } = useSendToAgentChat();
+  const navigate = useNavigate();
+  const createPage = useCreatePage();
+  const createDatabase = useCreateContentDatabase(documentId ?? null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -430,19 +440,104 @@ export function SlashCommandMenu({
     },
   };
 
+  const videoCommand: CommandItem = {
+    title: "Video",
+    description: "Upload or embed video",
+    icon: IconVideo,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "video",
+            attrsJson: "{}",
+            label: "Video",
+          },
+        })
+        .run();
+    },
+  };
+
+  const audioCommand: CommandItem = {
+    title: "Audio",
+    description: "Upload or embed audio",
+    icon: IconMusic,
+    action: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "audio",
+            attrsJson: "{}",
+            label: "Audio",
+          },
+        })
+        .run();
+    },
+  };
+
+  const pageCommand: CommandItem = {
+    title: "Page",
+    description: "Create a child page",
+    icon: IconFileText,
+    action: async () => {
+      if (!documentId) {
+        toast.error("No document selected");
+        return;
+      }
+      await createPage(documentId);
+    },
+  };
+
+  const databaseCommand: CommandItem = {
+    title: "Database",
+    description: "Create a child database page",
+    icon: IconDatabase,
+    action: async () => {
+      if (!documentId) {
+        toast.error("No document selected");
+        return;
+      }
+      const toastId = toast.loading("Creating database...");
+      try {
+        const result = await createDatabase.mutateAsync({
+          parentId: documentId,
+          title: "Untitled database",
+        });
+        navigate(`/page/${result.database.documentId}`, { flushSync: true });
+        toast.success("Database created", { id: toastId });
+      } catch (error) {
+        toast.error("Failed to create database", {
+          id: toastId,
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      }
+    },
+  };
+
   const aiCommands = isTurnInto ? [] : [generateCommand];
   const blockCommands = isTurnInto ? turnIntoCommands : commands;
-  const mediaCommands = isTurnInto ? [] : [imageCommand];
+  const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
+  const mediaCommands = isTurnInto
+    ? []
+    : [imageCommand, videoCommand, audioCommand];
   const commandMatchesQuery = (cmd: CommandItem) =>
     cmd.title.toLowerCase().includes(query.toLowerCase()) ||
     cmd.description.toLowerCase().includes(query.toLowerCase());
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
     ...filteredMediaCommands,
+    ...filteredPageCommands,
   ];
 
   const renderCommand = (cmd: CommandItem) => {
@@ -499,7 +594,7 @@ export function SlashCommandMenu({
   }
 
   const executeCommand = useCallback(
-    (cmd: CommandItem) => {
+    async (cmd: CommandItem) => {
       if (slashPosRef.current !== null) {
         const { from } = editor.state.selection;
         editor
@@ -508,11 +603,11 @@ export function SlashCommandMenu({
           .deleteRange({ from: slashPosRef.current, to: from })
           .run();
       }
-      cmd.action(editor);
       setIsOpen(false);
       setIsTurnInto(false);
       setQuery("");
       slashPosRef.current = null;
+      await cmd.action(editor);
     },
     [editor],
   );
@@ -705,6 +800,14 @@ export function SlashCommandMenu({
                   Media
                 </div>
                 {filteredMediaCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredPageCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  Pages
+                </div>
+                {filteredPageCommands.map(renderCommand)}
               </>
             ) : null}
           </div>

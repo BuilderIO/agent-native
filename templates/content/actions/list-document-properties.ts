@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
-import { listPropertiesForDocument } from "./_property-utils.js";
+import {
+  listPropertiesForDocument,
+  resolvePropertyDatabaseForDocument,
+} from "./_property-utils.js";
 import "../server/db/index.js";
 
 export default defineAction({
@@ -15,9 +18,11 @@ export default defineAction({
   run: async ({ documentId }) => {
     const access = await resolveAccess("document", documentId);
     if (!access) throw new Error(`Document "${documentId}" not found`);
+    const database = await resolvePropertyDatabaseForDocument(access.resource);
 
     return {
       documentId,
+      databaseId: database?.id ?? null,
       properties: await listPropertiesForDocument(access.resource),
     };
   },

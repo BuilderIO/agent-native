@@ -12,6 +12,7 @@ import {
   listPropertiesForDocument,
   nanoid,
   normalizedValueJson,
+  resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -25,6 +26,8 @@ export default defineAction({
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
+    const database = await resolvePropertyDatabaseForDocument(document);
+    if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
       .select()
@@ -36,6 +39,7 @@ export default defineAction({
             schema.documentPropertyDefinitions.ownerEmail,
             document.ownerEmail,
           ),
+          eq(schema.documentPropertyDefinitions.databaseId, database.id),
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
@@ -78,6 +82,7 @@ export default defineAction({
 
     return {
       documentId,
+      databaseId: database.id,
       properties: await listPropertiesForDocument(document),
     };
   },

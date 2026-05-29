@@ -7,8 +7,10 @@ import {
 } from "react";
 import type { ClipboardEvent } from "react";
 import { useNavigate } from "react-router";
+import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
+import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentProperties } from "./DocumentProperties";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
@@ -35,6 +37,7 @@ import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
+import { cn } from "@/lib/utils";
 
 const TAB_ID = generateTabId();
 
@@ -107,6 +110,57 @@ interface DocumentEditorBodyProps {
   document: Document;
 }
 
+export function documentEditorTitleRegionClassName(hasDatabase: boolean) {
+  return cn(
+    "shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 sm:px-8 md:px-16 md:pt-16 group/title",
+    hasDatabase ? "pb-4" : "pb-8",
+  );
+}
+
+export function documentEditorDatabaseRegionClassName() {
+  return "shrink-0 min-w-0 w-full max-w-7xl mx-auto px-4 pb-8 sm:px-6 lg:px-8";
+}
+
+export function documentEditorDefaultIconKind(
+  document: Pick<Document, "database">,
+) {
+  return document.database ? "database" : null;
+}
+
+export function databaseMembershipDatabaseTitle(
+  membership: Document["databaseMembership"],
+) {
+  return membership?.databaseTitle?.trim() || "Untitled database";
+}
+
+function DatabaseMembershipBreadcrumb({
+  document,
+  onOpenDatabase,
+}: {
+  document: Document;
+  onOpenDatabase: (databaseDocumentId: string) => void;
+}) {
+  const membership = document.databaseMembership;
+  if (!membership) return null;
+
+  const databaseTitle = databaseMembershipDatabaseTitle(membership);
+
+  return (
+    <div className="mb-3 -ml-1 flex min-w-0 items-center">
+      <button
+        type="button"
+        aria-label={`Open database ${databaseTitle}`}
+        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded px-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onOpenDatabase(membership.databaseDocumentId)}
+      >
+        <IconArrowLeft className="size-3.5 shrink-0" />
+        <IconDatabase className="size-4 shrink-0" />
+        <span className="truncate">{databaseTitle}</span>
+      </button>
+    </div>
+  );
+}
+
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
@@ -127,6 +181,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
   const canEdit = document.canEdit ?? true;
+  const navigate = useNavigate();
 
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
@@ -422,6 +477,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       scrollContainerRef={scrollContainerRef}
     />
   );
+  const defaultIconKind = documentEditorDefaultIconKind(document);
+  const defaultIcon =
+    defaultIconKind === "database" ? (
+      <IconDatabase className="size-12" aria-hidden="true" />
+    ) : undefined;
 
   return (
     <div className="relative flex-1 flex min-h-0">
@@ -444,11 +504,25 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           ref={scrollContainerRef}
           className="flex-1 min-h-0 overflow-auto flex flex-col"
         >
-          <div className="shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 pb-8 sm:px-8 md:px-16 md:pt-16 group/title">
+          <div
+            className={documentEditorTitleRegionClassName(
+              Boolean(document.database),
+            )}
+          >
+            <DatabaseMembershipBreadcrumb
+              document={document}
+              onOpenDatabase={(databaseDocumentId) =>
+                navigate(`/page/${databaseDocumentId}`, { flushSync: true })
+              }
+            />
             <div className="mb-1">
               {canEdit ? (
                 <EmojiPicker
                   icon={document.icon}
+                  defaultIcon={defaultIcon}
+                  defaultIconLabel={
+                    defaultIconKind === "database" ? "database" : "page"
+                  }
                   onSelect={(emoji) => {
                     updateDocument.mutate({ id: documentId, icon: emoji });
                   }}
@@ -456,6 +530,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               ) : document.icon ? (
                 <div className="p-1 -ml-1 text-5xl leading-none">
                   {document.icon}
+                </div>
+              ) : defaultIconKind === "database" ? (
+                <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                  <IconDatabase className="size-12" aria-hidden="true" />
                 </div>
               ) : null}
             </div>
@@ -483,8 +561,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               style={{ fieldSizing: "content" } as any}
               className="block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40 md:text-4xl"
             />
-            <DocumentProperties documentId={documentId} canEdit={canEdit} />
+            {document.databaseMembership ? (
+              <DocumentProperties documentId={documentId} canEdit={canEdit} />
+            ) : null}
           </div>
+          {document.database ? (
+            <div className={documentEditorDatabaseRegionClassName()}>
+              <DocumentDatabase document={document} canEdit={canEdit} />
+            </div>
+          ) : null}
 
           <div
             className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"

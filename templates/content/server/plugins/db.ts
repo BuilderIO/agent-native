@@ -141,6 +141,7 @@ export default runMigrations(
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
+      database_id TEXT,
       name TEXT NOT NULL,
       type TEXT NOT NULL,
       visibility TEXT NOT NULL DEFAULT 'always_show',
@@ -165,6 +166,40 @@ export default runMigrations(
     {
       version: 20,
       sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'always_show'`,
+    },
+    {
+      version: 21,
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS database_id TEXT`,
+    },
+    {
+      version: 22,
+      sql: `CREATE TABLE IF NOT EXISTS content_databases (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      document_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT 'Untitled database',
+      view_config_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 23,
+      sql: `CREATE TABLE IF NOT EXISTS content_database_items (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      database_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 24,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
     },
   ],
   { table: "content_migrations" },

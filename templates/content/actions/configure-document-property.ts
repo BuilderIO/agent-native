@@ -15,6 +15,7 @@ import {
   listPropertiesForDocument,
   nanoid,
   optionsForNewProperty,
+  resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -42,9 +43,10 @@ export default defineAction({
             }),
           )
           .optional(),
+        formula: z.string().optional(),
       })
       .optional()
-      .describe("Select/status/multi-select options"),
+      .describe("Select/status/multi-select options or formula expression"),
   }),
   run: async (args) => {
     const access = await assertAccess("document", args.documentId, "editor");
@@ -54,6 +56,12 @@ export default defineAction({
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
     const optionsJson = optionsForNewProperty(type, args.options as any);
+    const database = await resolvePropertyDatabaseForDocument(document);
+    if (!database) {
+      throw new Error(
+        "Properties belong to databases. Create or open a database before adding properties.",
+      );
+    }
 
     if (args.id) {
       const [existing] = await db
@@ -66,6 +74,7 @@ export default defineAction({
               schema.documentPropertyDefinitions.ownerEmail,
               document.ownerEmail,
             ),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
@@ -111,9 +120,7 @@ export default defineAction({
               schema.documentPropertyDefinitions.ownerEmail,
               document.ownerEmail,
             ),
-            document.orgId
-              ? eq(schema.documentPropertyDefinitions.orgId, document.orgId)
-              : sql`${schema.documentPropertyDefinitions.orgId} IS NULL`,
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
         );
 
@@ -121,6 +128,7 @@ export default defineAction({
         id: nanoid(),
         ownerEmail: document.ownerEmail,
         orgId: document.orgId ?? null,
+        databaseId: database.id,
         name,
         type,
         visibility: normalizePropertyVisibility(args.visibility),
@@ -135,6 +143,7 @@ export default defineAction({
 
     return {
       documentId: args.documentId,
+      databaseId: database.id,
       properties: await listPropertiesForDocument(document),
     };
   },

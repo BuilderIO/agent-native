@@ -4,7 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { listPropertiesForDocument } from "./_property-utils.js";
+import {
+  listPropertiesForDocument,
+  resolvePropertyDatabaseForDocument,
+} from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -17,6 +20,8 @@ export default defineAction({
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
+    const database = await resolvePropertyDatabaseForDocument(document);
+    if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
       .select({ id: schema.documentPropertyDefinitions.id })
@@ -28,6 +33,7 @@ export default defineAction({
             schema.documentPropertyDefinitions.ownerEmail,
             document.ownerEmail,
           ),
+          eq(schema.documentPropertyDefinitions.databaseId, database.id),
         ),
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
@@ -43,6 +49,7 @@ export default defineAction({
 
     return {
       documentId,
+      databaseId: database.id,
       properties: await listPropertiesForDocument(document),
     };
   },

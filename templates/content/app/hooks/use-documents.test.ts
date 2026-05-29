@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Document } from "@shared/api";
-import { buildDocumentTree } from "./use-documents";
+import {
+  buildDocumentTree,
+  filterDocumentTreeDocuments,
+} from "./use-documents";
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {
@@ -36,5 +39,61 @@ describe("buildDocumentTree", () => {
     expect(tree).toHaveLength(1);
     expect(tree[0].id).toBe("a");
     expect(tree[0].children.map((node) => node.id)).toEqual(["b"]);
+  });
+});
+
+describe("filterDocumentTreeDocuments", () => {
+  it("keeps database pages but removes their row pages from the sidebar tree", () => {
+    const database = {
+      ...doc("database-page", null),
+      database: {
+        id: "database",
+        documentId: "database-page",
+        title: "Content calendar",
+        viewConfig: {
+          activeViewId: "default",
+          views: [],
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+        },
+        createdAt: "2026-05-12T00:00:00.000Z",
+        updatedAt: "2026-05-12T00:00:00.000Z",
+      },
+    };
+    const row = {
+      ...doc("row-page", "database-page"),
+      databaseMembership: {
+        databaseId: "database",
+        databaseDocumentId: "database-page",
+        databaseTitle: "Content calendar",
+        position: 0,
+      },
+    };
+
+    expect(
+      filterDocumentTreeDocuments([database, row]).map((node) => node.id),
+    ).toEqual(["database-page"]);
+  });
+
+  it("removes descendants of database row pages from the sidebar tree", () => {
+    const database = doc("database-page", null);
+    const row = {
+      ...doc("row-page", "database-page"),
+      databaseMembership: {
+        databaseId: "database",
+        databaseDocumentId: "database-page",
+        databaseTitle: "Content calendar",
+        position: 0,
+      },
+    };
+    const child = doc("row-child", "row-page");
+    const sibling = doc("ordinary-page", null);
+
+    expect(
+      filterDocumentTreeDocuments([database, row, child, sibling]).map(
+        (node) => node.id,
+      ),
+    ).toEqual(["database-page", "ordinary-page"]);
   });
 });
