@@ -6,7 +6,7 @@ import {
   mergeAttributes,
 } from "@tiptap/react";
 import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
-import Collaboration from "@tiptap/extension-collaboration";
+import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -1430,8 +1430,14 @@ export function VisualEditor({
       },
     },
     editable,
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor, transaction }) => {
       if (isSettingContent.current) return;
+      // Never persist remote-originated changes (the initial Yjs state load or a
+      // peer's edit arriving via sync). Autosaving those would write a possibly
+      // STALE Y.Doc back over newer SQL content — clobbering an agent edit that
+      // hasn't been reconciled yet. Each client only saves its OWN local edits;
+      // a peer's edit is saved by the peer that made it.
+      if (transaction && isChangeOrigin(transaction)) return;
       lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
