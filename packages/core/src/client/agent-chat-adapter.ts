@@ -78,6 +78,16 @@ const MAX_HISTORY_TOTAL_CHARS = 64_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+// Tools whose entire input IS the artifact being built (extension HTML, etc.).
+// Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
+// the resumed agent — it can no longer refine the artifact because it sees a
+// fake input. Keep the real input for these on continuation, only collapsing
+// inputs that are far larger than any realistic extension payload.
+const LARGE_INPUT_TOOL_NAMES = new Set([
+  "create-extension",
+  "update-extension",
+]);
+const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
 function normalizeMentions(text: string): string {
@@ -133,21 +143,28 @@ function messageTextFromContent(
   );
 }
 
-function truncateToolArgsForHistory(args: unknown): Record<string, unknown> {
+function truncateToolArgsForHistory(
+  args: unknown,
+  toolName?: string,
+): Record<string, unknown> {
   if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+  // Large-input tools (e.g. create-extension/update-extension) carry the
+  // artifact itself as their input. Preserve the real input on continuation so
+  // the resumed agent can keep refining it; only collapse inputs that exceed a
+  // far larger ceiling than any realistic payload.
+  const cap =
+    toolName && LARGE_INPUT_TOOL_NAMES.has(toolName)
+      ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
+      : MAX_HISTORY_TOOL_ARGS_CHARS;
   try {
     const json = JSON.stringify(args);
-    if (json.length <= MAX_HISTORY_TOOL_ARGS_CHARS) {
+    if (json.length <= cap) {
       return args as Record<string, unknown>;
     }
     return {
       __agentNativeTruncated: true,
       note: "Tool input was too large to resend in chat history. Use the current app/resource state as the source of truth if exact content is needed.",
-      preview: truncateForHistory(
-        json,
-        MAX_HISTORY_TOOL_ARGS_CHARS,
-        "Tool input",
-      ),
+      preview: truncateForHistory(json, cap, "Tool input"),
     };
   } catch {
     return {
@@ -422,7 +439,7 @@ function contentToStructuredMessages(
         toolCallId,
         toolName: part.toolName,
         args: truncate
-          ? truncateToolArgsForHistory(part.args ?? {})
+          ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
           : (part.args ?? {}),
       });
       if (part.result !== undefined) {
@@ -595,6 +612,19 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
     part.type === "text"
       ? part.text.trim().length > 0
       : part.result !== undefined,
+  );
+}
+
+/**
+ * True when an action was streamed but never returned a result yet — i.e. a
+ * `tool_start` with no matching `tool_done`. The server is still executing it,
+ * so a run_timeout that fires in this window is NOT a stall: the agent was
+ * actively working and `foldAssistantTurn` persisted the in-flight call. We
+ * must not count this against the stalled/empty continuation budgets.
+ */
+function hasInFlightToolCall(content: ContentPart[]): boolean {
+  return content.some(
+    (part) => part.type === "tool-call" && part.result === undefined,
   );
 }
 
@@ -1326,7 +1356,22 @@ export function createAgentChatAdapter(options?: {
           const visibleContent = visibleContentForContinuation();
           const currentPartialHistory =
             contentToContinuationHistory(visibleContent);
-          const madeProgress = hasContinuationProgress(visibleContent);
+          // Real, content-weight progress: streamed text or a completed tool
+          // result. Used to reset the stalled/empty counters so trivial
+          // whitespace-only output cannot keep the run alive indefinitely.
+          const madeContentProgress = hasContinuationProgress(visibleContent);
+          // An action was streamed but has not returned yet (a tool_start with
+          // no tool_done), or the activity trail shows the server was working
+          // on a tool. A run_timeout that fires in this window means the agent
+          // was actively making progress — the server's foldAssistantTurn
+          // persisted the in-flight call — so it must NOT count against the
+          // stalled/empty continuation budgets.
+          const hasInFlightTool =
+            hasInFlightToolCall(visibleContent) ||
+            Boolean(lastActivityTool(signal.activityTrail));
+          // Either real output or an actively-running tool counts as progress
+          // for the stalled/empty caps.
+          const madeProgress = madeContentProgress || hasInFlightTool;
           const madeVisibleProgress = visibleContent.length > 0;
           const madeDurableToolProgress = visibleContent.some(
             (part) => part.type === "tool-call" && part.result !== undefined,
@@ -1347,7 +1392,11 @@ export function createAgentChatAdapter(options?: {
             ) {
               return { ok: false, resetVisibleContent: false };
             }
-            if (!madeVisibleProgress) {
+            // Reset the empty-continuation counter on real progress — streamed
+            // text/completed tool OR an in-flight tool the server is running —
+            // not merely on a non-zero part count, which whitespace-only or
+            // unresolved-only output would falsely satisfy.
+            if (!madeProgress) {
               emptyTransientContinuationAttempts += 1;
               if (
                 emptyTransientContinuationAttempts >

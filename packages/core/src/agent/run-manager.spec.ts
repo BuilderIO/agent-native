@@ -169,6 +169,64 @@ describe("run manager soft timeout", () => {
     expect(run.status).toBe("completed");
   });
 
+  it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
+    // Regression: the soft-timeout terminal event (auto_continue) is stashed
+    // with the seq captured at `send()` time. If the runFn streams MORE events
+    // before it actually stops on the abort signal, those events reuse that
+    // seq and get persisted first. If the terminal event were emitted with its
+    // stale captured seq, insertRunEvent's `ON CONFLICT (run_id, seq) DO
+    // NOTHING` would silently drop it and the client would lose the
+    // continuation signal. The terminal event must always land in SQL with a
+    // unique seq.
+    const persisted: Array<{ seq: number; type: string }> = [];
+    vi.mocked(insertRunEvent).mockImplementation(
+      async (_runId, seq, eventData) => {
+        persisted.push({ seq, type: JSON.parse(eventData).type });
+      },
+    );
+
+    const run = startRun(
+      "run-soft-timeout-late-events",
+      "thread-soft-timeout-late-events",
+      async (send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            // Simulate the runFn streaming a couple more chunks before it
+            // actually unwinds on the abort signal — these get pushed and
+            // would reuse the auto_continue's stashed seq.
+            send({ type: "text", text: "late chunk 1" });
+            send({ type: "text", text: "late chunk 2" });
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add(() => {});
+
+    await vi.advanceTimersByTimeAsync(11);
+    await vi.waitFor(() =>
+      expect(persisted.some((e) => e.type === "auto_continue")).toBe(true),
+    );
+
+    // The terminal auto_continue must be persisted exactly once...
+    const terminalPersists = persisted.filter(
+      (e) => e.type === "auto_continue",
+    );
+    expect(terminalPersists).toHaveLength(1);
+    // ...and with a seq that doesn't collide with any other persisted event.
+    const terminalSeq = terminalPersists[0].seq;
+    const collisions = persisted.filter(
+      (e) => e.seq === terminalSeq && e.type !== "auto_continue",
+    );
+    expect(collisions).toHaveLength(0);
+    // All persisted seqs must be unique (no ON CONFLICT drops).
+    const allSeqs = persisted.map((e) => e.seq);
+    expect(new Set(allSeqs).size).toBe(allSeqs.length);
+    expect(run.status).toBe("completed");
+  });
+
   it("prefers an explicit soft timeout over the environment default", () => {
     process.env.AGENT_RUN_SOFT_TIMEOUT_MS = "25000";
 

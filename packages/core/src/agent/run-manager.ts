@@ -457,25 +457,38 @@ export function startRun(
       //    immediately, so emitting it earlier recreates the final-message
       //    race this manager is meant to avoid.
       if (finalStatus === "completed" || finalStatus === "errored") {
-        const terminal: RunEvent =
+        // Choose the terminal event payload (done / the stashed terminal /
+        // a synthesized error). NOTE: the `seq` carried by
+        // `pendingTerminalEvent` was captured by `send()` at stash time as
+        // `run.events.length` and is NOT authoritative — if the runFn emitted
+        // any more events before it actually stopped on the abort signal,
+        // those events were pushed and reused that same seq. Persisting the
+        // terminal event with the stale seq would collide with an
+        // already-persisted streaming event and get silently dropped by
+        // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
+        // client would never see the terminal/continuation signal. We always
+        // re-stamp the seq at emit time (max-seq+1) just below.
+        const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
-            ? (pendingTerminalEvent ?? {
-                seq: run.events.length,
-                event: { type: "done" },
-              })
+            ? (pendingTerminalEvent?.event ?? { type: "done" })
             : pendingTerminalEvent?.event.type === "error"
-              ? pendingTerminalEvent
+              ? pendingTerminalEvent.event
               : {
-                  seq: pendingTerminalEvent?.seq ?? run.events.length,
-                  event: {
-                    type: "error",
-                    error: completionError
-                      ? "Agent response could not be saved."
-                      : "Agent run ended unexpectedly",
-                  },
+                  type: "error",
+                  error: completionError
+                    ? "Agent response could not be saved."
+                    : "Agent run ended unexpectedly",
                 };
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
+          // Assign the seq at EMIT time, not at stash time. `run.events` is a
+          // contiguous 0-based log, so `run.events.length` is the next free
+          // seq and can never collide with an event that was pushed after the
+          // terminal event was stashed.
+          const terminal: RunEvent = {
+            seq: run.events.length,
+            event: terminalEvent,
+          };
           try {
             await emitRunEvent(terminal, { surfacePersistenceError: true });
           } catch (err) {
