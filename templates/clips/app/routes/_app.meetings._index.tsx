@@ -188,8 +188,8 @@ function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
   for (const arr of groups.values()) {
     arr.sort(
       (a, b) =>
-        new Date(a.scheduledStart).getTime() -
-        new Date(b.scheduledStart).getTime(),
+        new Date(b.scheduledStart).getTime() -
+        new Date(a.scheduledStart).getTime(),
     );
   }
   return Array.from(groups.entries());

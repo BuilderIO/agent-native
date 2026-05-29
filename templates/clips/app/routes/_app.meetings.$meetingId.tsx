@@ -72,6 +72,10 @@ interface ActionItem {
 
 type Participant = AttendeeStackParticipant;
 
+interface Bullet {
+  text: string;
+}
+
 interface Meeting {
   id: string;
   title: string;
@@ -86,7 +90,7 @@ interface Meeting {
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
   summaryMd?: string | null;
   userNotesMd?: string | null;
-  bulletsJson?: string[] | null;
+  bulletsJson?: Bullet[] | null;
   actionItemsJson?: ActionItem[] | null;
   segmentsJson?: TranscriptSegment[] | null;
   participants?: Participant[];
@@ -336,7 +340,7 @@ export default function MeetingDetailRoute() {
     return {
       ...data.meeting,
       participants: data.participants ?? [],
-      bulletsJson: safeArray<string>(data.meeting.bulletsJson),
+      bulletsJson: safeArray<Bullet>(data.meeting.bulletsJson),
       segmentsJson: segmentsRaw
         ? safeArray<TranscriptSegment>(segmentsRaw)
         : null,
@@ -738,7 +742,7 @@ export default function MeetingDetailRoute() {
           </div>
           <CanvasEditor
             summaryMd={meeting.summaryMd ?? ""}
-            bullets={bullets}
+            bullets={bullets.map((b) => b.text)}
             actionItems={actionItems}
             userNotesMd={meeting.userNotesMd ?? ""}
             onUserNotesChange={handleUserNotesChange}
