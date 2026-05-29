@@ -3618,3 +3618,251 @@ body[data-clips-route="recording-pill"] #root {
     opacity: 0.6;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: recording pill                                                    */
+/* ------------------------------------------------------------------------- */
+
+.pill-outer {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.pill-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  border-radius: 16px;
+  background: rgba(24, 24, 27, 0.95);
+  color: white;
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.pill-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.pill-header-detached {
+  height: 40px;
+  padding: 0 8px;
+}
+
+.pill-dot {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pill-dot-active {
+  background: #ef4444;
+  animation: pill-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.pill-dot-paused {
+  background: #a1a1aa;
+}
+
+@keyframes pill-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-timer {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-wave-dual {
+  display: flex;
+  height: 20px;
+  width: 48px;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pill-wave-canvas-half {
+  height: 50%;
+  width: 100%;
+  display: block;
+}
+
+.pill-wave-canvas {
+  height: 20px;
+  width: 48px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.pill-mode {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #d4d4d8;
+}
+
+.pill-stop-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #ef4444;
+  color: white;
+  border: none;
+  transition:
+    background 120ms,
+    opacity 120ms;
+}
+
+.pill-stop-btn:hover:not(:disabled) {
+  background: #f87171;
+}
+
+.pill-stop-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-expand-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #e4e4e7;
+  border: none;
+  background: transparent;
+  transition: background 120ms;
+}
+
+.pill-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-drag-handle {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 4px;
+  width: 40px;
+  cursor: pointer;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  border: none;
+  transition: background 120ms;
+}
+
+.pill-drag-handle:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.pill-divider {
+  margin: 0 12px;
+  height: 1px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-transcript-area {
+  min-height: 0;
+  flex: 1;
+}
+
+.pill-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+
+.pill-pause-btn {
+  display: inline-flex;
+  height: 32px;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  border: none;
+  transition: background 120ms;
+}
+
+.pill-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.pill-stop-footer-btn {
+  margin-left: auto;
+  display: inline-flex;
+  height: 32px;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  border: none;
+  transition:
+    background 120ms,
+    opacity 120ms;
+}
+
+.pill-stop-footer-btn:hover:not(:disabled) {
+  background: #f87171;
+}
+
+.pill-stop-footer-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-spinner {
+  animation: pill-spin 0.8s linear infinite;
+}
+
+@keyframes pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

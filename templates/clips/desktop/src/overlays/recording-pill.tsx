@@ -238,7 +238,6 @@ export function RecordingPill() {
   async function onStopClick() {
     if (stopping) return;
     setStopping(true);
-    emit("clips:recorder-stop").catch(() => {});
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
@@ -264,51 +263,42 @@ export function RecordingPill() {
     ctx.mode === "meeting" ? "Stop transcription" : "Stop recording";
 
   return (
-    <div className="flex h-full w-full items-stretch justify-stretch">
-      <div
-        className="relative flex h-full w-full flex-col rounded-2xl bg-zinc-900/95 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
-        data-tauri-drag-region
-      >
-        {/* Collapsed header — always visible, including a one-click stop. */}
+    <div className="pill-outer">
+      <div className="pill-inner" data-tauri-drag-region>
         <div
-          className={`flex shrink-0 items-center gap-2 ${detached ? "h-10 px-2" : "h-11 px-3"}`}
+          className={`pill-header${detached ? " pill-header-detached" : ""}`}
         >
           <span
-            className={`inline-block h-2 w-2 rounded-full ${
-              paused ? "bg-zinc-400" : "bg-red-500 animate-pulse"
-            }`}
+            className={`pill-dot ${paused ? "pill-dot-paused" : "pill-dot-active"}`}
           />
-          <span className="text-[13px] font-medium tabular-nums">
+          <span className="pill-timer">
             {mm}:{ss}
           </span>
           {hasSystemAudio ? (
-            // Stacked dual-stream layout: mic on top, system on bottom.
-            // Each canvas is half-height so the overall pill height stays
-            // unchanged.
             <div
-              className="flex h-5 w-12 shrink-0 flex-col gap-px"
+              className="pill-wave-dual"
               aria-hidden
               title="Top: you. Bottom: speaker."
             >
               <canvas
                 ref={micCanvasRef}
-                className="h-1/2 w-full"
+                className="pill-wave-canvas-half"
                 aria-label="Microphone level"
               />
               <canvas
                 ref={sysCanvasRef}
-                className="h-1/2 w-full"
+                className="pill-wave-canvas-half"
                 aria-label="System audio level"
               />
             </div>
           ) : (
             <canvas
               ref={micCanvasRef}
-              className="h-5 w-12 shrink-0"
+              className="pill-wave-canvas"
               aria-hidden
             />
           )}
-          <span className="ml-auto truncate text-[12px] text-zinc-300">
+          <span className="pill-mode">
             {ctx.mode === "meeting" ? "Meeting notes" : "Recording"}
           </span>
           <button
@@ -316,12 +306,12 @@ export function RecordingPill() {
             onClick={onStopClick}
             disabled={stopping}
             data-no-drag
-            className="ml-1 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-red-500 text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="pill-stop-btn"
             aria-label={stopping ? "Stopping" : stopLabel}
             title={stopping ? "Stopping..." : stopLabel}
           >
             {stopping ? (
-              <IconLoader2 className="animate-spin" size={14} />
+              <IconLoader2 className="pill-spinner" size={14} />
             ) : (
               <IconPlayerStopFilled size={14} />
             )}
@@ -330,7 +320,7 @@ export function RecordingPill() {
             type="button"
             onClick={toggleExpanded}
             data-no-drag
-            className="ml-1 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-zinc-200 hover:bg-white/10"
+            className="pill-expand-btn"
             aria-label={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? (
@@ -342,30 +332,27 @@ export function RecordingPill() {
         </div>
 
         {detached ? (
-          // 4px drag handle along the bottom edge of the floating pill.
-          // Click un-detaches; the `data-tauri-drag-region` on the parent
-          // already handles the actual drag.
           <button
             type="button"
             onClick={onHandleClick}
             data-no-drag
             aria-label="Re-attach pill to main window"
-            className="absolute bottom-1 left-1/2 h-1 w-10 -translate-x-1/2 cursor-pointer rounded-full bg-white/30 hover:bg-white/50"
+            className="pill-drag-handle"
           />
         ) : null}
 
         {expanded ? (
           <>
-            <div className="mx-3 h-px shrink-0 bg-white/10" />
-            <div className="min-h-0 flex-1">
+            <div className="pill-divider" />
+            <div className="pill-transcript-area">
               <LiveTranscript />
             </div>
-            <div className="flex shrink-0 items-center gap-2 px-3 pb-3 pt-2">
+            <div className="pill-footer">
               <button
                 type="button"
                 onClick={onPauseClick}
                 data-no-drag
-                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12px] font-medium text-white hover:bg-white/20"
+                className="pill-pause-btn"
               >
                 {paused ? (
                   <IconPlayerPlayFilled size={14} />
@@ -379,12 +366,12 @@ export function RecordingPill() {
                 onClick={onStopClick}
                 disabled={stopping}
                 data-no-drag
-                className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-red-500 px-3 text-[12px] font-medium text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="pill-stop-footer-btn"
                 aria-label={stopping ? "Stopping" : stopLabel}
                 title={stopping ? "Stopping..." : stopLabel}
               >
                 {stopping ? (
-                  <IconLoader2 className="animate-spin" size={14} />
+                  <IconLoader2 className="pill-spinner" size={14} />
                 ) : (
                   <IconPlayerStopFilled size={14} />
                 )}
