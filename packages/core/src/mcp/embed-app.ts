@@ -559,6 +559,35 @@ export function embedApp(
       });
     }
 
+    function relativeSpecifierToAppUrl(specifier, config, baseUrl) {
+      if (typeof specifier !== "string" || !/^\\.\\.?\//.test(specifier)) {
+        return specifier;
+      }
+      try {
+        const url = new URL(specifier, baseUrl || config.baseHref);
+        if (url.origin === config.origin) {
+          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+        }
+        return url.toString();
+      } catch (_err) {
+        return specifier;
+      }
+    }
+
+    function relativeModuleSpecifiersToAbsolute(code, config, baseUrl) {
+      return String(code)
+        .replace(/(\\bimport\\s+(?:[^"']+?\\s+from\\s+)?)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bimport\\s*\\(\\s*)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bexport\\s+[^"']*?\\s+from\\s+)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        });
+    }
+
     function stripDevOnlyModuleImports(code) {
       return String(code).replace(
         /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/inject-hmr-runtime|__x00__virtual:react-router\\/inject-hmr-runtime)[^"']*["']\\s*;?/g,
@@ -566,8 +595,12 @@ export function embedApp(
       );
     }
 
-    function moduleCodeToClassicAsync(code, config) {
-      return rootRelativeSpecifiersToAbsolute(stripDevOnlyModuleImports(code), config)
+    function moduleCodeToClassicAsync(code, config, baseUrl) {
+      return relativeModuleSpecifiersToAbsolute(
+        rootRelativeSpecifiersToAbsolute(stripDevOnlyModuleImports(code), config),
+        config,
+        baseUrl
+      )
         .replace(
           /\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
           "const $1 = await import($2);"
@@ -605,7 +638,12 @@ export function embedApp(
     }
 
     async function runModuleScriptAsClassic(script, config) {
-      const code = moduleCodeToClassicAsync(await moduleScriptCode(script, config), config);
+      const sourceUrl = scriptSourceUrl(script, config) || config.baseHref;
+      const code = moduleCodeToClassicAsync(
+        await moduleScriptCode(script, config),
+        config,
+        sourceUrl
+      );
       const runner = document.createElement("script");
       runner.textContent =
         "(async()=>{" +
