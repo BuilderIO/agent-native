@@ -1293,6 +1293,14 @@ export function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return;
+    navigator.mediaDevices.addEventListener("devicechange", loadDevices);
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
+    };
+  }, [loadDevices]);
+
   const unlockDeviceLabels = useCallback(async () => {
     // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
     // the on-screen camera bubble window owns the camera, and probing
@@ -1321,6 +1329,42 @@ export function App() {
     }
     await loadDevices();
   }, [loadDevices, selectedMicId]);
+
+  const requestDeviceAccess = useCallback(
+    async (kind: "camera" | "mic") => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Device selection is not available in this WebView.");
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(
+          kind === "camera"
+            ? { video: true, audio: false }
+            : { audio: true, video: false },
+        );
+        stream.getTracks().forEach((track) => track.stop());
+        await loadDevices();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (kind === "camera") {
+          setCameraError(
+            isHardCapturePermissionError(message) ||
+              /notallowed|permission|denied/i.test(message)
+              ? MACOS_CAPTURE_PERMISSION_MESSAGE
+              : `Camera unavailable: ${message}`,
+          );
+        } else {
+          setRecError(
+            isHardCapturePermissionError(message) ||
+              /notallowed|permission|denied/i.test(message)
+              ? "Microphone access is blocked. Open System Settings → Privacy & Security → Microphone, allow Clips, then try again."
+              : `Microphone unavailable: ${message}`,
+          );
+        }
+        await loadDevices();
+      }
+    },
+    [loadDevices],
+  );
 
   // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
@@ -1638,6 +1682,7 @@ export function App() {
           s.getTracks().forEach((t) => t.stop());
           return;
         }
+        await loadDevices();
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -2413,6 +2458,7 @@ export function App() {
             devices={cameras}
             selectedId={cameraId}
             onSelect={setCameraId}
+            onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={setCameraOn}
           />
@@ -2423,6 +2469,7 @@ export function App() {
           devices={mics}
           selectedId={selectedMicId}
           onSelect={setMicId}
+          onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
         />
@@ -2432,6 +2479,7 @@ export function App() {
         mode={mode}
         cameraOn={cameraOn}
         micOn={micOn}
+        includeVoicePaste={voiceDictationEnabled}
         includeFnMonitoring={fnShortcutEnabled}
         open={readinessOpen}
         onOpenChange={updateReadinessOpen}
@@ -2571,11 +2619,13 @@ function readinessItems({
   cameraOn,
   micOn,
   includeFnMonitoring,
+  includeVoicePaste,
 }: {
   mode: CaptureMode;
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
 }): ReadinessItem[] {
   const items: ReadinessItem[] = [
     {
@@ -2603,6 +2653,12 @@ function readinessItems({
       active: mode !== "screen" && cameraOn,
     },
     {
+      label: "Accessibility",
+      detail: "Needed to paste dictated text into other apps.",
+      pane: "accessibility",
+      active: includeVoicePaste,
+    },
+    {
       label: "Input Monitoring",
       detail: "Only needed for the Fn dictation shortcut.",
       pane: "input-monitoring",
@@ -2618,6 +2674,7 @@ function ReadinessPanel({
   cameraOn,
   micOn,
   includeFnMonitoring,
+  includeVoicePaste,
   open,
   onOpenChange,
   onOpenPermission,
@@ -2626,6 +2683,7 @@ function ReadinessPanel({
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenPermission: (pane: MacosPrivacyPane) => void;
@@ -2635,6 +2693,7 @@ function ReadinessPanel({
     cameraOn,
     micOn,
     includeFnMonitoring,
+    includeVoicePaste,
   });
 
   return (
@@ -3181,6 +3240,7 @@ function DeviceRow({
   devices,
   selectedId,
   onSelect,
+  onRefresh,
   on,
   onToggle,
 }: {
@@ -3188,6 +3248,7 @@ function DeviceRow({
   devices: MediaDeviceInfo[];
   selectedId: string;
   onSelect: (id: string) => void;
+  onRefresh: () => void;
   on: boolean;
   onToggle: (v: boolean) => void;
 }) {
@@ -3231,7 +3292,13 @@ function DeviceRow({
     };
   }, [open]);
 
-  const disabled = !on || devices.length === 0;
+  const disabled = !on;
+  const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
+  const accessLabel =
+    kind === "camera" ? "Allow camera access" : "Allow microphone access";
+  const refreshLabel =
+    kind === "camera" ? "Refresh cameras" : "Refresh microphones";
+
   return (
     <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
       <span className="row-icon">
@@ -3259,34 +3326,72 @@ function DeviceRow({
       {kind === "mic" && on ? <MicWave /> : null}
       {open ? (
         <div className="row-menu" role="menu">
+          <button
+            type="button"
+            className={`row-menu-item ${!selectedId ? "selected" : ""}`}
+            role="menuitemradio"
+            aria-checked={!selectedId}
+            onClick={() => {
+              onSelect("");
+              setOpen(false);
+            }}
+          >
+            <span className="row-menu-check" aria-hidden>
+              {!selectedId ? <CheckIcon /> : null}
+            </span>
+            <span className="row-menu-label">{defaultLabel}</span>
+          </button>
           {devices.length === 0 ? (
-            <div className="row-menu-empty">
-              {kind === "camera" ? "No cameras found" : "No microphones found"}
-            </div>
+            <button
+              type="button"
+              className="row-menu-item row-menu-action"
+              role="menuitem"
+              onClick={() => {
+                onRefresh();
+                setOpen(false);
+              }}
+            >
+              <span className="row-menu-check" aria-hidden />
+              <span className="row-menu-label">{accessLabel}</span>
+            </button>
           ) : (
-            devices.map((d) => {
-              const isSelected = !!selectedId && d.deviceId === selectedId;
-              return (
-                <button
-                  key={d.deviceId}
-                  type="button"
-                  className={`row-menu-item ${isSelected ? "selected" : ""}`}
-                  role="menuitemradio"
-                  aria-checked={isSelected}
-                  onClick={() => {
-                    onSelect(d.deviceId);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="row-menu-check" aria-hidden>
-                    {isSelected ? <CheckIcon /> : null}
-                  </span>
-                  <span className="row-menu-label">
-                    {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-                  </span>
-                </button>
-              );
-            })
+            <>
+              {devices.map((d) => {
+                const isSelected = !!selectedId && d.deviceId === selectedId;
+                return (
+                  <button
+                    key={d.deviceId}
+                    type="button"
+                    className={`row-menu-item ${isSelected ? "selected" : ""}`}
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    onClick={() => {
+                      onSelect(d.deviceId);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="row-menu-check" aria-hidden>
+                      {isSelected ? <CheckIcon /> : null}
+                    </span>
+                    <span className="row-menu-label">
+                      {d.label || (kind === "camera" ? "Camera" : "Microphone")}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="row-menu-item row-menu-action"
+                role="menuitem"
+                onClick={() => {
+                  onRefresh();
+                  setOpen(false);
+                }}
+              >
+                <span className="row-menu-check" aria-hidden />
+                <span className="row-menu-label">{refreshLabel}</span>
+              </button>
+            </>
           )}
         </div>
       ) : null}

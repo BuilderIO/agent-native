@@ -16,7 +16,7 @@ Detailed library, generation, image, embed, and engine rules live in
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
 - Use `view-screen` when the active library, selected asset, picker, generation,
-  or embed target is unclear.
+  or embed target is unclear. The picker is also available from the left nav.
 - Keep inline previews and picker outputs lightweight; fetch full asset details
   through actions when needed.
 - Use framework sharing/collaboration primitives for ownable assets.
@@ -24,8 +24,10 @@ Detailed library, generation, image, embed, and engine rules live in
 ## Application State
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
-  context.
-- `navigate` moves the UI to library, generation, asset, and settings surfaces.
+  context. Picker state includes media type, selected library, query, prompt, and
+  aspect ratio when available.
+- `navigate` moves the UI to picker, library, generation, asset, and settings
+  surfaces.
 
 ## Skills
 

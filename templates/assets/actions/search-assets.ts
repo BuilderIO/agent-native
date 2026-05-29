@@ -4,7 +4,11 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
-import { requireLibrary, serializeAsset } from "./_helpers.js";
+import {
+  buildAssetLineage,
+  requireLibrary,
+  serializeAsset,
+} from "./_helpers.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
 
 export default defineAction({
@@ -37,11 +41,18 @@ export default defineAction({
     const filters = [inArray(schema.assets.libraryId, libraryIds)];
     if (mediaType) filters.push(eq(schema.assets.mediaType, mediaType));
     const normalizedQuery = query.trim().toLowerCase();
-    const rows = await db
-      .select()
-      .from(schema.assets)
-      .where(and(...filters))
-      .orderBy(desc(schema.assets.updatedAt));
+    const [rows, lineageRows] = await Promise.all([
+      db
+        .select()
+        .from(schema.assets)
+        .where(and(...filters))
+        .orderBy(desc(schema.assets.updatedAt)),
+      db
+        .select()
+        .from(schema.assets)
+        .where(inArray(schema.assets.libraryId, libraryIds)),
+    ]);
+    const lineageById = buildAssetLineage(lineageRows);
 
     const assets = rows
       .filter((asset) => {
@@ -67,7 +78,7 @@ export default defineAction({
         return searchable.includes(normalizedQuery);
       })
       .slice(0, limit)
-      .map(serializeAsset);
+      .map((asset) => serializeAsset(asset, lineageById.get(asset.id) ?? null));
 
     return { count: assets.length, assets };
   },

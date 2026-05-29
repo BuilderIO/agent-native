@@ -178,35 +178,49 @@ export function PreRecordPanel({
     if (initialDisplaySurface) setDisplaySurface(initialDisplaySurface);
   }, [initialDisplaySurface]);
 
+  const enumerateDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setEnumError(null);
+      setMics(
+        devices.filter(
+          (d) =>
+            d.kind === "audioinput" && d.deviceId && d.deviceId !== "default",
+        ),
+      );
+      setCameras(
+        devices.filter(
+          (d) =>
+            d.kind === "videoinput" && d.deviceId && d.deviceId !== "default",
+        ),
+      );
+    } catch (err) {
+      setEnumError(
+        err instanceof Error ? err.message : "Could not enumerate devices",
+      );
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    async function enumerate() {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        if (cancelled) return;
-        setMics(
-          devices.filter(
-            (d) =>
-              d.kind === "audioinput" && d.deviceId && d.deviceId !== "default",
-          ),
-        );
-        setCameras(
-          devices.filter(
-            (d) =>
-              d.kind === "videoinput" && d.deviceId && d.deviceId !== "default",
-          ),
-        );
-      } catch (err) {
-        setEnumError(
-          err instanceof Error ? err.message : "Could not enumerate devices",
-        );
-      }
+    enumerateDevices().catch(() => {});
+    if (!navigator.mediaDevices?.addEventListener) {
+      return () => {
+        cancelled = true;
+      };
     }
-    void enumerate();
+    const handleDeviceChange = () => {
+      if (!cancelled) enumerateDevices().catch(() => {});
+    };
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () => {
       cancelled = true;
+      navigator.mediaDevices.removeEventListener(
+        "devicechange",
+        handleDeviceChange,
+      );
     };
-  }, []);
+  }, [enumerateDevices]);
 
   const supportsCameraToggle = mode === "screen+camera";
   const needsCamera =
@@ -260,8 +274,11 @@ export function PreRecordPanel({
         error: detail?.error ?? null,
         hasSignal: false,
       });
+      if (status === "live") {
+        enumerateDevices().catch(() => {});
+      }
     },
-    [],
+    [enumerateDevices],
   );
 
   const handleMicSignalChange = useCallback((hasSignal: boolean) => {
@@ -275,8 +292,11 @@ export function PreRecordPanel({
         error: detail?.error ?? null,
         hasPreview: false,
       });
+      if (status === "live") {
+        enumerateDevices().catch(() => {});
+      }
     },
-    [],
+    [enumerateDevices],
   );
 
   const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {

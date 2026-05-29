@@ -183,6 +183,9 @@ export function OpenSourceBadge({
           border-color: transparent !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
+          color: #00B5FF !important;
+          font-weight: 600 !important;
+          opacity: 0.95 !important;
         }
         @media (max-width: 640px) {
           .an-open-source-badge {
@@ -193,30 +196,30 @@ export function OpenSourceBadge({
           }
         }
         .dark .an-open-source-badge {
-          color: rgba(215, 215, 215, 0.94) !important;
+          color: #00B5FF !important;
         }
         @media ${darkQuery} {
           .an-open-source-badge {
-            color: rgba(215, 215, 215, 0.94) !important;
+            color: #00B5FF !important;
           }
         }
         .light .an-open-source-badge {
-          color: rgba(95, 95, 95, 0.95) !important;
+          color: #00B5FF !important;
         }
         .an-open-source-badge:hover {
           opacity: 1 !important;
-          color: rgba(70, 70, 70, 1) !important;
+          color: #33C4FF !important;
         }
         @media ${darkQuery} {
           .an-open-source-badge:hover {
-            color: rgba(238, 238, 238, 1) !important;
+            color: #33C4FF !important;
           }
         }
         .dark .an-open-source-badge:hover {
-          color: rgba(238, 238, 238, 1) !important;
+          color: #33C4FF !important;
         }
         .light .an-open-source-badge:hover {
-          color: rgba(70, 70, 70, 1) !important;
+          color: #33C4FF !important;
         }
       `}</style>
       <a

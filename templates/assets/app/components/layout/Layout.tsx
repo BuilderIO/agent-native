@@ -13,6 +13,15 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+function isEmbeddedWindow() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
@@ -22,12 +31,13 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
+  const isPicker = location.pathname === "/picker";
   const hideHeader =
     location.pathname === "/picker" ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =
-    location.pathname === "/picker" || location.pathname.endsWith("/embed");
+    (isPicker && isEmbeddedWindow()) || location.pathname.endsWith("/embed");
 
   if (chromeless) {
     return (
@@ -81,7 +91,7 @@ export function Layout({ children }: LayoutProps) {
             </div>
             {!hideHeader && <Header />}
             <InvitationBanner />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
           </div>
         </div>
       </AgentSidebar>

@@ -5,9 +5,11 @@ import getLibrary from "./get-library.js";
 import getAsset from "./get-asset.js";
 import getGenerationSession from "./get-generation-session.js";
 import getGenerationRun from "./get-generation-run.js";
+import listAssets from "./list-assets.js";
 import listGenerationPresets from "./list-generation-presets.js";
 import listGenerationSessions from "./list-generation-sessions.js";
 import listAuditRuns from "./list-audit-runs.js";
+import listLibraries from "./list-libraries.js";
 
 export default defineAction({
   description:
@@ -48,6 +50,22 @@ export default defineAction({
       screen.generationRun = await getGenerationRun.run({
         runId: nav.runId,
       });
+    }
+    if (nav?.view === "picker") {
+      screen.libraries = await listLibraries.run({ compact: true });
+      if (nav.libraryId) {
+        screen.assets = await listAssets.run({
+          libraryId: nav.libraryId,
+          mediaType:
+            nav.mediaType === "image" || nav.mediaType === "video"
+              ? nav.mediaType
+              : undefined,
+          query:
+            typeof nav.query === "string" && nav.query.trim()
+              ? nav.query
+              : undefined,
+        });
+      }
     }
     if (nav?.view === "audit") {
       screen.audit = await listAuditRuns.run({ limit: 20 });

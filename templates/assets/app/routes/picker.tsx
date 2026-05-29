@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
 } from "@agent-native/embedding/bridge";
 import {
+  agentNativePath,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
@@ -22,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -51,6 +53,11 @@ type Asset = {
   downloadUrl?: string;
   embedUrl?: string;
   embedPath?: string;
+  lineage?: {
+    label?: string | null;
+    kind?: string | null;
+    sourceLabel?: string | null;
+  } | null;
 };
 
 type Library = {
@@ -74,6 +81,15 @@ type HostConfig = {
   libraryId?: string;
   aspectRatio?: string;
 };
+
+function isEmbeddedWindow() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
 
 function normalizeMediaType(value: unknown): PickerMediaType {
   return value === "video" ? "video" : "image";
@@ -166,9 +182,24 @@ function dimensions(asset: Asset) {
   return `${asset.width} x ${asset.height}`;
 }
 
+function assetDisplayTitle(asset: Asset) {
+  return (
+    asset.lineage?.label || asset.title || asset.prompt || "Untitled asset"
+  );
+}
+
+function assetContextLabel(asset: Asset) {
+  if (asset.lineage?.kind === "variation" && asset.lineage.sourceLabel) {
+    return `from ${asset.lineage.sourceLabel}`;
+  }
+  return dimensions(asset);
+}
+
 export default function AssetPicker() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
+  const embedded = useMemo(() => isEmbeddedWindow(), []);
   const [hostConfig, setHostConfig] = useState<HostConfig>(() => ({
     mediaType: normalizeMediaType(searchParams.get("mediaType")),
     prompt: searchParams.get("prompt") ?? undefined,
@@ -227,11 +258,14 @@ export default function AssetPicker() {
 
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
-    bridgeRef.current?.postMessage("chooseAsset", payload);
+    const posted = bridgeRef.current?.postMessage("chooseAsset", payload);
     if (payload.mediaType === "image") {
       bridgeRef.current?.postMessage("chooseImage", payload);
     }
     notifyMcpHost(payload);
+    if (!embedded && !posted) {
+      navigate(`/asset/${asset.id}`);
+    }
   };
 
   const generate = useActionMutation(
@@ -268,6 +302,24 @@ export default function AssetPicker() {
     };
   }, []);
 
+  useEffect(() => {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-request-source": "assets-picker-ui",
+      },
+      body: JSON.stringify({
+        view: "picker",
+        mediaType,
+        libraryId: selectedLibraryId || null,
+        query,
+        prompt,
+        aspectRatio,
+      }),
+    }).catch(() => {});
+  }, [aspectRatio, mediaType, prompt, query, selectedLibraryId]);
+
   const canGenerate =
     mediaType === "image" &&
     Boolean(selectedLibraryId) &&
@@ -282,7 +334,12 @@ export default function AssetPicker() {
         : "Connect Builder.io or add a Gemini key in Settings to generate image assets.";
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden bg-background text-foreground",
+        embedded ? "h-screen w-screen" : "h-full w-full",
+      )}
+    >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -293,7 +350,9 @@ export default function AssetPicker() {
             )}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">Assets</div>
+            <div className="truncate text-sm font-semibold">
+              {embedded ? "Assets" : "Picker"}
+            </div>
             {selectedLibrary && (
               <div className="truncate text-xs text-muted-foreground">
                 {selectedLibrary.title} - {mediaLabel}
@@ -301,21 +360,23 @@ export default function AssetPicker() {
             )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button asChild variant="ghost" size="icon" title="Open Assets">
-            <Link to="/" target="_blank" rel="noreferrer">
-              <IconArrowUpRight className="h-4 w-4" />
-            </Link>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Close"
-            onClick={() => bridgeRef.current?.close()}
-          >
-            <IconX className="h-4 w-4" />
-          </Button>
-        </div>
+        {embedded && (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button asChild variant="ghost" size="icon" title="Open Assets">
+              <Link to="/" target="_blank" rel="noreferrer">
+                <IconArrowUpRight className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Close"
+              onClick={() => bridgeRef.current?.close()}
+            >
+              <IconX className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </header>
 
       <section className="shrink-0 border-b border-border px-3 py-3">
@@ -468,11 +529,11 @@ export default function AssetPicker() {
                 </div>
                 <div className="space-y-1 p-2">
                   <div className="truncate text-xs font-medium">
-                    {asset.title || asset.prompt || "Untitled asset"}
+                    {assetDisplayTitle(asset)}
                   </div>
-                  {dimensions(asset) && (
+                  {assetContextLabel(asset) && (
                     <div className="text-[11px] text-muted-foreground">
-                      {dimensions(asset)}
+                      {assetContextLabel(asset)}
                     </div>
                   )}
                 </div>

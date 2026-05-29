@@ -1,6 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
+import {
+  buildAssetLineage,
+  getAssetOrThrow,
+  serializeAsset,
+} from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -8,5 +14,13 @@ export default defineAction({
   schema: z.object({ id: z.string() }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ id }) => serializeAsset(await getAssetOrThrow(id)),
+  run: async ({ id }) => {
+    const asset = await getAssetOrThrow(id);
+    const libraryAssets = await getDb()
+      .select()
+      .from(schema.assets)
+      .where(eq(schema.assets.libraryId, asset.libraryId));
+    const lineageById = buildAssetLineage(libraryAssets);
+    return serializeAsset(asset, lineageById.get(asset.id) ?? null);
+  },
 });

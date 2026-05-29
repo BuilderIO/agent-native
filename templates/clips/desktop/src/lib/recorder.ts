@@ -1156,6 +1156,32 @@ async function abortRecordingUpload(
   }
 }
 
+async function trashRecording(
+  serverUrl: string,
+  recordingId: string,
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/trash-recording`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: recordingId }),
+      },
+    );
+    if (!res.ok) {
+      console.warn(
+        "[clips-recorder] trash recording failed:",
+        res.status,
+        await res.text().catch(() => ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[clips-recorder] trash recording failed:", err);
+  }
+}
+
 class CountdownCancelledError extends Error {
   constructor() {
     super("Recording cancelled during countdown");
@@ -1681,6 +1707,7 @@ async function startNativeFullscreenRecording(
             id,
             "Recording cancelled by user",
           );
+          await trashRecording(params.serverUrl, id);
         }
       })();
       return cancelPromise;
@@ -2889,10 +2916,12 @@ async function startNativeRecordingInner(
       // forget with a short-circuit on failure — we don't want to keep the
       // user waiting on a network call to a dev server that may be down.
       try {
-        await fetch(
-          `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
-          { method: "POST", credentials: "include" },
+        await abortRecordingUpload(
+          params.serverUrl,
+          id,
+          "Recording cancelled by user",
         );
+        await trashRecording(params.serverUrl, id);
       } catch (err) {
         console.warn("[clips-recorder] abort failed (non-fatal):", err);
       }
