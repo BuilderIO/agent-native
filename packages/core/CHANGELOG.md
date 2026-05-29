@@ -1,5 +1,19 @@
 # @agent-native/core
 
+## 0.26.0
+
+### Minor Changes
+
+- a456cf8: Make the agent a real-time peer editor on collaborative documents. Add `isReconcileLeadClient(awareness, clientId)` so exactly one connected client applies an authoritative external snapshot (agent edit, Notion pull, full rewrite) into a shared Y.Doc — the rest receive it through normal Yjs sync — preventing the changed region from being duplicated across clients. Editors now reconcile newer SQL content into the live Y.Doc gated on `updatedAt`, so a lagging poll can never revert live edits and post-refresh content is always correct.
+
+### Patch Changes
+
+- a456cf8: Harden agent chat continuation across serverless timeouts. Fixes several cases where a turn that hit a timeout would error or stall instead of resuming: (1) a tool still in flight when the timeout fires now counts as progress, so the client no longer gives up in ~2s with "connection kept failing" while the server is actively working; (2) the empty-continuation cap is measured by real content (not bare part count) so whitespace-only output can't mask a stall; (3) large tool inputs (create-extension / update-extension HTML) are preserved verbatim in continuation history instead of degrading to a lossy placeholder, so the agent can keep refining; (4) the run-manager terminal/auto_continue event seq is stamped at emit time so late events can't collide and silently drop the continuation signal.
+- a456cf8: Use provider-specific agent output-token caps and continue agent runs after max-token stops.
+- a456cf8: Surface inactive Builder access-token gateway errors as reconnectable Builder auth failures.
+- a456cf8: Add a reconciled client state hook and further compact agent prompt context.
+- a456cf8: Reduce default agent token budgets and trim always-on prompt context for routine requests.
+
 ## 0.25.0
 
 ### Minor Changes
