@@ -214,8 +214,18 @@ vi.mock("../server/framework-request-handler.js", () => ({
 
 const config = {
   name: "agent-native-mail",
+  title: "Agent-Native Mail",
   appId: "mail",
   description: "Mail app",
+  websiteUrl: "/mail",
+  icons: [
+    {
+      src: "/agent-native-icon-light.svg",
+      mimeType: "image/svg+xml",
+      sizes: ["135x78"],
+      theme: "light" as const,
+    },
+  ],
   version: "1.0.0",
   builtinCrossAppTools: false as const,
   actions: {
@@ -438,6 +448,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.id).toBe(1);
     expect(out.error).toBeUndefined();
     expect(out.result.serverInfo.name).toBe("agent-native-mail");
+    expect(out.result.serverInfo.title).toBe("Agent-Native Mail");
+    expect(out.result.serverInfo.description).toBe("Mail app");
+    expect(out.result.serverInfo.websiteUrl).toBe(
+      "https://mail.agent-native.com/mail",
+    );
+    expect(out.result.serverInfo.icons).toEqual([
+      {
+        src: "https://mail.agent-native.com/agent-native-icon-light.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["135x78"],
+        theme: "light",
+      },
+    ]);
     expect(out.result.capabilities).toBeDefined();
     expect(out.result.capabilities.resources).toEqual({});
     expect(

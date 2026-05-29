@@ -2,10 +2,15 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openMcpAppHostLink } from "../mcp-app-host.js";
 import {
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
 } from "./useBuilderStatus.js";
+
+vi.mock("../mcp-app-host.js", () => ({
+  openMcpAppHostLink: vi.fn(() => false),
+}));
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -16,6 +21,13 @@ function jsonResponse(data: unknown): Response {
 function setUserAgent(userAgent: string) {
   Object.defineProperty(window.navigator, "userAgent", {
     value: userAgent,
+    configurable: true,
+  });
+}
+
+function setEmbeddedWindow(embedded: boolean) {
+  Object.defineProperty(window, "top", {
+    value: embedded ? {} : window,
     configurable: true,
   });
 }
@@ -78,6 +90,7 @@ describe("useBuilderConnectFlow", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setEmbeddedWindow(false);
     window.history.replaceState({}, "", "http://localhost:3000/settings");
     vi.stubGlobal(
       "fetch",
@@ -99,6 +112,8 @@ describe("useBuilderConnectFlow", () => {
     );
     openSpy = vi.fn(() => null);
     vi.stubGlobal("open", openSpy);
+    vi.mocked(openMcpAppHostLink).mockReset();
+    vi.mocked(openMcpAppHostLink).mockReturnValue(false);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -415,6 +430,35 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(window.location.href).toBe("http://localhost:3000/settings");
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    vi.mocked(openMcpAppHostLink).mockResolvedValueOnce(true);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(openMcpAppHostLink).toHaveBeenCalledWith(
+      expectedConnectUrl(signedCliAuthUrl),
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("Allow popups");
   });
 
   it("does not abort a reconnect popup because the old credential was rejected", async () => {
