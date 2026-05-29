@@ -128,27 +128,33 @@ export function isReconcileLeadClient(
   localClientId: number | null | undefined,
 ): boolean {
   if (localClientId == null) return false;
-  // A backgrounded tab pauses its sync poll, so it can't reliably apply external
-  // snapshots — it must yield to a VISIBLE peer (otherwise an agent edit would
-  // never appear on the tab the user is actually looking at). When it becomes
-  // visible again the caller re-elects.
-  const localHidden =
-    typeof document !== "undefined" && document.visibilityState === "hidden";
-  if (!awareness) return !localHidden; // standalone / tests — act alone if visible
-  if (localHidden) return false;
-  let min = localClientId;
+  if (!awareness) return true; // standalone / tests — act alone
+
+  let hasPeer = false;
+  let minVisible = localClientId;
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === AGENT_CLIENT_ID) return; // agent never leads
     if (clientId === localClientId) return;
     const s = state as { user?: unknown; visible?: boolean };
-    // Only count visible peers with a real user presence. A peer that has
-    // published `visible: false` (backgrounded) can't act, so it never leads;
-    // a peer that hasn't published the field yet is treated as visible.
-    if (!s || !s.user) return;
-    if (s.visible === false) return;
-    if (clientId < min) min = clientId;
+    if (!s || !s.user) return; // skip empty/stale entries
+    hasPeer = true;
+    // Only VISIBLE peers can act; a peer published `visible: false` (backgrounded)
+    // is skipped. A peer that hasn't published the field is treated as visible.
+    if (s.visible !== false && clientId < minVisible) minVisible = clientId;
   });
-  return localClientId <= min;
+
+  // Sole client: always the applier — no other client can duplicate the edit,
+  // so single-user agent edits apply even if this tab reports hidden.
+  if (!hasPeer) return true;
+
+  // With peers present, exactly one VISIBLE client applies (the lowest clientId
+  // among visible ones). A backgrounded tab pauses its poll and can't reliably
+  // act, so it yields — otherwise an agent edit would never reach the tab the
+  // user is actually looking at. The caller re-elects on visibility change.
+  const localHidden =
+    typeof document !== "undefined" && document.visibilityState === "hidden";
+  if (localHidden) return false;
+  return localClientId <= minVisible;
 }
 
 export interface RemoteAwarenessSnapshot {
