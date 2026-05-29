@@ -1,4 +1,3 @@
-import { defineNitroPlugin } from "@agent-native/core";
 import postgres from "postgres";
 
 const SIGMA_TOKEN_URL = "https://aws-api.sigmacomputing.com/v2/auth/token";
@@ -55,7 +54,7 @@ async function refreshSigmaToken() {
   }
 }
 
-export default defineNitroPlugin((nitroApp) => {
+export default function sigmaTokenRefreshPlugin(nitroApp: any) {
   // Refresh on startup
   refreshSigmaToken();
 
@@ -65,4 +64,4 @@ export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hookOnce("close", () => {
     clearInterval(interval);
   });
-});
+}
