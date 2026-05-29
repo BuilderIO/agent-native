@@ -8,6 +8,7 @@ import {
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   handleComposerFileDrop,
+  insertComposerHardBreakAndScrollIntoView,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -99,6 +100,29 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, false),
     ).toBeNull();
+  });
+
+  it("scrolls the composer caret into view for Shift+Enter line breaks", () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+      content: "<p>Hello</p>",
+    });
+    editor.commands.setTextSelection(editor.state.doc.content.size);
+
+    const view = editor.view;
+    const scrolledTransactions: boolean[] = [];
+    const dispatch = view.dispatch.bind(view);
+    view.dispatch = (transaction) => {
+      scrolledTransactions.push(transaction.scrolledIntoView);
+      dispatch(transaction);
+    };
+
+    expect(insertComposerHardBreakAndScrollIntoView(view)).toBe(true);
+    expect(scrolledTransactions).toEqual([true]);
+    expect(editor.getText()).toBe("Hello\n");
+
+    editor.destroy();
   });
 
   it("consumes composer file drops so parent drop targets do not attach duplicates", () => {
