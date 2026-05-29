@@ -25,6 +25,7 @@ import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 
 export const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
@@ -145,6 +146,38 @@ function injectHeadScript(html: string, script: string | null): string {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+const OG_IMAGE_META_RE = /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const TWITTER_CARD_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
+const TWITTER_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
+
+function injectDefaultSocialImageMeta(html: string): string {
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+
+  const hasAnySocialImage =
+    OG_IMAGE_META_RE.test(html) || TWITTER_IMAGE_META_RE.test(html);
+  const tags: string[] = [];
+
+  if (!hasAnySocialImage) {
+    tags.push(
+      `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+    );
+  }
+  if (!TWITTER_CARD_META_RE.test(html)) {
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  if (!hasAnySocialImage) {
+    tags.push(
+      `<meta name="twitter:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+    );
+  }
+
+  if (tags.length === 0) return html;
+  return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
+}
+
 function requestHasAuthSignal(event: H3Event): boolean {
   const headers = event.req.headers;
   return Boolean(
@@ -221,14 +254,6 @@ async function rewriteMountedResponse(
     headers.set("location", prefixMountedPath(location, basePath));
   }
 
-  if (!basePath && !sentryClientConfigScript) {
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  }
-
   const contentType = headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("text/html") || !response.body) {
     return new Response(response.body, {
@@ -242,7 +267,7 @@ async function rewriteMountedResponse(
   headers.delete("content-length");
   return new Response(
     injectHeadScript(
-      prefixMountedHtml(html, basePath),
+      injectDefaultSocialImageMeta(prefixMountedHtml(html, basePath)),
       sentryClientConfigScript,
     ),
     {

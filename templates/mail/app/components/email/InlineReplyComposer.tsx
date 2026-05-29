@@ -36,7 +36,6 @@ import {
 } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState, EmailMessage } from "@shared/types";
@@ -176,15 +175,8 @@ export const InlineReplyComposer = forwardRef<
     sendingRef.current = true;
 
     const draftSnapshot = { ...draft };
-    const { savedDraftId } = draft;
 
     onDiscard(draft.id);
-
-    if (savedDraftId) {
-      fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
-        method: "DELETE",
-      });
-    }
 
     // Show optimistic reply in the thread immediately
     const undoOptimistic = addOptimisticReply({

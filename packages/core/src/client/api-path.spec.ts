@@ -40,6 +40,37 @@ describe("agentNativePath", () => {
       "/_agent-native/org/members",
     );
   });
+
+  it("uses the live workspace mount when a configured base belongs to another app", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
+  it("uses the live workspace route segment for app API paths under nested routes", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/diagrams/editor" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(appApiPath("local-migration")).toBe("/diagrams/api/local-migration");
+  });
+
+  it("keeps a configured workspace base when the current path matches it", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/dispatch/overview" } });
+
+    expect(appBasePath()).toBe("/dispatch");
+    expect(agentNativePath("/_agent-native/notifications/count")).toBe(
+      "/dispatch/_agent-native/notifications/count",
+    );
+  });
 });
 
 describe("oauthRedirectUri", () => {
@@ -118,6 +149,7 @@ describe("oauthRedirectUri", () => {
 describe("appPath", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("prefixes app-local root paths from the current mounted pathname", () => {
@@ -151,6 +183,7 @@ describe("appPath", () => {
 describe("appApiPath", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("normalizes app-local API paths and applies the app base path", () => {

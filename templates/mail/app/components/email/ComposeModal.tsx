@@ -42,7 +42,6 @@ import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
@@ -68,7 +67,7 @@ function FromAccountSelector({
   value,
   onChange,
 }: {
-  accounts: Array<{ email: string }>;
+  accounts: Array<{ email: string; displayName?: string }>;
   value: string | undefined;
   onChange: (email: string) => void;
 }) {
@@ -107,7 +106,9 @@ function FromAccountSelector({
         <SelectContent>
           {accounts.map((acct) => (
             <SelectItem key={acct.email} value={acct.email}>
-              {acct.email}
+              {acct.displayName
+                ? `${acct.displayName} <${acct.email}>`
+                : acct.email}
             </SelectItem>
           ))}
         </SelectContent>
@@ -224,17 +225,9 @@ export function ComposeModal({
 
     // Snapshot draft data for potential undo
     const draftSnapshot = { ...activeDraft };
-    const { savedDraftId } = activeDraft;
 
     // Close composer immediately
     onDiscard(activeId);
-
-    // Clean up any persistent draft
-    if (savedDraftId) {
-      fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
-        method: "DELETE",
-      });
-    }
 
     // Show optimistic reply in the thread immediately (for replies)
     const undoOptimistic = draftSnapshot.replyToId
@@ -327,7 +320,6 @@ export function ComposeModal({
     }
 
     const draftSnapshot = { ...activeDraft };
-    const { savedDraftId } = activeDraft;
 
     try {
       await scheduleEmail.mutateAsync({
@@ -345,11 +337,6 @@ export function ComposeModal({
 
       // Job created successfully — now discard the draft
       onDiscard(activeId);
-      if (savedDraftId) {
-        fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
-          method: "DELETE",
-        });
-      }
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {
         weekday: "short",

@@ -574,6 +574,17 @@ function combineContinuationHistory(fragments: string[]): string {
 function visibleTransientContinuationContent(
   content: ContentPart[],
 ): ContentPart[] {
+  // NOTE: this intentionally keeps ONLY completed tool calls, dropping
+  // already-streamed text, on a transient continuation. Preserving the text
+  // here is desirable (it's the live "paragraphs disappear" flicker) BUT it
+  // breaks visibleContentForContinuation's part-count prefix slicing: the
+  // resumed run's text concatenates into the preserved trailing text part, so
+  // the "new chunk" reads as empty and the empty-continuation cap gives up
+  // prematurely on text-heavy multi-continuation turns. The durable fix
+  // (server-side foldAssistantTurn) already preserves the text in thread_data,
+  // so no data is lost — only the live render flickers. Fixing the flicker
+  // safely requires reworking the prefix/new-chunk detection to diff by text
+  // length rather than part count; see the agent-run reliability follow-up.
   return content.filter(
     (part) => part.type === "tool-call" && part.result !== undefined,
   );
@@ -689,6 +700,16 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
   const jitter = base * 0.2;
   const ms = Math.max(0, base + (Math.random() * 2 - 1) * jitter);
   return delay(ms, abortSignal);
+}
+
+function generateTurnId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `turn-${crypto.randomUUID()}`;
+  }
+  return `turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function isRetryableStartupError(message: string): boolean {
@@ -983,6 +1004,7 @@ export function createAgentChatAdapter(options?: {
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
+      const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
       let currentMessageText = normalizeMentions(
@@ -1426,6 +1448,7 @@ export function createAgentChatAdapter(options?: {
                   displayMessage: userMessageText,
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
+                  turnId,
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }

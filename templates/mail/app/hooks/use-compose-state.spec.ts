@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ComposeState } from "@shared/types";
-import { newestUnseenPopoutDraftId } from "./use-compose-state";
+import {
+  filterRemovedDrafts,
+  newestUnseenPopoutDraftId,
+} from "./use-compose-state";
 
 function draft(id: string, inline = false): ComposeState {
   return {
@@ -30,5 +33,15 @@ describe("newestUnseenPopoutDraftId", () => {
         draft("inline-reply", true),
       ]),
     ).toBeNull();
+  });
+});
+
+describe("filterRemovedDrafts", () => {
+  it("keeps a just-discarded draft from reappearing in stale server results", () => {
+    expect(
+      filterRemovedDrafts([draft("kept"), draft("sent-reply", true)], {
+        "sent-reply": Date.now(),
+      }).map((item) => item.id),
+    ).toEqual(["kept"]);
   });
 });

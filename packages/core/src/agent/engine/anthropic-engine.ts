@@ -19,6 +19,7 @@ import {
   engineMessagesToAnthropic,
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
+  createAnthropicChunkStreamState,
 } from "./translate-anthropic.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
@@ -126,9 +127,15 @@ class AnthropicEngine implements AgentEngine {
     let thinkingText = "";
     let thinkingSignature = "";
 
+    // Per-stream state lets the translator carry each tool-call's id/name from
+    // its `content_block_start` onto the streamed `input_json_delta` chunks, so
+    // long tool-input generation emits countable `tool-input-start` /
+    // `tool-input-delta` progress events (mirroring the Builder engine).
+    const chunkState = createAnthropicChunkStreamState();
+
     try {
       for await (const chunk of apiStream) {
-        const events = anthropicChunkToEngineEvents(chunk);
+        const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
           if (event.type === "thinking-delta") {
             thinkingText += event.text;

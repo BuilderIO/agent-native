@@ -22,6 +22,7 @@ import {
   getCachedThread,
   setCachedThread,
 } from "@/lib/thread-cache";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 
 const EMAIL_PAGE_SIZE = 25;
 
@@ -86,6 +87,26 @@ function parseRecipients(value?: string): EmailMessage["to"] {
 
 function makeTempId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveOptimisticSender(
+  settings: UserSettings | undefined,
+  accounts: Array<{ email: string; displayName?: string }>,
+  accountEmail?: string,
+): EmailMessage["from"] {
+  const email =
+    accountEmail ||
+    settings?.email ||
+    (accounts.length === 1 ? accounts[0]?.email : undefined) ||
+    "";
+  const account = accounts.find(
+    (item) => item.email.toLowerCase() === email.toLowerCase(),
+  );
+  const name =
+    account?.displayName ||
+    settings?.name ||
+    (email ? email : settings?.email || "Me");
+  return { name, email };
 }
 
 const RECENT_SENT_DURATION = 2 * 60_000;
@@ -195,6 +216,7 @@ function delayedInvalidate(
 
 export function useAddOptimisticReply() {
   const qc = useQueryClient();
+  const { allAccounts } = useAccountFilter();
 
   return (data: {
     to: string;
@@ -214,10 +236,7 @@ export function useAddOptimisticReply() {
     const optimisticMessage: EmailMessage = {
       id: makeTempId("sent"),
       threadId,
-      from: {
-        name: settings?.name || settings?.email || data.accountEmail || "Me",
-        email: data.accountEmail || settings?.email || "",
-      },
+      from: resolveOptimisticSender(settings, allAccounts, data.accountEmail),
       to: parseRecipients(data.to),
       ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
       subject: data.subject || "(no subject)",
@@ -898,6 +917,7 @@ export function useDeleteDraft() {
 
 export function useSendEmail() {
   const qc = useQueryClient();
+  const { allAccounts } = useAccountFilter();
   return useMutation({
     mutationFn: (data: {
       to: string;
@@ -910,13 +930,15 @@ export function useSendEmail() {
       accountEmail?: string;
       attachments?: ComposeAttachment[];
     }) =>
-      apiFetch<{ id: string; threadId?: string; labelIds?: string[] }>(
-        "/api/emails/send",
-        {
-          method: "POST",
-          body: JSON.stringify(data),
-        },
-      ),
+      apiFetch<{
+        id: string;
+        threadId?: string;
+        labelIds?: string[];
+        from?: EmailMessage["from"];
+      }>("/api/emails/send", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     onMutate: async (data) => {
       const settings = qc.getQueryData<UserSettings>(["settings"]);
       const cachedEmails = qc
@@ -948,10 +970,7 @@ export function useSendEmail() {
       const optimisticMessage: EmailMessage = existingOptimistic ?? {
         id: makeTempId("sent"),
         threadId,
-        from: {
-          name: settings?.name || settings?.email || data.accountEmail || "Me",
-          email: data.accountEmail || settings?.email || "",
-        },
+        from: resolveOptimisticSender(settings, allAccounts, data.accountEmail),
         to: parseRecipients(data.to),
         ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
         ...(data.bcc ? { bcc: parseRecipients(data.bcc) } : {}),
@@ -1030,6 +1049,7 @@ export function useSendEmail() {
         ...context.optimisticMessage,
         id: result.id || context.optimisticMessage.id,
         threadId,
+        ...(result.from ? { from: result.from } : {}),
         labelIds: result.labelIds?.map((id) => id.toLowerCase()) || ["sent"],
       };
       replaceRecentSentEmail(context.optimisticMessage.id, replacement);

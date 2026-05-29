@@ -3,6 +3,7 @@ import {
   createH3SSRHandler,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 
 const mocks = vi.hoisted(() => {
   const requestHandler = vi.fn(async (request: Request) => {
@@ -118,6 +119,52 @@ describe("createH3SSRHandler", () => {
 
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("injects the default social image into SSR HTML without one", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        "<html><head><title>Calendar</title></head><body>ok</body></html>",
+        {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+    );
+    expect(html).toContain(
+      `<meta name="twitter:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+    );
+    expect(html).toContain(
+      '<meta name="twitter:card" content="summary_large_image">',
+    );
+  });
+
+  it("does not inject the default social image when a route provides one", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        '<html><head><meta property="og:image" content="https://example.test/custom.png"></head><body>ok</body></html>',
+        {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/book/steve/meeting"));
+    const html = await response.text();
+
+    expect(html).toContain("https://example.test/custom.png");
+    expect(html).not.toContain(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
+    expect(html).toContain(
+      '<meta name="twitter:card" content="summary_large_image">',
     );
   });
 

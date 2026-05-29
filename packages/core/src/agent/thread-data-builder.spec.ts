@@ -4,6 +4,7 @@ import {
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
   extractThreadMeta,
+  foldAssistantTurn,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   upsertAssistantMessage,
@@ -33,33 +34,54 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
-  it("does not persist partial output from internal continuation boundaries", () => {
+  it("persists partial output from internal continuation boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
       { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-timeout", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-timeout", {
+      suppressInternalContinuation: true,
+      turnId: "turn-timeout",
+    });
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
+    expect(message?.metadata).toMatchObject({
+      runId: "run-timeout",
+      custom: {
+        turnId: "turn-timeout",
+        foldedRunIds: ["run-timeout"],
+        continued: true,
+      },
+    });
   });
 
-  it("does not persist partial output from suppressed loop-limit boundaries", () => {
+  it("persists partial output from suppressed loop-limit boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
       { seq: 1, event: { type: "loop_limit", maxIterations: 50 } },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-loop-limit", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-loop-limit", {
+      suppressInternalContinuation: true,
+      turnId: "turn-loop-limit",
+    });
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
+    expect(message?.metadata).toMatchObject({
+      custom: {
+        turnId: "turn-loop-limit",
+        foldedRunIds: ["run-loop-limit"],
+        continued: true,
+      },
+    });
   });
 
-  it("does not persist partial output from recoverable gateway errors when suppressed", () => {
+  it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -72,11 +94,19 @@ describe("buildAssistantMessage", () => {
       },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-gateway-timeout", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-gateway-timeout", {
+      suppressInternalContinuation: true,
+      turnId: "turn-gateway-timeout",
+    });
+
+    expect(message?.content).toEqual([{ type: "text", text: "checking..." }]);
+    expect(message?.metadata).toMatchObject({
+      custom: {
+        turnId: "turn-gateway-timeout",
+        foldedRunIds: ["run-gateway-timeout"],
+        continued: true,
+      },
+    });
   });
 
   it("persists bare gateway stop errors when continuation errors are suppressed", () => {
@@ -319,6 +349,61 @@ describe("buildAssistantMessage", () => {
         },
       ],
     });
+  });
+
+  it("folds continuation chunks for one logical turn into one durable assistant message", () => {
+    const firstChunk = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First chunk. " } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-fold-1",
+      { suppressInternalContinuation: true, turnId: "turn-fold" },
+    );
+    const secondChunk = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Second chunk." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-fold-2",
+      { suppressInternalContinuation: true, turnId: "turn-fold" },
+    );
+    expect(firstChunk).not.toBeNull();
+    expect(secondChunk).not.toBeNull();
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "finish this" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      firstChunk!,
+      { turnId: "turn-fold", runId: "run-fold-1" },
+    );
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold",
+      runId: "run-fold-2",
+    });
+
+    expect(repo.messages).toHaveLength(2);
+    expect(repo.messages[1].message.content).toEqual([
+      { type: "text", text: "First chunk. Second chunk." },
+    ]);
+    expect(repo.messages[1].message.metadata).toMatchObject({
+      runId: "run-fold-2",
+      custom: {
+        turnId: "turn-fold",
+        foldedRunIds: ["run-fold-1", "run-fold-2"],
+      },
+    });
+    expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
   });
 });
 

@@ -12,6 +12,7 @@ import {
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
+import { getDbExec } from "@agent-native/core/db";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
@@ -398,6 +399,21 @@ async function resolveAccountPhotoUrl(
   }
 }
 
+async function getBetterAuthUserImage(
+  email: string | undefined,
+): Promise<string | undefined> {
+  if (!email) return undefined;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT image FROM "user" WHERE email = ? LIMIT 1',
+      args: [email],
+    });
+    return optionalString(rows[0]?.image);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getClient(
   email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
@@ -487,6 +503,31 @@ export async function getConnectedAccounts(
   if (!forEmail) return [];
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   return accounts.map((a) => a.accountId);
+}
+
+export async function getPrimaryAccountPhotoUrl(
+  forEmail?: string,
+): Promise<string | undefined> {
+  if (!forEmail) return undefined;
+  const fallbackUserImage = await getBetterAuthUserImage(forEmail);
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const account = accounts.find((a) => a.accountId === forEmail) ?? accounts[0];
+  if (!account) return fallbackUserImage;
+
+  const tokens = account.tokens as unknown as GoogleTokens;
+  const cachedPhotoUrl = optionalString(tokens.photoUrl);
+  if (cachedPhotoUrl) return cachedPhotoUrl;
+
+  try {
+    const accessToken = await getValidAccessToken(
+      account.accountId,
+      tokens,
+      forEmail,
+    );
+    return (await resolveAccountPhotoUrl(accessToken)) ?? fallbackUserImage;
+  } catch {
+    return fallbackUserImage;
+  }
 }
 
 export async function getAuthStatus(

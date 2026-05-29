@@ -7,12 +7,7 @@ import {
   lazy,
   Suspense,
 } from "react";
-import {
-  useParams,
-  Navigate,
-  useSearchParams,
-  useNavigate,
-} from "react-router";
+import { useParams, useSearchParams, useNavigate } from "react-router";
 import {
   DndContext,
   closestCenter,
@@ -47,6 +42,13 @@ import {
   appBasePath,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client";
+import { useOrg } from "@agent-native/core/client/org";
+import {
+  IconArrowLeft,
+  IconBuilding,
+  IconLock,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
 import { useSlideComments } from "@/hooks/use-slide-comments";
@@ -63,6 +65,7 @@ import {
 import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
+import { Button } from "@/components/ui/button";
 import { nanoid } from "nanoid";
 import { TAB_ID } from "@/lib/tab-id";
 const Pinpoint = lazy(() =>
@@ -71,12 +74,85 @@ const Pinpoint = lazy(() =>
   })),
 );
 
+function MissingDeckAccessPane({
+  deckId,
+  hasTeamJoinOption,
+  orgLoading,
+  orgError,
+  refreshing,
+  onRetry,
+  onBack,
+}: {
+  deckId: string | undefined;
+  hasTeamJoinOption: boolean;
+  orgLoading: boolean;
+  orgError: boolean;
+  refreshing: boolean;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  const Icon =
+    hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
+  const title = orgLoading
+    ? "Looking for this deck"
+    : orgError
+      ? "Couldn't check team access"
+      : hasTeamJoinOption
+        ? "Join your team to open this deck"
+        : "Deck unavailable";
+  const description = orgLoading
+    ? "Checking whether this presentation is shared with your account."
+    : orgError
+      ? "We couldn't verify whether this presentation is shared with your account. Try again to reload team access and the deck."
+      : hasTeamJoinOption
+        ? "This link points to a team presentation. Join the team shown above and the deck will open here automatically."
+        : "This deck may have been removed, or your account does not have access to it.";
+
+  return (
+    <div className="flex flex-1 items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+            <Icon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-foreground">{title}</h1>
+            {deckId && (
+              <p className="truncate text-xs text-muted-foreground">
+                Deck ID: {deckId}
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onBack}>
+            <IconArrowLeft className="size-4" />
+            Back to Decks
+          </Button>
+          <Button
+            type="button"
+            onClick={onRetry}
+            disabled={refreshing || orgLoading}
+          >
+            <IconRefresh
+              className={refreshing ? "size-4 animate-spin" : "size-4"}
+            />
+            Try again
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     getDeck,
+    reloadDecks,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -99,6 +175,13 @@ export default function DeckEditor() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const {
+    data: org,
+    isLoading: orgLoading,
+    isError: orgError,
+    refetch: refetchOrg,
+  } = useOrg();
 
   // Dialog/popover states
   const [imageGenOpen, setImageGenOpen] = useState(false);
@@ -138,6 +221,10 @@ export default function DeckEditor() {
   }, []);
 
   const deck = getDeck(id || "");
+  const hasTeamJoinOption =
+    !org?.orgId &&
+    ((org?.pendingInvitations?.length ?? 0) > 0 ||
+      (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
@@ -181,6 +268,21 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+
+  useEffect(() => {
+    if (loading || deck || !id || !org?.orgId) return;
+    void reloadDecks();
+  }, [deck, id, loading, org?.orgId, reloadDecks]);
+
+  const retryOpenDeck = useCallback(async () => {
+    setRetryingMissingDeck(true);
+    try {
+      await refetchOrg();
+      await reloadDecks();
+    } finally {
+      setRetryingMissingDeck(false);
+    }
+  }, [refetchOrg, reloadDecks]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -610,7 +712,19 @@ export default function DeckEditor() {
   ).length;
 
   if (loading) return <div className="h-screen bg-background" />;
-  if (!deck || !id) return <Navigate to="/" replace />;
+  if (!deck || !id) {
+    return (
+      <MissingDeckAccessPane
+        deckId={id}
+        hasTeamJoinOption={hasTeamJoinOption}
+        orgLoading={orgLoading}
+        orgError={orgError}
+        refreshing={retryingMissingDeck}
+        onRetry={() => void retryOpenDeck()}
+        onBack={() => navigate("/")}
+      />
+    );
+  }
 
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];

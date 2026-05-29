@@ -4,7 +4,12 @@ import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
 
 interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    displayName?: string;
+    expiresAt?: string;
+    photoUrl?: string;
+  }>;
 }
 
 /**

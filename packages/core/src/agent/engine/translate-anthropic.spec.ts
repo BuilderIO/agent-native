@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  anthropicChunkToEngineEvents,
+  createAnthropicChunkStreamState,
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
   engineMessagesToBuilderGatewayAnthropic,
@@ -308,5 +310,53 @@ describe("anthropicContentToEngine", () => {
       name: "my-tool",
       input: { x: 1 },
     });
+  });
+});
+
+describe("anthropicChunkToEngineEvents", () => {
+  it("emits tool input progress with id and name across streamed chunks", () => {
+    const state = createAnthropicChunkStreamState();
+
+    expect(
+      anthropicChunkToEngineEvents(
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "create-extension",
+          },
+        },
+        state,
+      ),
+    ).toEqual([
+      {
+        type: "tool-input-start",
+        id: "toolu_1",
+        name: "create-extension",
+      },
+    ]);
+
+    expect(
+      anthropicChunkToEngineEvents(
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: {
+            type: "input_json_delta",
+            partial_json: '{"html":"<div',
+          },
+        },
+        state,
+      ),
+    ).toEqual([
+      {
+        type: "tool-input-delta",
+        id: "toolu_1",
+        name: "create-extension",
+        text: '{"html":"<div',
+      },
+    ]);
   });
 });

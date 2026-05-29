@@ -19,6 +19,13 @@ interface ContentPart {
 
 interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
+  /**
+   * Logical-turn identity. When set it is stamped onto the message metadata so
+   * continuation runs of the same turn can be folded onto a single durable
+   * assistant message (see foldAssistantTurn) instead of each run dropping or
+   * overwriting the others.
+   */
+  turnId?: string;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -180,18 +187,29 @@ export function buildAssistantMessage(
     // done, missing_api_key — terminal signals, not content
   }
 
-  if (content.length === 0 || endedAtInternalContinuationBoundary) return null;
+  // Only a truly empty turn produces nothing to persist. A turn that ended at
+  // an internal continuation boundary (soft-timeout auto_continue, a
+  // recoverable gateway error, suppressed loop_limit) DID stream real content
+  // — persist it as a partial so the continuation run can fold the next chunk
+  // onto it (foldAssistantTurn) instead of the earlier text being dropped.
+  if (content.length === 0) return null;
+
+  const continued = endedAtInternalContinuationBoundary;
+
+  const custom: Record<string, unknown> = {};
+  if (options.turnId) custom.turnId = options.turnId;
+  if (runId) custom.foldedRunIds = [runId];
+  if (continued) custom.continued = true;
+  if (runError) {
+    custom.runError = {
+      ...runError,
+      ...(runId ? { runId } : {}),
+    };
+  }
 
   const metadata: Record<string, unknown> = {};
   if (runId) metadata.runId = runId;
-  if (runError) {
-    metadata.custom = {
-      runError: {
-        ...runError,
-        ...(runId ? { runId } : {}),
-      },
-    };
-  }
+  if (Object.keys(custom).length > 0) metadata.custom = custom;
 
   return {
     id: `server-${runId ?? Date.now()}`,
@@ -273,6 +291,11 @@ function messageIdentityKeys(message: any): string[] {
   }
   const runId = getMessageRunId(message);
   if (runId) keys.push(`run:${runId}`);
+  // A logical turn is ONE durable assistant message even though it may span
+  // several continuation runs, so two messages sharing a turnId (e.g. the
+  // client export and the server fold of the same answer) must dedupe to one.
+  const turnId = turnIdOf(message);
+  if (turnId) keys.push(`turn:${turnId}`);
 
   // Normalize attachments through `normalizeAttachmentIdentity` so an
   // explicit empty `[]` (assistant-ui's default for messages with no
@@ -320,6 +343,27 @@ function messagesMatch(a: any, b: any): boolean {
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
+  // Same logical turn (client export vs server fold of one accumulating
+  // answer): never shrink — keep whichever side accumulated more content, so a
+  // stale/lossy export can't overwrite the richer folded turn. Ties prefer the
+  // terminal copy.
+  const existingTurn = turnIdOf(existing);
+  const incomingTurn = turnIdOf(incoming);
+  if (
+    existing?.role === "assistant" &&
+    incoming?.role === "assistant" &&
+    existingTurn &&
+    existingTurn === incomingTurn
+  ) {
+    const existingWeight = assistantContentWeight(existing.content);
+    const incomingWeight = assistantContentWeight(incoming.content);
+    if (existingWeight > incomingWeight) return existingEntry;
+    if (incomingWeight > existingWeight) return incomingEntry;
+    return isTerminalAssistantStatus(existing?.status) &&
+      !isTerminalAssistantStatus(incoming?.status)
+      ? existingEntry
+      : incomingEntry;
+  }
   if (
     existing?.role === "assistant" &&
     incoming?.role === "assistant" &&
@@ -961,6 +1005,158 @@ export function upsertAssistantMessage(
       : null;
   nextRepo.messages.push({ message: assistantMsg, parentId });
   nextRepo.headId = assistantMsg.id;
+  return nextRepo;
+}
+
+function turnIdOf(message: any): string | undefined {
+  const t = message?.metadata?.custom?.turnId;
+  return typeof t === "string" && t ? t : undefined;
+}
+
+function foldedRunIdsOf(message: any): string[] {
+  const ids = message?.metadata?.custom?.foldedRunIds;
+  return Array.isArray(ids)
+    ? ids.filter((x: unknown): x is string => typeof x === "string")
+    : [];
+}
+
+/** Rough size of an assistant message's content, used only to pick the larger
+ *  of two representations of the same chunk so a fold can never shrink. */
+function assistantContentWeight(content: unknown): number {
+  if (!Array.isArray(content)) return 0;
+  let weight = 0;
+  for (const part of content) {
+    if (part?.type === "text" && typeof part.text === "string") {
+      weight += part.text.length;
+    } else {
+      weight += 1;
+    }
+  }
+  return weight;
+}
+
+/** Concatenate continuation content onto the accumulated turn, merging a
+ *  trailing+leading text run so the resumed answer reads as one flowing
+ *  message rather than two stacked fragments. */
+function appendFoldedContent(existing: any[], incoming: any[]): any[] {
+  const merged = existing.map((p) => ({ ...p }));
+  for (const part of incoming) {
+    const last = merged[merged.length - 1];
+    if (
+      part?.type === "text" &&
+      typeof part.text === "string" &&
+      last?.type === "text" &&
+      typeof last.text === "string"
+    ) {
+      last.text = `${last.text}${part.text}`;
+    } else {
+      merged.push({ ...part });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Fold a continuation run's assistant message onto the single durable message
+ * for its logical turn (identified by `turnId`), so a turn that spans several
+ * continuation runs accumulates into ONE message that only ever grows. This is
+ * the server-side analog of an append-only rollout: the durable transcript is
+ * a monotonic fold over every run in the turn, never a per-run snapshot that
+ * drops the earlier chunks.
+ *
+ * Idempotent and never-shrinking, so it is safe to run alongside the client's
+ * full-thread export (which may write the same turn from the other side):
+ *   - First chunk of a turn → appended as a fresh message.
+ *   - A run whose content is already represented (already folded, or the client
+ *     saved it) → kept as-is, choosing whichever copy has more content.
+ *   - A new chunk → appended onto the accumulated turn.
+ * Falls back to per-run upsert when no `turnId` is available (turn == run).
+ */
+export function foldAssistantTurn(
+  repo: any,
+  assistantMsg: AssistantMessage,
+  options: { turnId?: string; runId?: string },
+): any {
+  const turnId = options.turnId;
+  const runId = options.runId;
+  if (!turnId) return upsertAssistantMessage(repo, assistantMsg);
+
+  const nextRepo = normalizeThreadRepository(repo);
+  const lastIndex = nextRepo.messages.length - 1;
+  const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
+  const lastMsg = getStoredMessage(lastEntry);
+
+  const sameTurn =
+    lastMsg?.role === "assistant" &&
+    (turnIdOf(lastMsg) === turnId ||
+      // A message the client wrote for one of this turn's runs before it
+      // carried a turnId stamp.
+      (!!runId && getMessageRunId(lastMsg) === runId));
+
+  if (!sameTurn) {
+    // First chunk of this turn (or the previous assistant belongs to an
+    // earlier turn) — append as a fresh message; buildAssistantMessage already
+    // stamped turnId + foldedRunIds onto it.
+    return upsertAssistantMessage(repo, assistantMsg);
+  }
+
+  const existingContent = Array.isArray(lastMsg.content) ? lastMsg.content : [];
+  const incomingContent = Array.isArray(assistantMsg.content)
+    ? assistantMsg.content
+    : [];
+  const existingFolded = foldedRunIdsOf(lastMsg);
+  const runAlreadyFolded =
+    !!runId &&
+    (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
+
+  // If this run's chunk is already represented in the turn (the client saved
+  // it, or we already folded it), do not re-append — keep the larger copy so
+  // the turn never shrinks. Otherwise fold this chunk onto the accumulated turn.
+  const mergedContent = runAlreadyFolded
+    ? assistantContentWeight(incomingContent) >
+      assistantContentWeight(existingContent)
+      ? incomingContent
+      : existingContent
+    : appendFoldedContent(existingContent, incomingContent);
+
+  const mergedFolded = Array.from(
+    new Set([...existingFolded, ...(runId ? [runId] : [])]),
+  );
+
+  const existingCustom =
+    lastMsg.metadata?.custom && typeof lastMsg.metadata.custom === "object"
+      ? (lastMsg.metadata.custom as Record<string, unknown>)
+      : {};
+  const incomingCustom =
+    assistantMsg.metadata?.custom &&
+    typeof assistantMsg.metadata.custom === "object"
+      ? (assistantMsg.metadata.custom as Record<string, unknown>)
+      : {};
+
+  const mergedCustom: Record<string, unknown> = {
+    ...existingCustom,
+    ...incomingCustom,
+    turnId,
+    foldedRunIds: mergedFolded,
+  };
+  // Only the freshest chunk decides whether the turn is still continuing.
+  if (incomingCustom.continued !== true) delete mergedCustom.continued;
+
+  const mergedMessage = {
+    ...lastMsg,
+    content: mergedContent,
+    // The freshest chunk's status wins: a clean done supersedes a prior
+    // partial; a real error supersedes a partial.
+    status: assistantMsg.status ?? lastMsg.status,
+    metadata: {
+      ...lastMsg.metadata,
+      runId: runId ?? lastMsg.metadata?.runId,
+      custom: mergedCustom,
+    },
+  };
+
+  nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
+  nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
 }
 

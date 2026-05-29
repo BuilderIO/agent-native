@@ -34,6 +34,7 @@ import {
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
@@ -306,6 +307,34 @@ function injectHeadScript(html, script) {
 }
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
+    AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  )};
+const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i;
+const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
+const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;
+
+function injectDefaultSocialImageMeta(html) {
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+
+  const hasAnySocialImage =
+    OG_IMAGE_META_RE.test(html) || TWITTER_IMAGE_META_RE.test(html);
+  const tags = [];
+
+  if (!hasAnySocialImage) {
+    tags.push('<meta property="og:image" content="' + AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE + '">');
+  }
+  if (!TWITTER_CARD_META_RE.test(html)) {
+    tags.push('<meta name="twitter:card" content="summary_large_image">');
+  }
+  if (!hasAnySocialImage) {
+    tags.push('<meta name="twitter:image" content="' + AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE + '">');
+  }
+
+  if (tags.length === 0) return html;
+  return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
+}
 
 function applyDefaultSsrCacheHeader(headers, status) {
   if (headers.has("cache-control")) return;
@@ -327,14 +356,6 @@ async function rewriteMountedResponse(response, basePath) {
     headers.set("location", prefixMountedPath(location, basePath));
   }
 
-  if (!basePath && !sentryClientConfigScript) {
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  }
-
   const contentType = headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("text/html") || !response.body) {
     return new Response(response.body, {
@@ -347,7 +368,10 @@ async function rewriteMountedResponse(response, basePath) {
   const html = await response.text();
   headers.delete("content-length");
   return new Response(
-    injectHeadScript(prefixMountedHtml(html, basePath), sentryClientConfigScript),
+    injectHeadScript(
+      injectDefaultSocialImageMeta(prefixMountedHtml(html, basePath)),
+      sentryClientConfigScript,
+    ),
     {
       status: response.status,
       statusText: response.statusText,

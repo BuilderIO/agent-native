@@ -40,6 +40,12 @@ export {
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
 export {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  defaultSocialImageMeta,
+  withDefaultSocialImage,
+  type SocialMetaDescriptor,
+} from "./social-meta.js";
+export {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,

@@ -10,6 +10,7 @@ const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
+const dbExecuteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
@@ -22,6 +23,10 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: deleteOAuthTokensMock,
   listOAuthAccountsByOwner: listOAuthAccountsByOwnerMock,
   hasOAuthTokens: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ execute: dbExecuteMock }),
 }));
 
 vi.mock("./google-api.js", () => ({
@@ -40,6 +45,7 @@ import {
   exchangeCode,
   getAuthStatus,
   getFreeBusy,
+  getPrimaryAccountPhotoUrl,
   updateEvent,
 } from "./google-calendar";
 
@@ -57,6 +63,7 @@ describe("calendar Google auth status", () => {
         },
       },
     ]);
+    dbExecuteMock.mockResolvedValue({ rows: [] });
   });
 
   it("uses the OAuth userinfo picture for account avatars", async () => {
@@ -118,6 +125,34 @@ describe("calendar Google auth status", () => {
       "secondary@example.com",
       expect.objectContaining({ access_token: "new-token" }),
       "owner@example.com",
+    );
+  });
+
+  it("returns the primary Google account photo for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+          photoUrl: "https://lh3.googleusercontent.com/a/photo",
+        },
+      },
+    ]);
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/photo",
+    );
+  });
+
+  it("falls back to Better Auth user image for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    dbExecuteMock.mockResolvedValue({
+      rows: [{ image: "https://lh3.googleusercontent.com/a/auth-photo" }],
+    });
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/auth-photo",
     );
   });
 });

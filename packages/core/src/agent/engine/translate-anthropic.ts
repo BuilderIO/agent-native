@@ -400,13 +400,53 @@ export function anthropicContentToEngine(
 // ---------------------------------------------------------------------------
 
 /**
+ * Mutable state threaded across `anthropicChunkToEngineEvents` calls within a
+ * single stream. Anthropic's `content_block_delta` chunks carry only the block
+ * `index`, not the tool-call id/name — those arrive once on the matching
+ * `content_block_start`. We remember `index → { id, name }` here so each
+ * `input_json_delta` can be surfaced as a `tool-input-delta` carrying the same
+ * id/name the consumer expects (mirroring the Builder gateway shape).
+ */
+export interface AnthropicChunkStreamState {
+  toolUseByIndex: Map<number, { id: string; name: string }>;
+}
+
+export function createAnthropicChunkStreamState(): AnthropicChunkStreamState {
+  return { toolUseByIndex: new Map() };
+}
+
+/**
  * Translate an Anthropic stream chunk into zero or more EngineEvents.
  * Called in a loop as chunks arrive from client.messages.stream().
+ *
+ * Pass a per-stream `state` (from `createAnthropicChunkStreamState`) to also
+ * emit `tool-input-start` / `tool-input-delta` progress events while a tool
+ * call's JSON input streams in. These are progress-only signals: the
+ * authoritative `tool-call` blocks are still emitted from `finalMessage()` by
+ * the engine, so omitting `state` simply drops the progress events without
+ * changing tool dispatch.
  */
-export function anthropicChunkToEngineEvents(chunk: any): EngineEvent[] {
+export function anthropicChunkToEngineEvents(
+  chunk: any,
+  state?: AnthropicChunkStreamState,
+): EngineEvent[] {
   const events: EngineEvent[] = [];
 
-  if (chunk.type === "content_block_delta") {
+  if (chunk.type === "content_block_start") {
+    const block = chunk.content_block;
+    if (block?.type === "tool_use") {
+      const id = typeof block.id === "string" ? block.id : undefined;
+      const name = typeof block.name === "string" ? block.name : undefined;
+      if (state && typeof chunk.index === "number" && id && name) {
+        state.toolUseByIndex.set(chunk.index, { id, name });
+      }
+      events.push({
+        type: "tool-input-start",
+        ...(id ? { id } : {}),
+        ...(name ? { name } : {}),
+      });
+    }
+  } else if (chunk.type === "content_block_delta") {
     if (chunk.delta?.type === "text_delta") {
       events.push({ type: "text-delta", text: chunk.delta.text });
     } else if (chunk.delta?.type === "thinking_delta") {
@@ -418,6 +458,23 @@ export function anthropicChunkToEngineEvents(chunk: any): EngineEvent[] {
         type: "thinking-delta",
         text: "",
         signature: chunk.delta.signature,
+      });
+    } else if (chunk.delta?.type === "input_json_delta") {
+      // Partial JSON for a streaming tool-call input. Surface as countable
+      // progress so long tool inputs (e.g. large extension HTML) don't look
+      // hung to the agent loop's tool-input activity heartbeat.
+      const active =
+        state && typeof chunk.index === "number"
+          ? state.toolUseByIndex.get(chunk.index)
+          : undefined;
+      events.push({
+        type: "tool-input-delta",
+        ...(active?.id ? { id: active.id } : {}),
+        ...(active?.name ? { name: active.name } : {}),
+        text:
+          typeof chunk.delta.partial_json === "string"
+            ? chunk.delta.partial_json
+            : "",
       });
     }
   }

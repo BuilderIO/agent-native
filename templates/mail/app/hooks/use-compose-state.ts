@@ -8,6 +8,7 @@ import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
 export const FOCUS_COMPOSE_DRAFT_EVENT = "mail:focus-compose-draft";
+const REMOVED_DRAFT_TOMBSTONE_TTL = 60_000;
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(
@@ -36,6 +37,23 @@ function hasDraftContent(draft: ComposeState): boolean {
     draft.subject?.trim() ||
     draft.body?.trim()
   );
+}
+
+function pruneRemovedDraftIds(removed: Record<string, number>) {
+  const now = Date.now();
+  for (const [id, removedAt] of Object.entries(removed)) {
+    if (now - removedAt > REMOVED_DRAFT_TOMBSTONE_TTL) {
+      delete removed[id];
+    }
+  }
+}
+
+export function filterRemovedDrafts<T extends { id: string }>(
+  drafts: T[],
+  removed: Record<string, number>,
+): T[] {
+  pruneRemovedDraftIds(removed);
+  return drafts.filter((draft) => removed[draft.id] === undefined);
 }
 
 /** Save a compose draft to persistent storage (emails with isDraft=true).
@@ -71,6 +89,7 @@ export function useComposeState() {
     {},
   );
   const knownDraftIdsRef = useRef<Set<string> | null>(null);
+  const removedDraftIdsRef = useRef<Record<string, number>>({});
 
   // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
@@ -79,9 +98,14 @@ export function useComposeState() {
       const result = await apiFetch<ComposeState[]>(
         "/_agent-native/application-state/compose",
       );
-      const serverDrafts = result ?? [];
-      const localDrafts =
-        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+      const serverDrafts = filterRemovedDrafts(
+        result ?? [],
+        removedDraftIdsRef.current,
+      );
+      const localDrafts = filterRemovedDrafts(
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [],
+        removedDraftIdsRef.current,
+      );
       if (!localDrafts.length) return serverDrafts;
 
       const merged = serverDrafts.map((serverDraft) => {
@@ -94,6 +118,7 @@ export function useComposeState() {
       for (const localDraft of localDrafts) {
         if (
           dirtyRef.current[localDraft.id] &&
+          removedDraftIdsRef.current[localDraft.id] === undefined &&
           !merged.some((d) => d.id === localDraft.id)
         ) {
           merged.push(localDraft);
@@ -174,6 +199,7 @@ export function useComposeState() {
           : state.body,
         id,
       };
+      delete removedDraftIdsRef.current[id];
 
       // Optimistically add to cache
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) => [
@@ -260,6 +286,8 @@ export function useComposeState() {
   /** Close a single draft tab — auto-saves to Drafts if it has content. */
   const close = useCallback(
     (id: string) => {
+      removedDraftIdsRef.current[id] = Date.now();
+      void qc.cancelQueries({ queryKey: ["compose-drafts"] });
       // Clear debounce timers
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
@@ -300,6 +328,8 @@ export function useComposeState() {
    *  If a Gmail draft was already created by auto-save, delete it. */
   const discard = useCallback(
     (id: string) => {
+      removedDraftIdsRef.current[id] = Date.now();
+      void qc.cancelQueries({ queryKey: ["compose-drafts"] });
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
@@ -337,6 +367,11 @@ export function useComposeState() {
   const closeAll = useCallback(() => {
     const currentDrafts =
       qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+    const removedAt = Date.now();
+    for (const draft of currentDrafts) {
+      removedDraftIdsRef.current[draft.id] = removedAt;
+    }
+    void qc.cancelQueries({ queryKey: ["compose-drafts"] });
 
     // Save all drafts with content
     for (const draft of currentDrafts) {

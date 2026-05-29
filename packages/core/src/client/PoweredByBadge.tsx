@@ -157,7 +157,7 @@ export function PoweredByBadge({
 }
 
 /**
- * Small GitHub badge: "Open source"
+ * Small GitHub badge: "100% free and open source"
  *
  * Intended to pair with PoweredByBadge on public pages.
  */
@@ -227,7 +227,7 @@ export function OpenSourceBadge({
         style={containerStyle(position)}
       >
         <IconBrandGithub aria-hidden="true" stroke={1.8} />
-        <span>Open source</span>
+        <span>100% free and open source</span>
       </a>
     </>
   );
