@@ -5,6 +5,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runWorkspaceDeploy } from "./workspace-deploy.js";
+import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
@@ -506,6 +507,22 @@ describe("workspace deploy", () => {
     expect(redirects).not.toContain(
       "/unknown /.netlify/functions/dispatch-server",
     );
+    const headers = fs.readFileSync(
+      path.join(tmpDir, "dist", "_headers"),
+      "utf-8",
+    );
+    expect(headers).toContain("/dispatch/assets/app-aB12_cdE.js");
+    expect(headers).toContain(
+      "/_workspace_static/dispatch/assets/app-aB12_cdE.js",
+    );
+    expect(headers).toContain("/starter/assets/app-aB12_cdE.js");
+    expect(headers).toContain(
+      `cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
+    );
+    expect(headers).toContain(
+      `cdn-cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
+    );
+    expect(headers).not.toContain("/dispatch/assets/app.js\n");
     expect(fs.existsSync(path.join(tmpDir, "dist", "_routes.json"))).toBe(
       false,
     );
@@ -707,6 +724,25 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
+    expect(config.routes).toContainEqual({
+      src: "/dispatch/assets/app-aB12_cdE\\.js",
+      headers: {
+        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      },
+      continue: true,
+    });
+    expect(config.routes).toContainEqual({
+      src: "/starter/assets/app-aB12_cdE\\.js",
+      headers: {
+        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      },
+      continue: true,
+    });
+    expect(config.routes).not.toContainEqual(
+      expect.objectContaining({ src: "/dispatch/assets/app\\.js" }),
+    );
     expect(config.routes).toContainEqual({
       src: "/_agent-native/(.*)",
       dest: "/dispatch-server",
@@ -1124,6 +1160,10 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
     "export {};",
   );
   fs.writeFileSync(
+    path.join(appDir, "dist", app, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
+  fs.writeFileSync(
     path.join(appDir, "dist", app, "favicon.svg"),
     "<svg></svg>",
   );
@@ -1172,6 +1212,10 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
   fs.mkdirSync(path.join(staticDir, "assets"), { recursive: true });
   fs.mkdirSync(functionDir, { recursive: true });
   fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
+  fs.writeFileSync(
+    path.join(staticDir, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
   fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");
   fs.writeFileSync(path.join(staticDir, "favicon.svg"), "<svg></svg>");
   fs.writeFileSync(path.join(staticDir, "manifest.json"), "{}");

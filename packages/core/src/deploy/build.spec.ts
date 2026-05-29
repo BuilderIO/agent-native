@@ -3,11 +3,13 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  addImmutableAssetRouteRulesForClientBuild,
   generateWorkerEntry,
   getNodeBuiltinNames,
   runNitroBuildPipeline,
 } from "./build.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
@@ -209,6 +211,41 @@ export default (event) =>
     );
   });
 
+  it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const env = {
+      APP_BASE_PATH: "/docs",
+      ASSETS: {
+        fetch: async () =>
+          new Response("asset", {
+            headers: { "content-type": "application/javascript" },
+          }),
+      },
+    };
+
+    const hashed = await worker.fetch(
+      new Request("https://app.test/docs/assets/entry.client-aB12_cdE.js"),
+      env,
+      {},
+    );
+    expect(await hashed.text()).toBe("asset");
+    expect(hashed.headers.get("cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(hashed.headers.get("cdn-cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+
+    const unhashed = await worker.fetch(
+      new Request("https://app.test/docs/assets/logo.png"),
+      env,
+      {},
+    );
+    expect(await unhashed.text()).toBe("asset");
+    expect(unhashed.headers.get("cache-control")).toBeNull();
+    expect(unhashed.headers.get("cdn-cache-control")).toBeNull();
+  });
+
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -326,6 +363,11 @@ describe("runNitroBuildPipeline", () => {
       path.join(clientDir, "assets", "entry.client-abc.js"),
       "console.log('rr-client')",
     );
+    fs.writeFileSync(
+      path.join(clientDir, "assets", "entry.client-aB12_cdE.js"),
+      "console.log('hashed-client')",
+    );
+    fs.writeFileSync(path.join(clientDir, "assets", "logo.png"), "png");
 
     // Simulate the cleared publicDir Nitro would set up in `prepare`.
     const publicOutputDir = path.join(cwd, ".output", "public");
@@ -397,6 +439,60 @@ describe("runNitroBuildPipeline", () => {
         path.join(publicOutputDir, "docs", "assets", "entry.client-abc.js"),
       ),
     ).toBe(true);
+  });
+
+  it("adds exact immutable route rules for copied hashed client assets", async () => {
+    const { cwd, clientDir, publicOutputDir } = setupFixture();
+    const nitro: any = {
+      options: { output: { publicDir: publicOutputDir } },
+    };
+
+    await runNitroBuildPipeline({
+      nitro,
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      nitro.options.routeRules["/assets/entry.client-aB12_cdE.js"].headers[
+        "cache-control"
+      ],
+    ).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
+    expect(
+      nitro.options.routeRules["/docs/assets/entry.client-aB12_cdE.js"].headers[
+        "cdn-cache-control"
+      ],
+    ).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
+    expect(nitro.options.routeRules["/assets/logo.png"]).toBeUndefined();
+    expect(
+      nitro.options.routeRules["/assets/entry.client-abc.js"],
+    ).toBeUndefined();
+  });
+
+  it("merges immutable headers into existing route rules", () => {
+    const routeRules: Record<string, { headers?: Record<string, string> }> = {
+      "/assets/entry.client-aB12_cdE.js": {
+        headers: { "cross-origin-resource-policy": "cross-origin" },
+      },
+    };
+    const { clientDir } = setupFixture();
+
+    addImmutableAssetRouteRulesForClientBuild(routeRules, clientDir);
+
+    expect(
+      routeRules["/assets/entry.client-aB12_cdE.js"].headers,
+    ).toMatchObject({
+      "cross-origin-resource-policy": "cross-origin",
+      "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    });
   });
 
   it("skips the client copy when the React Router build is absent", async () => {
