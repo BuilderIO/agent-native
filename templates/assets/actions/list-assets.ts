@@ -2,7 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { requireLibrary, serializeAsset } from "./_helpers.js";
+import {
+  buildAssetLineage,
+  requireLibrary,
+  serializeAsset,
+} from "./_helpers.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
 import { parseJson } from "../server/lib/json.js";
 
@@ -46,11 +50,19 @@ export default defineAction({
     if (status) filters.push(eq(schema.assets.status, status));
     if (role) filters.push(eq(schema.assets.role, role));
     const normalizedQuery = query?.trim().toLowerCase();
-    const rows = await getDb()
-      .select()
-      .from(schema.assets)
-      .where(and(...filters))
-      .orderBy(desc(schema.assets.createdAt));
+    const db = getDb();
+    const [rows, lineageRows] = await Promise.all([
+      db
+        .select()
+        .from(schema.assets)
+        .where(and(...filters))
+        .orderBy(desc(schema.assets.createdAt)),
+      db
+        .select()
+        .from(schema.assets)
+        .where(eq(schema.assets.libraryId, libraryId)),
+    ]);
+    const lineageById = buildAssetLineage(lineageRows);
     const assets = rows
       .filter((asset) => {
         const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
@@ -75,7 +87,7 @@ export default defineAction({
           .toLowerCase();
         return searchable.includes(normalizedQuery);
       })
-      .map(serializeAsset);
+      .map((asset) => serializeAsset(asset, lineageById.get(asset.id) ?? null));
     return { count: assets.length, assets };
   },
 });

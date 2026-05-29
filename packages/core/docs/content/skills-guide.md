@@ -84,6 +84,9 @@ offline work, or privacy-sensitive use.
 # One-command hosted install for the exported Assets skill plus MCP connector.
 npx @agent-native/core@latest skills add assets
 
+# Same install, using the image-generation alias for demos and tutorials.
+npx @agent-native/core@latest skills add images
+
 # Register the hosted MCP connector for local agent clients.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
@@ -108,8 +111,9 @@ settings flow.
 
 The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
 for `npx skills add ...`. For first-party hosted apps, prefer
-`agent-native skills add assets`; it installs the skill instructions and runs
-the MCP registration step together.
+`agent-native skills add images` or `agent-native skills add assets`; either
+installs the exported Assets instructions and runs the MCP registration step
+together.
 
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested

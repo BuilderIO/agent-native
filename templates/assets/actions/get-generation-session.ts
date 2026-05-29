@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   requireLibrary,
@@ -29,7 +29,11 @@ export default defineAction({
     const items = await db
       .select()
       .from(schema.assetGenerationSessionItems)
-      .where(eq(schema.assetGenerationSessionItems.sessionId, id));
+      .where(eq(schema.assetGenerationSessionItems.sessionId, id))
+      .orderBy(
+        asc(schema.assetGenerationSessionItems.sortOrder),
+        asc(schema.assetGenerationSessionItems.createdAt),
+      );
     const assetIds = [
       ...new Set(
         items

@@ -13,9 +13,11 @@ vi.mock("@agent-native/core/server", () => ({
 
 import {
   createNotionPageWithMarkdown,
+  getNotionConnectionForOwner,
   resolveNotionMarkdownResponse,
   type NotionPageMarkdown,
 } from "./notion";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import {
   normalizeNfmForStorage,
   parseNfmForEditor,
@@ -215,6 +217,50 @@ describe("resolveNotionMarkdownResponse", () => {
     expect(editorMarkdown).toContain("<summary>agents doing</summary>");
     expect(editorMarkdown).not.toMatch(/^\t<details/m);
     expect(editorMarkdown).not.toMatch(/^ {4}<details/m);
+  });
+});
+
+describe("getNotionConnectionForOwner", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("does not expose a deploy-level NOTION_API_KEY as a user connection", async () => {
+    vi.stubEnv("NOTION_API_KEY", "deploy-notion-key");
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValueOnce([]);
+
+    await expect(
+      getNotionConnectionForOwner("alice@example.com"),
+    ).resolves.toBe(null);
+    expect(listOAuthAccountsByOwner).toHaveBeenCalledWith(
+      "notion",
+      "alice@example.com",
+    );
+  });
+
+  it("returns only the owner-scoped OAuth token when one is connected", async () => {
+    vi.stubEnv("NOTION_API_KEY", "deploy-notion-key");
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValueOnce([
+      {
+        accountId: "alice-workspace",
+        displayName: "Alice Workspace",
+        tokens: {
+          access_token: "alice-token",
+          workspace_id: "workspace-a",
+          workspace_name: "Alice Workspace",
+        },
+      },
+    ]);
+
+    await expect(
+      getNotionConnectionForOwner("alice@example.com"),
+    ).resolves.toMatchObject({
+      accountId: "alice-workspace",
+      accessToken: "alice-token",
+      workspaceId: "workspace-a",
+      workspaceName: "Alice Workspace",
+    });
   });
 });
 

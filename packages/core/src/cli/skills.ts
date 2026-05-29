@@ -132,6 +132,23 @@ const BUILT_IN_APP_SKILLS = {
   { manifest: AppSkillManifest; skillMarkdown: string }
 >;
 
+type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
+
+const BUILT_IN_APP_SKILL_ALIASES = {
+  assets: "assets",
+  asset: "assets",
+  "asset-generation": "assets",
+  images: "assets",
+  image: "assets",
+  "image-generation": "assets",
+  "agent-native-assets": "assets",
+  "agent-native-images": "assets",
+} satisfies Record<string, BuiltInAppSkillId>;
+
+const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
+  assets: ["images", "image-generation", "agent-native-images"],
+} satisfies Record<BuiltInAppSkillId, string[]>;
+
 type SkillsCommand = "list" | "add" | "help";
 
 export interface ParsedSkillsArgs {
@@ -173,8 +190,16 @@ interface RunSkillsOptions {
   runCommand?: (cmd: string, args: string[]) => Promise<number>;
 }
 
-function isKnownSkill(value: string | undefined): value is "assets" {
-  return value === "assets";
+function normalizeKnownSkillTarget(
+  value: string | undefined,
+): BuiltInAppSkillId | undefined {
+  const key = value?.trim().toLowerCase();
+  if (!key) return undefined;
+  return BUILT_IN_APP_SKILL_ALIASES[key];
+}
+
+function isKnownSkill(value: string | undefined): boolean {
+  return Boolean(normalizeKnownSkillTarget(value));
 }
 
 export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
@@ -240,8 +265,9 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
 }
 
 function loadSkillTarget(target: string): SkillInstallTarget {
-  if (isKnownSkill(target)) {
-    const builtIn = BUILT_IN_APP_SKILLS[target];
+  const knownTarget = normalizeKnownSkillTarget(target);
+  if (knownTarget) {
+    const builtIn = BUILT_IN_APP_SKILLS[knownTarget];
     return {
       id: builtIn.manifest.id,
       displayName: builtIn.manifest.displayName,
@@ -329,7 +355,8 @@ export async function addAgentNativeSkill(
   options: RunSkillsOptions = {},
 ): Promise<SkillsAddResult> {
   const target = parsed.target ?? "assets";
-  if (!isKnownSkill(target) && !fs.existsSync(path.resolve(target))) {
+  const knownTarget = normalizeKnownSkillTarget(target);
+  if (!knownTarget && !fs.existsSync(path.resolve(target))) {
     throw new Error(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
     );
@@ -357,7 +384,7 @@ export async function addAgentNativeSkill(
         "--copy",
         ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
         ...skillsAgents.flatMap((agent) => ["-a", agent]),
-        ...(parsed.yes || isKnownSkill(target) ? ["-y"] : []),
+        ...(parsed.yes || knownTarget ? ["-y"] : []),
       ];
       commands.push(commandString("npx", args));
       if (!parsed.dryRun) {
@@ -375,7 +402,7 @@ export async function addAgentNativeSkill(
           clients,
           scope: parsed.scope,
           baseDir: options.baseDir,
-          yes: parsed.yes || isKnownSkill(target),
+          yes: parsed.yes || Boolean(knownTarget),
           confirm: true,
           log: options.log,
         });
@@ -402,6 +429,10 @@ export async function addAgentNativeSkill(
 function listSkills() {
   return Object.values(BUILT_IN_APP_SKILLS).map((entry) => ({
     id: entry.manifest.id,
+    aliases:
+      BUILT_IN_APP_SKILL_DISPLAY_ALIASES[
+        entry.manifest.id as BuiltInAppSkillId
+      ] ?? [],
     name: entry.manifest.displayName,
     description: entry.manifest.description,
     mcpUrl: entry.manifest.hosted.mcpUrl,
@@ -428,8 +459,12 @@ export async function runSkills(
       return;
     }
     for (const skill of skills) {
+      const description = skill.description.replace(/[.?!]?$/, ".");
+      const aliases = skill.aliases.length
+        ? ` Aliases: ${skill.aliases.join(", ")}.`
+        : "";
       process.stdout.write(
-        `${skill.id.padEnd(12)} ${skill.description} (${skill.mcpUrl})\n`,
+        `${skill.id.padEnd(12)} ${description}${aliases} (${skill.mcpUrl})\n`,
       );
     }
     return;

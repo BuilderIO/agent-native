@@ -2,6 +2,7 @@ import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCallbackOrigin } from "../frame.js";
 import { trackEvent } from "../analytics.js";
+import { openMcpAppHostLink } from "../mcp-app-host.js";
 
 export interface BuilderStatus {
   configured: boolean;
@@ -321,6 +322,25 @@ function navigateBuilderConnectPopup(opened: Window, url: string): boolean {
   }
 }
 
+function isEmbeddedWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+async function openBuilderConnectViaMcpHost(url: string): Promise<boolean> {
+  const request = openMcpAppHostLink(url);
+  if (!request) return false;
+  try {
+    return await request;
+  } catch {
+    return false;
+  }
+}
+
 function notifyAgentEngineConfiguredChanged(source: string) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -630,66 +650,104 @@ export function useBuilderConnectFlow(
           features: "width=600,height=700",
         });
         if (!opened) {
-          connectStartedAtRef.current = null;
-          setConnecting(false);
-          setError("Couldn't open Builder. Allow popups and try again.");
-          return;
-        }
-        openedPopup = opened;
-        showBuilderConnectPopupPlaceholder(opened);
-        void (async () => {
-          const s = await fetchStatus();
-          if (!mountedRef.current) {
-            try {
-              opened.close();
-            } catch {
-              // Ignore close failures.
-            }
+          if (!isEmbeddedWindow()) {
+            connectStartedAtRef.current = null;
+            setConnecting(false);
+            setError("Couldn't open Builder. Allow popups and try again.");
             return;
-          }
-          if (s) {
-            setHasFetchedStatus(true);
-            setConfigured(!!s.configured);
-            setEnvManaged(!!s.envManaged);
-            setBuilderEnabled(!!s.builderEnabled);
-            const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
-            setStatusConnectUrl(nextConnectUrl);
-            statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
-            setOrgName(s.orgName ?? null);
           }
 
-          // Prefer the click-time status response, but keep a recent signed
-          // URL from this hook as a fallback. This avoids closing the popup
-          // when the refresh hits a transient 401/HTML/error response.
-          const freshUrl =
-            s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? null;
-          if (!freshUrl) {
-            try {
-              opened.close();
-            } catch {
-              // Ignore close failures.
+          void (async () => {
+            const s = await fetchStatus();
+            if (!mountedRef.current) return;
+            if (s) {
+              setHasFetchedStatus(true);
+              setConfigured(!!s.configured);
+              setEnvManaged(!!s.envManaged);
+              setBuilderEnabled(!!s.builderEnabled);
+              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              setStatusConnectUrl(nextConnectUrl);
+              statusConnectUrlAtRef.current = nextConnectUrl
+                ? Date.now()
+                : null;
+              setOrgName(s.orgName ?? null);
             }
+
+            const hostUrl =
+              s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? directUrl;
+            const trackedHostUrl = withBuilderConnectTrackingParams(hostUrl, {
+              source: clickTrackingSource,
+              flow: clickTrackingFlow,
+            });
+            const openedByHost =
+              await openBuilderConnectViaMcpHost(trackedHostUrl);
+            if (!mountedRef.current || openedByHost) return;
             stopPoll();
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError(
-              "Couldn't start Builder connect. Refresh this page and try again.",
+              "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
             );
-            return;
-          }
-          const trackedFreshUrl = withBuilderConnectTrackingParams(freshUrl, {
-            source: clickTrackingSource,
-            flow: clickTrackingFlow,
-          });
-          if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
-            stopPoll();
-            connectStartedAtRef.current = null;
-            setConnecting(false);
-            setError(
-              "Couldn't navigate the Builder popup. Allow popups and try again.",
-            );
-          }
-        })();
+          })();
+        } else {
+          openedPopup = opened;
+          showBuilderConnectPopupPlaceholder(opened);
+          void (async () => {
+            const s = await fetchStatus();
+            if (!mountedRef.current) {
+              try {
+                opened.close();
+              } catch {
+                // Ignore close failures.
+              }
+              return;
+            }
+            if (s) {
+              setHasFetchedStatus(true);
+              setConfigured(!!s.configured);
+              setEnvManaged(!!s.envManaged);
+              setBuilderEnabled(!!s.builderEnabled);
+              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              setStatusConnectUrl(nextConnectUrl);
+              statusConnectUrlAtRef.current = nextConnectUrl
+                ? Date.now()
+                : null;
+              setOrgName(s.orgName ?? null);
+            }
+
+            // Prefer the click-time status response, but keep a recent signed
+            // URL from this hook as a fallback. This avoids closing the popup
+            // when the refresh hits a transient 401/HTML/error response.
+            const freshUrl =
+              s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? null;
+            if (!freshUrl) {
+              try {
+                opened.close();
+              } catch {
+                // Ignore close failures.
+              }
+              stopPoll();
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              setError(
+                "Couldn't start Builder connect. Refresh this page and try again.",
+              );
+              return;
+            }
+            const trackedFreshUrl = withBuilderConnectTrackingParams(freshUrl, {
+              source: clickTrackingSource,
+              flow: clickTrackingFlow,
+            });
+            if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
+              stopPoll();
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              setError(
+                "Couldn't navigate the Builder popup. Allow popups and try again.",
+              );
+            }
+          })();
+        }
       }
 
       pollRef.current = setInterval(async () => {

@@ -3,6 +3,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { absoluteUrl, parseJson } from "../server/lib/json.js";
 import type {
+  AssetLineageSummary,
+  GenerationSessionItemSummary,
   GenerationPresetSummary,
   GenerationSessionSummary,
   ImageAssetMetadata,
@@ -161,6 +163,12 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
 }
 
 export function serializeGenerationSession(row: any): GenerationSessionSummary {
+  const items = Array.isArray(row.items)
+    ? (row.items as GenerationSessionItemSummary[])
+    : undefined;
+  const variationCount =
+    items?.filter((item) => item.lineage?.kind === "variation").length ?? 0;
+  const assetCount = items?.filter((item) => item.assetId).length ?? 0;
   return {
     id: row.id,
     libraryId: row.libraryId,
@@ -175,10 +183,159 @@ export function serializeGenerationSession(row: any): GenerationSessionSummary {
     createdBy: row.createdBy ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(items
+      ? {
+          items,
+          itemCount: items.length,
+          assetCount,
+          variationCount,
+        }
+      : {}),
   };
 }
 
-export function serializeAsset(row: any) {
+type AssetRowForLineage = {
+  id: string;
+  role?: string | null;
+  generationRunId?: string | null;
+  metadata?: string | null;
+  createdAt?: string | null;
+};
+
+function assetSourceId(metadata: ImageAssetMetadata): string | null {
+  if (typeof metadata.sourceAssetId === "string" && metadata.sourceAssetId) {
+    return metadata.sourceAssetId;
+  }
+  return typeof metadata.subjectAssetId === "string" && metadata.subjectAssetId
+    ? metadata.subjectAssetId
+    : null;
+}
+
+function assetCreatedAtMs(row: AssetRowForLineage): number {
+  if (!row.createdAt) return 0;
+  const time = Date.parse(row.createdAt);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function compareAssetsByCreation(
+  left: { row: AssetRowForLineage },
+  right: { row: AssetRowForLineage },
+): number {
+  return (
+    assetCreatedAtMs(left.row) - assetCreatedAtMs(right.row) ||
+    String(left.row.generationRunId ?? "").localeCompare(
+      String(right.row.generationRunId ?? ""),
+    ) ||
+    left.row.id.localeCompare(right.row.id)
+  );
+}
+
+function compactAssetId(id: string): string {
+  return id.length > 8 ? `${id.slice(0, 4)}...${id.slice(-4)}` : id;
+}
+
+export function buildAssetLineage(
+  rows: AssetRowForLineage[],
+): Map<string, AssetLineageSummary> {
+  const generatedAssets = rows
+    .map((row) => ({
+      row,
+      metadata: parseJson<ImageAssetMetadata>(row.metadata, {}),
+    }))
+    .filter(
+      ({ row, metadata }) =>
+        row.role === "generated" ||
+        metadata.generated === true ||
+        Boolean(row.generationRunId),
+    )
+    .sort(compareAssetsByCreation);
+  const lineageByAssetId = new Map<string, AssetLineageSummary>();
+  const variationCountsBySource = new Map<string, number>();
+  let originalCount = 0;
+
+  for (const item of generatedAssets) {
+    const sourceAssetId = assetSourceId(item.metadata);
+    if (sourceAssetId) {
+      const serial = (variationCountsBySource.get(sourceAssetId) ?? 0) + 1;
+      variationCountsBySource.set(sourceAssetId, serial);
+      lineageByAssetId.set(item.row.id, {
+        kind: "variation",
+        serial,
+        label: `Variation ${serial}`,
+        sourceAssetId,
+        sourceLabel:
+          lineageByAssetId.get(sourceAssetId)?.label ??
+          compactAssetId(sourceAssetId),
+      });
+      continue;
+    }
+
+    originalCount += 1;
+    lineageByAssetId.set(item.row.id, {
+      kind: "original",
+      serial: originalCount,
+      label: `Original ${originalCount}`,
+      sourceAssetId: null,
+      sourceLabel: null,
+    });
+  }
+
+  return lineageByAssetId;
+}
+
+export function serializeAssets(rows: any[]) {
+  const lineageByAssetId = buildAssetLineage(rows);
+  return rows.map((row) =>
+    serializeAsset(row, lineageByAssetId.get(row.id) ?? null),
+  );
+}
+
+export function serializeGenerationSessionItems(
+  items: any[],
+  lineageByAssetId = new Map<string, AssetLineageSummary>(),
+): GenerationSessionItemSummary[] {
+  let assetCount = 0;
+  let runCount = 0;
+  return [...items]
+    .sort(
+      (left, right) =>
+        Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0) ||
+        String(left.createdAt ?? "").localeCompare(
+          String(right.createdAt ?? ""),
+        ) ||
+        String(left.id ?? "").localeCompare(String(right.id ?? "")),
+    )
+    .map((item) => {
+      const lineage = item.assetId
+        ? (lineageByAssetId.get(item.assetId) ?? null)
+        : null;
+      if (item.assetId) assetCount += 1;
+      if (!item.assetId && item.generationRunId) runCount += 1;
+      return {
+        id: item.id,
+        assetId: item.assetId ?? null,
+        generationRunId: item.generationRunId ?? null,
+        role: item.role ?? "candidate",
+        sortOrder: Number(item.sortOrder ?? 0),
+        createdAt: item.createdAt,
+        label:
+          lineage?.label ??
+          (item.assetId
+            ? item.role === "active" && assetCount === 1
+              ? "Original"
+              : `Candidate ${assetCount}`
+            : `Run ${runCount}`),
+        lineage,
+      };
+    });
+}
+
+export function serializeAsset(
+  row: any,
+  lineageOrIndex: AssetLineageSummary | null | number = null,
+) {
+  const lineage =
+    typeof lineageOrIndex === "number" ? null : (lineageOrIndex ?? null);
   const metadata = parseJson<ImageAssetMetadata>(row.metadata, {});
   return {
     id: row.id,
@@ -204,6 +361,7 @@ export function serializeAsset(row: any) {
     sourceUrl: row.sourceUrl,
     generationRunId: row.generationRunId,
     metadata,
+    lineage,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...assetUrls(row),

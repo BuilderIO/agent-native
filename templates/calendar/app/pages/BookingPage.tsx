@@ -39,6 +39,8 @@ import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
+const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
+
 function BookingPageShell({
   children,
   className,
@@ -400,6 +402,7 @@ export default function BookingPage() {
                 <Button
                   variant="link"
                   size="sm"
+                  className={BRAND_LINK_CLASS}
                   onClick={() => setStep("date")}
                 >
                   Change date
@@ -426,6 +429,7 @@ export default function BookingPage() {
                 <Button
                   variant="link"
                   size="sm"
+                  className={BRAND_LINK_CLASS}
                   onClick={() => setStep("time")}
                 >
                   Change time

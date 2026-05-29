@@ -2357,6 +2357,24 @@ body[data-clips-route="recording-pill"] #root {
   color: white;
 }
 
+.toolbar-v-cancel {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-v-cancel:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
 .toolbar-v-paused {
   border-color: rgba(245, 158, 11, 0.35);
 }
@@ -2366,19 +2384,22 @@ body[data-clips-route="recording-pill"] #root {
    (no recorder to drive yet). Greyed out + not-allowed cursor makes the
    "not yet" affordance obvious. */
 .toolbar-v-disabled .toolbar-v-stop,
-.toolbar-v-disabled .toolbar-v-pause {
+.toolbar-v-disabled .toolbar-v-pause,
+.toolbar-v-disabled .toolbar-v-cancel {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
   cursor: not-allowed;
   pointer-events: auto;
 }
 .toolbar-v-disabled .toolbar-v-stop:hover,
-.toolbar-v-disabled .toolbar-v-pause:hover {
+.toolbar-v-disabled .toolbar-v-pause:hover,
+.toolbar-v-disabled .toolbar-v-cancel:hover {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
 }
 .toolbar-v-stop:disabled,
-.toolbar-v-pause:disabled {
+.toolbar-v-pause:disabled,
+.toolbar-v-cancel:disabled {
   cursor: not-allowed;
 }
 

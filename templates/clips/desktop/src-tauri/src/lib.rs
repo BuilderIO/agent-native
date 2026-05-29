@@ -27,7 +27,7 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, TrayMeetings, VoiceWakePopover,
+    RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{configure_overlay_behavior, is_recording_active, set_capture_included};
 
@@ -157,6 +157,7 @@ pub fn run() {
         .manage(DictationEnabled::default())
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
+        .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())

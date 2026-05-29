@@ -10,6 +10,8 @@ interface BookingConfirmationProps {
   onReset: () => void;
 }
 
+const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
+
 export function BookingConfirmation({
   booking,
   customFields = [],
@@ -63,7 +65,7 @@ export function BookingConfirmation({
               href={booking.meetingLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 font-medium text-primary hover:underline"
+              className={`flex items-center gap-1.5 hover:underline ${BRAND_LINK_CLASS}`}
             >
               <IconVideo className="h-4 w-4" />
               Join Meeting
@@ -89,7 +91,7 @@ export function BookingConfirmation({
           Need to make changes?{" "}
           <Link
             to={`/booking/manage/${booking.cancelToken}`}
-            className="text-primary hover:underline"
+            className={`hover:underline ${BRAND_LINK_CLASS}`}
           >
             Cancel or reschedule
           </Link>

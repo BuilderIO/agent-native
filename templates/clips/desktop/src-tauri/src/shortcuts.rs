@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
-use crate::clips::toggle_popover;
+use crate::clips::{remember_voice_target, toggle_popover};
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{
@@ -368,6 +368,7 @@ fn emit_voice_shortcut(
     wake: bool,
 ) {
     if wake {
+        remember_voice_target(app);
         wake_popover_for_voice(app);
         let app = app.clone();
         thread::spawn(move || {

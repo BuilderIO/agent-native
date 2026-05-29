@@ -214,8 +214,18 @@ vi.mock("../server/framework-request-handler.js", () => ({
 
 const config = {
   name: "agent-native-mail",
+  title: "Agent-Native Mail",
   appId: "mail",
   description: "Mail app",
+  websiteUrl: "/mail",
+  icons: [
+    {
+      src: "/agent-native-icon-light.svg",
+      mimeType: "image/svg+xml",
+      sizes: ["135x78"],
+      theme: "light" as const,
+    },
+  ],
   version: "1.0.0",
   builtinCrossAppTools: false as const,
   actions: {
@@ -411,33 +421,47 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     mockOAuthClients.clear();
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
     mockOAuthClients.clear();
     vi.clearAllMocks();
   });
 
   it("handles `initialize` without a 501", async () => {
-    const out = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "agent-native-connect", version: "1.0.0" },
-        },
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "agent-native-connect", version: "1.0.0" },
       },
-      { headers: await mcpAppsAuthHeaders() },
-    );
+    });
     expect(out.jsonrpc).toBe("2.0");
     expect(out.id).toBe(1);
     expect(out.error).toBeUndefined();
     expect(out.result.serverInfo.name).toBe("agent-native-mail");
+    expect(out.result.serverInfo.title).toBe("Agent-Native Mail");
+    expect(out.result.serverInfo.description).toBe("Mail app");
+    expect(out.result.serverInfo.websiteUrl).toBe(
+      "https://mail.agent-native.com/mail",
+    );
+    expect(out.result.serverInfo.icons).toEqual([
+      {
+        src: "https://mail.agent-native.com/agent-native-icon-light.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["135x78"],
+        theme: "light",
+      },
+    ]);
     expect(out.result.capabilities).toBeDefined();
     expect(out.result.capabilities.resources).toEqual({});
     expect(
@@ -445,6 +469,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toMatchObject({
       mimeTypes: ["text/html;profile=mcp-app"],
     });
+  });
+
+  it("resolves MCP server branding URLs under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/dispatch";
+    const out = await callWeb({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "agent-native-connect", version: "1.0.0" },
+      },
+    });
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.serverInfo.websiteUrl).toBe(
+      "https://mail.agent-native.com/dispatch/mail",
+    );
+    expect(out.result.serverInfo.icons).toEqual([
+      {
+        src: "https://mail.agent-native.com/dispatch/agent-native-icon-light.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["135x78"],
+        theme: "light",
+      },
+    ]);
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {

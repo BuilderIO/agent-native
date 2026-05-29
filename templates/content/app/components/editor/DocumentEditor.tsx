@@ -133,27 +133,44 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const queryClient = useQueryClient();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
-  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
+  const canEdit = document.canEdit ?? true;
+  // Polls Notion sync status to drive the conflict banner / sync bar and the
+  // push-on-save path below (read via the query cache, not this return value).
+  useDocumentSyncStatus(canEdit ? documentId : null, { autoSync });
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedRef = useRef({ title: "", content: "" });
+  const lastSavedRef = useRef<{
+    title: string;
+    content: string;
+    updatedAt: string | null;
+  }>({ title: "", content: "", updatedAt: null });
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localTitleRef = useRef(localTitle);
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   localContentRef.current = localContent;
+  const documentUpdatedAtRef = useRef<string | null>(
+    document.updatedAt ?? null,
+  );
+  documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
-  const canEdit = document.canEdit ?? true;
-  const notionSyncedToCurrentDocument = Boolean(
-    syncStatus?.lastSyncedAt &&
-    syncStatus.lastPushedLocalUpdatedAt === document.updatedAt,
-  );
-  const forceExternalContentSync = notionSyncedToCurrentDocument;
+
+  // An external write is authoritative (agent edit, Notion pull, or a peer's
+  // edit mirrored to SQL) when the server `updatedAt` is newer than the last
+  // value this client itself saved. This precise signal replaces the old
+  // focus/Notion heuristics: a lagging poll (older-or-equal updatedAt) is a
+  // stale snapshot and is ignored, so it can never revert live edits — the
+  // root cause of the "agent edit reverts / doesn't show" whack-a-mole.
+  const externalIsNewer =
+    !lastSavedRef.current.updatedAt ||
+    (!!document.updatedAt &&
+      document.updatedAt > lastSavedRef.current.updatedAt);
 
   useLayoutEffect(() => {
     const textarea = titleInputRef.current;
@@ -203,6 +220,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       lastSavedRef.current = {
         title: document.title,
         content: document.content,
+        updatedAt: document.updatedAt ?? null,
       };
       isInitializedRef.current = true;
       if (!document.title) {
@@ -211,57 +229,67 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     }
   }, [document, documentId]);
 
-  // NOTE: External content changes (Notion pull, update-document action) are
-  // synced into the editor via VisualEditor's content prop. The old approach
-  // of calling /collab/{docId}/text wrote to Y.Text("content") which is a
-  // different Yjs shared type than the Y.XmlFragment("default") that TipTap
-  // uses — so those updates never reached the editor.
+  // NOTE: External body changes (agent edit, Notion pull, update-document) are
+  // reconciled into the editor by VisualEditor via its content prop + the
+  // updatedAt gate. The effects below keep DocumentEditor's own mirror
+  // (localTitle for the title field, localContent for export/toolbar) in step.
 
-  // Pick up external title changes (e.g. Notion pull)
+  // Pick up external title changes (agent edit, Notion pull). Adopt when this
+  // client has no unsaved local title edit, OR when the server value is a
+  // genuinely newer external write — but never yank a title the user is
+  // actively editing.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     const serverTitle = document.title;
     const lastSaved = lastSavedRef.current;
-    if (serverTitle !== lastSaved.title) {
-      if (localTitle === lastSaved.title || forceExternalContentSync) {
-        setLocalTitle(serverTitle);
-        lastSavedRef.current = { ...lastSavedRef.current, title: serverTitle };
-      }
+    if (serverTitle === lastSaved.title) return;
+    const adopt =
+      localTitle === lastSaved.title ||
+      (externalIsNewer && !titleFocusedRef.current);
+    if (adopt) {
+      setLocalTitle(serverTitle);
+      lastSavedRef.current = {
+        ...lastSavedRef.current,
+        title: serverTitle,
+        updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+      };
     }
-  }, [document, forceExternalContentSync, localTitle]);
+  }, [document, externalIsNewer, localTitle]);
 
-  // Pick up external body changes. Explicit Notion pulls are allowed to
-  // overwrite local editor state even when this tab previously edited the Yjs
-  // document; clear any pending save so the pre-pull body cannot be written
-  // back over the fresh Notion content.
+  // Pick up external body changes for the export/toolbar mirror. Adopt when
+  // there's no unsaved local divergence, or when the server is genuinely newer;
+  // clear any pending save so a stale autosave can't overwrite the fresh body.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     const serverContent = document.content;
     const lastSaved = lastSavedRef.current;
-    if (serverContent !== lastSaved.content) {
-      if (localContent === lastSaved.content || forceExternalContentSync) {
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-          saveTimeoutRef.current = null;
-        }
-        setLocalContent(serverContent);
-        lastSavedRef.current = {
-          ...lastSavedRef.current,
-          content: serverContent,
-        };
+    if (serverContent === lastSaved.content) return;
+    const adopt = localContent === lastSaved.content || externalIsNewer;
+    if (adopt) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
+      setLocalContent(serverContent);
+      lastSavedRef.current = {
+        ...lastSavedRef.current,
+        content: serverContent,
+        updatedAt: document.updatedAt ?? lastSaved.updatedAt,
+      };
     }
-  }, [document, forceExternalContentSync, localContent]);
+  }, [document, externalIsNewer, localContent]);
 
-  // When polling/SSE refetches confirm that the server now matches the local
-  // editor state, acknowledge it as saved. This keeps later agent/action
-  // updates from being mistaken for conflicts with stale "unsaved" local text.
+  // When polling/SSE refetches confirm the server now matches local editor
+  // state, acknowledge it as saved (and adopt its updatedAt watermark). This
+  // keeps later agent/action updates from being mistaken for conflicts with
+  // stale "unsaved" local text.
   useEffect(() => {
     if (!document || !isInitializedRef.current) return;
     if (document.title === localTitle && document.content === localContent) {
       lastSavedRef.current = {
         title: document.title,
         content: document.content,
+        updatedAt: document.updatedAt ?? lastSavedRef.current.updatedAt,
       };
     }
   }, [document, localTitle, localContent]);
@@ -270,6 +298,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(async () => {
+        // Never clobber a newer server version (e.g. an agent edit we haven't
+        // reconciled into the editor yet) with the editor's current — possibly
+        // stale — content. This can happen when a lagging Yjs state load fires
+        // onChange with older content; the pending reconcile will bring the
+        // editor up to date instead.
+        if (
+          documentUpdatedAtRef.current &&
+          lastSavedRef.current.updatedAt &&
+          documentUpdatedAtRef.current > lastSavedRef.current.updatedAt
+        ) {
+          return;
+        }
+
         const updates: Record<string, string> = {};
         if (title !== lastSavedRef.current.title) updates.title = title;
         if (content !== lastSavedRef.current.content) updates.content = content;
@@ -277,8 +318,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
         setIsSaving(true);
         try {
-          await updateDocument.mutateAsync({ id: documentId, ...updates });
-          lastSavedRef.current = { title, content };
+          const saved = await updateDocument.mutateAsync({
+            id: documentId,
+            ...updates,
+          });
+          // Adopt the server updatedAt so this save isn't later mistaken for a
+          // newer external edit (and so genuine later edits are recognized).
+          lastSavedRef.current = {
+            title,
+            content,
+            updatedAt: saved?.updatedAt ?? new Date().toISOString(),
+          };
 
           // Push-on-save: when auto-sync is on, trigger a Notion push
           // immediately after the save lands in SQL. This eliminates the
@@ -343,11 +393,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                await updateDocument.mutateAsync({
+                const saved = await updateDocument.mutateAsync({
                   id: documentId,
                   ...updates,
                 });
-                lastSavedRef.current = { title, content };
+                lastSavedRef.current = {
+                  title,
+                  content,
+                  updatedAt: saved?.updatedAt ?? new Date().toISOString(),
+                };
               }
             } finally {
               // Acknowledge the flush even if nothing changed — the SQL row is
@@ -524,6 +578,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 handleTitleChange(normalizeTitleText(e.target.value))
               }
               onPaste={handleTitlePaste}
+              onFocus={() => {
+                titleFocusedRef.current = true;
+              }}
+              onBlur={() => {
+                titleFocusedRef.current = false;
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -556,6 +616,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               key={documentId}
               documentId={documentId}
               content={document.content}
+              contentUpdatedAt={document.updatedAt}
               onChange={handleContentChange}
               ydoc={canEdit ? ydoc : null}
               awareness={canEdit ? awareness : null}
@@ -563,7 +624,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}
               onJoinTitle={joinFirstBodyBlockToTitle}
-              forceExternalContentSync={forceExternalContentSync}
             />
           </div>
         </div>
