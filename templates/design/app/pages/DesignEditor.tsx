@@ -29,6 +29,7 @@ import {
   useActionMutation,
   useSession,
   useCollaborativeDoc,
+  isReconcileLeadClient,
   generateTabId,
   emailToColor,
   emailToName,
@@ -641,12 +642,46 @@ export default function DesignEditor() {
   // instead of the DB-fetched content so live remote edits appear instantly.
   const [collabContent, setCollabContent] = useState<string | null>(null);
   const prevActiveFileIdRef = useRef<string | null>(null);
+  // `updatedAt` of the DB content this preview currently reflects. A poll that
+  // returns an older-or-equal value is a stale snapshot and is ignored; a newer
+  // one is a genuine external edit (agent / peer-via-SQL) and is reconciled in.
+  // Mirrors the content template's VisualEditor `lastAppliedUpdatedAt` gate.
+  const lastAppliedFileUpdatedAtRef = useRef<string | null>(null);
+  // The last content this client itself wrote into the Y.Doc (inline-style
+  // edits) — so the reconcile/observe doesn't treat our own echo as external.
+  const lastLocalContentRef = useRef<string | null>(null);
+  // Freshest known DB `updatedAt` for the active file, kept in a ref so the
+  // Yjs observe handler can advance the reconcile watermark without re-subscribing.
+  const documentFileUpdatedAtRef = useRef<string | null>(null);
 
-  // Reset collab content when switching files
+  // Whether this client applies authoritative external snapshots into the
+  // shared Y.Doc. Exactly one client (the lead) does, so an agent/peer edit
+  // that arrives via the get-design refetch isn't diffed into the CRDT by every
+  // open client and duplicated. Re-elected on awareness / visibility changes.
+  const [isLeadClient, setIsLeadClient] = useState(true);
+  useEffect(() => {
+    if (!awareness || !ydoc) {
+      setIsLeadClient(true);
+      return;
+    }
+    const update = () =>
+      setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
+    update();
+    awareness.on("change", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      awareness.off("change", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [awareness, ydoc]);
+
+  // Reset per-file reconcile state when switching files
   useEffect(() => {
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
       setCollabContent(null);
+      lastAppliedFileUpdatedAtRef.current = null;
+      lastLocalContentRef.current = null;
     }
   }, [activeFileId]);
 
@@ -657,21 +692,86 @@ export default function DesignEditor() {
     const text = ytext.toString();
     if (text.length > 0) {
       setCollabContent(text);
+      // Adopt the loaded file's watermark so a later equal-or-older poll can't
+      // revert it, and a genuinely newer agent edit is still recognized.
+      lastAppliedFileUpdatedAtRef.current = activeFile?.updatedAt ?? null;
     }
-  }, [ydoc, isSynced, activeFileId]);
+  }, [ydoc, isSynced, activeFileId, activeFile?.updatedAt]);
 
-  // Observe Y.Text changes for live updates from remote editors
+  // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
+  useEffect(() => {
+    documentFileUpdatedAtRef.current = activeFile?.updatedAt ?? null;
+  }, [activeFile?.updatedAt]);
+
+  // Observe Y.Text changes for live updates from remote editors (peers + the
+  // agent's in-process applyText). This is the instant peer-to-peer path.
   useEffect(() => {
     if (!ydoc || !isSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      setCollabContent(ytext.toString());
+      const next = ytext.toString();
+      setCollabContent(next);
+      lastLocalContentRef.current = next;
+      // A Yjs update means the live doc now matches whatever DB write produced
+      // it; advance the watermark so the get-design reconcile below no-ops.
+      lastAppliedFileUpdatedAtRef.current =
+        documentFileUpdatedAtRef.current ?? lastAppliedFileUpdatedAtRef.current;
     };
     ytext.observe(handler);
     return () => {
       ytext.unobserve(handler);
     };
   }, [ydoc, isSynced]);
+
+  // Reconcile authoritative external DB content (agent edit / peer-via-SQL) into
+  // the live preview. This is the robustness fallback the Yjs observe path can't
+  // guarantee on its own: a collab poll can be missed or paused (e.g. the tab
+  // was backgrounded, or refetchInterval is off for a normal agent edit), but
+  // get-design still refetches via the action-change invalidate. Driven by
+  // `updatedAt`: only content genuinely newer than what the preview reflects is
+  // adopted, so a lagging poll can never revert live edits. The lead client also
+  // writes it into the Y.Doc so peers receive it and it persists.
+  useEffect(() => {
+    if (!activeFile || !isSynced) return;
+    const dbContent = activeFile.content ?? "";
+    const dbUpdatedAt = activeFile.updatedAt ?? null;
+
+    // Already reflecting this exact content (our own echo or Yjs already
+    // delivered it) — just advance the watermark and stop.
+    if (
+      collabContent === dbContent ||
+      lastLocalContentRef.current === dbContent
+    ) {
+      if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      return;
+    }
+
+    // Only adopt genuinely newer content. No baseline yet (fresh file load)
+    // always adopts so a stale persisted Y.Doc can't shadow newer SQL.
+    const applied = lastAppliedFileUpdatedAtRef.current;
+    const externalNewer = !applied || (!!dbUpdatedAt && dbUpdatedAt > applied);
+    if (!externalNewer) return;
+
+    // Render the newer content immediately so the preview is never stale.
+    setCollabContent(dbContent);
+    lastLocalContentRef.current = dbContent;
+    if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+
+    // Lead client mirrors it into the shared Y.Doc so other open clients
+    // receive it through Yjs and the durable collab state stays in step. The
+    // agent's update-file/generate-design already wrote the Y.Doc in-process,
+    // so in the common case this is a no-op diff; it only does real work when
+    // the Yjs update was missed (the failure this fallback exists to cover).
+    if (isLeadClient && ydoc) {
+      const ytext = ydoc.getText("content");
+      if (ytext.toString() !== dbContent) {
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, dbContent);
+        }, TAB_ID);
+      }
+    }
+  }, [activeFile, collabContent, isSynced, isLeadClient, ydoc]);
 
   // Set awareness local state to include which file the user is viewing
   useEffect(() => {
@@ -795,6 +895,20 @@ export default function DesignEditor() {
       if (!nextContent) return;
 
       setCollabContent(nextContent);
+      // Mark as our own write so the get-design reconcile + Yjs observe don't
+      // treat the echo as an external edit and fight the live value.
+      lastLocalContentRef.current = nextContent;
+      // Write the edit into the shared Y.Doc so other open clients see it live
+      // through Yjs (not only via the slower update-file → applyText round-trip).
+      if (ydoc && isSynced) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toString() !== nextContent) {
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, nextContent);
+          }, TAB_ID);
+        }
+      }
       queueFileContentSave(activeFile.id, nextContent);
       setSelectedElement((prev) =>
         prev
@@ -805,7 +919,14 @@ export default function DesignEditor() {
           : prev,
       );
     },
-    [activeContent, activeFile, queueFileContentSave, selectedElement],
+    [
+      activeContent,
+      activeFile,
+      queueFileContentSave,
+      selectedElement,
+      ydoc,
+      isSynced,
+    ],
   );
 
   const handleZoomIn = useCallback(() => {

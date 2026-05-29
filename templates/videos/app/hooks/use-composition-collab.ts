@@ -37,6 +37,61 @@ export interface CompositionCollabData {
   updatedAt?: string;
 }
 
+/**
+ * Normalize a parsed composition JSON blob into the canonical collab shape the
+ * contexts consume (`tracks`, `props`, `settings`).
+ *
+ * Two writers feed `Y.Text("content")` and historically disagreed on the field
+ * names, which is why agent edits used to never reach the editor's props/settings:
+ *
+ *  - The agent actions (`update-composition`, `save-composition`) and the SQL
+ *    source of truth (`compositions.data`, see `databaseRowToComposition`) use
+ *    the FLAT, DB-canonical shape:
+ *    `{ tracks, defaultProps, durationInFrames, fps, width, height }`.
+ *  - The UI's own `pushToCollab` historically used a NESTED shape:
+ *    `{ tracks, props, settings: { durationInFrames, fps, width, height } }`.
+ *
+ * `tracks` was the only field both shapes shared, so timeline edits synced but
+ * prop/setting edits silently dropped. We now normalize on read so BOTH shapes
+ * are understood, and `pushToCollab` writes the DB-canonical shape so every
+ * writer (agent, SQL, and all clients) agrees.
+ */
+function normalizeCompositionCollab(raw: any): CompositionCollabData | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const tracks = Array.isArray(raw.tracks) ? raw.tracks : undefined;
+
+  // props: prefer the DB-canonical `defaultProps`, fall back to nested `props`.
+  const props =
+    raw.defaultProps && typeof raw.defaultProps === "object"
+      ? raw.defaultProps
+      : raw.props && typeof raw.props === "object"
+        ? raw.props
+        : undefined;
+
+  // settings: prefer the nested `settings` object, otherwise lift the flat
+  // DB-canonical fields into a settings object.
+  let settings: CompositionCollabData["settings"];
+  if (raw.settings && typeof raw.settings === "object") {
+    settings = raw.settings;
+  } else {
+    const flat: CompositionCollabData["settings"] = {};
+    if (typeof raw.durationInFrames === "number")
+      flat.durationInFrames = raw.durationInFrames;
+    if (typeof raw.fps === "number") flat.fps = raw.fps;
+    if (typeof raw.width === "number") flat.width = raw.width;
+    if (typeof raw.height === "number") flat.height = raw.height;
+    if (Object.keys(flat).length > 0) settings = flat;
+  }
+
+  return {
+    tracks,
+    props,
+    settings,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : undefined,
+  };
+}
+
 export interface UseCompositionCollabResult {
   /** The parsed composition data from the collab layer, or null if not synced yet. */
   compositionData: CompositionCollabData | null;
@@ -111,20 +166,21 @@ export function useCompositionCollab(
 
     if (text) {
       try {
-        const parsed = JSON.parse(text) as CompositionCollabData;
-        setCompositionData(parsed);
+        const parsed = normalizeCompositionCollab(JSON.parse(text));
+        if (parsed) setCompositionData(parsed);
       } catch {
         // Not valid JSON yet — initial state may be empty
       }
     }
 
-    // Observe Y.Text changes from remote edits
+    // Observe Y.Text changes from remote edits (other users AND the agent —
+    // the agent writes the DB-canonical JSON in-process via applyText).
     const observer = () => {
       const updated = ytext.toString();
       if (updated) {
         try {
-          const parsed = JSON.parse(updated) as CompositionCollabData;
-          setCompositionData(parsed);
+          const parsed = normalizeCompositionCollab(JSON.parse(updated));
+          if (parsed) setCompositionData(parsed);
         } catch {
           // Ignore parse errors during partial updates
         }
@@ -140,17 +196,43 @@ export function useCompositionCollab(
   // Track whether we're currently pushing to avoid feedback loops
   const isPushingRef = useRef(false);
 
-  // Push local state to collab endpoint, merging with existing state
+  // Hold the latest parsed state so pushToCollab can merge against it without
+  // depending on `compositionData` (which would change its identity on every
+  // remote edit and re-trigger the contexts' push effects).
+  const compositionDataRef = useRef<CompositionCollabData | null>(null);
+  compositionDataRef.current = compositionData;
+
+  // Push local state to collab endpoint, merging with existing state and
+  // writing the DB-canonical shape so every writer (the agent's in-process
+  // `applyText`, the SQL `compositions.data` column, and all clients) agree on
+  // field names. `update-composition`/`save-composition` read `defaultProps`
+  // and flat `durationInFrames`/`fps`/`width`/`height`, so we serialize the
+  // same way here instead of the old nested `{ props, settings }` shape.
   const pushToCollab = useCallback(
     (data: CompositionCollabData) => {
       if (!docId || isPushingRef.current) return;
       isPushingRef.current = true;
 
-      const merged = { ...compositionData, ...data };
-      const dataStr = JSON.stringify({
-        ...merged,
+      const current = compositionDataRef.current ?? {};
+      const tracks = data.tracks ?? current.tracks;
+      const props = data.props ?? current.props;
+      const settings = data.settings ?? current.settings;
+
+      const payload: Record<string, any> = {
         updatedAt: new Date().toISOString(),
-      });
+      };
+      if (tracks !== undefined) payload.tracks = tracks;
+      if (props !== undefined) payload.defaultProps = props;
+      if (settings) {
+        if (typeof settings.durationInFrames === "number")
+          payload.durationInFrames = settings.durationInFrames;
+        if (typeof settings.fps === "number") payload.fps = settings.fps;
+        if (typeof settings.width === "number") payload.width = settings.width;
+        if (typeof settings.height === "number")
+          payload.height = settings.height;
+      }
+
+      const dataStr = JSON.stringify(payload);
 
       fetch(agentNativePath(`/_agent-native/collab/${docId}/text`), {
         method: "POST",
