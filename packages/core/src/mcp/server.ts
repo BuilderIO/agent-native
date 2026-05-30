@@ -69,7 +69,9 @@ function shouldUseNodeFastPath(event: H3Event): boolean {
  */
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
-  const host = getRequestHeader(event, "host");
+  const host =
+    getRequestHeader(event, "x-forwarded-host") ||
+    getRequestHeader(event, "host");
   const proto =
     forwardedProto?.split(",")[0]?.trim() ||
     (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
@@ -158,17 +160,14 @@ function buildWebRequest(event: H3Event, method: string): Request {
   // send these; we never inject/alter them — if they're absent the SDK
   // returns its spec-mandated 406/415, identical to the Node path.
 
-  const host = headers.get("host") || "localhost";
+  const host =
+    headers.get("x-forwarded-host") || headers.get("host") || "localhost";
   const forwardedProto = headers.get("x-forwarded-proto");
   const proto =
     forwardedProto?.split(",")[0]?.trim() ||
     (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
-  let url = `${proto}://${host}/_agent-native/mcp`;
-  try {
-    if (src?.url) url = new URL(src.url).href;
-  } catch {
-    // keep the synthesized URL
-  }
+  const basePath = getConfiguredAppBasePath();
+  const url = `${proto}://${host}${basePath}/_agent-native/mcp`;
 
   // No body here on purpose: the JSON-RPC payload is forwarded via the
   // transport's `parsedBody` option (the same mechanism the Node transport

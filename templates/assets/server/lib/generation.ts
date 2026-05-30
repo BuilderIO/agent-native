@@ -146,7 +146,7 @@ class BuilderImageGenerationError extends Error {
 function isRetryableBuilderImageGenerationError(err: unknown): boolean {
   return (
     err instanceof BuilderImageGenerationError &&
-    [429, 503, 504].includes(err.status ?? 0)
+    [429, 500, 503, 504].includes(err.status ?? 0)
   );
 }
 
@@ -202,7 +202,7 @@ export async function generateWithBuilderImageApi(
     body: JSON.stringify({
       idempotencyKey: input.runId,
       prompt: input.compiledPrompt,
-      model: input.model,
+      model: toBuilderImageModel(input.model),
       count: 1,
       aspectRatio: toBuilderAspectRatio(input.aspectRatio),
       size: toBuilderImageSize(input.imageSize),
@@ -690,6 +690,16 @@ function toOpenAIImageSize(
 
 function toBuilderImageSize(size: ImageSize) {
   return size === "512" ? "0.5K" : size;
+}
+
+function toBuilderImageModel(model: ImageModel) {
+  if (model === "gemini-3.1-flash-image") {
+    return "gemini-3.1-flash-image-preview";
+  }
+  if (model === "gemini-3-pro-image") {
+    return "gemini-3-pro-image-preview";
+  }
+  return model;
 }
 
 function toBuilderReferenceRole(role: string) {

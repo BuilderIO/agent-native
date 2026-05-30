@@ -7,7 +7,11 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
-import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  getFrameOrigin,
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   isEmbedAuthActive,
@@ -162,14 +166,22 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)
         .then((ok) => {
-          if (!ok) window.parent.postMessage(payload, getFrameOrigin() || "*");
+          if (!ok) {
+            window.parent.postMessage(
+              payload,
+              getFramePostMessageTargetOrigin() || "*",
+            );
+          }
         })
         .finally(() => {
           dispatchAgentChatRunning(false);
         });
       return tabId;
     }
-    window.parent.postMessage(payload, getFrameOrigin() || "*");
+    window.parent.postMessage(
+      payload,
+      getFramePostMessageTargetOrigin() || "*",
+    );
     return tabId;
   }
 
@@ -184,7 +196,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       : window;
   const targetOrigin = targetSelf
     ? window.location.origin
-    : getFrameOrigin() || window.location.origin;
+    : getFramePostMessageTargetOrigin() || window.location.origin;
   if (shouldOpenSidebar) {
     window.dispatchEvent(
       new CustomEvent("agent-panel:set-mode", {

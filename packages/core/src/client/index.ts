@@ -123,6 +123,7 @@ export {
   onFrameMessage,
   requestUserInfo,
   getFrameOrigin,
+  getFramePostMessageTargetOrigin,
   getCallbackOrigin,
   oauthRedirectUri,
   isInFrame,

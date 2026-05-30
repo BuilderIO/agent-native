@@ -19,7 +19,7 @@ import {
 
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one library. Use this for slide decks, landing pages, and multi-slot design work. Each returned image includes assetId, runId, previewUrl, downloadUrl, and embedPath.",
+    "Generate several brand-consistent images in parallel from one library. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z.string(),
     collectionId: z.string().optional(),
@@ -38,6 +38,7 @@ export default defineAction({
           subjectAssetId: z.string().optional(),
           intent: z.enum(GENERATION_INTENTS).optional(),
           styleStrength: z.enum(STYLE_STRENGTHS).optional(),
+          dismissible: z.coerce.boolean().optional(),
         }),
       )
       .min(1)
@@ -83,6 +84,7 @@ export default defineAction({
             includeLogo: base.includeLogo,
             groundingMode: base.groundingMode,
             slotId: slot.slotId,
+            dismissible: slot.dismissible,
             sourceAssetId: slot.sourceAssetId,
             subjectAssetId: slot.subjectAssetId,
             source: base.source,
@@ -104,16 +106,7 @@ export default defineAction({
     return {
       count: results.length,
       images: results.map((result, index) =>
-        result.status === "fulfilled"
-          ? { slotId: slots[index].slotId, ok: true, ...result.value }
-          : {
-              slotId: slots[index].slotId,
-              ok: false,
-              error:
-                result.reason instanceof Error
-                  ? result.reason.message
-                  : "Image generation failed",
-            },
+        serializeBatchResult(slots[index].slotId, result),
       ),
     };
   },
@@ -128,4 +121,50 @@ function firstSuccessfulAssetId(
     if (typeof assetId === "string" && assetId) return assetId;
   }
   return null;
+}
+
+function serializeBatchResult(
+  slotId: string,
+  result: PromiseSettledResult<Record<string, unknown>>,
+) {
+  if (result.status === "rejected") {
+    return {
+      slotId,
+      ok: false,
+      error:
+        result.reason instanceof Error
+          ? result.reason.message
+          : "Image generation failed",
+    };
+  }
+
+  const assetId = imageAssetId(result.value);
+  if (result.value.dismissed === true) {
+    return {
+      slotId,
+      ok: false,
+      dismissed: true,
+      runId: stringValue(result.value.runId),
+      error: "Candidate was dismissed before it completed.",
+    };
+  }
+
+  if (!assetId) {
+    return {
+      slotId,
+      ok: false,
+      runId: stringValue(result.value.runId),
+      error: "Image generation finished without an asset.",
+    };
+  }
+
+  return { slotId, ok: true, ...result.value };
+}
+
+function imageAssetId(value: Record<string, unknown>): string | undefined {
+  return stringValue(value.id) ?? stringValue(value.assetId);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
 }
