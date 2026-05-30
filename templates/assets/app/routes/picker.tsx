@@ -199,6 +199,11 @@ function shouldUseContentProxyForPreview(asset: Asset) {
 
 function embedTokenParam() {
   if (typeof window === "undefined") return null;
+  const externalToken =
+    typeof (window as any).__AGENT_NATIVE_EXTERNAL_EMBED?.token === "string"
+      ? (window as any).__AGENT_NATIVE_EXTERNAL_EMBED.token
+      : null;
+  if (externalToken) return externalToken;
   return (
     getEmbedAuthToken() ??
     new URLSearchParams(window.location.search).get("__an_embed_token")
@@ -407,12 +412,23 @@ function assetContextLabel(asset: Asset) {
 
 function AssetThumbnail({ asset }: { asset: Asset }) {
   const source = assetThumbnailSource(asset);
-  const [displayUrl, setDisplayUrl] = useState(source);
+  const proxiedPreview = shouldUseContentProxyForPreview(asset);
+  const [displayUrl, setDisplayUrl] = useState<string | undefined>(
+    proxiedPreview ? undefined : source,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    setDisplayUrl(source);
-    if (!source || !shouldUseContentProxyForPreview(asset)) return;
+    const proxied = shouldUseContentProxyForPreview(asset);
+    if (!source) {
+      setDisplayUrl(undefined);
+      return;
+    }
+    if (!proxied) {
+      setDisplayUrl(source);
+      return;
+    }
+    setDisplayUrl(undefined);
     fetch(source, {
       cache: "no-store",
       credentials: previewFetchCredentials(source),
@@ -427,12 +443,20 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
         if (!cancelled) setDisplayUrl(dataUrl);
       })
       .catch(() => {
-        if (!cancelled) setDisplayUrl(source);
+        if (!cancelled) setDisplayUrl(undefined);
       });
     return () => {
       cancelled = true;
     };
   }, [asset.mimeType, source]);
+
+  if (!displayUrl) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+        <IconPhoto className="h-6 w-6" />
+      </div>
+    );
+  }
 
   return (
     <img
