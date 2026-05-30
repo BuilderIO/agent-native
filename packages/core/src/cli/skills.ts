@@ -54,7 +54,10 @@ or generated image/video assets that another app can reference by ID and URL.
 
 - Use \`open-asset-picker\` when a person should browse, search, generate, and
   select an asset in UI. Pass \`mediaType: "image"\` by default, or
-  \`mediaType: "video"\` for video libraries.
+  \`mediaType: "video"\` for video libraries. When the user asks to create a
+  specific image and choose the best option, pass \`prompt\`,
+  \`autoGenerate: true\`, and \`count: 3\` so the picker opens with candidates
+  to preview and select.
 - Use unattended actions when the agent already knows what to do:
   \`search-assets\`, \`list-assets\`, \`generate-image\`,
   \`generate-image-batch\`, \`generate-video\`,

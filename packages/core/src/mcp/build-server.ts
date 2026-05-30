@@ -28,7 +28,10 @@ import {
   type ActionMcpAppResourceConfig,
 } from "../action.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
@@ -511,6 +514,71 @@ function mcpAppEmbedOpenLinkMeta(
   };
 }
 
+async function withServerMintedMcpAppEmbedStart(
+  result: unknown,
+  meta: MCPRequestMeta | undefined,
+): Promise<unknown> {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+
+  const out = result as Record<string, unknown>;
+  if (out.embed !== true) return result;
+  if (typeof out.embedStartUrl === "string" && out.embedStartUrl.trim()) {
+    return result;
+  }
+  if (
+    typeof out.url === "string" &&
+    out.url.trim() &&
+    isEmbedStartUrl(out.url)
+  ) {
+    return result;
+  }
+
+  const candidate = [out.url, out.path, out.deepLinkUrl].find(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  );
+  if (!candidate) return result;
+
+  const trimmed = candidate.trim();
+  const isPath = trimmed.startsWith("/") && !trimmed.startsWith("//");
+  const isAbsoluteHttp = /^https?:\/\//i.test(trimmed);
+  if (!isPath && !isAbsoluteHttp) return result;
+  if (isAbsoluteHttp && !meta?.origin) return result;
+
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  if (!ownerEmail) return result;
+
+  const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
+    await import("../server/embed-session.js");
+  const { buildEmbedStartPath } = await import("../server/embed-route.js");
+  const targetPath = normalizeEmbedTargetPath(
+    withMcpChatBridgeParam(trimmed),
+    meta?.origin,
+  );
+  if (!targetPath) return result;
+
+  const ticket = await createEmbedSessionTicket({
+    ownerEmail,
+    orgId: ctx?.orgId,
+    targetPath,
+    scope: typeof out.chrome === "string" ? out.chrome : null,
+  });
+  const startPath = buildEmbedStartPath(ticket.ticket);
+  const embedStartUrl = meta?.origin
+    ? new URL(startPath, meta.origin).toString()
+    : startPath;
+
+  return {
+    ...out,
+    embedStartUrl,
+    embedTargetPath: targetPath,
+    embedExpiresAt: ticket.expiresAt,
+  };
+}
+
 /**
  * Build the deep-link content block + structured `_meta` for a tool result.
  * Best-effort: any throw / nullish link is swallowed so a bad `link` builder
@@ -635,7 +703,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v26";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v30";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -664,6 +732,42 @@ function versionMcpAppResourceUri(
     uri: versionedUri,
     ...(versionedUri !== uri ? { legacyUris: [uri] } : {}),
   };
+}
+
+function unversionMcpAppResourceUri(uri: string): string | null {
+  if (!uri.startsWith("ui://")) return null;
+  try {
+    const parsed = new URL(uri);
+    parsed.pathname = parsed.pathname
+      .replace(/\/+$/g, "")
+      .replace(/\/shell-v\d+$/g, "");
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMcpAppResourceUriForMatch(uri: unknown): string | null {
+  if (typeof uri !== "string") return null;
+  const trimmed = uri.trim();
+  if (!trimmed.startsWith("ui://")) return null;
+  return (
+    unversionMcpAppResourceUri(trimmed) ??
+    trimmed.replace(/\/+$/g, "").replace(/\/shell-v\d+(?=([?#]|$))/g, "")
+  );
+}
+
+function matchesMcpAppResourceUri(
+  resourceUri: VersionedMcpAppResourceUri,
+  requestedUri: unknown,
+): boolean {
+  if (typeof requestedUri !== "string") return false;
+  const requested = requestedUri.trim();
+  if (resourceUri.uri === requested) return true;
+  if (resourceUri.legacyUris?.includes(requested)) return true;
+  const requestedBase = normalizeMcpAppResourceUriForMatch(requested);
+  const currentBase = normalizeMcpAppResourceUriForMatch(resourceUri.uri);
+  return Boolean(requestedBase && currentBase && requestedBase === currentBase);
 }
 
 function getMcpAppResourceUri(
@@ -1284,16 +1388,23 @@ export async function createMCPServerForRequest(
           entry,
           requestMeta,
         );
+        const rawResultForClient = mcpAppResource
+          ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
+          : rawResult;
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
-          rawResult,
+          rawResultForClient,
           requestMeta,
         );
         const responseMeta: Record<string, unknown> = {
           ...(_meta ?? {}),
           ...(mcpAppResource
-            ? mcpAppEmbedOpenLinkMeta(rawResult, mcpAppResource, requestMeta)
+            ? mcpAppEmbedOpenLinkMeta(
+                rawResultForClient,
+                mcpAppResource,
+                requestMeta,
+              )
             : {}),
           ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
         };
@@ -1304,7 +1415,7 @@ export async function createMCPServerForRequest(
           toolVisibility.length > 0 &&
           toolVisibility.every((v) => v === "app");
         const structuredContent = mcpAppResource
-          ? mcpAppStructuredContent(rawResult, responseMeta)
+          ? mcpAppStructuredContent(rawResultForClient, responseMeta)
           : isAppOnlyVisibility &&
               rawResult &&
               typeof rawResult === "object" &&
@@ -1390,11 +1501,7 @@ export async function createMCPServerForRequest(
           } | null = null;
           for (const [name, entry] of Object.entries(advertisedActions)) {
             const resourceUri = getMcpAppResourceUri(config, name, entry);
-            if (
-              !resourceUri ||
-              (resourceUri.uri !== uri &&
-                !resourceUri.legacyUris?.includes(uri))
-            ) {
+            if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
               continue;
             }
             const resource = await resolveMcpAppResourceSafely(

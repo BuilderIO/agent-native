@@ -20,6 +20,34 @@ describe("createServer", () => {
     const { app } = createServer({ jsonLimit: "1mb" });
     expect(app).toBeDefined();
   });
+
+  it("allows Claude MCP app transplant preflights", async () => {
+    const { app } = createServer();
+    const origin =
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com";
+
+    const res = await app.request(
+      "http://localhost/_agent-native/embed/start?ticket=test-ticket",
+      {
+        method: "OPTIONS",
+        headers: {
+          origin,
+          "access-control-request-method": "GET",
+          "access-control-request-headers":
+            "accept, x-agent-native-embed-transplant",
+        },
+      },
+    );
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
+      "X-Agent-Native-Embed-Transplant",
+    );
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
+      "X-User-Timezone",
+    );
+  });
 });
 
 // Test parseEnvFile behavior by reimplementing and testing the same logic

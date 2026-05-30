@@ -18,6 +18,7 @@ import {
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
@@ -185,7 +186,9 @@ export function createServer(
         const embedCorsRequest =
           isMcpEmbedCorsOrigin(requestOrigin) &&
           (requestedHeaders.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            requestedHeaders.includes(EMBED_TRANSPLANT_HEADER) ||
             Boolean(getRequestHeader(event, EMBED_TARGET_HEADER)) ||
+            Boolean(getRequestHeader(event, EMBED_TRANSPLANT_HEADER)) ||
             Boolean(getRequestHeader(event, "authorization")));
 
         /**

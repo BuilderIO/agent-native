@@ -46,3 +46,6 @@ Read the relevant skill before deeper work:
   `npx @agent-native/core@latest skills add images` (or `assets`). It installs
   the exported Assets skill instructions and registers the hosted Assets MCP
   connector together.
+- For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
+  `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
+  preview, tweak by preset/aspect/count, and choose.

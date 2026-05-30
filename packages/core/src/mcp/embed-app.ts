@@ -111,6 +111,7 @@ export function embedApp(
     let app = null;
     let openAiBridge = null;
     let toolInput = {};
+    let toolResultData = {};
     let openUrl = "";
     let openStartUrl = "";
     let startedFor = "";
@@ -194,6 +195,28 @@ export function embedApp(
       return parseJson(text, {});
     }
 
+    function metadataRecord(value) {
+      const meta = value && typeof value === "object" && !Array.isArray(value)
+        ? value._meta
+        : null;
+      return meta && typeof meta === "object" && !Array.isArray(meta)
+        ? meta
+        : null;
+    }
+
+    function toolResultMeta(params) {
+      if (!params || typeof params !== "object") return {};
+      const direct = metadataRecord(params);
+      if (direct) return direct;
+      if (params.result && typeof params.result === "object") {
+        return toolResultMeta(params.result);
+      }
+      if (params.toolResult && typeof params.toolResult === "object") {
+        return toolResultMeta(params.toolResult);
+      }
+      return {};
+    }
+
     function openLinkRecordFrom(value) {
       return value && typeof value === "object" && !Array.isArray(value)
         ? value
@@ -222,7 +245,8 @@ export function embedApp(
     }
 
     function openLinkFrom(params, data) {
-      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const meta = toolResultMeta(params);
+      const openLink = meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       const structuredOpenLinkUrl = openLinkWebUrlFrom(record.openLink);
@@ -238,13 +262,13 @@ export function embedApp(
     }
 
     function embedStartUrlFrom(params, data) {
-      const embedStart =
-        params && params._meta && params._meta["agent-native/embedStart"];
+      const meta = toolResultMeta(params);
+      const embedStart = meta["agent-native/embedStart"];
       const embedStartRecord =
         embedStart && typeof embedStart === "object" && !Array.isArray(embedStart)
           ? embedStart
           : {};
-      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const openLink = meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       return firstEmbedStartUrl([
@@ -515,22 +539,149 @@ export function embedApp(
       next.remove();
     }
 
-    function rootRelativeSpecifiersToAbsolute(code, appOrigin) {
-      return String(code).replace(/(["'])\\/(?!\\/)/g, "$1" + appOrigin + "/");
+    function rootRelativeSpecifierToAppUrl(specifier, config) {
+      if (typeof specifier !== "string" || !specifier.startsWith("/") || specifier.startsWith("//")) {
+        return specifier;
+      }
+      try {
+        const url = new URL(specifier, config.origin);
+        if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+        if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+        return url.toString();
+      } catch (_err) {
+        return specifier;
+      }
     }
 
-    function moduleCodeToClassicAsync(code, appOrigin) {
-      return rootRelativeSpecifiersToAbsolute(code, appOrigin)
+    function rootRelativeSpecifiersToAbsolute(code, config) {
+      return String(code).replace(/(["'])\\/(?!\\/)([^"']*)/g, (_match, quote, rest) => {
+        return quote + rootRelativeSpecifierToAppUrl("/" + rest, config);
+      });
+    }
+
+    function relativeSpecifierToAppUrl(specifier, config, baseUrl) {
+      if (typeof specifier !== "string" || !/^\\.\\.?\//.test(specifier)) {
+        return specifier;
+      }
+      try {
+        const url = new URL(specifier, baseUrl || config.baseHref);
+        if (url.origin === config.origin) {
+          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+        }
+        return url.toString();
+      } catch (_err) {
+        return specifier;
+      }
+    }
+
+    function relativeModuleSpecifiersToAbsolute(code, config, baseUrl) {
+      return String(code)
+        .replace(/(\\bimport\\s+(?:[^"']+?\\s+from\\s+)?)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bimport\\s*\\(\\s*)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bexport\\s+[^"']*?\\s+from\\s+)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        });
+    }
+
+    function stripDevOnlyModuleImports(code) {
+      return String(code).replace(
+        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/inject-hmr-runtime|__x00__virtual:react-router\\/inject-hmr-runtime)[^"']*["']\\s*;?/g,
+        ""
+      );
+    }
+
+    function namedImportBindings(specifierList) {
+      return String(specifierList)
+        .split(",")
+        .map((part) => {
+          const trimmed = part.trim();
+          if (!trimmed) return "";
+          return trimmed.replace(
+            /^([A-Za-z_$][\\w$]*)\\s+as\\s+([A-Za-z_$][\\w$]*)$/,
+            "$1: $2"
+          );
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+
+    function moduleCodeToClassicAsync(code, config, baseUrl) {
+      return relativeModuleSpecifiersToAbsolute(
+        rootRelativeSpecifiersToAbsolute(stripDevOnlyModuleImports(code), config),
+        config,
+        baseUrl
+      )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const $2 = await import($3); const $1 = $2.default;"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, defaultName, specifiers, source) =>
+            "const { default: " +
+            defaultName +
+            (namedImportBindings(specifiers) ? ", " + namedImportBindings(specifiers) : "") +
+            " } = await import(" +
+            source +
+            ");"
+        )
+        .replace(
+          /\\bimport\\s+\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, specifiers, source) =>
+            "const { " + namedImportBindings(specifiers) + " } = await import(" + source + ");"
+        )
         .replace(
           /\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
           "const $1 = await import($2);"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const { default: $1 } = await import($2);"
         )
         .replace(/\\bimport\\s+(["'][^"']+["'])\\s*;?/g, "await import($1);")
         .replace(/\\bimport\\((["'][^"']+["'])\\)\\s*;?/g, "await import($1);");
     }
 
-    function runModuleScriptAsClassic(script, appOrigin) {
-      const code = moduleCodeToClassicAsync(script.textContent || "", appOrigin);
+    function scriptSourceUrl(script, config) {
+      const raw = script.getAttribute("src") || "";
+      if (!raw) return "";
+      try {
+        const url = new URL(raw, config.baseHref);
+        if (url.origin === config.origin) {
+          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+        }
+        return url.toString();
+      } catch (_err) {
+        return raw;
+      }
+    }
+
+    async function moduleScriptCode(script, config) {
+      const src = scriptSourceUrl(script, config);
+      if (!src) return script.textContent || "";
+      const response = await fetch(src, {
+        credentials: "omit",
+        headers: { Accept: "text/javascript, application/javascript, */*" }
+      });
+      if (!response.ok) {
+        throw new Error("Module script returned HTTP " + response.status + ".");
+      }
+      return await response.text();
+    }
+
+    async function runModuleScriptAsClassic(script, config) {
+      const sourceUrl = scriptSourceUrl(script, config) || config.baseHref;
+      const code = moduleCodeToClassicAsync(
+        await moduleScriptCode(script, config),
+        config,
+        sourceUrl
+      );
       const runner = document.createElement("script");
       runner.textContent =
         "(async()=>{" +
@@ -540,7 +691,7 @@ export function embedApp(
       runner.remove();
     }
 
-    function mountTransplantedHtml(html, appUrl) {
+    async function mountTransplantedHtml(html, appUrl) {
       const config = embedConfigForAppUrl(appUrl);
       installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
@@ -558,8 +709,42 @@ export function embedApp(
         if (isRunnableClassicScript(script)) runClassicScript(script);
       }
       for (const script of scripts) {
-        if (isModuleScript(script)) runModuleScriptAsClassic(script, appUrl.origin);
+        if (isModuleScript(script)) await runModuleScriptAsClassic(script, config);
       }
+    }
+
+    function absoluteUrl(value, base) {
+      try {
+        return new URL(value, base).toString();
+      } catch {
+        return "";
+      }
+    }
+
+    async function resolveTransplantAppDocumentSource(src) {
+      if (!isEmbedStartUrl(src)) {
+        return { url: new URL(src), response: null };
+      }
+      const response = await fetch(src, {
+        credentials: "omit",
+        redirect: "follow",
+        headers: {
+          Accept: "application/json",
+          "X-Agent-Native-Embed-Transplant": "1"
+        }
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (response.ok && /\\bapplication\\/json\\b/i.test(contentType)) {
+        const data = await response.json();
+        const location = typeof data.location === "string" ? data.location : "";
+        const url = absoluteUrl(location, src);
+        if (url) return { url: new URL(withChatBridgeParam(url)), response: null };
+        throw new Error("Embedded app did not return a launch URL.");
+      }
+      return {
+        url: new URL(response.url || src),
+        response
+      };
     }
 
     async function transplantAppDocument(src) {
@@ -568,20 +753,25 @@ export function embedApp(
       appFrame = null;
       lastFrameSrc = src;
       setMessage("Loading app");
-      const response = await fetch(src, {
+      const source = await resolveTransplantAppDocumentSource(src);
+      const response = source.response || await fetch(source.url.href, {
         credentials: "omit",
         redirect: "follow",
         headers: { Accept: "text/html" }
       });
       if (!response.ok) {
+        if (response.status === 401 && isEmbedStartUrl(src)) {
+          refreshExpiredEmbedSession();
+          return;
+        }
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
-      const appUrl = new URL(response.url || src);
+      const appUrl = source.url || new URL(response.url || src);
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
-      mountTransplantedHtml(html, appUrl);
+      await mountTransplantedHtml(html, appUrl);
       notifyHostHeightRepeatedly();
     }
 
@@ -589,6 +779,28 @@ export function embedApp(
       if (toolInput.embed === false || toolInput.embed === "false") return false;
       if (embedByDefault) return true;
       return toolInput.embed === true || toolInput.embed === "true";
+    }
+
+    function renderModeSource() {
+      const input = objectValue(toolInput);
+      const result = objectValue(toolResultData);
+      return {
+        mode: typeof input.embedMode === "string"
+          ? input.embedMode
+          : typeof input.renderMode === "string"
+            ? input.renderMode
+            : typeof result.embedMode === "string"
+              ? result.embedMode
+              : typeof result.renderMode === "string"
+                ? result.renderMode
+                : "",
+        frame: typeof input.frame === "string"
+          ? input.frame
+          : typeof result.frame === "string"
+            ? result.frame
+            : "",
+        nested: input.nested === true || result.nested === true
+      };
     }
 
     function supportedDisplayMode(mode) {
@@ -741,25 +953,19 @@ export function embedApp(
     }
 
     function shouldSelfNavigateToApp() {
-      const mode = typeof toolInput.embedMode === "string"
-        ? toolInput.embedMode
-        : typeof toolInput.renderMode === "string"
-          ? toolInput.renderMode
-          : "";
+      const render = renderModeSource();
+      const mode = render.mode;
       if (mode === "iframe" || mode === "nested") return false;
-      if (toolInput.nested === true || toolInput.frame === "iframe") return false;
+      if (render.nested || render.frame === "iframe") return false;
       return true;
     }
 
     function shouldTransplantAppDocument() {
-      const mode = typeof toolInput.embedMode === "string"
-        ? toolInput.embedMode
-        : typeof toolInput.renderMode === "string"
-          ? toolInput.renderMode
-          : "";
+      const render = renderModeSource();
+      const mode = render.mode;
       return (
         mode === "transplant" ||
-        toolInput.frame === "transplant" ||
+        render.frame === "transplant" ||
         isClaudeMcpContentHost()
       );
     }
@@ -876,15 +1082,24 @@ export function embedApp(
       const message = typeof chat.message === "string" ? chat.message : "";
       if (!message.trim()) return;
       const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      const content = Array.isArray(chat.content) && chat.content.length
+        ? chat.content
+        : [{ type: "text", text: message }];
       try {
         if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+          const contextContent = context
+            ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+            : content.filter((part) => part && part.type !== "text");
           openAiBridge.setWidgetState({
             ...objectValue(openAiBridge.widgetState),
-            agentNativeChatContext: context || null
+            agentNativeChatContext: context || null,
+            agentNativeModelContext: { content: contextContent }
           });
         } else if (app && typeof app.updateModelContext === "function") {
           await app.updateModelContext({
-            content: context ? [{ type: "text", text: context }] : []
+            content: context
+              ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+              : content.filter((part) => part && part.type !== "text")
           });
         }
       } catch (err) {
@@ -901,7 +1116,7 @@ export function embedApp(
         if (!app || typeof app.sendMessage !== "function") return;
         const result = await app.sendMessage({
           role: "user",
-          content: [{ type: "text", text: message }]
+          content
         });
         if (result && result.isError) {
           console.warn("[agent-native] MCP host rejected chat message", result);
@@ -1075,6 +1290,7 @@ export function embedApp(
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
       const data = parseToolResult(params);
+      toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
       updateTitle(data);
@@ -1125,6 +1341,7 @@ export function embedApp(
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
         updateTitle(data);

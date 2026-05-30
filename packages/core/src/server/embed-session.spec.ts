@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
+  requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
@@ -313,6 +314,31 @@ describe("requestMatchesEmbedTarget", () => {
     ).toBe(false);
   });
 
+  it("treats bearer embed tokens as embed auth markers for CORS headers", () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?embedded=1",
+      ttlSeconds: 60,
+    });
+
+    expect(
+      requestHasEmbedAuthMarker(
+        fakeEvent("/_agent-native/actions/list-libraries", {
+          authorization: `Bearer ${token}`,
+          [EMBED_TARGET_HEADER]: "/picker?embedded=1",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      requestHasEmbedAuthMarker(
+        fakeEvent("/_agent-native/actions/list-libraries", {
+          authorization: `Bearer ${token}`,
+          [EMBED_TARGET_HEADER]: "/settings?embedded=1",
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("allows app runtime requests with the embed cookie when referrer headers are unavailable", async () => {
     process.env.OAUTH_STATE_SECRET = "embed-test-secret";
     const token = signEmbedSessionToken({
@@ -341,5 +367,23 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("allows Vite module runtime requests with the embed query token", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const event = fakeEvent(`/@vite/client?__an_embed_token=${token}`);
+
+    await expect(resolveEmbedSessionFromRequest(event)).resolves.toMatchObject({
+      email: "owner@example.com",
+      orgId: "org_123",
+      targetPath: "/picker?mediaType=image",
+    });
+    expect(requestHasEmbedAuthMarker(event)).toBe(true);
   });
 });
