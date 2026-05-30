@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { IconActivity, IconHome } from "@tabler/icons-react";
+import { IconActivity, IconDatabase, IconHome } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { FeedbackButton, appPath } from "@agent-native/core/client";
@@ -9,6 +9,7 @@ import { APP_TITLE } from "@/lib/app-config";
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
   { icon: IconActivity, label: "Observability", href: "/observability" },
+  { icon: IconDatabase, label: "Database", href: "/database" },
 ];
 
 export function Sidebar() {

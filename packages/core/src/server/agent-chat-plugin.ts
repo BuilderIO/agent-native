@@ -17,7 +17,6 @@ import {
   actionsToEngineTools,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
-  getRun,
   abortRun,
   subscribeToRun,
   type ActionEntry,
@@ -108,6 +107,7 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -5759,29 +5759,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Authorization: a run's events/abort and a thread's active-run
           // status must only be exposed to the user who OWNS the thread.
           // agent_runs carries no owner column — ownership lives on the
-          // chat_threads row via thread_id — so resolve the run's thread
-          // (in-memory first, SQL fallback) and compare its ownerEmail.
-          // Without this, any authenticated tenant who learns another
-          // tenant's runId/threadId could stream their live agent turn
-          // (assistant text + tool-result payloads) or abort their run.
-          const resolveRunThreadId = async (
-            runId: string,
-          ): Promise<string | null> => {
-            const memRun = getRun(runId);
-            if (memRun) return memRun.threadId;
-            const { getRunById } = await import("../agent/run-store.js");
-            const row = await getRunById(runId);
-            return row?.threadId ?? null;
-          };
-          const ownsThread = async (
-            threadId: string | null | undefined,
-          ): Promise<boolean> => {
-            if (!threadId) return false;
-            const thread = await getThread(threadId);
-            return !!thread && thread.ownerEmail === owner;
-          };
-          const ownsRun = async (runId: string): Promise<boolean> =>
-            ownsThread(await resolveRunThreadId(runId));
+          // chat_threads row via thread_id. callerOwnsRun/callerOwnsThread
+          // (agent/run-ownership.ts) resolve the run's thread (in-memory first,
+          // SQL fallback) and compare its ownerEmail. Without this, any
+          // authenticated tenant who learns another tenant's runId/threadId
+          // could stream their live agent turn (assistant text + tool-result
+          // payloads) or abort their run.
+          const ownsThread = (threadId: string | null | undefined) =>
+            callerOwnsThread(owner, threadId);
+          const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
 
           // Route: GET /runs/list?goalId=agent-team
           // Returns hosted Agent Teams in the Code hub-compatible run shape.

@@ -220,6 +220,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/extensions",
   "@agent-native/core/client/tools", // legacy alias
   "@agent-native/core/client/org",
+  "@agent-native/core/client/db-admin",
   "@agent-native/core/client/observability",
   "@agent-native/core/client/onboarding",
   "@agent-native/core/client/sharing",
@@ -337,6 +338,10 @@ function getCoreSourceAliases(
       "client/extensions/index.ts",
     ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
+    "@agent-native/core/client/db-admin": path.join(
+      coreSrc,
+      "client/db-admin/index.ts",
+    ),
     "@agent-native/core/client/observability": path.join(
       coreSrc,
       "client/observability/index.ts",
