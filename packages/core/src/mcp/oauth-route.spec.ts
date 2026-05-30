@@ -582,6 +582,17 @@ describe("MCP OAuth route", () => {
     expect(second.status).toBe(200);
     const body = await second.json();
     expect(body.refresh_token).not.toBe(first.refresh_token);
+    await expect(
+      verifyMcpOAuthAccessToken(
+        body.access_token,
+        "https://mail.agent-native.com/_agent-native/mcp",
+      ),
+    ).resolves.toMatchObject({
+      userEmail: "steve@example.com",
+      orgId: "org_123",
+      orgDomain: "builder.io",
+      clientId: client.client_id,
+    });
     expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeTruthy();
   });
 
