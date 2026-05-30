@@ -2442,12 +2442,21 @@ interface ActivityStep {
   tool?: string;
 }
 
-function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
+function ActivitySteps({
+  steps,
+  className,
+}: {
+  steps: ActivityStep[];
+  className?: string;
+}) {
   if (steps.length === 0) return null;
   const visibleSteps = steps.slice(-4);
   return (
     <div
-      className="max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+      className={cn(
+        "max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground",
+        className,
+      )}
       aria-live="polite"
     >
       <div className="space-y-1">
@@ -2464,6 +2473,23 @@ function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function RunningActivityStatus({
+  steps,
+  label,
+}: {
+  steps: ActivityStep[];
+  label: string;
+}) {
+  return (
+    <div className="agent-running-activity shrink-0 px-4 pb-2">
+      <div className="flex flex-col gap-2">
+        <ActivitySteps steps={steps} className="max-w-full" />
+        <ThinkingIndicator label={label} />
       </div>
     </div>
   );
@@ -5104,24 +5130,6 @@ const AssistantChatInner = forwardRef<
                     reconnectContent.length > 0 && (
                       <ReconnectStreamMessage content={reconnectContent} />
                     )}
-                  {/* Always show the thinking indicator while the agent is working,
-                including during reconnect. The indicator sits BELOW any
-                already-streamed reconnect content so the user sees both
-                "what it did so far" and "it's still working". Swap the label
-                to "Reconnecting" during reconnect so the user knows the
-                system is actively recovering, not just stuck. */}
-                  {showRunningInUI && (
-                    <>
-                      <ActivitySteps steps={activitySteps} />
-                      <ThinkingIndicator
-                        label={
-                          isReconnecting
-                            ? "Reconnecting"
-                            : (activityLabel ?? "Thinking")
-                        }
-                      />
-                    </>
-                  )}
                   {queuedMessages.map((msg) => {
                     const displayText = msg.text
                       .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
@@ -5189,6 +5197,18 @@ const AssistantChatInner = forwardRef<
               />
             )}
             <SelectionAttachedPill />
+            {/* Keep live run progress pinned in the composer footer while the
+                completed/collapsed trail remains attached to the transcript. */}
+            {showRunningInUI && (
+              <RunningActivityStatus
+                steps={activitySteps}
+                label={
+                  isReconnecting
+                    ? "Reconnecting"
+                    : (activityLabel ?? "Thinking")
+                }
+              />
+            )}
             {/* Input area */}
             <AgentComposerFrame
               layoutVariant={composerLayoutVariant}

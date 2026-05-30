@@ -33,14 +33,14 @@ component in dev and prod.
 - Reads `application_state.navigation` every turn, so it already knows which
   view you're in and what's selected — you don't have to re-explain "this".
 
-### Dev vs prod tool modes {#tool-modes}
+### App vs Code tool modes {#tool-modes}
 
 The panel runs in one of two tool modes:
 
-- **Production mode** — the agent only has your app's own tools: the actions you
+- **App mode** — the agent only has your app's own tools: the actions you
   defined with `defineAction`, plus navigation and context. No filesystem or
   shell access. This is what end users get.
-- **Development mode** — adds the shared coding tools (`bash`, `read`, `edit`,
+- **Code mode** — adds the shared coding tools (`bash`, `read`, `edit`,
   `write`) and database access on top of the app tools, so the agent can change
   the app's own source. Code requests are gated: when a message requires code
   (`type: "code"`) and no code-capable frame is connected, the panel shows a
@@ -48,9 +48,15 @@ The panel runs in one of two tool modes:
   when a frame is connected, the request is routed to it and a code-agent
   indicator shows while it works (`useSendToAgentChat`).
 
+"Code mode" is the agent-capability toggle — distinct from environment dev mode
+(`NODE_ENV` / Vite). For back-compat the underlying `AGENT_MODE` env var, the
+`/_agent-native/agent-chat/mode` endpoint (whose payload still uses `devMode`),
+and the `agent-chat.mode` settings key are unchanged. The client hook is
+`useCodeMode()` (the older `useDevMode()` remains as a deprecated alias).
+
 In the local dev frame, the settings cog toggles between these modes. Switching
-to prod hides the frame's own sidebar and shows the app's in-app agent sidebar
-inside the iframe instead, so you can preview exactly what end users see.
+off Code mode hides the frame's own sidebar and shows the app's in-app agent
+sidebar inside the iframe instead, so you can preview exactly what end users see.
 
 ## Integrated terminal and CLI switching {#cli-terminal}
 
