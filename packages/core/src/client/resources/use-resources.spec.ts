@@ -4,6 +4,7 @@ import {
   withMcpServersFolder,
   type TreeNode,
 } from "./use-resources.js";
+import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 
 function fileNode(
   path: string,
@@ -86,5 +87,33 @@ describe("withMcpServersFolder", () => {
     expect(result[0].name).toBe("mcp-servers");
     expect(result[0].children?.[0].kind).toBe("mcp-server");
     expect(result[0].children?.[0].resource?.id).toBe("mcp:user:zapier");
+  });
+
+  it("adds built-in MCP capabilities to the MCP folder", () => {
+    const capability: BuiltinCapability = {
+      id: "browser-playwright",
+      serverId: "builtin-browser-playwright",
+      name: "Browser",
+      description: "Control a local browser for QA.",
+      command: "npx",
+      args: ["playwright-mcp"],
+      exclusiveGroup: "browser",
+      available: true,
+      enabled: { user: true, org: false },
+      mergedIds: { user: "user_builtin_browser" },
+      status: { user: { state: "connected", toolCount: 9 } },
+    };
+
+    const result = withMcpServersFolder([], [], {
+      builtins: [{ capability, scope: "user" }],
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("mcp-servers");
+    expect(result[0].children?.[0].kind).toBe("mcp-builtin");
+    expect(result[0].children?.[0].mcpBuiltinMeta?.scopeEnabled).toBe(true);
+    expect(result[0].children?.[0].resource?.id).toBe(
+      "mcp-builtin:user:browser-playwright",
+    );
   });
 });

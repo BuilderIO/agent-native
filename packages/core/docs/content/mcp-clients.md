@@ -109,8 +109,12 @@ For production deploys, prefer remote HTTP MCP servers and set the full config
 shape (or the inner server map) as an environment variable:
 
 ```bash
-MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer ${MCP_SERVER_TOKEN}"}}}}'
+MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/mcp","headers":{"Authorization":"Bearer paste-token-value-here"}}}}'
 ```
+
+`MCP_SERVERS` is parsed as JSON, so `${...}` placeholders are not expanded
+inside the string. If you store the token in another secret, expand it before
+writing the final JSON value.
 
 Stdio MCP servers spawn local binaries and are intended for local development.
 MCP tools only activate in Node runtimes — Cloudflare Workers and other edge

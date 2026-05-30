@@ -7,13 +7,17 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import type { McpServer } from "./use-mcp-servers.js";
+import {
+  mcpBuiltinVirtualId,
+  type BuiltinCapability,
+} from "./use-builtin-capabilities.js";
 
 /**
  * Extended resource kind that includes virtual entries injected into the
  * Workspace tree — MCP servers live in the settings store, not the
  * resources table, but they render as a folder inside each scope.
  */
-export type ResourceKind = StoredResourceKind | "mcp-server";
+export type ResourceKind = StoredResourceKind | "mcp-server" | "mcp-builtin";
 
 export interface Resource {
   id: string;
@@ -71,6 +75,11 @@ export interface TreeNode {
   remoteAgentMeta?: RemoteAgentManifest;
   /** Attached when `kind === "mcp-server"` — virtual tree entry. */
   mcpServerMeta?: McpServer;
+  /** Attached when `kind === "mcp-builtin"` — virtual built-in MCP entry. */
+  mcpBuiltinMeta?: BuiltinCapability & {
+    scope: "user" | "org";
+    scopeEnabled: boolean;
+  };
 }
 
 export type ResourceScope = "personal" | "shared" | "workspace" | "all";
@@ -113,10 +122,15 @@ export function withMcpServersFolder(
   servers: McpServer[],
   opts?: {
     alwaysShow?: boolean;
+    builtins?: Array<{
+      capability: BuiltinCapability;
+      scope: "user" | "org";
+    }>;
   },
 ): TreeNode[] {
   const alwaysShow = opts?.alwaysShow ?? false;
-  if (servers.length === 0 && !alwaysShow) {
+  const builtins = opts?.builtins ?? [];
+  if (servers.length === 0 && builtins.length === 0 && !alwaysShow) {
     return tree;
   }
 
@@ -153,6 +167,35 @@ export function withMcpServersFolder(
       },
     };
   });
+
+  const now = Date.now();
+  for (const { capability, scope } of builtins) {
+    const scopeEnabled = capability.enabled[scope];
+    const virtualId = mcpBuiltinVirtualId(scope, capability.id);
+    const path = `mcp-servers/${capability.id}.json`;
+    children.push({
+      name: `${capability.name}.json`,
+      path,
+      type: "file",
+      kind: "mcp-builtin",
+      mcpBuiltinMeta: { ...capability, scope, scopeEnabled },
+      resource: {
+        id: virtualId,
+        path,
+        owner: scope,
+        mimeType: "application/json",
+        size: 0,
+        createdAt: 0,
+        updatedAt: scopeEnabled ? now : 0,
+        createdBy: "system",
+        visibility: "workspace",
+        threadId: null,
+        runId: null,
+        expiresAt: null,
+        metadata: null,
+      },
+    });
+  }
 
   children.sort((a, b) => a.name.localeCompare(b.name));
 

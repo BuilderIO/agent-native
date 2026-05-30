@@ -1,4 +1,11 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  BOOKING_OG_FONT_ASSETS,
+  loadBundledOgFontFiles,
+} from "./booking-og-fonts";
 import {
   renderBookingOgImage,
   renderBookingOgImagePng,
@@ -74,6 +81,50 @@ describe("booking OG image", () => {
     expect(
       countBrightPixels(image, { left: 80, top: 495, right: 380, bottom: 560 }),
     ).toBeGreaterThan(200);
+  });
+
+  it("loads bundled server asset font bytes for route rendering", async () => {
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "booking-og-fonts-test-"));
+    try {
+      const fontFiles = await loadBundledOgFontFiles(
+        {
+          getItem: async () => {
+            throw new Error("getItem should not be used when raw bytes exist");
+          },
+          getItemRaw: async (id) => {
+            const asset = BOOKING_OG_FONT_ASSETS.find(
+              (font) => font.asset === id,
+            );
+            if (!asset) throw new Error(`Unknown font asset ${id}`);
+            return readFileSync(asset.sourcePath);
+          },
+        },
+        { preferSourceFiles: false, tmpRoot, useCache: false },
+      );
+
+      expect(fontFiles).toHaveLength(2);
+
+      const image = renderBookingOgImage(
+        {
+          title: "Meeting",
+          duration: 30,
+          username: "steve",
+          bookingPageTitle: "Meet Steve Sewell",
+        },
+        { fontFiles },
+      );
+
+      expect(
+        countBrightPixels(image, {
+          left: 70,
+          top: 300,
+          right: 820,
+          bottom: 430,
+        }),
+      ).toBeGreaterThan(1000);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it("uses custom booking link titles in place of the generated title", () => {
