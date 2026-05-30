@@ -12,16 +12,14 @@
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
 
-import {
-  randomUUID,
-  randomBytes,
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-} from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 import type { SecretScope } from "./register.js";
+import {
+  encryptSecretValue as encryptValue,
+  decryptSecretValue as decryptValue,
+} from "./crypto.js";
 
 // ---------------------------------------------------------------------------
 // Table bootstrap
@@ -66,82 +64,8 @@ async function ensureTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Encryption
+// Encryption — see ./crypto.ts (shared with per-user credentials)
 // ---------------------------------------------------------------------------
-
-/**
- * Derive a 32-byte AES key from the configured secret material via SHA-256.
- * Re-derived per-request (cheap, stateless, and makes rotation easy).
- *
- * In production we refuse to start with the CWD-derived fallback. Same
- * posture `resolveAuthSecret` takes for `BETTER_AUTH_SECRET` — fail loud
- * rather than encrypt every secret with a key that's effectively static
- * across the whole deployment (Lambda CWD is `/var/task`, etc.). Anyone
- * with read access to the DB (forgotten backup, pg_dump, downgraded env)
- * could otherwise decrypt every user's secrets with trivial work.
- */
-function getEncryptionKey(): Buffer {
-  const explicit =
-    process.env.SECRETS_ENCRYPTION_KEY || process.env.BETTER_AUTH_SECRET;
-
-  if (!explicit) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "[agent-native/secrets] Refusing to start in production without an encryption key. " +
-          "Set SECRETS_ENCRYPTION_KEY (preferred) or BETTER_AUTH_SECRET in the deploy environment. " +
-          "The previous CWD-derived fallback was effectively static (e.g. `/var/task` on Lambda), " +
-          "which means anyone with read access to the secrets table could decrypt every user's secrets.",
-      );
-    }
-    if (!_warnedFallback) {
-      _warnedFallback = true;
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
-          "Set SECRETS_ENCRYPTION_KEY (or BETTER_AUTH_SECRET) for production. " +
-          "Production deploys without one of these env vars now hard-fail.",
-      );
-    }
-  }
-
-  const material = explicit || `agent-native-secrets:${process.cwd()}`;
-  return createHash("sha256").update(material).digest();
-}
-
-let _warnedFallback = false;
-
-/** Encrypt a plain-text value. Returns `v1:<iv-hex>:<ct-hex>:<tag-hex>`. */
-function encryptValue(plaintext: string): string {
-  const key = getEncryptionKey();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `v1:${iv.toString("hex")}:${ct.toString("hex")}:${tag.toString("hex")}`;
-}
-
-/** Decrypt a value produced by `encryptValue`. Throws on tampering. */
-function decryptValue(encrypted: string): string {
-  if (!encrypted.startsWith("v1:")) {
-    throw new Error("Unrecognised secret encoding");
-  }
-  const [, ivHex, ctHex, tagHex] = encrypted.split(":");
-  if (!ivHex || !ctHex || !tagHex) {
-    throw new Error("Corrupt secret payload");
-  }
-  const key = getEncryptionKey();
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(ivHex, "hex"),
-  );
-  decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-  const pt = Buffer.concat([
-    decipher.update(Buffer.from(ctHex, "hex")),
-    decipher.final(),
-  ]);
-  return pt.toString("utf8");
-}
 
 /**
  * Return the last 4 characters of a secret, with any leading characters
