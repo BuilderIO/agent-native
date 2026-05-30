@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.26.4
+
+### Patch Changes
+
+- b523050: Tighten MCP app embedding for external hosts, including OAuth discovery, compact app launch behavior, and Claude web transplant support.
+
 ## 0.26.3
 
 ### Patch Changes
