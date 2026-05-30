@@ -94,7 +94,11 @@ External MCP hosts should call `open-asset-picker` instead of constructing this
 iframe by hand. The action returns a browser fallback link and MCP App metadata
 for inline hosts. When a user selects an asset, the picker emits `chooseAsset`,
 the legacy `chooseImage` alias for image assets, and updates MCP App model
-context where the host supports it.
+context where the host supports it. When a host opens the fallback link in a
+normal browser tab instead of rendering the MCP App inline, selecting an asset
+copies a handoff summary and shows a copyable context block; paste that summary
+back into the chat so the external agent can use the selected media URL and
+asset metadata.
 
 For generate-and-choose flows, call `open-asset-picker` with `prompt`,
 `autoGenerate: true`, and `count: 3` (customizable from 1-6). The picker opens

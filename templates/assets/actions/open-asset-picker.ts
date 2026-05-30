@@ -42,6 +42,9 @@ const schema = z.object({
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
 
+const FALLBACK_INSTRUCTIONS =
+  "If the picker opens in a normal browser tab instead of inline, select an asset there. The picker copies a handoff summary and shows a copyable context block; paste that context back into chat so the agent can use the selected asset.";
+
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
   params.set("mediaType", args.mediaType ?? "image");
@@ -59,7 +62,7 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
 
 export default defineAction({
   description:
-    "Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. Use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
+    "Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. If the host can only open a browser link, the picker copies a paste-back handoff summary after selection. Use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
   schema,
   http: { method: "GET" },
   readOnly: true,
@@ -111,10 +114,11 @@ export default defineAction({
           : "Select an image asset",
       message:
         args.mediaType === "video"
-          ? "Assets video picker is ready."
+          ? "Assets video picker is ready. If it opens in a browser tab, select an asset there and paste the copied selection back into chat."
           : args.autoGenerate && args.prompt
-            ? "Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration."
-            : "Assets image picker is ready.",
+            ? "Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration. If it opens in a browser tab, select an asset there and paste the copied selection back into chat."
+            : "Assets image picker is ready. If it opens in a browser tab, select an asset there and paste the copied selection back into chat.",
+      fallbackInstructions: FALLBACK_INSTRUCTIONS,
       query: args.query ?? null,
       prompt: args.prompt ?? null,
       libraryId: args.libraryId ?? null,
