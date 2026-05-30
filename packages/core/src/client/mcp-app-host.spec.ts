@@ -430,6 +430,14 @@ describe("MCP app host client helpers", () => {
       existing: true,
       agentNativeChatContext:
         "Hidden draft context. Do not ask to read application-state/compose.json.",
+      agentNativeModelContext: {
+        content: [
+          {
+            type: "text",
+            text: "Hidden draft context. Do not ask to read application-state/compose.json.",
+          },
+        ],
+      },
     });
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
       prompt: "Rewrite the selected sentence",
@@ -440,6 +448,43 @@ describe("MCP app host client helpers", () => {
     );
   });
 
+  it("persists rich content blocks for ChatGPT follow-up prompts", async () => {
+    const parent = parentWindow();
+    setDirectParent(parent);
+    const sendFollowUpMessage = vi.fn(async () => ({}));
+    const setWidgetState = vi.fn();
+    vi.stubGlobal("openai", {
+      widgetState: { existing: true },
+      setWidgetState,
+      sendFollowUpMessage,
+    });
+
+    const result = sendMcpAppHostMessage({
+      context: "Hidden selected asset context",
+      message: "Use the selected Assets image",
+      content: [
+        { type: "text", text: "Use the selected Assets image" },
+        { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+      ],
+    });
+
+    await expect(result).resolves.toBe(true);
+    expect(setWidgetState).toHaveBeenCalledWith({
+      existing: true,
+      agentNativeChatContext: "Hidden selected asset context",
+      agentNativeModelContext: {
+        content: [
+          { type: "text", text: "Hidden selected asset context" },
+          { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+        ],
+      },
+    });
+    expect(sendFollowUpMessage).toHaveBeenCalledWith({
+      prompt: "Use the selected Assets image",
+      scrollToBottom: true,
+    });
+  });
+
   it("sends follow-up prompts through the wrapper bridge in nested MCP app frames", async () => {
     const parent = parentWindow();
     setNestedParent(parent);
@@ -447,6 +492,10 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
       message: "Use the selected Assets image",
+      content: [
+        { type: "text", text: "Use the selected Assets image" },
+        { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+      ],
     });
 
     await expect(result).resolves.toBe(true);
@@ -456,6 +505,10 @@ describe("MCP app host client helpers", () => {
         data: {
           context: "Hidden selected asset context",
           message: "Use the selected Assets image",
+          content: [
+            { type: "text", text: "Use the selected Assets image" },
+            { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
+          ],
           submit: true,
         },
       },
@@ -587,6 +640,7 @@ describe("MCP app host client helpers", () => {
     expect(setWidgetState).toHaveBeenCalledWith({
       existing: true,
       agentNativeChatContext: null,
+      agentNativeModelContext: { content: [] },
     });
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
       prompt: "Send a context-free follow-up",

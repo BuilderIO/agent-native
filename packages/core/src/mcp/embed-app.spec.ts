@@ -28,6 +28,9 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("prompt: message");
+    expect(html).toContain(
+      "agentNativeModelContext: { content: contextContent }",
+    );
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
@@ -76,6 +79,10 @@ describe("embedApp", () => {
     expect(html).toContain("scriptSourceUrl");
     expect(html).toContain("moduleScriptCode");
     expect(html).toContain("relativeModuleSpecifiersToAbsolute");
+    expect(html).toContain(
+      String.raw`.replace(/(\bimport\s+(?:[^"']+?\s+from\s+)?)(["'])(\.\.?\/[^"']*)\2/g`,
+    );
+    expect(html).toContain(String.raw`/\bapplication\/json\b/i`);
     expect(html).toContain("namedImportBindings");
     expect(html).toContain("const { default:");
     expect(html).toContain("await runModuleScriptAsClassic(script, config)");

@@ -1087,9 +1087,13 @@ export function embedApp(
         : [{ type: "text", text: message }];
       try {
         if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
+          const contextContent = context
+            ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+            : content.filter((part) => part && part.type !== "text");
           openAiBridge.setWidgetState({
             ...objectValue(openAiBridge.widgetState),
-            agentNativeChatContext: context || null
+            agentNativeChatContext: context || null,
+            agentNativeModelContext: { content: contextContent }
           });
         } else if (app && typeof app.updateModelContext === "function") {
           await app.updateModelContext({

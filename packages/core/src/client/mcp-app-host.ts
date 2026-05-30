@@ -538,6 +538,7 @@ export function sendMcpAppHostMessage(
         openAiBridge.setWidgetState({
           ...objectValue(openAiBridge.widgetState),
           agentNativeChatContext: context,
+          agentNativeModelContext: { content: contextContent },
         });
       }
       await openAiBridge.sendFollowUpMessage({

@@ -177,7 +177,9 @@ function absoluteAppUrl(value: string) {
 function absoluteAssetUrl(value: string | undefined) {
   if (!value) return undefined;
   try {
-    return new URL(value, absoluteAppUrl("/")).toString();
+    const path =
+      value.startsWith("/") && !value.startsWith("//") ? appPath(value) : value;
+    return new URL(path, absoluteAppUrl("/")).toString();
   } catch {
     return value;
   }
