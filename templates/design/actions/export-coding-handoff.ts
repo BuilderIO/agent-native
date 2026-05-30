@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   signShortLivedToken,
   buildDeepLink,
@@ -52,6 +52,16 @@ export default defineAction({
   }),
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Design coding handoff",
+      description: "Open the design in the real Design editor.",
+      iframeTitle: "Agent-Native Design",
+      openLabel: "Open design",
+      height: 680,
+    }),
+  },
   run: async ({ id, origin, format }) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;

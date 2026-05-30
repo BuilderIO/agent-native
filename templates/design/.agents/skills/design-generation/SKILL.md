@@ -21,6 +21,11 @@ pnpm action create-design --title "Project Name" --projectType prototype
 pnpm action navigate --view editor --designId <returned-id>
 ```
 
+The `navigate` step is only for first-party/local app agents that can write
+application state. External MCP hosts should surface the `create-design`
+returned "Open design" link, then use `present-design-variants` to open the
+visual picker.
+
 Then, for any non-trivial first prompt, write `application-state/show-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
 
 ```bash

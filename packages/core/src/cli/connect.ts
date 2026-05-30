@@ -62,7 +62,7 @@ const CLIENT_LABELS: Record<ClientId, string> = {
 const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code": ".mcp.json or ~/.claude.json",
   "claude-code-cli": ".mcp.json or ~/.claude.json",
-  codex: "~/.codex/config.toml",
+  codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
 };
 
