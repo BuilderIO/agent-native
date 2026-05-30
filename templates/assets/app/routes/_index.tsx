@@ -45,7 +45,6 @@ import {
   SelectItem,
   SelectSeparator,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
@@ -85,6 +84,8 @@ const CUSTOM_RATIOS_KEY = "assets.customAspectRatios";
 const MAX_TEXT_CONTEXT_FILE_CHARS = 12_000;
 const MAX_TEXT_CONTEXT_TOTAL_CHARS = 24_000;
 const MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR = 4;
+const COMPOSER_SELECT_TRIGGER_CLASS =
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 data-[placeholder]:text-muted-foreground [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -216,10 +217,10 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
         ? "Add an OpenAI or Gemini key for image generation."
         : "Add S3-compatible storage for originals, thumbnails, and exports.";
   const title = builderAvailable
-    ? "Connect Builder to create assets"
+    ? "Connect generation models"
     : "Finish asset setup";
   const description = builderAvailable
-    ? "One click enables image generation and asset storage. No provider keys needed."
+    ? "Connect to enable image generation, video generation, LLMs, and asset storage. Free credits and no keys needed"
     : "This deployment uses manual provider setup. Add the missing pieces in Settings.";
   const showContent = !!issueMessage || !!flow.error || builderAvailable;
 
@@ -463,6 +464,13 @@ function HomeGeneratePanel({
       return;
     }
     chooseLibrary(value);
+  };
+
+  const handleMediaTypeChange = (value: "image" | "video") => {
+    setMediaType(value);
+    if (value === "video" && aspectRatio !== "16:9" && aspectRatio !== "9:16") {
+      setAspectRatio("16:9");
+    }
   };
 
   const createPresetLibrary = (presetId: string) => {
@@ -778,6 +786,7 @@ function HomeGeneratePanel({
             ) : null}
 
             <PromptComposer
+              className="[&_[data-agent-composer-slot=toolbar-spacer]]:hidden"
               placeholder={
                 selectedLibrary
                   ? mediaType === "video"
@@ -792,144 +801,22 @@ function HomeGeneratePanel({
               showModelSelector={false}
               voiceEnabled={false}
               draftScope="assets-create"
+              toolbarSlot={
+                <AssetComposerToolbar
+                  mediaType={mediaType}
+                  onMediaTypeChange={handleMediaTypeChange}
+                  selectValue={selectValue}
+                  selectedLibraryLabel={selectedLibrary?.title ?? "Generic"}
+                  libraries={sortedLibraries}
+                  onLibraryChange={handleLibraryChange}
+                  aspectRatio={aspectRatio}
+                  onAspectChange={handleAspectChange}
+                  customRatios={customRatios}
+                  count={count}
+                  onCountChange={setCount}
+                />
+              }
             />
-
-            <div className="mt-5 rounded-lg border border-border/80 bg-card/50 p-3 text-sm">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(12rem,1.6fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Type
-                  </span>
-                  <Select
-                    value={mediaType}
-                    onValueChange={(value) => {
-                      const next = value as "image" | "video";
-                      setMediaType(next);
-                      if (
-                        next === "video" &&
-                        aspectRatio !== "16:9" &&
-                        aspectRatio !== "9:16"
-                      ) {
-                        setAspectRatio("16:9");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="image">Image</SelectItem>
-                        <SelectItem value="video">Video</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Library
-                  </span>
-                  <Select
-                    value={selectValue}
-                    onValueChange={handleLibraryChange}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue placeholder="Choose a library" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {sortedLibraries.map((library) => (
-                          <SelectItem key={library.id} value={library.id}>
-                            {library.title}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="generic">
-                          No library - generic
-                        </SelectItem>
-                      </SelectGroup>
-                      <SelectSeparator />
-                      <SelectGroup>
-                        <SelectItem value="__new__">
-                          <span className="flex items-center gap-2">
-                            <IconPhotoPlus className="size-3.5" />
-                            New library...
-                          </span>
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Aspect
-                  </span>
-                  <Select
-                    value={aspectRatio}
-                    onValueChange={handleAspectChange}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {ASPECT_RATIOS.filter(
-                          (ratio) =>
-                            mediaType === "image" ||
-                            ratio.value === "16:9" ||
-                            ratio.value === "9:16",
-                        ).map((ratio) => (
-                          <SelectItem key={ratio.value} value={ratio.value}>
-                            {ratio.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      {customRatios.length > 0 ? (
-                        <>
-                          <SelectSeparator />
-                          <SelectGroup>
-                            {customRatios.map((ratio) => (
-                              <SelectItem key={ratio} value={ratio}>
-                                {ratio} - saved
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </>
-                      ) : null}
-                      <SelectSeparator />
-                      <SelectGroup>
-                        <SelectItem value="__custom__">
-                          Custom size...
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {mediaType === "image" && (
-                  <div className="grid gap-1.5">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Count
-                    </span>
-                    <Select
-                      value={String(count)}
-                      onValueChange={(value) => setCount(Number(value))}
-                    >
-                      <SelectTrigger className="h-9 w-full text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {[1, 2, 3, 4].map((n) => (
-                            <SelectItem key={n} value={String(n)}>
-                              {n} variants
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           <div className="flex flex-wrap justify-center gap-2">
@@ -1082,5 +969,145 @@ function HomeGeneratePanel({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function AssetComposerToolbar({
+  mediaType,
+  onMediaTypeChange,
+  selectValue,
+  selectedLibraryLabel,
+  libraries,
+  onLibraryChange,
+  aspectRatio,
+  onAspectChange,
+  customRatios,
+  count,
+  onCountChange,
+}: {
+  mediaType: "image" | "video";
+  onMediaTypeChange: (value: "image" | "video") => void;
+  selectValue: string;
+  selectedLibraryLabel: string;
+  libraries: ImageLibrarySummary[];
+  onLibraryChange: (value: string) => void;
+  aspectRatio: string;
+  onAspectChange: (value: string) => void;
+  customRatios: string[];
+  count: number;
+  onCountChange: (value: number) => void;
+}) {
+  const aspectOptions = ASPECT_RATIOS.filter(
+    (ratio) =>
+      mediaType === "image" || ratio.value === "16:9" || ratio.value === "9:16",
+  );
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <Select
+        value={mediaType}
+        onValueChange={(value) => onMediaTypeChange(value as "image" | "video")}
+      >
+        <SelectTrigger
+          aria-label="Asset type"
+          className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[5.5rem] shrink-0`}
+        >
+          <span className="truncate capitalize">{mediaType}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="image">Image</SelectItem>
+            <SelectItem value="video">Video</SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
+        <Select value={selectValue} onValueChange={onLibraryChange}>
+          <SelectTrigger
+            aria-label="Library"
+            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
+          >
+            <span className="truncate">{selectedLibraryLabel}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {libraries.map((library) => (
+                <SelectItem key={library.id} value={library.id}>
+                  {library.title}
+                </SelectItem>
+              ))}
+              <SelectItem value="generic">No library - generic</SelectItem>
+            </SelectGroup>
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectItem value="__new__">
+                <span className="flex items-center gap-2">
+                  <IconPhotoPlus className="size-3.5" />
+                  New library...
+                </span>
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={aspectRatio} onValueChange={onAspectChange}>
+          <SelectTrigger
+            aria-label="Aspect ratio"
+            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[5rem] shrink-0`}
+          >
+            <span className="truncate">{aspectRatio}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {aspectOptions.map((ratio) => (
+                <SelectItem key={ratio.value} value={ratio.value}>
+                  {ratio.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            {customRatios.length > 0 ? (
+              <>
+                <SelectSeparator />
+                <SelectGroup>
+                  {customRatios.map((ratio) => (
+                    <SelectItem key={ratio} value={ratio}>
+                      {ratio} - saved
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </>
+            ) : null}
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectItem value="__custom__">Custom size...</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        {mediaType === "image" ? (
+          <Select
+            value={String(count)}
+            onValueChange={(value) => onCountChange(Number(value))}
+          >
+            <SelectTrigger
+              aria-label="Variant count"
+              className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
+            >
+              <span>{count}x</span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {[1, 2, 3, 4].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}x
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
+    </div>
   );
 }

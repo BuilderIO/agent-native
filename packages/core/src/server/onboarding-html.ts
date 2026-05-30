@@ -18,6 +18,7 @@ import {
   resolveBuiltInAuthMarketing,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
+import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -1097,7 +1098,7 @@ ${
     function __anWithAuthCacheBypass(ret) {
       try {
         var url = new URL(ret || __anPath('/'), window.location.origin);
-        url.searchParams.set('__an_auth_redirect', Date.now().toString(36));
+        url.searchParams.set('${AUTH_REDIRECT_QUERY_PARAM}', Date.now().toString(36));
         return url.pathname + url.search + url.hash;
       } catch(e) {
         var fallback = ret || __anPath('/');
@@ -1105,7 +1106,7 @@ ${
         var beforeHash = hashIndex === -1 ? fallback : fallback.slice(0, hashIndex);
         var hash = hashIndex === -1 ? '' : fallback.slice(hashIndex);
         var sep = beforeHash.indexOf('?') === -1 ? '?' : '&';
-        return beforeHash + sep + '__an_auth_redirect=' + Date.now().toString(36) + hash;
+        return beforeHash + sep + '${AUTH_REDIRECT_QUERY_PARAM}=' + Date.now().toString(36) + hash;
       }
     }
     function __anRedirectToSignedInApp(ret) {

@@ -20,6 +20,14 @@ Use the ad-hoc analysis workflow when:
 
 For simple one-off questions (e.g., "how many signups last week?"), just query the data and answer in chat — no need to save an analysis.
 
+If the user asks for an analysis output that needs a bespoke interactive
+surface, custom visualization, multi-step workflow, or UI that cannot be
+faithfully represented as saved-analysis Markdown, generated chart images, and
+structured `resultData`, create an extension instead of forcing the request into
+the saved-analysis format. In production mode, call `create-extension`
+automatically and tell the user the requested analysis needed bespoke UI/code, so
+you built it as an extension.
+
 ## Workflow
 
 ### Step 1: Understand the Question

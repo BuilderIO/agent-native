@@ -43,7 +43,10 @@ jobs:
             ];
 
             const token = process.env.NETLIFY_TOKEN;
-            if (!token) { core.setFailed('NETLIFY_AUTH_TOKEN secret not set'); return; }
+            if (!token) {
+              core.info('NETLIFY_AUTH_TOKEN secret not set; skipping stale preview cleanup.');
+              return;
+            }
 
             const branch = process.env.BRANCH;
             const latestSha = process.env.LATEST_SHA;

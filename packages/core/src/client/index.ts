@@ -1,6 +1,8 @@
 import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
+import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 
 installRouteChunkRecovery();
+stripAuthRedirectParamFromUrl();
 
 export {
   sendToAgentChat,
