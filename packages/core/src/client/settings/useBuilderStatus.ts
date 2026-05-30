@@ -46,17 +46,35 @@ export interface BuilderStatus {
 export function useBuilderStatus() {
   const [status, setStatus] = useState<BuilderStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const lastGoodStatusRef = useRef<BuilderStatus | null>(null);
 
   const fetchStatus = useCallback(async () => {
+    const keepLastGoodStatus = (message: string) => {
+      const lastGoodStatus = lastGoodStatusRef.current;
+      setStatus(lastGoodStatus);
+      setStale(!!lastGoodStatus);
+      setError(message);
+    };
+
     try {
       const res = await fetch(agentNativePath("/_agent-native/builder/status"));
       if (!res.ok) {
-        setStatus(null);
+        keepLastGoodStatus(`Builder status unavailable (${res.status})`);
         return;
       }
-      setStatus(await res.json());
-    } catch {
-      setStatus(null);
+      const nextStatus = (await res.json()) as BuilderStatus;
+      lastGoodStatusRef.current = nextStatus;
+      setStatus(nextStatus);
+      setStale(false);
+      setError(null);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Builder status unavailable: ${err.message}`
+          : "Builder status unavailable";
+      keepLastGoodStatus(message);
     } finally {
       setLoading(false);
     }
@@ -86,7 +104,7 @@ export function useBuilderStatus() {
     };
   }, [fetchStatus]);
 
-  return { status, loading, refetch: fetchStatus };
+  return { status, loading, error, stale, refetch: fetchStatus };
 }
 
 // ─── useBuilderConnectFlow ──────────────────────────────────────────────────

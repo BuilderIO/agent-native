@@ -38,9 +38,11 @@ export {
 } from "./remote-store.js";
 
 export {
+  areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
   isBuiltinMcpCapabilityAvailable,
+  listSupportedBuiltinMcpCapabilities,
   normalizeBuiltinMcpCapabilityIds,
   toBuiltinMcpServerConfig,
   type BuiltinMcpCapability,

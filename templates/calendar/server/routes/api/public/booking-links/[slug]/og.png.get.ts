@@ -7,8 +7,10 @@ import {
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getUserSetting } from "@agent-native/core/settings";
+import { assets as serverAssets } from "#nitro/virtual/server-assets";
 import { getDb, schema } from "../../../../../db/index.js";
 import { getBookingUsername } from "../../../../../handlers/booking-usernames.js";
+import { loadBundledOgFontFiles } from "../../../../../lib/booking-og-fonts.js";
 import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js";
 import {
   renderBookingOgImagePng,
@@ -111,7 +113,11 @@ export default defineEventHandler(async (event: H3Event) => {
     bookingPageTitle: ownerSettings?.bookingPageTitle,
     profileImageDataUrl,
   };
-  const png = renderBookingOgImagePng(imageInput);
+  const fontFiles = await loadBundledOgFontFiles(serverAssets);
+  const png = renderBookingOgImagePng(
+    imageInput,
+    fontFiles ? { fontFiles } : {},
+  );
   const body = png.buffer.slice(
     png.byteOffset,
     png.byteOffset + png.byteLength,

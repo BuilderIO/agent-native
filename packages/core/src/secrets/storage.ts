@@ -57,7 +57,10 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists — expected
       }
-    })();
+    })().catch((err) => {
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

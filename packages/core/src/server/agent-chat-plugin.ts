@@ -62,6 +62,7 @@ import {
   mountMcpHubRoutes,
   buildMergedConfig,
   startMcpConfigRefresh,
+  areBuiltinMcpCapabilitiesSupported,
   setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
@@ -1446,7 +1447,7 @@ function createBuilderBrowserTool(deps: {
     return { ok: true, enabledIds: enabledIds ?? [] };
   };
 
-  return {
+  const entries: Record<string, ActionEntry> = {
     "connect-builder": {
       tool: {
         description:
@@ -1678,6 +1679,13 @@ function createBuilderBrowserTool(deps: {
       },
     },
   };
+
+  if (!areBuiltinMcpCapabilitiesSupported()) {
+    delete entries["set-browser-control"];
+    delete entries["set-computer-use"];
+  }
+
+  return entries;
 }
 
 /**
@@ -2135,7 +2143,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 ### Extended Capabilities
 
-You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`set-browser-control\` for built-in Chrome DevTools/Playwright MCP, \`activate-browser\` for Builder-provisioned Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`activate-browser\` for Builder-provisioned Chrome; local development may also include \`set-browser-control\`). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 
 For brand-consistent generated media, use the first-party Assets agent via \`call-agent\` with agent "assets" when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery. If this app has a native generation action, prefer that action because it may attach the asset to the local document/deck/design.
 `;
@@ -2232,7 +2240,7 @@ You can activate a real Chrome browser via Builder.io for tasks that need full p
 - Reading content from pages that require JavaScript execution
 
 **How to use:**
-1. Call \`set-browser-control\` with \`{"enabled":true,"backend":"chrome-devtools"}\` after confirming once with the user. Use \`activate-browser\` only when you specifically need Builder-provisioned Chrome.
+1. In local development, call \`set-browser-control\` with \`{"enabled":true,"backend":"chrome-devtools"}\` after confirming once with the user. In production, use \`activate-browser\` for Builder-provisioned Chrome.
 2. On your next action, use \`mcp__chrome-devtools__navigate_page\`, \`mcp__chrome-devtools__evaluate_script\`, \`mcp__chrome-devtools__take_screenshot\`, etc.
 3. If Builder is not connected, call \`connect-builder\` first
 
@@ -2431,7 +2439,7 @@ When the user asks to connect Builder.io, needs Builder for LLM access / browser
 
 ### Browser Automation
 
-Call \`set-browser-control\` to enable built-in browser MCP tools. Prefer \`backend:"chrome-devtools"\` for the user's live logged-in Chrome; use \`backend:"playwright"\` for isolated browser testing. After activation, MCP browser tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript on the next action. Use \`activate-browser\` only for Builder-provisioned browser sessions.
+In local development, call \`set-browser-control\` to enable built-in browser MCP tools. Prefer \`backend:"chrome-devtools"\` for the user's live logged-in Chrome; use \`backend:"playwright"\` for isolated browser testing. In production, use \`activate-browser\` for Builder-provisioned browser sessions.
 
 ### call-agent — External Apps Only
 

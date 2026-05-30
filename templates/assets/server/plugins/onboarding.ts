@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/onboarding";
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
-  resolveHasBuilderPrivateKey,
+  resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "@agent-native/core/server";
 import { isObjectStorageConfigured } from "../lib/storage.js";
@@ -97,7 +97,7 @@ export default async (nitroApp: any): Promise<void> => {
     isComplete: async () => {
       if (builderImageGenerationEnabled) {
         try {
-          if (await resolveHasBuilderPrivateKey()) return true;
+          if (await resolveHasCompleteBuilderConnection()) return true;
         } catch {
           // Fall through to the manual key fallback.
         }

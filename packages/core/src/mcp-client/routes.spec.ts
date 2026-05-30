@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashEmail } from "./remote-store.js";
 import {
   buildMergedConfig,
@@ -49,6 +49,10 @@ beforeEach(() => {
   mockedSettings.all = {};
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("formatMcpConnectError", () => {
@@ -124,6 +128,17 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       args: ["-y", "@playwright/mcp@0.0.75"],
     });
   });
+
+  it("skips enabled local built-ins in production runtimes", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    mockedSettings.all = {
+      "u:alice@example.com:mcp-builtin-capabilities": {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+
+    await expect(buildMergedConfig()).resolves.toBeNull();
+  });
 });
 
 describe("MCP server routes", () => {
@@ -153,6 +168,41 @@ describe("MCP server routes", () => {
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ error: "Authentication required" });
     expect(manager.reconfigure).not.toHaveBeenCalled();
+  });
+
+  it("does not list local built-ins in production runtimes", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    mockedSettings.all = {
+      "u:alice@example.com:mcp-builtin-capabilities": {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/builtin",
+      "GET",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      capabilities: [],
+      user: { enabledIds: [] },
+    });
   });
 
   it("mediates MCP App tool calls through the same server only", async () => {

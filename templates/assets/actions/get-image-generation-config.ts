@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { resolveHasCompleteBuilderConnection } from "@agent-native/core/server";
 import { z } from "zod";
 import {
   isBuilderImageGenerationEnabled,
@@ -34,7 +34,7 @@ export default defineAction({
       objectStorageConfigured,
       lastIssue,
     ] = await Promise.all([
-      resolveHasBuilderPrivateKey().catch(() => false),
+      resolveHasCompleteBuilderConnection().catch(() => false),
       isGeminiImageGenerationConfigured().catch(() => false),
       isOpenAIImageGenerationConfigured().catch(() => false),
       isObjectStorageConfigured().catch(() => false),
