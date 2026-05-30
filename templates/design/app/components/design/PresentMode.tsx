@@ -57,7 +57,7 @@ export function PresentMode({ content, onExit }: PresentModeProps) {
       <iframe
         ref={iframeRef}
         srcDoc={srcdoc}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts"
         className="w-full h-full border-0"
         title="Present Mode"
       />

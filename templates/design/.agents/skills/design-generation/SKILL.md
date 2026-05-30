@@ -31,7 +31,8 @@ Then, for any non-trivial first prompt, write `application-state/show-questions`
 
 ### Phase 2 — Generate three side-by-side variations
 
-For new designs, default to **three** variations. Write candidates to `application-state/design-variants`:
+For new designs, default to **three** variations. In normal app-agent flows,
+write candidates to `application-state/design-variants`:
 
 ```json
 {
@@ -48,6 +49,13 @@ For new designs, default to **three** variations. Write candidates to `applicati
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
 
 The framework persists the chosen content as `index.html` automatically when the user clicks "Use this one" — do NOT call `generate-design` while the picker is open.
+
+When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
+Dispatch), call `present-design-variants` instead of writing
+`application-state` directly. Pass the existing `designId`, a concise prompt
+caption, and 2-5 complete HTML variants. The action opens the same editor
+variant picker as the first-party app and keeps the workflow visible inside
+MCP Apps. After that, wait for the user's pick before refining.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 

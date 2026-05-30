@@ -22,6 +22,17 @@ Use it when you want a polished landing page concept, product UI direction, bran
 4. **Export when it is useful.** Download HTML, ZIP, or PDF once the prototype
    is ready to hand to another tool or teammate.
 
+For Codex, Claude Code, and other local agent clients, the hosted Design app can
+be installed as an app-backed skill plus MCP connector:
+
+```bash
+npx @agent-native/core@latest skills add design-exploration
+```
+
+That gives the agent instructions to create a design shell, present three visual
+directions in the inline Design MCP app, wait for your pick, and iterate from
+the selected prototype.
+
 ## Useful Prompts
 
 - "Create three landing-page directions for a technical analytics product."

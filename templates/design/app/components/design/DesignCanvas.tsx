@@ -441,7 +441,7 @@ export function DesignCanvas({
       <iframe
         ref={iframeRef}
         srcDoc={srcdoc}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts"
         className="border-0 bg-white block w-full h-full"
         title="Design Preview"
       />

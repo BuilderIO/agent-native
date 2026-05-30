@@ -59,6 +59,44 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("accepts design-exploration aliases for the built-in Design skill", async () => {
+    const root = tmpDir();
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "agent-native-design-exploration",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        runCommand: async (cmd, args) => {
+          commands.push({ cmd, args });
+          return 0;
+        },
+      },
+    );
+
+    expect(result.id).toBe("design");
+    expect(result.skillNames).toEqual(["design-exploration"]);
+    expect(commands[0].args).toEqual(
+      expect.arrayContaining([
+        "--skill",
+        "design-exploration",
+        "-a",
+        "codex",
+        "-y",
+      ]),
+    );
+    expect(result.mcpUrl).toBe(
+      "https://design.agent-native.com/_agent-native/mcp",
+    );
+  });
+
   it("installs built-in Assets instructions and MCP config", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];
