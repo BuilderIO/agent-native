@@ -1,12 +1,19 @@
 import path from "path";
 import fs from "fs";
 import { createRequire } from "module";
+import type { IncomingMessage, ServerResponse } from "http";
 import type { Plugin, UserConfig } from "vite";
 import { nitro as nitroVitePlugin } from "nitro/vite";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -607,6 +614,9 @@ function baseRedirectGuard(): Plugin {
             // original path so the normal dev-server error handling applies.
           }
         }
+        if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
+          return;
+        }
         req.url = stripMountedDevApiPath(req.url, base);
         if (
           req.method === "HEAD" &&
@@ -627,6 +637,135 @@ function baseRedirectGuard(): Plugin {
       });
     },
   };
+}
+
+const VITE_RUNTIME_PATH_PREFIXES = [
+  "/@fs/",
+  "/@id/",
+  "/@vite/",
+  "/app/",
+  "/node_modules/",
+  "/packages/",
+  "/src/",
+];
+
+function cookieValue(req: IncomingMessage, name: string): string | undefined {
+  const header = req.headers.cookie;
+  if (typeof header !== "string" || !header) return undefined;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      return part.slice(index + 1).trim();
+    }
+  }
+  return undefined;
+}
+
+function hasValidEmbedRuntimeToken(req: IncomingMessage): boolean {
+  try {
+    const url = new URL(req.url ?? "/", "http://agent-native.local");
+    const queryToken = url.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
+    const cookieToken = cookieValue(req, EMBED_SESSION_COOKIE);
+    return [queryToken, cookieToken].some(
+      (token) => verifyEmbedSessionToken(token).ok,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function mountedEmbedRuntimeModuleUrl(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string | null {
+  if (!reqUrl || !base || base === "/") return null;
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  if (!reqUrl.startsWith(normalizedBase)) return null;
+
+  const runtimeUrl = reqUrl.slice(normalizedBase.length - 1) || "/";
+  let url: URL;
+  try {
+    url = new URL(runtimeUrl, "http://agent-native.local");
+  } catch {
+    return null;
+  }
+  if (
+    !VITE_RUNTIME_PATH_PREFIXES.some((prefix) =>
+      url.pathname.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+  url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
+  url.searchParams.delete(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function virtualModuleIdFromRuntimeUrl(runtimeUrl: string): string | null {
+  try {
+    const pathname = new URL(runtimeUrl, "http://agent-native.local").pathname;
+    const prefix = "/@id/__x00__";
+    if (!pathname.startsWith(prefix)) return null;
+    return `\0${decodeURIComponent(pathname.slice(prefix.length))}`;
+  } catch {
+    return null;
+  }
+}
+
+async function loadMountedEmbedRuntimeModule(
+  server: any,
+  runtimeUrl: string,
+): Promise<string | null> {
+  const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+  if (virtualId) {
+    const loaded = await server.pluginContainer?.load?.(virtualId);
+    if (typeof loaded === "string") return loaded;
+    if (loaded && typeof loaded.code === "string") return loaded.code;
+  }
+  const result = await server.transformRequest(runtimeUrl);
+  return result?.code ?? null;
+}
+
+function serveMountedEmbedRuntimeModule(
+  server: any,
+  req: IncomingMessage,
+  res: ServerResponse,
+  base: string | undefined,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!hasValidEmbedRuntimeToken(req)) return false;
+  const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, base);
+  if (!runtimeUrl) return false;
+
+  void loadMountedEmbedRuntimeModule(server, runtimeUrl)
+    .then((code: string | null) => {
+      if (!code) {
+        if (!res.headersSent) {
+          res.statusCode = 404;
+          res.end();
+        }
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(code);
+    })
+    .catch((err: unknown) => {
+      if (res.headersSent) return;
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain");
+      res.end(err instanceof Error ? err.message : String(err));
+    });
+  return true;
 }
 
 function embedDevFrameHeaders(): Plugin {

@@ -52,6 +52,13 @@ export default function AssetDetailPage() {
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
   const previewUrl = assetMediaUrl(asset.previewUrl);
   const categoryLabel = assetCategoryLabel(asset);
+  const isStarterAsset =
+    asset.metadata?.isStarterAsset === true ||
+    String(asset.libraryId || "").startsWith("starter:");
+  const libraryBackPath = isStarterAsset
+    ? "/picker"
+    : `/library/${asset.libraryId}`;
+  const libraryBackLabel = isStarterAsset ? "Picker" : "Library";
 
   function refine() {
     sendToAgentChat({
@@ -106,9 +113,9 @@ export default function AssetDetailPage() {
       <aside className="overflow-y-auto border-b border-border bg-background p-5 lg:border-b-0 lg:border-r">
         <div className="mb-4">
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-2">
-            <Link to={`/library/${asset.libraryId}`}>
+            <Link to={libraryBackPath}>
               <IconArrowLeft className="h-4 w-4" />
-              Library
+              {libraryBackLabel}
             </Link>
           </Button>
         </div>
@@ -152,11 +159,13 @@ export default function AssetDetailPage() {
         </div>
         <Separator className="my-5" />
         <div className="grid gap-2">
-          <Button className="gap-2" onClick={refine}>
-            <IconMessageCircle className="h-4 w-4" />
-            {isVideo ? "Make video variation" : "Make variations"}
-          </Button>
-          {!isVideo ? (
+          {!isStarterAsset ? (
+            <Button className="gap-2" onClick={refine}>
+              <IconMessageCircle className="h-4 w-4" />
+              {isVideo ? "Make video variation" : "Make variations"}
+            </Button>
+          ) : null}
+          {!isVideo && !isStarterAsset ? (
             <Button variant="outline" className="gap-2" onClick={createHandoff}>
               <IconMessageCircle className="h-4 w-4" />
               Handoff to designer
@@ -165,7 +174,13 @@ export default function AssetDetailPage() {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() =>
+            onClick={() => {
+              if (isStarterAsset) {
+                const downloadUrl =
+                  assetMediaUrl(asset.downloadUrl) ?? previewUrl;
+                if (downloadUrl) window.location.href = downloadUrl;
+                return;
+              }
               exportAsset.mutate(
                 { assetId: asset.id },
                 {
@@ -174,8 +189,8 @@ export default function AssetDetailPage() {
                       assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
                   },
                 },
-              )
-            }
+              );
+            }}
           >
             <IconDownload className="h-4 w-4" />
             Download
@@ -190,40 +205,42 @@ export default function AssetDetailPage() {
             <IconCopy className="h-4 w-4" />
             Copy URL
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="gap-2">
-                <IconTrash className="h-4 w-4" />
-                Delete
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete asset?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the asset from the library. Existing exports that
-                  already use this URL may stop rendering.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  onClick={() =>
-                    deleteAsset.mutate(
-                      { id: asset.id },
-                      {
-                        onSuccess: () =>
-                          navigate(`/library/${asset.libraryId}`),
-                      },
-                    )
-                  }
-                >
+          {!isStarterAsset ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" className="gap-2">
+                  <IconTrash className="h-4 w-4" />
                   Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the asset from the library. Existing exports
+                    that already use this URL may stop rendering.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() =>
+                      deleteAsset.mutate(
+                        { id: asset.id },
+                        {
+                          onSuccess: () =>
+                            navigate(`/library/${asset.libraryId}`),
+                        },
+                      )
+                    }
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
         </div>
       </aside>
       <div className="flex min-h-0 items-center justify-center bg-muted/30 p-6">

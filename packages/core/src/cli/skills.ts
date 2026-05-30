@@ -68,7 +68,9 @@ or generated image/video assets that another app can reference by ID and URL.
 ## Image And Video Workflows
 
 1. Pick or match the library with \`list-libraries\` or \`match-library\`.
-2. For images, call \`generate-image\` or \`generate-image-batch\`.
+2. For images, call \`generate-image\` or \`generate-image-batch\`. Image
+   actions are synchronous: one batch call should return the finished image
+   candidates, so do not poll or regenerate unless a returned slot failed.
 3. For videos, call \`generate-video\` and poll \`refresh-generation-run\`
    until the run completes.
 4. Preserve returned \`assetId\`, \`runId\`, \`previewUrl\`, \`downloadUrl\`,

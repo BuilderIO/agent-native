@@ -22,6 +22,11 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   should be updated when the user wants durable generation behavior.
 - Generate 2-4 candidates for open-ended requests. Use `generate-image-batch`
   with stable `slotId`s so the UI can show live slots.
+- `generate-image` and `generate-image-batch` are synchronous for images. One
+  batch call should produce the requested candidates and return their asset
+  IDs/URLs; do not follow it with `get-generation-run`,
+  `refresh-generation-run`, or more generation unless the user asks for another
+  direction or the returned slot has `ok: false`.
 - For repeatable deliverables, call `list-generation-presets` and pass the
   selected `presetId` to `generate-image`, `generate-image-batch`,
   `refine-image`, or `rerun-generation-run`.

@@ -44,6 +44,7 @@ const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
@@ -232,9 +233,15 @@ const proxyResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
     DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
 );
+const proxyNonHtmlResponseTimeoutMs = Number(
+  process.env.WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS ??
+    process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+    DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
+);
 let gatewayUrl = `http://${gatewayHost}:${requestedGatewayPort}`;
 const defaultApp = selectedById.has("dispatch") ? "dispatch" : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
+const proxySocketsWithErrorSink = new WeakSet<net.Socket>();
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
 
@@ -912,6 +919,9 @@ function proxyHttp(
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
+    const responseTimeoutMs = wantsHtml(req)
+      ? proxyResponseTimeoutMs
+      : proxyNonHtmlResponseTimeoutMs;
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -929,9 +939,20 @@ function proxyHttp(
         clearTimeout(responseTimer);
         app.ready = true;
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+        proxyRes.once("error", () => {
+          if (!res.destroyed) res.destroy();
+        });
         proxyRes.pipe(res);
       },
     );
+    proxyReq.once("socket", (socket) => {
+      if (proxySocketsWithErrorSink.has(socket)) return;
+      proxySocketsWithErrorSink.add(socket);
+      socket.on("error", () => {});
+    });
+    res.once("error", () => {
+      proxyReq.destroy();
+    });
     responseTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -948,9 +969,9 @@ function proxyHttp(
       }
       res.writeHead(504, { "content-type": "text/plain" });
       res.end(
-        `Template "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+        `Template "${app.id}" did not return response headers within ${formatProxyReadyTimeout(responseTimeoutMs)}.`,
       );
-    }, proxyResponseTimeoutMs);
+    }, responseTimeoutMs);
     responseTimer.unref();
 
     proxyReq.on("error", (err) => {

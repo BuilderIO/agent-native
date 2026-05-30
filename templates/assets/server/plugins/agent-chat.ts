@@ -15,8 +15,8 @@ export default createAgentChatPlugin({
     websiteUrl: "/",
     icons: [
       {
-        src: "/icon-512.svg?v=20260529",
-        mimeType: "image/svg+xml",
+        src: "/agent-native-icon-light-512.png?v=20260530",
+        mimeType: "image/png",
         sizes: ["512x512"],
       },
     ],

@@ -81,6 +81,8 @@ export default defineAction({
       iframeTitle: "Agent-Native Assets",
       openLabel: "Open Assets picker",
       height: 760,
+      connectDomains: ["https://cdn.builder.io"],
+      resourceDomains: ["https://cdn.builder.io"],
     }),
   },
   link: ({ args, result }) => {

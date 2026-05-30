@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
@@ -6,6 +6,12 @@ import {
   OPEN_ROUTE_SUBPATH,
   DESKTOP_OPEN_URL,
 } from "../server/deep-link.js";
+
+const ORIGINAL_ENV = { ...process.env };
+
+afterEach(() => {
+  process.env = { ...ORIGINAL_ENV };
+});
 
 describe("buildDeepLink", () => {
   it("always starts with the open-route path and emits view", () => {
@@ -110,6 +116,25 @@ describe("toAbsoluteOpenUrl", () => {
   it("returns the input unchanged when origin is missing", () => {
     expect(toAbsoluteOpenUrl("/_agent-native/open?view=inbox", undefined)).toBe(
       "/_agent-native/open?view=inbox",
+    );
+  });
+
+  it("preserves mounted app base paths for relative web links", () => {
+    process.env.APP_BASE_PATH = "/assets";
+
+    expect(
+      toAbsoluteOpenUrl("/picker?mediaType=image", "https://app.test"),
+    ).toBe("https://app.test/assets/picker?mediaType=image");
+    expect(
+      toAbsoluteOpenUrl("/assets/picker?mediaType=image", "https://app.test"),
+    ).toBe("https://app.test/assets/picker?mediaType=image");
+  });
+
+  it("preserves mounted app base paths when no origin is available", () => {
+    process.env.APP_BASE_PATH = "/assets";
+
+    expect(toAbsoluteOpenUrl("/picker?mediaType=image", undefined)).toBe(
+      "/assets/picker?mediaType=image",
     );
   });
 });

@@ -82,7 +82,10 @@ import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { trackEvent } from "./analytics.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
@@ -103,7 +106,7 @@ const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
-  return getFrameOrigin() ?? window.location.origin;
+  return getFramePostMessageTargetOrigin() ?? window.location.origin;
 }
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed

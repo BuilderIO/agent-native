@@ -236,41 +236,57 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
-  it("recovers when a transient Builder retry succeeds", async () => {
-    const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      const href = String(url);
-      if (href.endsWith("/generations") && fetchMock.mock.calls.length <= 2) {
-        return new Response(
-          JSON.stringify({ error: { message: "Provider warming up" } }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      if (href.endsWith("/generations")) {
-        return new Response(
-          JSON.stringify({
-            id: "generation-1",
-            status: "completed",
-            model: {
-              publicId: "builder-image",
-              provider: "builder",
-              providerModel: "provider-image",
-            },
-            outputs: [
-              {
-                id: "output-1",
-                url: "https://cdn.builder.test/output.png",
-                mimeType: "image/png",
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      return new Response(new Uint8Array([1, 2, 3]), {
-        status: 200,
-        headers: { "Content-Type": "image/png" },
-      });
+  it("retries transient Builder storage failures", async () => {
+    const fetchMock = mockBuilderFailure(500, {
+      error: { message: "Generated image could not be stored. Retry shortly." },
     });
+
+    await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
+      expect.objectContaining({
+        name: "BuilderImageGenerationError",
+        message: expect.stringContaining("Generated image could not be stored"),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("recovers when a transient Builder retry succeeds", async () => {
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, _init?: RequestInit) => {
+        const href = String(url);
+        if (href.endsWith("/generations") && fetchMock.mock.calls.length <= 2) {
+          return new Response(
+            JSON.stringify({ error: { message: "Provider warming up" } }),
+            { status: 503, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (href.endsWith("/generations")) {
+          return new Response(
+            JSON.stringify({
+              id: "generation-1",
+              status: "completed",
+              model: {
+                publicId: "builder-image",
+                provider: "builder",
+                providerModel: "provider-image",
+              },
+              outputs: [
+                {
+                  id: "output-1",
+                  url: "https://cdn.builder.test/output.png",
+                  mimeType: "image/png",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
@@ -290,6 +306,10 @@ describe("generateWithManagedImageProvider", () => {
         }),
       }),
     ]);
+    const requestBody = JSON.parse(
+      String((fetchMock.mock.calls[2][1] as RequestInit).body),
+    ) as Record<string, unknown>;
+    expect(requestBody.model).toBe("gemini-3.1-flash-image-preview");
   });
 });
 

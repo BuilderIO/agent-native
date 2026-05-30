@@ -1002,44 +1002,50 @@ describe("server/auth", () => {
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
 
-    it("allows Claude MCP embed transplant preflights before auth", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("ACCESS_TOKEN", "my-secret");
-      const { autoMountAuth } = await import("./auth.js");
+    it.each([
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
+    ])(
+      "allows MCP embed transplant preflights from %s before auth",
+      async (origin) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("ACCESS_TOKEN", "my-secret");
+        const { autoMountAuth } = await import("./auth.js");
 
-      const app = createMockApp();
-      await autoMountAuth(app);
+        const app = createMockApp();
+        await autoMountAuth(app);
 
-      const guard = app.use.mock.calls
-        .map((call: any[]) => call[0])
-        .find((arg: unknown) => typeof arg === "function");
-      expect(guard).toBeTypeOf("function");
+        const guard = app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+        expect(guard).toBeTypeOf("function");
 
-      const origin =
-        "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com";
-      const event = createMockEvent({
-        path: "/_agent-native/embed/start",
-        headers: {
+        const event = createMockEvent({
+          path: "/_agent-native/embed/start",
+          headers: {
+            origin,
+            "access-control-request-method": "GET",
+            "access-control-request-headers": "x-agent-native-embed-transplant",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+
+        const result = await guard(event);
+
+        expect(result).toBe("");
+        expect(event.res.status).toBe(204);
+        expect(event.res.headers.get("access-control-allow-origin")).toBe(
           origin,
-          "access-control-request-method": "GET",
-          "access-control-request-headers": "x-agent-native-embed-transplant",
-        },
-      });
-      event.req.method = "OPTIONS";
-      event.node.req.method = "OPTIONS";
-
-      const result = await guard(event);
-
-      expect(result).toBe("");
-      expect(event.res.status).toBe(204);
-      expect(event.res.headers.get("access-control-allow-origin")).toBe(origin);
-      expect(event.res.headers.get("access-control-allow-headers")).toContain(
-        "X-Agent-Native-Embed-Transplant",
-      );
-      expect(
-        event.res.headers.get("access-control-allow-credentials"),
-      ).toBeNull();
-    });
+        );
+        expect(event.res.headers.get("access-control-allow-headers")).toContain(
+          "X-Agent-Native-Embed-Transplant",
+        );
+        expect(
+          event.res.headers.get("access-control-allow-credentials"),
+        ).toBeNull();
+      },
+    );
 
     it("handles Tauri auth preflights before route-specific auth handlers", async () => {
       vi.stubEnv("NODE_ENV", "production");

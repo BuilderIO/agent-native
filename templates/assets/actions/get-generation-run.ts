@@ -9,7 +9,8 @@ import {
 } from "./_helpers.js";
 
 export default defineAction({
-  description: "Get a generation run and all assets produced by that run.",
+  description:
+    "Get a generation run and all assets produced by that run for history/debugging. Image generation actions already return completed assets; do not call this just to verify generate-image or generate-image-batch results.",
   schema: z.object({ runId: z.string() }),
   http: { method: "GET" },
   readOnly: true,

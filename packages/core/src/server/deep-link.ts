@@ -17,6 +17,10 @@
  * UI already drains every 2s.
  */
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "./app-base-path.js";
 
 /** Path of the framework deep-link route, relative to the route prefix. */
 export const OPEN_ROUTE_SUBPATH = "/open";
@@ -69,8 +73,24 @@ export function toAbsoluteOpenUrl(
   origin: string | undefined,
 ): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(urlOrPath)) return urlOrPath;
-  if (!origin) return urlOrPath;
-  return `${origin.replace(/\/+$/, "")}${urlOrPath.startsWith("/") ? "" : "/"}${urlOrPath}`;
+  const basePath = getConfiguredAppBasePath();
+  const path = withBasePath(urlOrPath, basePath);
+  if (!origin) return path;
+  return `${origin.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+function withBasePath(urlOrPath: string, basePath: string): string {
+  if (!basePath) return urlOrPath;
+  const leadingPath = urlOrPath.startsWith("/") ? urlOrPath : `/${urlOrPath}`;
+  const [pathname] = leadingPath.split(/[?#]/, 1);
+  const normalizedPathname = normalizeAppBasePath(pathname);
+  if (
+    normalizedPathname === basePath ||
+    normalizedPathname.startsWith(`${basePath}/`)
+  ) {
+    return urlOrPath;
+  }
+  return `${basePath}${leadingPath}`;
 }
 
 /**

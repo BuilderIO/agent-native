@@ -17,6 +17,9 @@ export interface EmbedAppOptions {
   openLabel?: string;
   embedByDefault?: boolean;
   startToolName?: string;
+  connectDomains?: string[];
+  resourceDomains?: string[];
+  baseUriDomains?: string[];
   frameDomains?: string[];
   height?: number;
 }
@@ -94,7 +97,8 @@ export function embedApp(
       <div class="message">Preparing app</div>
     </section>
   </main>
-  <script type="module">
+  <script>
+    (async () => {
     const body = document.body;
     const stage = document.querySelector("[data-stage]");
     const titleEl = document.querySelector("[data-title-label]");
@@ -108,6 +112,11 @@ export function embedApp(
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
+    const defaultOpenAiBridgeWaitMs = 200;
+    const chatGptOpenAiBridgeWaitMs = 5000;
+    const openAiBridgePollMs = 50;
+    const nativeBridgeInitializeTimeoutMs = 5000;
+    const nativeBridgeRequestTimeoutMs = 30000;
     let app = null;
     let openAiBridge = null;
     let toolInput = {};
@@ -390,8 +399,23 @@ export function embedApp(
       };
     }
 
+    function installReactRefreshPreambleFallback() {
+      window.__vite_plugin_react_preamble_installed__ = true;
+      if (typeof window.$RefreshReg$ !== "function") {
+        window.$RefreshReg$ = function() {};
+      }
+      if (typeof window.$RefreshSig$ !== "function") {
+        window.$RefreshSig$ = function() {
+          return function(type) {
+            return type;
+          };
+        };
+      }
+    }
+
     function installExternalEmbedRuntime(config) {
       window.__AGENT_NATIVE_EXTERNAL_EMBED = config;
+      installReactRefreshPreambleFallback();
       try {
         if (config.target) {
           window.history.replaceState(window.history.state, "", config.target);
@@ -560,7 +584,7 @@ export function embedApp(
     }
 
     function relativeSpecifierToAppUrl(specifier, config, baseUrl) {
-      if (typeof specifier !== "string" || !/^\\.\\.?\//.test(specifier)) {
+      if (typeof specifier !== "string" || !/^\\.\\.?\\//.test(specifier)) {
         return specifier;
       }
       try {
@@ -955,6 +979,7 @@ export function embedApp(
     function shouldSelfNavigateToApp() {
       const render = renderModeSource();
       const mode = render.mode;
+      if (isClaudeMcpContentHost()) return true;
       if (mode === "iframe" || mode === "nested") return false;
       if (render.nested || render.frame === "iframe") return false;
       return true;
@@ -964,9 +989,10 @@ export function embedApp(
       const render = renderModeSource();
       const mode = render.mode;
       return (
+        isClaudeMcpContentHost() ||
+        isChatGptSandboxHost() ||
         mode === "transplant" ||
-        render.frame === "transplant" ||
-        isClaudeMcpContentHost()
+        render.frame === "transplant"
       );
     }
 
@@ -982,7 +1008,7 @@ export function embedApp(
       try {
         const host = window.location.hostname || "";
         const appParam = new URL(window.location.href).searchParams.get("app");
-        return /(^|\\.)oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
+        return /^[^.]+\\.web-sandbox\\.oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
       } catch {
         return false;
       }
@@ -1190,7 +1216,7 @@ export function embedApp(
         const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
-          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
+          if (shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(embedUrl);
@@ -1212,7 +1238,7 @@ export function embedApp(
         }
         const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
-          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
+          if (shouldTransplantAppDocument()) {
             await transplantAppDocument(startUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(startUrl);
@@ -1259,7 +1285,8 @@ export function embedApp(
     }
 
     function updateTitle(data) {
-      const label = data.label || data.app || data.view || body.dataset.appTitle || "App";
+      const record = objectValue(data);
+      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1267,6 +1294,17 @@ export function embedApp(
       return window.openai && typeof window.openai === "object"
         ? window.openai
         : null;
+    }
+
+    function isChatGptHostHint() {
+      try {
+        if (new URLSearchParams(window.location.search).get("app") === "chatgpt") return true;
+      } catch (_err) {}
+      try {
+        return /chatgpt/i.test(String(navigator.userAgent || ""));
+      } catch (_err) {
+        return false;
+      }
     }
 
     function openAiToolResultParams(bridge) {
@@ -1311,16 +1349,30 @@ export function embedApp(
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve) => {
         let settled = false;
+        let pollTimer = 0;
         const finish = (bridge) => {
           if (settled) return;
           settled = true;
           window.removeEventListener("openai:set_globals", onGlobals);
           clearTimeout(timer);
+          clearTimeout(pollTimer);
           resolve(bridge || readOpenAiBridge());
         };
+        const poll = () => {
+          const bridge = readOpenAiBridge();
+          if (bridge) {
+            finish(bridge);
+            return;
+          }
+          pollTimer = window.setTimeout(poll, openAiBridgePollMs);
+        };
         const onGlobals = () => finish(readOpenAiBridge());
-        const timer = setTimeout(() => finish(null), 200);
+        const timer = window.setTimeout(
+          () => finish(null),
+          isChatGptHostHint() ? chatGptOpenAiBridgeWaitMs : defaultOpenAiBridgeWaitMs
+        );
         window.addEventListener("openai:set_globals", onGlobals, { passive: true });
+        pollTimer = window.setTimeout(poll, openAiBridgePollMs);
       });
     }
 
@@ -1328,6 +1380,183 @@ export function embedApp(
       const bridge = readOpenAiBridge();
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
     }, { passive: true });
+
+    function createNativeMcpAppsBridge() {
+      let rpcId = 0;
+      let connected = false;
+      let hostContext = {};
+      const pendingRequests = new Map();
+
+      function rpcNotify(method, params) {
+        window.parent.postMessage({ jsonrpc: "2.0", method, params: params || {} }, "*");
+      }
+
+      function rpcRequest(method, params, timeoutMs) {
+        return new Promise((resolve, reject) => {
+          const id = ++rpcId;
+          const timer = window.setTimeout(() => {
+            pendingRequests.delete(id);
+            reject(new Error("MCP Apps bridge request timed out: " + method));
+          }, timeoutMs || nativeBridgeRequestTimeoutMs);
+          pendingRequests.set(id, { resolve, reject, timer });
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params: params || {} },
+            "*"
+          );
+        });
+      }
+
+      function settleRpcResponse(message) {
+        const pending = pendingRequests.get(message.id);
+        if (!pending) return true;
+        pendingRequests.delete(message.id);
+        clearTimeout(pending.timer);
+        if (message.error) {
+          const error = new Error(message.error.message || "MCP Apps bridge request failed.");
+          error.data = message.error.data;
+          pending.reject(error);
+          return true;
+        }
+        pending.resolve(message.result);
+        return true;
+      }
+
+      function notificationParams(message) {
+        return message && typeof message.params === "object" && message.params
+          ? message.params
+          : {};
+      }
+
+      function toolInputNotificationParams(params) {
+        if (params && typeof params.arguments === "object" && params.arguments) {
+          return params;
+        }
+        if (params && typeof params.input === "object" && params.input) {
+          return { arguments: params.input };
+        }
+        return { arguments: objectValue(params) };
+      }
+
+      const nativeApp = {
+        ontoolinput: null,
+        ontoolresult: null,
+        onhostcontextchanged: null,
+        getHostContext() {
+          return hostContext.context || hostContext;
+        },
+        getHostCapabilities() {
+          return hostContext.capabilities || { tools: true, messaging: true };
+        },
+        getHostVersion() {
+          return hostContext.protocolVersion || "mcp-apps-postmessage";
+        },
+        async connect() {
+          if (connected) return hostContext;
+          connected = true;
+          window.addEventListener("message", onMessage, { passive: true });
+          const result = await rpcRequest(
+            "ui/initialize",
+            {
+              appInfo: { name: "Agent Native Embed", version: "1.0.0" },
+              appCapabilities: {},
+              protocolVersion: "2026-01-26"
+            },
+            nativeBridgeInitializeTimeoutMs
+          );
+          hostContext = objectValue(result);
+          rpcNotify("ui/notifications/initialized", {});
+          if (typeof nativeApp.onhostcontextchanged === "function") {
+            nativeApp.onhostcontextchanged(hostContext);
+          }
+          return hostContext;
+        },
+        async callServerTool(request) {
+          const record = objectValue(request);
+          return await rpcRequest("tools/call", {
+            name: record.name,
+            arguments: objectValue(record.arguments)
+          });
+        },
+        async updateModelContext(params) {
+          return await rpcRequest("ui/update-model-context", objectValue(params));
+        },
+        async openLink(params) {
+          const url = typeof (params && params.url) === "string" ? params.url : "";
+          if (!url) return { isError: true };
+          window.open(url, "_blank", "noopener,noreferrer");
+          return { ok: true };
+        },
+        async requestDisplayMode(params) {
+          return await rpcRequest("ui/request-display-mode", objectValue(params));
+        },
+        sendSizeChanged(params) {
+          rpcNotify("ui/notifications/size-changed", objectValue(params));
+        },
+        async sendMessage(params) {
+          return await rpcRequest("ui/message", objectValue(params));
+        }
+      };
+
+      function onMessage(event) {
+        if (event.source !== window.parent) return;
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (typeof message.id === "number" || typeof message.id === "string") {
+          settleRpcResponse(message);
+          return;
+        }
+        if (typeof message.method !== "string") return;
+        const params = notificationParams(message);
+        if (message.method === "ui/notifications/tool-input") {
+          if (typeof nativeApp.ontoolinput === "function") {
+            nativeApp.ontoolinput(toolInputNotificationParams(params));
+          }
+          return;
+        }
+        if (message.method === "ui/notifications/tool-result") {
+          if (typeof nativeApp.ontoolresult === "function") {
+            nativeApp.ontoolresult(params);
+          }
+          return;
+        }
+        if (
+          message.method === "ui/notifications/host-context" ||
+          message.method === "ui/notifications/context"
+        ) {
+          hostContext = objectValue(params);
+          if (typeof nativeApp.onhostcontextchanged === "function") {
+            nativeApp.onhostcontextchanged(hostContext);
+          }
+        }
+      }
+
+      return nativeApp;
+    }
+
+    async function startNativeMcpAppsBridge() {
+      app = createNativeMcpAppsBridge();
+      app.ontoolinput = (params) => {
+        toolInput = params.arguments || {};
+      };
+      app.ontoolresult = (params) => {
+        const data = parseToolResult(params);
+        toolResultData = objectValue(data);
+        openUrl = openLinkFrom(params, data);
+        openStartUrl = embedStartUrlFrom(params, data);
+        updateTitle(data);
+        updateOpenButton();
+        void launchEmbed();
+      };
+      app.onhostcontextchanged = () => {
+        updateDisplayButton();
+        notifyHostHeight();
+        sendHostContext();
+      };
+      await app.connect();
+      updateDisplayButton();
+      notifyHostHeight();
+      sendHostContext();
+    }
 
     async function startMcpAppsBridge() {
       const { App } = await import("${MCP_APP_IMPORT}");
@@ -1359,10 +1588,21 @@ export function embedApp(
       sendHostContext();
     }
 
-    const initialOpenAiBridge = await waitForOpenAiBridge();
-    if (!syncOpenAiBridge(initialOpenAiBridge)) {
-      await startMcpAppsBridge();
+    try {
+      const initialOpenAiBridge = await waitForOpenAiBridge();
+      if (!syncOpenAiBridge(initialOpenAiBridge)) {
+        try {
+          await startNativeMcpAppsBridge();
+        } catch (nativeErr) {
+          console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
+          await startMcpAppsBridge();
+        }
+      }
+    } catch (err) {
+      console.error("[agent-native] MCP app shell failed", err);
+      setMessage(err && err.message ? err.message : "Could not initialize app.");
     }
+    })();
   </script>
 </body>
 </html>`,
@@ -1370,14 +1610,19 @@ export function embedApp(
       connectDomains: [
         "https://esm.sh",
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.connectDomains ?? []),
         ...(options.frameDomains ?? []),
       ],
       resourceDomains: [
         "https://esm.sh",
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.resourceDomains ?? []),
         ...(options.frameDomains ?? []),
       ],
-      baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
+      baseUriDomains: [
+        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.baseUriDomains ?? []),
+      ],
       frameDomains,
     },
     prefersBorder: false,

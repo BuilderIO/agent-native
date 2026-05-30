@@ -18,7 +18,8 @@ import { agentNativePath } from "./api-path.js";
 export function sendToFrame(type: string, data?: any): void {
   if (typeof window === "undefined") return;
   const target = window.parent !== window ? window.parent : window;
-  const targetOrigin = getFrameOrigin() || window.location.origin;
+  const targetOrigin =
+    getFramePostMessageTargetOrigin() || window.location.origin;
   target.postMessage({ type, data }, targetOrigin);
 }
 
@@ -50,11 +51,17 @@ let _frameOrigin: string | null = null;
 
 function normalizeOrigin(value: unknown): string | null {
   if (typeof value !== "string") return null;
+  if (value === "null") return "null";
   try {
     return new URL(value).origin;
   } catch {
     return null;
   }
+}
+
+export function getFramePostMessageTargetOrigin(): string | null {
+  const origin = getFrameOrigin();
+  return origin === "null" ? "*" : origin;
 }
 
 export function isTrustedFrameMessage(event: MessageEvent): boolean {
@@ -64,7 +71,14 @@ export function isTrustedFrameMessage(event: MessageEvent): boolean {
   if (event.origin === ownOrigin) return true;
 
   const frameOrigin = getFrameOrigin();
-  if (!frameOrigin || event.origin !== frameOrigin) return false;
+  if (!frameOrigin) return false;
+  if (frameOrigin === "null") {
+    return (
+      event.origin === "null" &&
+      (event.source === window.parent || event.source === window)
+    );
+  }
+  if (event.origin !== frameOrigin) return false;
 
   return event.source === window.parent || event.source === window;
 }
@@ -73,18 +87,20 @@ export function isTrustedFrameMessage(event: MessageEvent): boolean {
 // Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
-    const origin = normalizeOrigin(event.data?.origin);
+    const eventOrigin = normalizeOrigin(event.origin);
+    const payloadOrigin = normalizeOrigin(event.data?.origin);
+    const origin = eventOrigin ?? payloadOrigin;
     if (
       event.data?.type === "agentNative.frameOrigin" &&
       origin &&
-      origin === event.origin &&
+      (!payloadOrigin || payloadOrigin === origin || origin === "null") &&
       !_frameOrigin &&
       event.source === window.parent
     ) {
       _frameOrigin = origin;
       window.parent.postMessage(
         { type: "agentNative.embeddedAppReady" },
-        origin,
+        getFramePostMessageTargetOrigin() ?? window.location.origin,
       );
     }
   });
@@ -227,7 +243,7 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     window.addEventListener("message", handler);
     window.parent.postMessage(
       { type: "agentNative.getUserInfo" },
-      getFrameOrigin() ?? window.location.origin,
+      getFramePostMessageTargetOrigin() ?? window.location.origin,
     );
   });
 }
