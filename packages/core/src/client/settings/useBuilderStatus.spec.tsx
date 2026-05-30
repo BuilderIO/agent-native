@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
 import {
+  useBuilderStatus,
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
 } from "./useBuilderStatus.js";
@@ -54,6 +55,20 @@ function BuilderConnectProbe({
   );
 }
 
+function BuilderStatusProbe() {
+  const { status, loading, stale, error } = useBuilderStatus();
+  return (
+    <div>
+      <output data-testid="builder-status">
+        {loading ? "loading" : "loaded"}{" "}
+        {status?.configured ? "configured" : "not-configured"}{" "}
+        {stale ? "stale" : "fresh"}
+      </output>
+      <output>{error ?? ""}</output>
+    </div>
+  );
+}
+
 function createPopupStub() {
   const doc = document.implementation.createHTMLDocument("popup");
   return {
@@ -76,12 +91,73 @@ const refreshedCliAuthUrl = signedCliAuthUrl.replace(
   "_an_state%3Drefreshed",
 );
 
+const connectedBuilderStatus = {
+  configured: true,
+  envManaged: false,
+  builderEnabled: true,
+  orgName: "Builder space",
+  cliAuthUrl: signedCliAuthUrl,
+  connectUrl:
+    "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+  appHost: "https://builder.io",
+  apiHost: "https://api.builder.io",
+  publicKeyConfigured: true,
+  privateKeyConfigured: true,
+};
+
 function expectedConnectUrl(url: string): string {
   return withBuilderConnectTrackingParams(url, {
     source: "builder_connect_flow",
     flow: "connect_llm",
   });
 }
+
+describe("useBuilderStatus", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setEmbeddedWindow(false);
+    window.history.replaceState({}, "", "http://localhost:3000/settings");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the last good Builder status when a refresh fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus))
+        .mockResolvedValueOnce(new Response("Not found", { status: 404 })),
+    );
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("loaded configured fresh");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("loaded configured stale");
+    expect(container.textContent).toContain("Builder status unavailable (404)");
+  });
+});
 
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
