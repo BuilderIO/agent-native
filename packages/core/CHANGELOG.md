@@ -1,5 +1,91 @@
 # @agent-native/core
 
+## 0.27.0
+
+### Minor Changes
+
+- c3852e0: Add a development-mode database admin: visually browse schemas and tables, view/filter/sort/edit data in a spreadsheet-style grid, and run SQL — with full agent/UI parity. Gated to development mode on localhost.
+
+### Patch Changes
+
+- c3852e0: Security hardening for the agent's raw-SQL tools, cross-tenant run isolation,
+  server-side SSRF, and CSRF:
+  - **db-query / db-exec scope bypass (cross-tenant read/write):** schema-qualified
+    table references (`public.<table>` on Postgres, `main.<table>` on SQLite) now
+    fail with a clear error, since a qualified name bypasses the per-user/per-org
+    temporary views that isolate each tenant's rows. The same guard protects the
+    extension SQL surface, which routes through the same tools.
+  - **Credential exfiltration via db tools:** per-user credential rows
+    (`u:<email>:credential:*`, stored by `resolveCredential`) are now excluded from
+    the agent's scoped `settings` view, so a prompt-injected agent can no longer
+    read the user's own API keys/tokens through `db-query` and send them out.
+  - **Cross-tenant agent run leak + abort:** `GET /runs/:id/events`,
+    `GET /runs/active`, and `POST /runs/:id/abort` now verify the caller owns the
+    run's thread (404 otherwise), closing a hole where any authenticated tenant who
+    learned another tenant's runId/threadId could stream their live agent turn
+    (assistant text + tool-result payloads) or abort their run.
+  - **Server-side SSRF:** the `upload-image` action and the `import-from-url`
+    design-token fetcher now route untrusted URLs through a shared `ssrfSafeFetch`
+    (DNS-aware private-address check, connect-time IP guard, per-redirect
+    re-validation), so they can no longer be steered to cloud metadata, localhost,
+    or internal services.
+  - **CSRF:** `Sec-Fetch-Site: same-site` is no longer trusted as first-party, so a
+    sibling-subdomain page under a shared cookie domain can't ride the session
+    cookie for a state-changing request. Legitimate first-party clients still pass
+    via the custom-header / JSON paths; iframe and embed flows are unaffected.
+
+- c3852e0: Beta-readiness best-practices audit fixes:
+  - **core / sharing:** `mergeCoreSharingActions` now preserves
+    `toolCallable`/`publicAgent`/`link`/`mcpApp` (via `preserveActionFlags`),
+    restoring the H5 tools-bridge `403` guard on share/unshare/set-visibility that
+    was silently dropped during registry merge.
+  - **core / HTTP actions:** stop echoing raw `error.message` on uncategorized 500s
+    (return a generic message, log detail server-side); validation and explicit
+    user-facing errors still pass through.
+  - **core / auth:** remove the legacy hardcoded fallback secret literal from the
+    production `BETTER_AUTH_SECRET` error message. (The `better-auth` security
+    version bump is deferred to a dedicated follow-up: `1.6.12` pulls
+    `kysely@0.29` which drops exports `better-auth` bundles, breaking the template
+    build — it needs a kysely-compatibility fix + an auth smoke-test.)
+  - **core / dev:** register `client/transcription/use-live-transcription` in the
+    Vite source-alias map so monorepo dev edits resolve from source, not stale
+    `dist`.
+  - **core:** add `engines.node >=22`; correct the `AuthSession.orgId` doc comment
+    (orgs are framework-managed, not the Better Auth organization plugin).
+  - **scheduling:** remove the leftover manual `release` script (publishing goes
+    through changesets/CI).
+  - **shared-app-config:** clarify that the template-catalog `icon` field is an
+    internal icon-alias key resolved by the desktop sidebar `ICON_MAP`, not a raw
+    `@tabler/icons-react` export name.
+
+- c3852e0: Documentation audit and overhaul. Fixed accuracy bugs across the docs content
+  (wrong import paths, stale API shapes/examples, incorrect constants and ports),
+  de-duplicated overlapping material (MCP embed bridge, Dispatch resource model,
+  data-scoping pipeline, CLI run-model, database/deployment adapter details),
+  trimmed and normalized the template docs, expanded the Frames page, added a
+  "Using Your Agent" overview, reorganized the docs nav (split Architecture into
+  Core Architecture and Data/Auth & Governance, moved Onboarding into Workspace),
+  and reconciled terminology.
+- c3852e0: Encrypt per-user / per-org credentials at rest. `saveCredential` /
+  `resolveCredential` previously stored third-party API keys as plaintext in the
+  `settings` table; they now AES-256-GCM-encrypt values using the same key
+  material as the secrets vault (`SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET`),
+  so a leaked DB backup / pg_dump / read replica no longer exposes plaintext keys.
+  Reads transparently fall back to legacy plaintext rows, so nothing breaks during
+  rollout. A one-shot, idempotent, non-destructive migration
+  (`pnpm action db-migrate-encrypt-credentials`) re-encrypts existing rows in
+  place. The encryption helper is now shared between the secrets vault and
+  credentials (`secrets/crypto.ts`); behavior of the vault is unchanged.
+- c3852e0: Stop inbound email from impersonating real users. The inbound email adapter now
+  derives a `senderVerified` flag from the provider's DKIM/SPF
+  (`Authentication-Results`) results, and dispatch only grants a sender's real
+  identity — their API keys, org secrets, personal instructions, and ownable data
+  — when the message is DKIM/SPF-verified for the From domain AND that address is a
+  real org member. Unverified or spoofed `From:` headers fall back to a synthetic,
+  credential-less owner. Linked identities (`/link`) are unchanged. The legacy
+  "trust the From header" behavior can be restored with
+  `DISPATCH_TRUST_UNVERIFIED_EMAIL_SENDER=1` (off by default).
+
 ## 0.26.9
 
 ### Patch Changes
