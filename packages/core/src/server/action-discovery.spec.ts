@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { loadActionsFromStaticRegistry } from "./action-discovery.js";
+import {
+  loadActionsFromStaticRegistry,
+  mergeCoreSharingActions,
+} from "./action-discovery.js";
 
 describe("action discovery", () => {
   it("preserves explicit readOnly false from static defineAction entries", () => {
@@ -88,5 +91,26 @@ describe("action discovery", () => {
     });
 
     expect(registry["preview-thing"].mcpApp).toBe(mcpApp);
+  });
+
+  it("preserves toolCallable:false on merged core sharing actions (audit-H5)", async () => {
+    // Regression guard: mergeCoreSharingActions must carry the security-relevant
+    // toolCallable:false flag from the action defs into the registry, otherwise
+    // the tools-iframe bridge 403 in action-routes.ts never fires and a
+    // sandboxed extension could change resource visibility / revoke shares.
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(
+        registry[name].toolCallable,
+        `${name} must keep toolCallable:false`,
+      ).toBe(false);
+    }
   });
 });
