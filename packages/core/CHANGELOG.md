@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.28.4
+
+### Patch Changes
+
+- 6ed5aab: Forward structured MCP app host context so external hosts can use selected assets from embedded apps.
+
 ## 0.28.3
 
 ### Patch Changes
