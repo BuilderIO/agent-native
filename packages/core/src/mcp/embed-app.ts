@@ -117,8 +117,11 @@ export function embedApp(
     const openAiBridgePollMs = 50;
     const nativeBridgeInitializeTimeoutMs = 5000;
     const nativeBridgeRequestTimeoutMs = 30000;
+    const wrapperRequestTimeoutMs = 5000;
     let app = null;
     let openAiBridge = null;
+    let wrapperRequestId = 0;
+    const wrapperRequests = new Map();
     let toolInput = {};
     let toolResultData = {};
     let openUrl = "";
@@ -317,6 +320,59 @@ export function embedApp(
     function sendToAppFrame(message) {
       if (!appFrame || !appFrame.contentWindow) return;
       try { appFrame.contentWindow.postMessage(message, "*"); } catch {}
+    }
+
+    function nextWrapperRequestId() {
+      wrapperRequestId += 1;
+      return "mcp-wrapper-" + Date.now() + "-" + wrapperRequestId;
+    }
+
+    function respondToWrapperRequest(requestId, result) {
+      if (!requestId) return;
+      sendToAppFrame({
+        type: "agentNative.mcpHost.response",
+        data: {
+          requestId,
+          ok: !!(result && result.ok),
+          result: result || {}
+        }
+      });
+    }
+
+    function wrapperRpcRequest(method, params, timeoutMs) {
+      return new Promise((resolve) => {
+        const id = nextWrapperRequestId();
+        const timer = window.setTimeout(() => {
+          wrapperRequests.delete(id);
+          resolve({ ok: false, error: "MCP host bridge request timed out." });
+        }, timeoutMs || wrapperRequestTimeoutMs);
+        wrapperRequests.set(id, { resolve, timer });
+        try {
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params: params || {} },
+            "*"
+          );
+        } catch (err) {
+          wrapperRequests.delete(id);
+          clearTimeout(timer);
+          resolve({ ok: false, error: err && err.message ? err.message : String(err) });
+        }
+      });
+    }
+
+    function settleWrapperRpcResponse(message) {
+      const id = typeof (message && message.id) === "string" ? message.id : "";
+      if (!id) return false;
+      const pending = wrapperRequests.get(id);
+      if (!pending) return false;
+      wrapperRequests.delete(id);
+      clearTimeout(pending.timer);
+      if (message.error) {
+        pending.resolve({ ok: false, error: message.error });
+      } else {
+        pending.resolve({ ok: true, result: message.result });
+      }
+      return true;
     }
 
     function sendHostContext() {
@@ -563,15 +619,27 @@ export function embedApp(
       next.remove();
     }
 
+    function isEmbedRuntimeModulePath(pathname) {
+      if (typeof pathname !== "string" || !pathname) return false;
+      return /(?:^|\\/)(?:@(?:id|vite|fs|react-refresh)|app|node_modules|packages|src)(?:\\/|$)/.test(pathname) ||
+        /(?:^|\\/)__x00__virtual:/.test(pathname) ||
+        pathname.includes("virtual:react-router");
+    }
+
+    function appendEmbedParamsToAppUrl(url, config) {
+      if (isEmbedRuntimeModulePath(url.pathname)) return url;
+      if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+      if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+      return url;
+    }
+
     function rootRelativeSpecifierToAppUrl(specifier, config) {
       if (typeof specifier !== "string" || !specifier.startsWith("/") || specifier.startsWith("//")) {
         return specifier;
       }
       try {
         const url = new URL(specifier, config.origin);
-        if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
-        if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
-        return url.toString();
+        return appendEmbedParamsToAppUrl(url, config).toString();
       } catch (_err) {
         return specifier;
       }
@@ -590,8 +658,7 @@ export function embedApp(
       try {
         const url = new URL(specifier, baseUrl || config.baseHref);
         if (url.origin === config.origin) {
-          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
-          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+          appendEmbedParamsToAppUrl(url, config);
         }
         return url.toString();
       } catch (_err) {
@@ -677,8 +744,7 @@ export function embedApp(
       try {
         const url = new URL(raw, config.baseHref);
         if (url.origin === config.origin) {
-          if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
-          if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+          appendEmbedParamsToAppUrl(url, config);
         }
         return url.toString();
       } catch (_err) {
@@ -1104,6 +1170,7 @@ export function embedApp(
     }
 
     async function sendHostChat(chat) {
+      const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
       if (!message.trim()) return;
@@ -1137,20 +1204,44 @@ export function embedApp(
             prompt: message,
             scrollToBottom: true
           });
+          respondToWrapperRequest(requestId, { ok: true });
           return;
         }
-        if (!app || typeof app.sendMessage !== "function") return;
-        const result = await app.sendMessage({
-          role: "user",
-          content
-        });
+        let result = null;
+        if (app && typeof app.sendMessage === "function") {
+          result = await app.sendMessage({
+            role: "user",
+            content
+          });
+        } else {
+          result = await wrapperRpcRequest("ui/message", {
+            role: "user",
+            content
+          });
+        }
         if (result && result.isError) {
           console.warn("[agent-native] MCP host rejected chat message", result);
+          respondToWrapperRequest(requestId, { ok: false, result });
+          return;
         }
+        if (result && result.ok === false) {
+          console.warn("[agent-native] MCP host chat bridge failed", result);
+          respondToWrapperRequest(requestId, { ok: false, result });
+          return;
+        }
+        respondToWrapperRequest(requestId, { ok: true, result });
       } catch (err) {
         console.warn("[agent-native] MCP host chat bridge failed", err);
+        respondToWrapperRequest(requestId, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (!message || message.jsonrpc !== "2.0") return;
+      settleWrapperRpcResponse(message);
+    });
 
     window.addEventListener("message", (event) => {
       if (!appFrame || event.source !== appFrame.contentWindow) return;

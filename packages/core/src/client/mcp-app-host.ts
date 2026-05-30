@@ -330,23 +330,35 @@ function postHostRequest(
 }
 
 function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
-  try {
-    window.parent.postMessage(
-      {
-        type: "agentNative.submitChat",
-        data: {
-          message: chat.message,
-          context: chat.context?.trim() || "",
-          submit: true,
-          ...(chat.content?.length ? { content: chat.content } : {}),
+  ensureListener();
+  const id = requestId();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pending.delete(id);
+      resolve(false);
+    }, REQUEST_TIMEOUT_MS);
+    pending.set(id, { resolve, timeout });
+
+    try {
+      window.parent.postMessage(
+        {
+          type: "agentNative.submitChat",
+          data: {
+            requestId: id,
+            message: chat.message,
+            context: chat.context?.trim() || "",
+            submit: true,
+            ...(chat.content?.length ? { content: chat.content } : {}),
+          },
         },
-      },
-      "*",
-    );
-    return Promise.resolve(true);
-  } catch {
-    return Promise.resolve(false);
-  }
+        "*",
+      );
+    } catch {
+      pending.delete(id);
+      clearTimeout(timeout);
+      resolve(false);
+    }
+  });
 }
 
 interface OpenAiAppBridge {

@@ -6,6 +6,21 @@ const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
 const CHATGPT_MCP_SANDBOX_HOST_RE =
   /^[^.]+\.web-sandbox\.oaiusercontent\.com$/i;
 
+export function isLocalMcpEmbedOrigin(
+  origin: string | null | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isClaudeMcpContentOrigin(
   origin: string | null | undefined,
 ): boolean {
@@ -40,6 +55,7 @@ export function isMcpEmbedCorsOrigin(
 ): boolean {
   return (
     origin === "null" ||
+    isLocalMcpEmbedOrigin(origin) ||
     isClaudeMcpContentOrigin(origin) ||
     isChatGptMcpSandboxOrigin(origin)
   );

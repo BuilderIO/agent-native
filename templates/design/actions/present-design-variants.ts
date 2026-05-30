@@ -23,12 +23,14 @@ const variantSchema = z.object({
   content: z
     .string()
     .min(1)
-    .describe("Complete self-contained HTML document for this variant"),
+    .describe(
+      "Complete self-contained HTML document for this variant. Inline the CSS needed for the preview; avoid relying on external CSS/script CDNs because MCP app sandboxes may block them.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Present 2-5 generated design directions in the Design editor so the " +
+    "Present exactly 3 generated design directions in the Design editor so the " +
     "user can visually compare options and pick one. Use this for design " +
     "exploration before calling generate-design. The user's choice is " +
     "persisted automatically by the app.",
@@ -40,9 +42,10 @@ export default defineAction({
       .describe("Caption shown above the variant grid"),
     variants: z
       .array(variantSchema)
-      .min(2)
-      .max(5)
-      .describe("Generated design options to preview side by side"),
+      .length(3)
+      .describe(
+        "Exactly 3 concise, visually distinct generated design options to preview side by side. Inline CSS so all options render in the MCP app preview.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -52,7 +55,7 @@ export default defineAction({
         "Open the Design editor with a visual picker for generated variants.",
       iframeTitle: "Agent-Native Design",
       openLabel: "Open design directions",
-      height: 680,
+      height: 720,
     }),
   },
   run: async ({ designId, prompt, variants }) => {

@@ -8,6 +8,7 @@ import {
   agentNativePath,
   appPath,
   getEmbedAuthToken,
+  isEmbedAuthActive,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
@@ -487,7 +488,7 @@ export default function AssetPicker() {
     } satisfies HostConfig;
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
-  const embedded = useMemo(() => isEmbeddedWindow(), []);
+  const embedded = useMemo(() => isEmbeddedWindow() || isEmbedAuthActive(), []);
   const [hostConfig, setHostConfig] = useState<HostConfig>(() => urlHostConfig);
   const [mediaType, setMediaType] = useState<PickerMediaType>(
     () => hostConfig.mediaType ?? "image",

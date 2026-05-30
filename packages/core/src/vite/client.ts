@@ -624,6 +624,9 @@ function baseRedirectGuard(): Plugin {
             // original path so the normal dev-server error handling applies.
           }
         }
+        if (serveExternalEmbedBrowserManifest(server, req, res)) {
+          return;
+        }
         if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
           return;
         }
@@ -768,6 +771,92 @@ function serveMountedEmbedRuntimeModule(
         return;
       }
       res.end(code);
+    })
+    .catch((err: unknown) => {
+      if (res.headersSent) return;
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain");
+      res.end(err instanceof Error ? err.message : String(err));
+    });
+  return true;
+}
+
+function publicOriginFromDevRequest(req: IncomingMessage): string | null {
+  const forwardedHost = String(req.headers["x-forwarded-host"] ?? "")
+    .split(",")[0]
+    ?.trim();
+  const host =
+    forwardedHost ||
+    String(req.headers.host ?? "")
+      .split(",")[0]
+      ?.trim();
+  if (!host) return null;
+  const forwardedProto = String(req.headers["x-forwarded-proto"] ?? "")
+    .split(",")[0]
+    ?.trim();
+  const proto =
+    forwardedProto ||
+    (/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host)
+      ? "http"
+      : "https");
+  return `${proto}://${host}`;
+}
+
+function isReactRouterBrowserManifestUrl(reqUrl: string | undefined): boolean {
+  if (!reqUrl) return false;
+  try {
+    const url = new URL(reqUrl, "http://agent-native.local");
+    return (
+      virtualModuleIdFromRuntimeUrl(url.pathname) ===
+      "\0virtual:react-router/browser-manifest"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rewriteRootRelativeManifestUrls(
+  code: string,
+  publicOrigin: string,
+): string {
+  return code.replace(/'\/(?!\/)([^']*)'/g, (match, rest: string) => {
+    try {
+      return JSON.stringify(new URL(`/${rest}`, publicOrigin).toString());
+    } catch {
+      return match;
+    }
+  });
+}
+
+function serveExternalEmbedBrowserManifest(
+  server: any,
+  req: IncomingMessage,
+  res: ServerResponse,
+): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!isMcpEmbedCorsOrigin(String(req.headers.origin ?? ""))) return false;
+  if (!isReactRouterBrowserManifestUrl(req.url)) return false;
+  const publicOrigin = publicOriginFromDevRequest(req);
+  if (!publicOrigin) return false;
+  const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, "/") ?? req.url;
+  if (!runtimeUrl) return false;
+
+  void loadMountedEmbedRuntimeModule(server, runtimeUrl)
+    .then((code: string | null) => {
+      if (!code) {
+        if (!res.headersSent) {
+          res.statusCode = 404;
+          res.end();
+        }
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      res.end(rewriteRootRelativeManifestUrls(code, publicOrigin));
     })
     .catch((err: unknown) => {
       if (res.headersSent) return;

@@ -165,6 +165,27 @@ describe("embedApp", () => {
     ]);
   });
 
+  it("leaves dev runtime module URLs untokenized in transplanted app documents", () => {
+    const resource = embedApp({ title: "Assets" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open-asset-picker", appId: "assets" })
+        : resource.html;
+
+    expect(html).toContain("function isEmbedRuntimeModulePath(pathname)");
+    expect(html).toContain(
+      "@(?:id|vite|fs|react-refresh)|app|node_modules|packages|src",
+    );
+    expect(html).toContain("function appendEmbedParamsToAppUrl(url, config)");
+    expect(html).toContain(
+      "if (isEmbedRuntimeModulePath(url.pathname)) return url;",
+    );
+    expect(html).toContain(
+      "return appendEmbedParamsToAppUrl(url, config).toString();",
+    );
+    expect(html).toContain("appendEmbedParamsToAppUrl(url, config);");
+  });
+
   it("retains nested iframe mode as an explicit diagnostic fallback", () => {
     const resource = embedApp({
       title: "Dashboard",

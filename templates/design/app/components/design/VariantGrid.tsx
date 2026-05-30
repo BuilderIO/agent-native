@@ -25,6 +25,8 @@ export function VariantGrid({
   compact = false,
 }: VariantGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const previewScale = compact ? 0.36 : 0.5;
+  const previewSize = `${100 / previewScale}%`;
 
   // The same grid renders both in the full editor and in compact MCP App
   // embeds, so it needs to wrap instead of squeezing previews into slivers.
@@ -34,8 +36,8 @@ export function VariantGrid({
       : variants.length === 2
         ? "grid-cols-1 min-[520px]:grid-cols-2"
         : variants.length === 3
-          ? "grid-cols-1 min-[520px]:grid-cols-2"
-          : "grid-cols-1 min-[520px]:grid-cols-2"
+          ? "grid-cols-1 min-[520px]:grid-cols-2 min-[820px]:grid-cols-3"
+          : "grid-cols-1 min-[520px]:grid-cols-2 min-[880px]:grid-cols-3"
     : variants.length <= 1
       ? "grid-cols-1"
       : variants.length === 2
@@ -55,7 +57,7 @@ export function VariantGrid({
         className={cn(
           "grid min-h-0 flex-1 gap-3 sm:gap-4",
           compact
-            ? "auto-rows-[minmax(210px,1fr)]"
+            ? "auto-rows-[minmax(190px,1fr)]"
             : "auto-rows-[minmax(260px,1fr)]",
           gridClass,
         )}
@@ -74,8 +76,16 @@ export function VariantGrid({
               {/* Preview frame */}
               <div
                 onClick={() => onSelect(variant.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onSelect(variant.id);
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Use ${variant.label}`}
                 className={cn(
-                  "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10",
+                  "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isSelected
                     ? "border-primary"
                     : "border-transparent hover:border-muted-foreground/30",
@@ -86,9 +96,9 @@ export function VariantGrid({
                   srcDoc={wrapContent(variant.content)}
                   className="pointer-events-none h-full w-full origin-top-left"
                   style={{
-                    width: "200%",
-                    height: "200%",
-                    transform: "scale(0.5)",
+                    width: previewSize,
+                    height: previewSize,
+                    transform: `scale(${previewScale})`,
                   }}
                   sandbox="allow-scripts"
                   title={variant.label}
@@ -141,7 +151,7 @@ function wrapContent(content: string): string {
   const previewStyle = `<style data-agent-native-preview>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    body { background: #0a0a0a; }
+    body { margin: 0; background: #fff; }
   </style>`;
   const trimmed = content.trim();
 
