@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.28.1
+
+### Patch Changes
+
+- 704305f: Improve MCP app embedding for external hosts by keeping local embed origins usable, avoiding embed params on dev runtime modules, compacting cached app shells, and acknowledging nested chat handoffs so picked assets can round-trip back to the host.
+
 ## 0.28.0
 
 ### Minor Changes
