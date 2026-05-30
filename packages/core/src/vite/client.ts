@@ -225,6 +225,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/sharing",
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
+  "@agent-native/core/client/transcription/use-live-transcription",
 ];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -355,6 +356,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/progress": path.join(
       coreSrc,
       "client/progress/index.ts",
+    ),
+    "@agent-native/core/client/transcription/use-live-transcription": path.join(
+      coreSrc,
+      "client/transcription/use-live-transcription.ts",
     ),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),

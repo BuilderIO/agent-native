@@ -24,6 +24,7 @@ import {
 } from "./scoping.js";
 import {
   assertNoRawDbAccessControlWrite,
+  assertNoSchemaQualifiedTables,
   assertNoSensitiveFrameworkTables,
 } from "./safety.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
@@ -202,6 +203,7 @@ function validateWriteSql(sql: string, index: number): string {
   }
   assertNoSensitiveFrameworkTables(normalized, "write");
   assertNoRawDbAccessControlWrite(normalized);
+  assertNoSchemaQualifiedTables(normalized, "write");
   return normalized;
 }
 

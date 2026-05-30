@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { ssrfSafeFetch } from "../../extensions/url-safety.js";
 import { uploadFile } from "../registry.js";
 
 const MAX_REMOTE_FETCH_BYTES = 25 * 1024 * 1024;
@@ -65,7 +66,11 @@ async function fetchRemote(url: string): Promise<{
     throw new Error("url must use http(s)");
   }
 
-  const response = await fetch(url);
+  // SSRF guard: this URL is agent/user-controlled and the fetched bytes are
+  // re-hosted and returned, so an unguarded fetch is a full-read SSRF (cloud
+  // metadata, localhost, internal services). ssrfSafeFetch blocks private
+  // targets, re-checks at connect time, and re-validates every redirect hop.
+  const response = await ssrfSafeFetch(url, {}, { maxRedirects: 3 });
   if (!response.ok) {
     throw new Error(
       `Failed to fetch image (${response.status} ${response.statusText})`,

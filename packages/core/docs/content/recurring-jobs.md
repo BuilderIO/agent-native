@@ -57,7 +57,7 @@ Standard 5-field cron (minute, hour, day-of-month, month, day-of-week):
 | `0 17 * * 1-5` | Weekdays at 17:00        |
 | `0 0 1 * *`    | First day of every month |
 
-The framework exports `isValidCron()` and `describeCron()` from `@agent-native/core/jobs` if you want to validate or render cron strings in the UI.
+The framework includes cron utilities (`isValidCron()` and `describeCron()`) for validating and rendering cron strings, used internally by the resource and scheduler layers.
 
 ## Creating a job {#creating}
 
@@ -91,7 +91,7 @@ Summarize overnight emails.`,
 
 ## How the scheduler runs {#how-scheduler-runs}
 
-The scheduler is a framework plugin (`processRecurringJobs()` in `@agent-native/core/jobs`). On each tick it:
+The scheduler is a framework plugin (the internal `processRecurringJobs()` routine). On each tick it:
 
 1. Lists every enabled `jobs/*.md` resource across all owners.
 2. Compares `nextRun` to the current time.

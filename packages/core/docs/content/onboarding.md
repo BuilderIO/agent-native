@@ -144,10 +144,17 @@ import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core
 // Inside registerOnboardingStep:
 isComplete: async () => {
   // Check if a managed workspace connection exists and is ready
-  const catalog = await listWorkspaceConnectionProviderCatalogForApp("gmail");
-  const connection = catalog.find((p) => p.providerId === "google-gmail");
+  const catalog = await listWorkspaceConnectionProviderCatalogForApp({
+    appId: "mail",
+    templateUse: "mail",
+    provider: "gmail",
+  });
+  const connection = catalog.providers[0];
 
-  if (connection?.status === "ready" && connection.granted) {
+  if (
+    connection?.readiness.status === "ready" &&
+    connection.workspaceConnection.grantState === "granted"
+  ) {
     return true;
   }
 

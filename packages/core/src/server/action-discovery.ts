@@ -521,8 +521,11 @@ export async function mergeCoreSharingActions(
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
-          ...(def.readOnly === true ? { readOnly: true } : {}),
-          ...(def.parallelSafe === true ? { parallelSafe: true } : {}),
+          // Carry security-relevant flags (toolCallable, publicAgent, link,
+          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // actions' `toolCallable: false` (audit-H5) is dropped and the
+          // tools-iframe bridge 403 in action-routes.ts never fires.
+          ...preserveActionFlags(def),
         };
       }
     } catch {

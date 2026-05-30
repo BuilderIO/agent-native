@@ -14,6 +14,7 @@ The agent and the UI are equal citizens of the same system. Every action works b
 - **Context-aware** — The agent knows what you're looking at. Select text, hit Cmd+I, and tell it what to do.
 - **Per-user workspace** — Skills, memory, instructions, sub-agents, and MCP servers — SQL-backed, customizable per user. Claude-Code-level flexibility, SaaS-grade economics.
 - **Agents call agents** — Tag another agent from any app. They discover each other over A2A and take action across your stack.
+- **Reusable integrations** — Connect a provider once in Dispatch, keep secret values in the vault, then grant apps like Brain, Analytics, Mail, and Dispatch access to the shared account metadata and credential refs.
 - **Apps that improve themselves** — Your apps get better on their own. The agent can add features, fix bugs, and refine the UI over time.
 - **Any database, any host** — Any SQL database Drizzle supports. Any hosting target Nitro supports. No lock-in.
 - **Any AI agent** — Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use whichever agent you prefer.
@@ -89,7 +90,7 @@ Create and edit Remotion video compositions with agent assistance.
 
 **Agent-Native Amplitude, Mixpanel**
 
-Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+Connect analytics data sources, prompt for real charts, and build reusable dashboards. Shared workspace connections can provide provider credentials, while Analytics still owns metrics, source-of-truth choices, and saved analyses.
 
 </td>
 </tr>
@@ -124,7 +125,7 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 
 **Mission control for agent-native apps**
 
-Message, manage, and delegate to agents from Slack, Telegram, or the web, with routing, memory, and approvals built in.
+Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispatch is also the control plane for vault secrets, reusable provider connections, app grants, routing, memory, and approvals.
 
 </td>
 </tr>
@@ -140,8 +141,28 @@ Message, manage, and delegate to agents from Slack, Telegram, or the web, with r
 Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
-<td width="33%" align="center" valign="top"></td>
-<td width="33%" align="center" valign="top"></td>
+<td width="33%" align="center" valign="top">
+
+**Brain**
+
+<a href="https://agent-native.com/templates/brain">Brain template</a>
+
+**Agent-Native company memory**
+
+Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Assets**
+
+<a href="https://agent-native.com/templates/assets">Assets template</a>
+
+**Agent-Native asset library**
+
+Upload, organize, search, and generate on-brand image and video assets that other apps can reuse.
+
+</td>
 </tr>
 </table>
 
@@ -178,8 +199,11 @@ npx @agent-native/core@latest code --auto "fix the failing auth tests"
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 npx @agent-native/core@latest code /migrate ./my-next-app --emit ../migration-dossier
 npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
 npx @agent-native/core@latest code attach --last
 npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
 npx @agent-native/core@latest code approve --last
 npx @agent-native/core@latest code resume --last
 npx @agent-native/core@latest code --continue "check the auth edge cases next"
@@ -188,7 +212,9 @@ npx @agent-native/core@latest code resume --last "check the auth edge cases next
 
 Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Installed `agent-native` with no arguments launches the Code workspace; `agent-native "fix tests"` starts an Agent-Native Code task directly. Use `agent-native create` when you want to create apps or workspaces.
 
-The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, attach to live output, print logs, resume with context, and continue the same run from Desktop or CLI. The primary modes are intentionally simple:
+Working inside this repository? Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
+
+The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, check status, attach to live output, print logs, stop work, resume with context, open the local UI, and continue the same run from Desktop or CLI. The Desktop Code tab, `agent-native code ui`, background sessions, and sub-agent sessions all converge on the shared run harness/controller model instead of separate ad hoc runners. The primary modes are intentionally simple:
 
 - **Plan mode** (`--plan`) inspects, explains, and proposes without writing files.
 - **Auto mode** (`--auto`, default) edits files, runs checks, and only pauses for genuinely destructive file, git, publish, or data operations.

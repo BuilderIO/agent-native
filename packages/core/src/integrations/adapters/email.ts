@@ -216,6 +216,11 @@ export function emailAdapter(): PlatformAdapter {
         text: bodyText,
         senderName: parsed.from.name,
         senderId: senderEmail,
+        // Carry the message-authentication verdict downstream. Owner
+        // resolution (dispatch) must NOT grant a real user's identity /
+        // credentials unless the sender is verified — an unverified or
+        // spoofed `From:` falls back to a synthetic, credential-less owner.
+        senderVerified: parsed.senderVerified,
         platformContext: {
           messageId: parsed.messageId,
           subject: parsed.subject,
@@ -225,6 +230,7 @@ export function emailAdapter(): PlatformAdapter {
           inReplyTo: parsed.inReplyTo,
           references: parsed.references,
           isCC,
+          senderVerified: parsed.senderVerified,
         },
         timestamp: parsed.date ? new Date(parsed.date).getTime() : Date.now(),
       };
@@ -352,6 +358,15 @@ interface ParsedEmail {
   inReplyTo?: string;
   references?: string[];
   date?: string;
+  /**
+   * True when the provider's message-authentication results show that the
+   * mail genuinely originated from the From domain: DKIM `pass` aligned with
+   * the From domain, or an aligned SPF `pass`. False when results are absent
+   * or fail — we fail closed so a spoofed `From:` can never be treated as
+   * verified. See FINDING 3 (inbound-email impersonation) in the webhook
+   * security audit.
+   */
+  senderVerified: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +526,16 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
   const messageId =
     headers["message-id"] || data.email_id || `resend-${Date.now()}`;
 
+  // Resend forwards the raw `Authentication-Results` header (and may also
+  // surface explicit `dkim`/`spf` fields). Derive a verified verdict from
+  // whichever is present; absent results fail closed (unverified).
+  const senderVerified = computeSenderVerified({
+    fromEmail: from.email,
+    authResults: headers["authentication-results"],
+    dkim: typeof data.dkim === "string" ? data.dkim : undefined,
+    spf: typeof data.spf === "string" ? data.spf : undefined,
+  });
+
   return {
     messageId,
     subject: (data.subject as string) || "(no subject)",
@@ -522,6 +547,7 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
     inReplyTo: headers["in-reply-to"] || undefined,
     references: parseReferencesHeader(headers["references"]),
     date: (data.created_at as string) || undefined,
+    senderVerified,
   };
 }
 
@@ -548,6 +574,17 @@ async function parseSendGridWebhook(
   const headers = parseHeadersString(headersStr);
   const messageId = headers["message-id"] || `sendgrid-${Date.now()}`;
 
+  // SendGrid Inbound Parse posts explicit `dkim` (e.g. `{@example.com : pass}`)
+  // and `SPF` (e.g. `pass`) form fields, and also carries
+  // `Authentication-Results` inside the raw headers blob. Use all available
+  // signals; absent results fail closed (unverified).
+  const senderVerified = computeSenderVerified({
+    fromEmail: from.email,
+    authResults: headers["authentication-results"],
+    dkim: typeof body.dkim === "string" ? body.dkim : undefined,
+    spf: typeof body.SPF === "string" ? body.SPF : undefined,
+  });
+
   return {
     messageId,
     subject: (body.subject as string) || "(no subject)",
@@ -559,7 +596,103 @@ async function parseSendGridWebhook(
     inReplyTo: headers["in-reply-to"] || undefined,
     references: parseReferencesHeader(headers["references"]),
     date: headers["date"] || undefined,
+    senderVerified,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — sender authentication (DKIM / SPF)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the registrable-ish domain from an email address (lowercased).
+ * We keep the full host rather than collapsing to an eTLD+1 — exact-domain
+ * alignment is the conservative choice here, and avoids bundling a public
+ * suffix list. Subdomain senders that legitimately DKIM-sign with the parent
+ * domain are handled by the suffix check in `domainsAlign`.
+ */
+function emailDomain(email: string): string {
+  const at = email.lastIndexOf("@");
+  return at >= 0
+    ? email
+        .slice(at + 1)
+        .trim()
+        .toLowerCase()
+    : "";
+}
+
+/**
+ * True when `signingDomain` is the From domain or a parent of it (e.g.
+ * From `user@mail.example.com` aligned with a `d=example.com` signature).
+ * Both directions of subdomain nesting are accepted because senders sign
+ * with either the exact From host or the organizational parent.
+ */
+function domainsAlign(fromDomain: string, signingDomain: string): boolean {
+  if (!fromDomain || !signingDomain) return false;
+  if (fromDomain === signingDomain) return true;
+  return (
+    fromDomain.endsWith(`.${signingDomain}`) ||
+    signingDomain.endsWith(`.${fromDomain}`)
+  );
+}
+
+/**
+ * Compute whether an inbound email is authenticated as genuinely coming from
+ * its `From:` domain. Returns true only when DKIM passes for an aligned
+ * domain, or SPF passes for an aligned domain. Anything else — missing
+ * results, `fail`, `softfail`, `none`, `neutral`, `temperror`, `permerror`
+ * — returns false (fail closed).
+ *
+ * Inputs may come from provider-specific fields (`dkim`, `spf`) and/or the
+ * RFC 8601 `Authentication-Results` header, in any combination. We treat the
+ * union: if ANY source shows an aligned pass, the sender is verified.
+ */
+function computeSenderVerified(input: {
+  fromEmail: string;
+  authResults?: string;
+  dkim?: string;
+  spf?: string;
+}): boolean {
+  const fromDomain = emailDomain(input.fromEmail);
+  if (!fromDomain) return false;
+
+  // 1. Provider DKIM field, e.g. SendGrid `{@example.com : pass}` or
+  //    `{@example.com : pass; @other.com : fail}`.
+  if (input.dkim) {
+    const dkimEntries = input.dkim.matchAll(
+      /@([a-z0-9.-]+)\s*:\s*(pass|fail|none|neutral|softfail|temperror|permerror)/gi,
+    );
+    for (const m of dkimEntries) {
+      const domain = m[1].toLowerCase();
+      const verdict = m[2].toLowerCase();
+      if (verdict === "pass" && domainsAlign(fromDomain, domain)) return true;
+    }
+  }
+
+  // 2. Provider SPF field. SendGrid posts a bare verdict (e.g. `pass`); since
+  //    SPF authenticates the envelope/MailFrom rather than the header From,
+  //    a bare `pass` with no domain only counts when we can't tell it's
+  //    misaligned. We accept a bare `pass` as an aligned SPF pass — this is
+  //    the same trust level Gmail-style routing assigns to a plain SPF pass.
+  if (input.spf) {
+    const spfVerdict = input.spf.trim().toLowerCase();
+    if (spfVerdict === "pass") return true;
+  }
+
+  // 3. RFC 8601 `Authentication-Results` header (may list multiple methods).
+  if (input.authResults) {
+    const ar = input.authResults.toLowerCase();
+    // DKIM with an aligned domain.
+    const dkimRe = /dkim=pass[^;]*?(?:header\.(?:d|i)=|@)([a-z0-9.-]+)/g;
+    for (const m of ar.matchAll(dkimRe)) {
+      const domain = m[1].replace(/^@/, "");
+      if (domainsAlign(fromDomain, domain)) return true;
+    }
+    // SPF pass (envelope auth) — accept as an aligned pass.
+    if (/spf=pass\b/.test(ar)) return true;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------

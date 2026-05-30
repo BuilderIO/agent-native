@@ -5756,6 +5756,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const method = getMethod(event);
           const url = event.node?.req?.url || event.path || "";
 
+          // Authorization: a run's events/abort and a thread's active-run
+          // status must only be exposed to the user who OWNS the thread.
+          // agent_runs carries no owner column — ownership lives on the
+          // chat_threads row via thread_id — so resolve the run's thread
+          // (in-memory first, SQL fallback) and compare its ownerEmail.
+          // Without this, any authenticated tenant who learns another
+          // tenant's runId/threadId could stream their live agent turn
+          // (assistant text + tool-result payloads) or abort their run.
+          const resolveRunThreadId = async (
+            runId: string,
+          ): Promise<string | null> => {
+            const memRun = getRun(runId);
+            if (memRun) return memRun.threadId;
+            const { getRunById } = await import("../agent/run-store.js");
+            const row = await getRunById(runId);
+            return row?.threadId ?? null;
+          };
+          const ownsThread = async (
+            threadId: string | null | undefined,
+          ): Promise<boolean> => {
+            if (!threadId) return false;
+            const thread = await getThread(threadId);
+            return !!thread && thread.ownerEmail === owner;
+          };
+          const ownsRun = async (runId: string): Promise<boolean> =>
+            ownsThread(await resolveRunThreadId(runId));
+
           // Route: GET /runs/list?goalId=agent-team
           // Returns hosted Agent Teams in the Code hub-compatible run shape.
           const listMatch =
@@ -5783,6 +5810,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
+            if (!(await ownsRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to non-owners.
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
             let reason = "user";
             try {
               const body = await readBody(event);
@@ -5828,6 +5860,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/events/);
           if (eventsMatch && method === "GET") {
             const runId = decodeURIComponent(eventsMatch[1]);
+            if (!(await ownsRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to non-owners.
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
             const query = getQuery(event);
             const after = parseInt(String(query.after ?? "0"), 10) || 0;
 
@@ -5850,6 +5887,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
+            }
+
+            // Only reveal a thread's active run to the thread's owner.
+            // Present non-owners (or unknown threads) as idle rather than
+            // 404 so thread existence isn't leaked and the client polls
+            // benignly.
+            if (!(await ownsThread(threadId))) {
+              return {
+                active: false,
+                threadId,
+                status: "idle",
+                heartbeatAt: null,
+                lastProgressAt: null,
+              };
             }
 
             // Check in-memory first, then SQL (cross-isolate on Workers)

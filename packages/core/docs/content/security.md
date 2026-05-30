@@ -69,7 +69,17 @@ React auto-escapes all JSX expressions. Additional guidelines:
 
 ## Data Scoping {#data-scoping}
 
-In production, the framework automatically restricts agent SQL queries to the current user's data. This is enforced at the SQL level — agents cannot bypass it.
+In production, the framework automatically restricts agent SQL queries to the current user's data. This is enforced at the SQL level — agents cannot bypass it. This section is the canonical reference for the scoping pipeline; the [Authentication](/docs/authentication) and [Multi-Tenancy](/docs/multi-tenancy) docs link here for the mechanics.
+
+### The scoping pipeline {#scoping-pipeline}
+
+Scoping flows from the authenticated session down to the SQL the agent runs:
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+The signed-in session carries `email` and (when an org is active) `orgId`. The framework establishes request context from that session, exposes the active org to agent SQL as `AGENT_ORG_ID`, and rewrites every query so it can only see rows the current identity owns. The same path applies whether the query comes from the UI, an action, or the agent — the agent cannot read data for an org the user isn't a member of.
 
 ### Per-User Scoping (`owner_email`)
 
@@ -99,6 +109,28 @@ INSERT statements get `owner_email` auto-injected when the column isn't already 
 ### Per-Org Scoping (`org_id`)
 
 For multi-user apps where teams share data, add an `org_id` column. When both columns are present, queries are scoped by both: `WHERE owner_email = ? AND org_id = ?`.
+
+The `ownableColumns()` schema helper adds both `owner_email` and `org_id` in one call, so new tenant-aware tables get the full scoping contract by default:
+
+```typescript
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id
+});
+```
+
+### Access guards in actions {#access-guards}
+
+Raw agent SQL is scoped by the temporary views above. Action code that queries with Drizzle directly should go through the framework's access helpers so reads and writes stay scoped to the current identity:
+
+- **`accessFilter`** — returns the `WHERE` predicate that limits a query to rows the current user/org may see. Use it in list/read queries.
+- **`resolveAccess`** — resolves the effective access scope (owner, org, shared) for the current request.
+- **`assertAccess`** — guards a write or single-record read, throwing if the current identity may not act on the target row.
+
+Tables built with `ownableColumns()` require these scoped reads and writes; custom Nitro routes must establish request context before querying ownable data. The `guard-no-unscoped-queries` check (run via `pnpm guards`) enforces this at CI time. See the `sharing` skill for the full helper API.
 
 ### Validation
 

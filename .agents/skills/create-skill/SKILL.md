@@ -22,7 +22,7 @@ Don't create a skill when:
 - You're documenting something the agent already knows (e.g., how to write TypeScript)
 - The guidance is a one-off — put it in `AGENTS.md` or `learnings.md` instead
 
-## 5-Question Interview
+## Interview
 
 Before writing the skill, answer these:
 

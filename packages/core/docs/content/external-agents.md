@@ -246,7 +246,11 @@ path; the MCP layer strips that ticket-bearing URL from model-visible
 `structuredContent` and normal open-link metadata. When no embed start URL is
 present, the resource falls back to the app-only `create_embed_session` helper.
 This keeps production hosts that restrict iframe-initiated tool calls on the
-direct route without leaking one-time app session URLs into the transcript.
+direct route without leaking one-time app session URLs into the transcript. If a
+user reopens an old chat after a one-time start ticket has expired, the start
+route returns a small refresh page and posts `agentNative.embedSessionExpired`
+to the wrapper; `embedApp()` clears the stale start URL and mints a fresh ticket
+through `create_embed_session` when it still has the original app route.
 
 ChatGPT gets a dedicated compatibility path through `window.openai`: the launch
 document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly,

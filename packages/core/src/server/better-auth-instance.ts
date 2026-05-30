@@ -93,9 +93,9 @@ function resolveAuthSecret(): string {
         "environment variable (any 32-byte hex string), e.g.:\n\n" +
         `  BETTER_AUTH_SECRET=${sample}\n\n` +
         "Generate your own with `openssl rand -hex 32`. If you already have a " +
-        "running deploy on the legacy hardcoded fallback and need to preserve " +
-        "existing sessions, set BETTER_AUTH_SECRET=agent-native-local-dev-secret-k9x2m7q4w8 " +
-        "first, then rotate to a real value. Hosted workspace deploys may also " +
+        "running deploy and need to preserve existing sessions, set it to your " +
+        "previously-deployed BETTER_AUTH_SECRET value first, then rotate to a " +
+        "fresh one. Hosted workspace deploys may also " +
         "set A2A_SECRET; agent-native derives a per-purpose Better Auth secret " +
         "from that workspace root secret.",
     );

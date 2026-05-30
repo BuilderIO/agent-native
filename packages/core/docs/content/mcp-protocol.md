@@ -76,94 +76,17 @@ If an action declares `mcpApp`, the server also advertises the official MCP Apps
 
 ### MCP App embed bridge {#mcp-app-embed-bridge}
 
-`embedApp()` is the low-level URL-first MCP App helper. It reads the action
-result's open link, asks the app-only `create_embed_session` tool to mint a
-route-scoped session, then launches the resulting app route. Standard hosts
-hydrate the signed route by navigating the MCP App frame itself. Claude web
-uses a single-frame transplant path that fetches the signed app HTML and
-hydrates it inside Claude's MCP App iframe because Claude does not reliably
-allow app-owned child iframes or external frame navigation. ChatGPT web keeps
-the signed app URL in a controlled route iframe for stable `window.openai`
-host APIs and bounded height control.
-For normal action authoring, use `embedRoute()` when the action's
-`link` and `mcpApp` should come from the same pure route builder. The route
-itself should derive state from the URL and normal app data fetching.
-Same-app `open_app({ embed: true })` returns a server-minted `embedStartUrl`
-so the resource can launch without a second iframe-originated tool call. The
-server moves that ticket-bearing URL into hidden metadata and strips it from
-model-visible structured content and normal open-link metadata. Custom actions
-can return the same field when they already know the target route.
+`embedApp()` is the low-level URL-first MCP App helper: it launches a signed app
+route inline through transplant (Claude), controlled-frame (ChatGPT), or direct
+navigation, mediates host actions over the `ui/*` JSON-RPC bridge (and the
+`agentNative.mcpHost.*` postMessage relay for the controlled-frame path), and
+clamps the resource shell height so a full-app route does not render as an
+oversized chat artifact.
 
-The outer MCP resource reports a bounded inline height to the host and the app
-route scrolls internally. `embedApp({ height })` defaults to a `560px` shell,
-clamps to `320-900px`, and subtracts `44px` for the wrapper toolbar before
-sizing the route viewport. Do not rely on host auto-resize measuring the full
-document; in ChatGPT and Claude this can make a normal full-app route appear as
-a huge chat artifact. Host conversations also keep already-rendered iframes, so
-after changing the resource shell or `ui://` version, test a fresh tool call
-rather than re-measuring an old frame.
-
-If a user reopens an older chat after a one-time embed start ticket expires,
-the start route returns a small refresh page and posts
-`agentNative.embedSessionExpired` to the wrapper. `embedApp()` clears the stale
-start URL and asks the app-only `create_embed_session` tool for a fresh ticket
-when it still has the original app route.
-
-Default direct embeds talk to the MCP Apps host through standard `ui/*`
-JSON-RPC messages:
-
-| Type                      | Payload shape                      |
-| ------------------------- | ---------------------------------- |
-| `ui/update-model-context` | `{ content?, structuredContent? }` |
-| `ui/message`              | `{ role: "user", content }`        |
-| `ui/open-link`            | `{ url }`                          |
-| `ui/request-display-mode` | `{ mode }`                         |
-
-Claude's transplanted route uses the same `ui/*` bridge after hydration. Test
-Claude against deployed/preview URLs or a local production build served with
-`agent-native start`; raw Vite dev modules can be app-auth protected and fail
-dynamic imports from Claude's resource origin.
-
-The ChatGPT controlled-frame path and any explicit `embedMode: "iframe"` /
-`renderMode: "iframe"` diagnostic path use the wrapper-to-route postMessage
-relay:
-
-| Direction       | Type                                     | Payload shape                                 |
-| --------------- | ---------------------------------------- | --------------------------------------------- |
-| wrapper → route | `agentNative.mcpHostContext`             | `{ context, capabilities, version }`          |
-| route → wrapper | `agentNative.mcpHost.updateModelContext` | `{ requestId, content?, structuredContent? }` |
-| route → wrapper | `agentNative.mcpHost.openLink`           | `{ requestId, url }`                          |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | `{ requestId, mode }`                         |
-| wrapper → route | `agentNative.mcpHost.response`           | `{ requestId, ok, result?, error? }`          |
-
-`embedApp()` includes the MCP request origin in the resource CSP so the
-launcher can fetch and, when explicitly requested, frame the signed first-party
-route. Dispatch's `open_app` resource adds the exact origins for apps granted
-through Dispatch, which keeps the one-connector path narrow while still letting
-Claude/ChatGPT inline target app routes. Pass additional domains only for
-custom third-party frames or assets.
-
-Leave standard `_meta.ui.domain` unset by default. Its format is host-specific:
-Claude expects Claude content-domain hashes, while ChatGPT reads the separate
-`openai/widgetDomain` compatibility field. App URLs belong in CSP sources and
-open-link targets, not portable `ui.domain` metadata.
-
-Extension detail routes render their extension iframe from `srcDoc` when the
-route is already inside an MCP chat embed. That avoids a second
-`/_agent-native/extensions/:id/render` frame navigation being rejected by chat
-host ancestry checks, while keeping the same sandbox flags and postMessage
-extension bridge.
-
-Host-mediated open links keep the iframe from choosing its own browser target.
-Model context updates are opt-in and hidden from the user-facing transcript.
-`ui/message` is the portable way for an embedded app button to ask the host to
-post a visible user message and continue the chat. In agent-native routes,
-`sendToAgentChat()` uses `ui/update-model-context` plus `ui/message` when
-called from a submitted MCP App embed. Hidden context is sent through model
-context, while `ui/message` contains only the visible prompt. `submit: false`
-remains an in-route draft/prefill path.
-Display mode requests are best-effort: a host can honor, ignore, or reject the
-request. Embedded routes must remain functional in the default inline mode.
+See [External Agents](/docs/external-agents#mcp-app-bridge) for the full MCP App
+embed bridge and host-bridge details — transplant vs controlled-frame, the
+`ui/*` and postMessage tables, `create_embed_session` / `embedStartUrl`, CSP and
+domain rules, extension `srcDoc` embedding, and height clamping.
 
 ## Tools {#tools}
 
