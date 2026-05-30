@@ -595,6 +595,21 @@ export function embedApp(
       );
     }
 
+    function namedImportBindings(specifierList) {
+      return String(specifierList)
+        .split(",")
+        .map((part) => {
+          const trimmed = part.trim();
+          if (!trimmed) return "";
+          return trimmed.replace(
+            /^([A-Za-z_$][\\w$]*)\\s+as\\s+([A-Za-z_$][\\w$]*)$/,
+            "$1: $2"
+          );
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+
     function moduleCodeToClassicAsync(code, config, baseUrl) {
       return relativeModuleSpecifiersToAbsolute(
         rootRelativeSpecifiersToAbsolute(stripDevOnlyModuleImports(code), config),
@@ -602,8 +617,31 @@ export function embedApp(
         baseUrl
       )
         .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const $2 = await import($3); const $1 = $2.default;"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, defaultName, specifiers, source) =>
+            "const { default: " +
+            defaultName +
+            (namedImportBindings(specifiers) ? ", " + namedImportBindings(specifiers) : "") +
+            " } = await import(" +
+            source +
+            ");"
+        )
+        .replace(
+          /\\bimport\\s+\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, specifiers, source) =>
+            "const { " + namedImportBindings(specifiers) + " } = await import(" + source + ");"
+        )
+        .replace(
           /\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
           "const $1 = await import($2);"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const { default: $1 } = await import($2);"
         )
         .replace(/\\bimport\\s+(["'][^"']+["'])\\s*;?/g, "await import($1);")
         .replace(/\\bimport\\((["'][^"']+["'])\\)\\s*;?/g, "await import($1);");

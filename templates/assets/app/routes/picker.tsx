@@ -6,6 +6,7 @@ import {
 } from "@agent-native/embedding/bridge";
 import {
   agentNativePath,
+  appPath,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
@@ -162,9 +163,10 @@ function embeddedAppOrigin() {
 
 function absoluteAppUrl(value: string) {
   if (typeof window === "undefined") return value;
+  const path = value.startsWith("/") ? appPath(value) : value;
   try {
     return new URL(
-      value,
+      path,
       embeddedAppOrigin() ?? window.location.origin,
     ).toString();
   } catch {

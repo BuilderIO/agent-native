@@ -76,6 +76,8 @@ describe("embedApp", () => {
     expect(html).toContain("scriptSourceUrl");
     expect(html).toContain("moduleScriptCode");
     expect(html).toContain("relativeModuleSpecifiersToAbsolute");
+    expect(html).toContain("namedImportBindings");
+    expect(html).toContain("const { default:");
     expect(html).toContain("await runModuleScriptAsClassic(script, config)");
     expect(html).toContain("stripDevOnlyModuleImports");
     expect(html).toContain("__x00__virtual:react-router");
