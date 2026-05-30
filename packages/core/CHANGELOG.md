@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.26.7
+
+### Patch Changes
+
+- 0a3003d: Harden MCP app embedding and selected image handoff for Assets picker flows.
+- 0a3003d: Improve MCP app embedding and compact Assets picker flows for external chat hosts.
+
 ## 0.26.6
 
 ### Patch Changes
