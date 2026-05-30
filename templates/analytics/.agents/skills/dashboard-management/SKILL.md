@@ -58,6 +58,22 @@ pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 
 The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
 
+## When To Use An Extension Instead
+
+Native Analytics dashboards are JSON configs rendered by the built-in dashboard
+components. Use `update-dashboard` only when the request fits that model:
+standard panels, supported chart types, filters, variables, sections, and grid
+layout.
+
+If the user asks for a dashboard or analytical surface that needs bespoke UI or
+code beyond the dashboard JSON/component model, create an extension instead.
+Examples include custom interaction flows, non-standard visualizations, complex
+multi-step workflows, highly custom layouts, custom client-side state, or a
+dashboard-like app that needs behavior the built-in renderer cannot express. In
+production mode, call `create-extension` automatically and then tell the user
+that the request needed a bespoke surface, so you built it as an extension
+rather than forcing it into a native dashboard config.
+
 ## Config Shape
 
 ```jsonc

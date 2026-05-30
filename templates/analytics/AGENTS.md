@@ -21,6 +21,11 @@ details live in `.agents/skills/`.
   and existing credential/integration flow.
 - Dashboards and charts should be useful, explainable, and scoped to the user's
   question. Avoid decorative metrics.
+- Native dashboards and saved analyses are constrained artifacts. If a requested
+  dashboard, analysis surface, visualization, interaction model, custom layout,
+  or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
+  config/components or saved-analysis markdown/chart format, automatically build
+  it as an extension instead and tell the user why.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 

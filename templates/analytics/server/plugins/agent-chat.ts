@@ -72,19 +72,27 @@ export default createAgentChatPlugin({
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
+    const artifactGuidance =
+      "<analytics-artifact-guidance>\n" +
+      "Native Analytics dashboards and saved analyses are constrained artifacts: dashboards are JSON configs rendered by the built-in dashboard components, and analyses are Markdown reports with generated chart images plus structured resultData. " +
+      "If the user's requested dashboard, analysis surface, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within those native components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension` instead, using Alpine.js HTML and the available app/data helpers. " +
+      "After creating the extension, briefly tell the user that the request needed bespoke UI/code beyond the native Analytics dashboard or analysis format, so you built it as an extension.\n" +
+      "</analytics-artifact-guidance>";
 
     try {
       const scope = await resolveSettingsScope(event);
       const all = await listScopedSettingRecords(scope, DATA_DICT_PREFIX);
       const entries = Object.values(all) as Array<Record<string, unknown>>;
       const dict = renderDataDictionary(entries);
-      return dict ? `${sourceGuidance}\n\n${dict}` : sourceGuidance;
+      return dict
+        ? `${sourceGuidance}\n\n${artifactGuidance}\n\n${dict}`
+        : `${sourceGuidance}\n\n${artifactGuidance}`;
     } catch (err) {
       console.warn(
         "[analytics] data dictionary context failed:",
         err instanceof Error ? err.message : err,
       );
-      return sourceGuidance;
+      return `${sourceGuidance}\n\n${artifactGuidance}`;
     }
   },
   mentionProviders: {
