@@ -101,6 +101,7 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -1275,6 +1276,28 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   return false;
 }
 
+function loginHtmlResponse(loginHtml: string): Response {
+  return new Response(loginHtml, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": DEFAULT_SSR_CACHE_CONTROL,
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
+function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
+  if (!isReadMethod(event)) return false;
+  if (pathname.endsWith(".data")) return false;
+
+  const fetchDest = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document" || fetchDest === "iframe") return true;
+
+  const accept = getHeader(event, "accept")?.toLowerCase();
+  return !accept || accept.includes("text/html") || accept.includes("*/*");
+}
+
 function createAuthGuardFn(): (
   event: H3Event,
 ) => Promise<Response | object | string | void> {
@@ -1461,10 +1484,7 @@ function createAuthGuardFn(): (
           headers: { Location: safeReturn },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml);
     }
 
     // Auth entry pages are framework-owned pages, not app routes. When a user
@@ -1478,10 +1498,7 @@ function createAuthGuardFn(): (
           headers: { Location: getAppBasePath() || "/" },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml);
     }
 
     // Skip static assets (Vite chunks, fonts, images, etc.)
@@ -1522,6 +1539,11 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
+    if (!isHtmlDocumentRequest(event, p)) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
+
     // Local-dev convenience: on the first page GET of a freshly-scaffolded
     // app, transparently create + sign in `dev@local.test` instead of
     // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
@@ -1532,14 +1554,7 @@ function createAuthGuardFn(): (
       if (autoSession) return autoSession;
     }
 
-    return new Response(loginHtml, {
-      status: 401,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    });
+    return loginHtmlResponse(loginHtml);
   };
 }
 

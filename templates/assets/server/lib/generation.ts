@@ -177,10 +177,17 @@ export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
   const builderCredentials = await resolveBuilderCredentials();
-  if (!builderCredentials.privateKey) {
+  if (!builderCredentials.privateKey || !builderCredentials.publicKey) {
+    const detail =
+      !builderCredentials.privateKey && !builderCredentials.publicKey
+        ? "Builder private and public keys are missing"
+        : !builderCredentials.privateKey
+          ? "Builder private key is missing"
+          : "Builder public key is missing";
     throw new BuilderImageGenerationError(
-      "Builder.io is not connected for managed image generation.",
+      "Builder.io is not fully connected for managed image generation. Reconnect Builder.io so both Builder private and public keys are available.",
       401,
+      detail,
     );
   }
 
@@ -189,9 +196,7 @@ export async function generateWithBuilderImageApi(
     method: "POST",
     headers: {
       Authorization: `Bearer ${builderCredentials.privateKey}`,
-      ...(builderCredentials.publicKey
-        ? { "x-builder-api-key": builderCredentials.publicKey }
-        : {}),
+      "x-builder-api-key": builderCredentials.publicKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -358,7 +363,7 @@ function builderImageGenerationFallbackMessage(
   const detail = err.detail ? `: ${err.detail}` : ".";
   switch (err.status) {
     case 401:
-      return "Image generation needs Builder.io connected or reconnected. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.";
+      return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;
     case 402:
       return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 403:

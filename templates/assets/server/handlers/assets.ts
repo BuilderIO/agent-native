@@ -195,6 +195,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
     const intent = intentFromForm(readField(parts, "intent"));
     const category =
       intent === "subject" ? "other" : categoryFromForm(rawCategory);
+    const role = roleFromUpload(category, intent);
     const title = readField(parts, "title") || null;
     const files =
       parts?.filter((part) => part.name === "files" && part.data) ?? [];
@@ -263,6 +264,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
         and(
           eq(schema.assets.libraryId, libraryId),
           eq(schema.assets.status, "reference"),
+          eq(schema.assets.role, role),
         ),
       );
     const deduped = await filterDuplicateAssetUploads({
@@ -291,7 +293,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
             buffer: file.buffer,
             mimeType: file.mimeType,
             mediaType: file.mediaType,
-            role: roleFromUpload(category, intent),
+            role,
             status: "reference",
             title: file.title,
             altText: file.altText,

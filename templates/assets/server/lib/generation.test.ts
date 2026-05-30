@@ -122,6 +122,27 @@ describe("generateWithManagedImageProvider", () => {
     );
   });
 
+  it("fails before calling Builder when the public key is missing", async () => {
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-builder-key",
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
+      expect.objectContaining({
+        name: "FeatureNotConfiguredError",
+        requiredCredential: "BUILDER_PRIVATE_KEY",
+        message: expect.stringContaining("Builder public key is missing"),
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,

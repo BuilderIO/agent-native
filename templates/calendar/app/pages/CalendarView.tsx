@@ -633,25 +633,18 @@ export default function CalendarView() {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return null;
 
-      if (isSlotDraftId(draftId)) {
-        const nextDraft = applyDraftPatch(eventDraft, patch);
-        createDraftEvent(eventId, patch);
-        return nextDraft;
-      }
-
       const nextDraft = applyDraftPatch(eventDraft, patch);
       setEventDraft(nextDraft);
       persistCalendarDraft(nextDraft);
       return nextDraft;
     },
-    [createDraftEvent, eventDraft, setEventDraft],
+    [eventDraft, setEventDraft],
   );
 
   const discardDraftEvent = useCallback(
     (eventId: string) => {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
-      if (committingDraftIdsRef.current.has(draftId)) return;
       deletePersistedCalendarDraft(draftId);
       setEventDraft(null);
       setQuickEditEventId(null);

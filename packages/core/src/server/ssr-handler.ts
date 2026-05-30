@@ -26,9 +26,9 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
 
-export const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+export { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 

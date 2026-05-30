@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -431,7 +434,10 @@ describe("server/auth", () => {
 
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
+      expect((result as Response).status).toBe(200);
+      expect((result as Response).headers.get("Cache-Control")).toBe(
+        DEFAULT_SSR_CACHE_CONTROL,
+      );
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -513,7 +519,18 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/admin/users" }),
       );
       expect(adminResult).toBeInstanceOf(Response);
-      expect((adminResult as Response).status).toBe(401);
+      expect((adminResult as Response).status).toBe(200);
+      expect((adminResult as Response).headers.get("Cache-Control")).toBe(
+        DEFAULT_SSR_CACHE_CONTROL,
+      );
+
+      const adminDataResult = await guard(
+        createMockEvent({
+          path: "/portal/admin/users.data",
+          headers: { accept: "text/x-script" },
+        }),
+      );
+      expect(adminDataResult).toEqual({ error: "Unauthorized" });
 
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
@@ -553,7 +570,10 @@ describe("server/auth", () => {
         createMockEvent({ path: "/docs/admin" }),
       );
       expect(privateResult).toBeInstanceOf(Response);
-      expect((privateResult as Response).status).toBe(401);
+      expect((privateResult as Response).status).toBe(200);
+      expect((privateResult as Response).headers.get("Cache-Control")).toBe(
+        DEFAULT_SSR_CACHE_CONTROL,
+      );
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -782,7 +802,7 @@ describe("server/auth", () => {
       }
     });
 
-    it("serves first-party branded auth when the default guard handles a built-in host", async () => {
+    it("serves cacheable first-party branded auth when the default guard handles a built-in host", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -817,9 +837,9 @@ describe("server/auth", () => {
       );
 
       expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
+      expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        "no-store",
+        DEFAULT_SSR_CACHE_CONTROL,
       );
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",
@@ -827,6 +847,34 @@ describe("server/auth", () => {
       const html = await (result as Response).text();
       expect(html).toContain("Agent-Native Dispatch");
       expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain("__anRedirectIfAlreadySignedIn");
+    });
+
+    it("keeps React Router data requests protected instead of serving cached login HTML", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/inbox.data",
+        headers: { accept: "text/x-script" },
+      });
+      const result = await guard(event);
+
+      expect(result).toEqual({ error: "Unauthorized" });
+      expect(event.res.status).toBe(401);
     });
 
     it("redirects mounted login and signup pages when a session already exists", async () => {
