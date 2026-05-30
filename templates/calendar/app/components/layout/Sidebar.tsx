@@ -51,6 +51,7 @@ import {
   agentNativePath,
   appPath,
   useSession,
+  DevDatabaseLink,
   FeedbackButton,
 } from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
@@ -918,6 +919,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </div>
 
           <div className="flex items-center gap-1 border-t border-border px-1.5 py-1.5">
+            <DevDatabaseLink />
             <div className="min-w-0 flex-1">
               <FeedbackButton className="px-3 py-2" />
             </div>

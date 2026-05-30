@@ -133,6 +133,7 @@ import { getOrgContext } from "../org/context.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { mountDbAdminRoutes } from "../db-admin/routes.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -737,6 +738,11 @@ export function createCoreRoutesPlugin(
     }
 
     mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
+
+    // Dev-mode DB admin (Supabase-Studio-like). Mounted unconditionally; every
+    // handler self-gates on dev + localhost (the authoritative gate lives in
+    // db-admin/routes.ts), so on a deployed / production app it always 403s.
+    mountDbAdminRoutes(nitroApp, { routePrefix: P });
 
     const resolveBuilderOwnerContext = async (
       event: H3Event,

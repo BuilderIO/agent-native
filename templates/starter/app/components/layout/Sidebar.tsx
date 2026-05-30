@@ -1,15 +1,18 @@
 import { Link, useLocation } from "react-router";
-import { IconActivity, IconDatabase, IconHome } from "@tabler/icons-react";
+import { IconActivity, IconHome } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { FeedbackButton, appPath } from "@agent-native/core/client";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { APP_TITLE } from "@/lib/app-config";
 
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
   { icon: IconActivity, label: "Observability", href: "/observability" },
-  { icon: IconDatabase, label: "Database", href: "/database" },
 ];
 
 export function Sidebar() {
@@ -65,6 +68,7 @@ export function Sidebar() {
       </div>
 
       <div className="border-t border-border px-3 py-2 space-y-2">
+        <DevDatabaseLink />
         <FeedbackButton />
         <OrgSwitcher />
       </div>

@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
   useActionQuery,
@@ -166,6 +167,7 @@ export function Sidebar() {
             </div>
 
             <div className="border-t border-border px-3 py-2">
+              <DevDatabaseLink />
               <FeedbackButton />
             </div>
           </div>

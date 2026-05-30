@@ -6,6 +6,7 @@ import {
   ensureRequestRunContext,
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -4812,6 +4813,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry()),
+                  // Dev-only full-database admin tools (gated to dev+localhost
+                  // by the surrounding `canToggle` block — never in prodActions).
+                  ...createDbAdminAgentTools(),
                 },
         );
         // Keep dev action dict in sync with runtime MCP additions. When

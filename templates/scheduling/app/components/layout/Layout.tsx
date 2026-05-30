@@ -16,6 +16,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   AgentSidebar,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -107,6 +108,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <ExtensionsSidebarSection />
           </div>
           <div className="mx-1 border-t border-border/60 py-1">
+            <DevDatabaseLink />
             <FeedbackButton />
           </div>
           <div className="mt-auto border-t border-border/60 pt-2">

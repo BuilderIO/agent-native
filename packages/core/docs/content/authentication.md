@@ -15,7 +15,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-Local development uses the same Better Auth flow as production — there is no automatic dev bypass, though setting `AUTH_MODE=local` remains an explicit opt-in dev escape hatch. The first time you load a template, you'll be sent to the onboarding page to create an account. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
+Local development uses the same Better Auth flow as production — there is no dev auth bypass, and `getSession()` never falls back to a `local@localhost` sentinel. The first time you load a template the framework auto-creates a throwaway dev account and signs you in, so you are not stuck at a login wall (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to use the normal signup page). `AUTH_MODE=local` only affects CLI/agent identity resolution (which signed-in dev user `pnpm action` runs as) — it is not a browser login bypass. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
 
 ## Better Auth (Default) {#better-auth}
 
