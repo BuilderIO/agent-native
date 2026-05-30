@@ -114,6 +114,69 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
+  it("serves absolute React Router browser manifests to external MCP embeds", async () => {
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: {
+        load: vi.fn(async () => ({
+          code:
+            "window.__reactRouterManifest={" +
+            "'url':'/@id/__x00__virtual:react-router/browser-manifest'," +
+            "'entry':{'module':'/app/entry.client.tsx'}," +
+            "'hmr':{'runtime':'/@id/__x00__virtual:react-router/inject-hmr-runtime'}," +
+            "'routes':{'root':{'module':'/app/root.tsx'}}" +
+            "};",
+        })),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const req = {
+      method: "GET",
+      url: "/@id/__x00__virtual:react-router/browser-manifest",
+      headers: {
+        origin: "http://127.0.0.1:9310",
+        host: "assets-local.trycloudflare.com",
+        "x-forwarded-proto": "https",
+      },
+    };
+    const res = {
+      headersSent: false,
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(() => {
+        res.headersSent = true;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
+
+    expect(next).not.toHaveBeenCalled();
+    expect(server.pluginContainer.load).toHaveBeenCalledWith(
+      "\0virtual:react-router/browser-manifest",
+    );
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "text/javascript",
+    );
+    expect(String(res.end.mock.calls[0][0])).toContain(
+      '"https://assets-local.trycloudflare.com/app/entry.client.tsx"',
+    );
+    expect(String(res.end.mock.calls[0][0])).toContain(
+      '"https://assets-local.trycloudflare.com/@id/__x00__virtual:react-router/browser-manifest"',
+    );
+  });
+
   it("does not serve base-prefixed Vite modules without embed auth", () => {
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;

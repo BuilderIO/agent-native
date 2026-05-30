@@ -38,6 +38,7 @@ import {
   NotificationsBell,
   ShareButton,
   isEmbedAuthActive,
+  sendToAgentChat,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -339,6 +340,27 @@ export default function DesignEditor() {
     useVariant: handleUseVariant,
     dismiss: handleVariantsDismiss,
   } = useVariantFlow(id);
+  const handleVariantChoice = useCallback(
+    async (variantId: string) => {
+      const chosen = pendingVariants?.variants.find(
+        (variant) => variant.id === variantId,
+      );
+      await handleUseVariant(variantId);
+
+      if (!embedded || !chosen || !id) return;
+      sendToAgentChat({
+        message: `I picked "${chosen.label}".`,
+        context: [
+          `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${id} inside the embedded Design MCP app.`,
+          "Continue from the chosen direction when the user asks for refinements.",
+          'If the user asks for another iteration, use get-design-snapshot and generate-design against the current index.html; do not present new variants unless they ask for "more options" or "alternatives".',
+        ].join("\n"),
+        submit: true,
+        openSidebar: false,
+      });
+    },
+    [embedded, handleUseVariant, id, pendingVariants],
+  );
 
   const { session } = useSession();
 
@@ -1880,8 +1902,8 @@ ${serializedHtml}
             <div className="flex-1 overflow-hidden">
               <VariantGrid
                 variants={pendingVariants.variants}
-                onSelect={handleUseVariant}
-                onUse={handleUseVariant}
+                onSelect={handleVariantChoice}
+                onUse={handleVariantChoice}
                 compact={embedded}
               />
             </div>
@@ -1889,93 +1911,94 @@ ${serializedHtml}
         )}
 
         {/* Canvas */}
-        {activeFile ? (
-          viewMode === "overview" ? (
-            <MultiScreenCanvas
-              screens={files.map((f) => ({
-                id: f.id,
-                filename: f.filename,
-                content: f.content,
-              }))}
-              zoom={zoom}
-              activeId={activeFileId}
-              onPick={(id) => {
-                setActiveFileId(id);
-                setViewMode("single");
-              }}
-            />
+        {!pendingVariants &&
+          (activeFile ? (
+            viewMode === "overview" ? (
+              <MultiScreenCanvas
+                screens={files.map((f) => ({
+                  id: f.id,
+                  filename: f.filename,
+                  content: f.content,
+                }))}
+                zoom={zoom}
+                activeId={activeFileId}
+                onPick={(id) => {
+                  setActiveFileId(id);
+                  setViewMode("single");
+                }}
+              />
+            ) : (
+              <DesignCanvas
+                content={activeContent}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                deviceFrame={deviceFrame}
+                editMode={mode === "edit"}
+                onElementSelect={handleElementSelect}
+                onElementHover={handleElementHover}
+                tweakValues={cssVarValues}
+                drawMode={drawMode}
+                onExitDrawMode={() => {
+                  setDrawMode(false);
+                  setMode("comment");
+                }}
+                pinMode={pinMode}
+                onExitPinMode={() => setPinMode(false)}
+                designId={id}
+                designTitle={design?.title}
+              />
+            )
           ) : (
-            <DesignCanvas
-              content={activeContent}
-              zoom={zoom}
-              onZoomChange={setZoom}
-              deviceFrame={deviceFrame}
-              editMode={mode === "edit"}
-              onElementSelect={handleElementSelect}
-              onElementHover={handleElementHover}
-              tweakValues={cssVarValues}
-              drawMode={drawMode}
-              onExitDrawMode={() => {
-                setDrawMode(false);
-                setMode("comment");
-              }}
-              pinMode={pinMode}
-              onExitPinMode={() => setPinMode(false)}
-              designId={id}
-              designTitle={design?.title}
-            />
-          )
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              {generating || pendingGenerationActive ? (
-                <>
-                  <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
-                  <p className="text-sm text-muted-foreground">
-                    Generating design...
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {generationIssue ??
-                      "No files yet. Ask the agent to generate a design."}
-                  </p>
-                  {retryablePrompt ? (
-                    <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
-                      "{retryablePrompt.prompt}"
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                {generating || pendingGenerationActive ? (
+                  <>
+                    <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                    <p className="text-sm text-muted-foreground">
+                      Generating design...
                     </p>
-                  ) : null}
-                  <div className="flex items-center justify-center gap-2">
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {generationIssue ??
+                        "No files yet. Ask the agent to generate a design."}
+                    </p>
                     {retryablePrompt ? (
+                      <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
+                        "{retryablePrompt.prompt}"
+                      </p>
+                    ) : null}
+                    <div className="flex items-center justify-center gap-2">
+                      {retryablePrompt ? (
+                        <Button
+                          size="sm"
+                          className="cursor-pointer"
+                          onClick={handleRetryGeneration}
+                        >
+                          <IconRefresh className="w-3.5 h-3.5" />
+                          Try again
+                        </Button>
+                      ) : null}
                       <Button
+                        ref={generateBtnRef}
+                        variant={retryablePrompt ? "ghost" : "outline"}
                         size="sm"
                         className="cursor-pointer"
-                        onClick={handleRetryGeneration}
+                        onClick={() => {
+                          setRetryablePrompt(null);
+                          setShowPrompt(true);
+                        }}
                       >
-                        <IconRefresh className="w-3.5 h-3.5" />
-                        Try again
+                        <IconPlus className="w-3.5 h-3.5" />
+                        {retryablePrompt ? "New prompt" : "Generate Design"}
                       </Button>
-                    ) : null}
-                    <Button
-                      ref={generateBtnRef}
-                      variant={retryablePrompt ? "ghost" : "outline"}
-                      size="sm"
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setRetryablePrompt(null);
-                        setShowPrompt(true);
-                      }}
-                    >
-                      <IconPlus className="w-3.5 h-3.5" />
-                      {retryablePrompt ? "New prompt" : "Generate Design"}
-                    </Button>
-                  </div>
-                </>
-              )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          ))}
 
         {/* Edit panel (right side) */}
         {mode === "edit" && (

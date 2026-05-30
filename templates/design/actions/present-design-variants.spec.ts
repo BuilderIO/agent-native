@@ -70,6 +70,28 @@ describe("present-design-variants", () => {
     });
     expect(action.mcpApp?.compactCatalog).toBe(true);
     expect(action.mcpApp?.resource.title).toBe("Design directions");
+    expect(action.mcpApp?.resource.html()).toContain(
+      "--agent-native-shell-height: 720px",
+    );
+  });
+
+  it("requires exactly three variants for the MCP picker flow", () => {
+    const base = {
+      designId: "design_123",
+      variants: [
+        { id: "one", label: "One", content: "<html>One</html>" },
+        { id: "two", label: "Two", content: "<html>Two</html>" },
+        { id: "three", label: "Three", content: "<html>Three</html>" },
+      ],
+    };
+
+    expect(action.schema.safeParse(base).success).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        variants: base.variants.slice(0, 2),
+      }).success,
+    ).toBe(false);
   });
 
   it("returns an editor deep link for external hosts", async () => {

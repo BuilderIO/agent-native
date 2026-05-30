@@ -15,6 +15,8 @@ import {
 } from "./mcp-app-host.js";
 import { _resetEmbedAuthForTests } from "./embed-auth.js";
 
+const REQUEST_TIMEOUT_MS = 5000;
+
 function setTestUrl(url: string): void {
   const happyDom = (window as unknown as { happyDOM?: { setURL?: unknown } })
     .happyDOM;
@@ -498,11 +500,13 @@ describe("MCP app host client helpers", () => {
       ],
     });
 
-    await expect(result).resolves.toBe(true);
+    await flushMicrotasks();
+
     expect(parent.postMessage).toHaveBeenCalledWith(
       {
         type: "agentNative.submitChat",
         data: {
+          requestId: expect.any(String),
           context: "Hidden selected asset context",
           message: "Use the selected Assets image",
           content: [
@@ -515,6 +519,29 @@ describe("MCP app host client helpers", () => {
       "*",
     );
     expect(getJsonRpcCalls(parent)).toEqual([]);
+
+    const message = vi.mocked(parent.postMessage).mock.calls[0]?.[0] as {
+      data?: { requestId?: string };
+    };
+    dispatchHostMessage({
+      type: AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.RESPONSE,
+      data: { requestId: message.data?.requestId, ok: true },
+    });
+    await expect(result).resolves.toBe(true);
+  });
+
+  it("reports wrapper bridge chat failure when the host does not acknowledge", async () => {
+    vi.useFakeTimers();
+    const parent = parentWindow();
+    setNestedParent(parent);
+
+    const result = sendMcpAppHostMessage({
+      message: "Use the selected Assets image",
+    });
+    await flushMicrotasks();
+
+    vi.advanceTimersByTime(REQUEST_TIMEOUT_MS);
+    await expect(result).resolves.toBe(false);
   });
 
   it("uses direct MCP Apps chat messages in Claude transplanted frames", async () => {
