@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.28.5
+
+### Patch Changes
+
+- d3cadf3: Clarify Assets skill instructions for standalone picker handoff fallback.
+
 ## 0.28.4
 
 ### Patch Changes
