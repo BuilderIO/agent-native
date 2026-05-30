@@ -12,8 +12,6 @@ import {
   IconCode,
   IconClock,
   IconMessageChatbot,
-  IconBuildingSkyscraper,
-  IconBrowser,
   IconExternalLink,
   IconLoader2,
   IconHelp,
