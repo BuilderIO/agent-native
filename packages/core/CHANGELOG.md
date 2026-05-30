@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.28.2
+
+### Patch Changes
+
+- 19e7008: Clean the temporary auth redirect cache-busting query parameter from browser history after client boot.
+
 ## 0.28.1
 
 ### Patch Changes
