@@ -518,9 +518,13 @@ export default function AssetPicker() {
     setCount(urlHostConfig.count ?? 3);
   }, [urlHostConfig]);
 
-  const { data: libraryData } = useActionQuery("list-libraries", {
+  const librariesQuery = useActionQuery("list-libraries", {
     compact: true,
-  } as any) as { data?: { libraries?: Library[] } };
+  } as any) as {
+    data?: { libraries?: Library[] };
+  };
+  const libraryData = librariesQuery.data;
+  const libraryListReady = Array.isArray(libraryData?.libraries);
   const libraries = libraryData?.libraries ?? [];
   const starterLibrary: Library = useMemo(
     () => ({
@@ -537,10 +541,20 @@ export default function AssetPicker() {
       : [starterLibrary];
 
   useEffect(() => {
-    if (!selectedLibraryId && displayLibraries[0]) {
-      setSelectedLibraryId(displayLibraries[0].id);
+    const firstLibraryId = displayLibraries[0]?.id;
+    if (!firstLibraryId) return;
+    if (!selectedLibraryId) {
+      setSelectedLibraryId(firstLibraryId);
+      return;
     }
-  }, [displayLibraries, selectedLibraryId]);
+    if (!libraryListReady) return;
+    const selectedLibraryExists = displayLibraries.some(
+      (library) => library.id === selectedLibraryId,
+    );
+    if (!selectedLibraryExists) {
+      setSelectedLibraryId(firstLibraryId);
+    }
+  }, [displayLibraries, libraryListReady, selectedLibraryId]);
 
   const { data: config } = useActionQuery(
     "get-image-generation-config",
@@ -783,6 +797,7 @@ export default function AssetPicker() {
         : "Connect Builder.io or add a Gemini key in Settings to generate image assets.";
   const needsGenerationLibrary =
     mediaType === "image" &&
+    libraryListReady &&
     !libraries.length &&
     !createdPickerLibrary &&
     usingStarterLibrary;

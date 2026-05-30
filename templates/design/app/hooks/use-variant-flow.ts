@@ -2,6 +2,8 @@ import { useEffect, useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { sendToAgentChat, agentNativePath } from "@agent-native/core/client";
 
+export const DESIGN_VARIANT_PICKED_EVENT = "agent-native-design-variant-picked";
+
 export interface VariantCandidate {
   id: string;
   label: string;
@@ -76,6 +78,7 @@ export function useVariantFlow(designId: string | undefined) {
       // Persist the chosen variant as the design's primary file via the
       // agent's own action endpoint. We keep the agent informed via chat so
       // subsequent edits target the picked direction.
+      let persisted = false;
       try {
         const res = await fetch(
           agentNativePath("/_agent-native/actions/generate-design"),
@@ -95,7 +98,23 @@ export function useVariantFlow(designId: string | undefined) {
             }),
           },
         );
-        if (!res.ok) {
+        if (res.ok) {
+          await Promise.all([
+            qc.invalidateQueries({
+              queryKey: ["action", "get-design", { id: designId }],
+            }),
+            qc.invalidateQueries({ queryKey: ["action", "get-design"] }),
+            qc.invalidateQueries({ queryKey: ["action", "list-designs"] }),
+          ]);
+          persisted = true;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent(DESIGN_VARIANT_PICKED_EVENT, {
+                detail: { designId, content: chosen.content },
+              }),
+            );
+          }
+        } else {
           // Surface the failure rather than telling the agent the variant was
           // saved when the server actually rejected it. The picker still
           // clears so the user isn't stuck — they can re-pick after retrying.
@@ -112,15 +131,19 @@ export function useVariantFlow(designId: string | undefined) {
         message: `I picked "${chosen.label}".`,
         context: [
           `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${designId}.`,
-          `Its content has been saved as index.html. Continue refining from there if the user asks.`,
-          `Do not show further variants unless the user explicitly asks for "more options" or "alternatives".`,
+          persisted
+            ? `Its content has been saved as index.html. Continue refining from there if the user asks.`
+            : `Saving the chosen variant did not complete. Ask the user whether to retry before refining it.`,
+          persisted
+            ? `Do not show further variants unless the user explicitly asks for "more options" or "alternatives".`
+            : `Do not claim the design file was updated until generate-design succeeds.`,
         ].join("\n"),
         submit: false,
       });
 
       clear();
     },
-    [state, designId, clear],
+    [state, designId, qc, clear],
   );
 
   const dismiss = useCallback(() => {

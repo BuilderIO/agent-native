@@ -65,7 +65,10 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
-import { useVariantFlow } from "@/hooks/use-variant-flow";
+import {
+  DESIGN_VARIANT_PICKED_EVENT,
+  useVariantFlow,
+} from "@/hooks/use-variant-flow";
 import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import type {
   ElementInfo,
@@ -92,6 +95,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
@@ -655,6 +659,7 @@ export default function DesignEditor() {
   // Freshest known DB `updatedAt` for the active file, kept in a ref so the
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
+  const documentFileContentRef = useRef<string | null>(null);
 
   // Whether this client applies authoritative external snapshots into the
   // shared Y.Doc. Exactly one client (the lead) does, so an agent/peer edit
@@ -703,7 +708,8 @@ export default function DesignEditor() {
   // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
   useEffect(() => {
     documentFileUpdatedAtRef.current = activeFile?.updatedAt ?? null;
-  }, [activeFile?.updatedAt]);
+    documentFileContentRef.current = activeFile?.content ?? null;
+  }, [activeFile?.content, activeFile?.updatedAt]);
 
   // Observe Y.Text changes for live updates from remote editors (peers + the
   // agent's in-process applyText). This is the instant peer-to-peer path.
@@ -714,10 +720,14 @@ export default function DesignEditor() {
       const next = ytext.toString();
       setCollabContent(next);
       lastLocalContentRef.current = next;
-      // A Yjs update means the live doc now matches whatever DB write produced
-      // it; advance the watermark so the get-design reconcile below no-ops.
-      lastAppliedFileUpdatedAtRef.current =
-        documentFileUpdatedAtRef.current ?? lastAppliedFileUpdatedAtRef.current;
+      // Only advance the DB reconcile watermark when the live CRDT text
+      // actually matches the current SQL snapshot. Otherwise an intermediate
+      // or malformed Yjs update can shadow valid saved HTML until reload.
+      if (next === documentFileContentRef.current) {
+        lastAppliedFileUpdatedAtRef.current =
+          documentFileUpdatedAtRef.current ??
+          lastAppliedFileUpdatedAtRef.current;
+      }
     };
     ytext.observe(handler);
     return () => {
@@ -774,6 +784,26 @@ export default function DesignEditor() {
       }
     }
   }, [activeFile, collabContent, isSynced, isLeadClient, ydoc]);
+
+  useEffect(() => {
+    const handleVariantPicked = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ designId?: string; content?: string }>
+      ).detail;
+      if (detail?.designId !== id || typeof detail.content !== "string") {
+        return;
+      }
+      setCollabContent(detail.content);
+      lastLocalContentRef.current = detail.content;
+    };
+    window.addEventListener(DESIGN_VARIANT_PICKED_EVENT, handleVariantPicked);
+    return () => {
+      window.removeEventListener(
+        DESIGN_VARIANT_PICKED_EVENT,
+        handleVariantPicked,
+      );
+    };
+  }, [id]);
 
   // Set awareness local state to include which file the user is viewing
   useEffect(() => {
@@ -1393,6 +1423,7 @@ ${serializedHtml}
     id: f.id,
     filename: f.filename,
   }));
+  const hideEmbeddedVariantToolbar = embedded && !!pendingVariants;
 
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
@@ -1402,9 +1433,11 @@ ${serializedHtml}
     <div className="h-full flex flex-col overflow-hidden bg-background">
       {/* Toolbar */}
       <header
-        className={`shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-          embedded ? "h-10" : "h-12"
-        }`}
+        className={cn(
+          "shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          embedded ? "h-10" : "h-12",
+          hideEmbeddedVariantToolbar && "hidden",
+        )}
       >
         <div className="flex h-full min-w-max w-full items-center gap-2 px-3">
           {openMobileSidebar && (
@@ -1849,6 +1882,7 @@ ${serializedHtml}
                 variants={pendingVariants.variants}
                 onSelect={handleUseVariant}
                 onUse={handleUseVariant}
+                compact={embedded}
               />
             </div>
           </div>

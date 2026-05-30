@@ -14,6 +14,7 @@ interface VariantGridProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onUse: (id: string) => void;
+  compact?: boolean;
 }
 
 export function VariantGrid({
@@ -21,13 +22,21 @@ export function VariantGrid({
   selectedId,
   onSelect,
   onUse,
+  compact = false,
 }: VariantGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // The same grid renders both in the full editor and in compact MCP App
   // embeds, so it needs to wrap instead of squeezing previews into slivers.
-  const gridClass =
-    variants.length <= 1
+  const gridClass = compact
+    ? variants.length <= 1
+      ? "grid-cols-1"
+      : variants.length === 2
+        ? "grid-cols-1 min-[520px]:grid-cols-2"
+        : variants.length === 3
+          ? "grid-cols-1 min-[520px]:grid-cols-2"
+          : "grid-cols-1 min-[520px]:grid-cols-2"
+    : variants.length <= 1
       ? "grid-cols-1"
       : variants.length === 2
         ? "grid-cols-1 sm:grid-cols-2"
@@ -36,10 +45,18 @@ export function VariantGrid({
           : "grid-cols-1 sm:grid-cols-2";
 
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-background p-3 sm:p-4 lg:p-6">
+    <div
+      className={cn(
+        "flex h-full w-full flex-col overflow-y-auto bg-background",
+        compact ? "p-3" : "p-3 sm:p-4 lg:p-6",
+      )}
+    >
       <div
         className={cn(
-          "grid min-h-0 flex-1 auto-rows-[minmax(260px,1fr)] gap-3 sm:gap-4",
+          "grid min-h-0 flex-1 gap-3 sm:gap-4",
+          compact
+            ? "auto-rows-[minmax(210px,1fr)]"
+            : "auto-rows-[minmax(260px,1fr)]",
           gridClass,
         )}
       >

@@ -11,6 +11,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  registerShareableResource: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
