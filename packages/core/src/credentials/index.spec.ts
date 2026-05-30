@@ -50,7 +50,7 @@ describe("credentials encryption at rest", () => {
       orgId: "org-1",
       scope: "org",
     });
-    expect((store.get("o:org-1:credential:STRIPE_KEY")?.value as string)).toMatch(
+    expect(store.get("o:org-1:credential:STRIPE_KEY")?.value as string).toMatch(
       /^v1:/,
     );
     expect(

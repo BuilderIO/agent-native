@@ -137,7 +137,7 @@
     "@tiptap/pm": "^3.22.2",
     "@tiptap/react": "^3.22.2",
     "@tiptap/starter-kit": "^3.22.2",
-    "better-auth": "^1.6.12",
+    "better-auth": "1.6.0",
     "better-sqlite3": "^12.8.0",
     "clsx": "^2.1.1",
     "cron-parser": "^5.5.0",

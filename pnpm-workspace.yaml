@@ -16,7 +16,7 @@ catalog:
   tailwindcss: ^4.2.4
   tsx: ^4.20.3
   typescript: ^6.0.3
-  vite: 8.0.14
+  vite: 8.0.3
 
 onlyBuiltDependencies:
   - "@swc/core"
