@@ -745,6 +745,7 @@ async function handleRefreshTokenGrant(
     return oauthError("server_error", "Unable to derive issuer", 500);
   const accessToken = await signMcpOAuthAccessToken({
     ownerEmail: row.ownerEmail,
+    orgId: row.orgId,
     orgDomain: row.orgDomain,
     clientId: row.clientId,
     scope: row.scope,
