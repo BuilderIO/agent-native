@@ -4551,11 +4551,19 @@ export function createAgentChatPlugin(
         filterReadOnlyActions(templateScripts),
       );
 
+      // Full-database admin tools. Gated on NODE_ENV=development to match the
+      // DB-admin UI + HTTP routes (which gate on the environment, not the
+      // Code-mode toggle), so the agent has the same DB-admin capability the UI
+      // does whenever it is available — true agent/UI parity, in App or Code mode.
+      const dbAdminScripts =
+        process.env.NODE_ENV === "development" ? createDbAdminAgentTools() : {};
+
       const prodActions = attachToolSearch({
         ...templateScripts,
         ...resourceScripts,
         ...docsScripts,
         ...dbScripts,
+        ...dbAdminScripts,
         ...refreshScreenTool,
         ...(lazyContext ? frameworkContextTool : {}),
         ...urlTools,
@@ -4813,9 +4821,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry()),
-                  // Dev-only full-database admin tools (gated to dev+localhost
-                  // by the surrounding `canToggle` block — never in prodActions).
-                  ...createDbAdminAgentTools(),
+                  // Full-database admin tools (NODE_ENV=development gate — see
+                  // dbAdminScripts; also in prodActions so App mode has them too).
+                  ...dbAdminScripts,
                 },
         );
         // Keep dev action dict in sync with runtime MCP additions. When

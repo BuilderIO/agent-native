@@ -13,15 +13,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
-import {
-  IconArrowUpRight,
-  IconLoader2,
-  IconPhoto,
-  IconPhotoPlus,
-  IconSearch,
-  IconVideo,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArrowUpRight, IconX } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +21,7 @@ import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -40,6 +33,8 @@ const ASPECT_RATIOS = ["16:9", "1:1", "9:16", "4:3", "3:4", "21:9"] as const;
 const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
 const STARTER_PRESET = DEFAULT_LIBRARY_PRESETS[0];
 const STARTER_LIBRARY_ID = `starter:${STARTER_PRESET.id}`;
+const PICKER_INLINE_SELECT_CLASS =
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
 
 type Asset = {
@@ -392,22 +387,10 @@ function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
     });
 }
 
-function dimensions(asset: Asset) {
-  if (!asset.width || !asset.height) return null;
-  return `${asset.width} x ${asset.height}`;
-}
-
 function assetDisplayTitle(asset: Asset) {
   return (
     asset.lineage?.label || asset.title || asset.prompt || "Untitled asset"
   );
-}
-
-function assetContextLabel(asset: Asset) {
-  if (asset.lineage?.kind === "variation" && asset.lineage.sourceLabel) {
-    return `from ${asset.lineage.sourceLabel}`;
-  }
-  return dimensions(asset);
 }
 
 function AssetThumbnail({ asset }: { asset: Asset }) {
@@ -451,11 +434,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
   }, [asset.mimeType, source]);
 
   if (!displayUrl) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        <IconPhoto className="h-6 w-6" />
-      </div>
-    );
+    return <div className="h-full w-full bg-muted" />;
   }
 
   return (
@@ -563,9 +542,6 @@ export default function AssetPicker() {
     data?: GenerationConfig;
   };
 
-  const selectedLibrary = displayLibraries.find(
-    (library) => library.id === selectedLibraryId,
-  );
   const usingStarterLibrary = selectedLibraryId === STARTER_LIBRARY_ID;
   const {
     data: presetData,
@@ -636,7 +612,9 @@ export default function AssetPicker() {
     );
   }, [query, starterAssets]);
   const assets = usingStarterLibrary
-    ? visibleStarterAssets
+    ? mediaType === "image"
+      ? visibleStarterAssets
+      : []
     : (assetData?.assets ?? []);
 
   const chooseAsset = (asset: Asset) => {
@@ -793,8 +771,8 @@ export default function AssetPicker() {
     typeof config?.lastIssue?.message === "string"
       ? config.lastIssue.message
       : config?.builderEnabled === false
-        ? "Add a Gemini key in Settings to generate image assets."
-        : "Connect Builder.io or add a Gemini key in Settings to generate image assets.";
+        ? "Add a generation key in Settings."
+        : "Connect generation models.";
   const needsGenerationLibrary =
     mediaType === "image" &&
     libraryListReady &&
@@ -870,24 +848,8 @@ export default function AssetPicker() {
       )}
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            {mediaType === "video" ? (
-              <IconVideo className="h-4 w-4" />
-            ) : (
-              <IconPhoto className="h-4 w-4" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">
-              {embedded ? "Assets" : "Picker"}
-            </div>
-            {selectedLibrary && (
-              <div className="truncate text-xs text-muted-foreground">
-                {selectedLibrary.title} - {mediaLabel}
-              </div>
-            )}
-          </div>
+        <div className="min-w-0 truncate text-sm font-semibold">
+          {embedded ? "Assets" : "Assets picker"}
         </div>
         {embedded && (
           <div className="flex shrink-0 items-center gap-2">
@@ -909,111 +871,129 @@ export default function AssetPicker() {
       </header>
 
       <section className="shrink-0 border-b border-border px-3 py-3">
-        <div className="grid gap-2 md:grid-cols-[minmax(160px,220px)_1fr_auto]">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,12rem)_1fr]">
           <Select
             value={selectedLibraryId}
             onValueChange={setSelectedLibraryId}
           >
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-9 border-border/70 bg-background">
               <SelectValue placeholder="Library" />
             </SelectTrigger>
             <SelectContent>
-              {displayLibraries.map((library) => (
-                <SelectItem key={library.id} value={library.id}>
-                  {library.title}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {displayLibraries.map((library) => (
+                  <SelectItem key={library.id} value={library.id}>
+                    {library.title}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
-          <div className="relative">
-            <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${mediaLabel} assets`}
-              className="h-9 pl-9"
-            />
-          </div>
-          <Button
-            variant="outline"
-            className="h-9"
-            onClick={() => setQuery("")}
-            disabled={!query}
-          >
-            Clear
-          </Button>
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${mediaLabel}s`}
+            className="h-9 border-border/70 bg-background"
+          />
         </div>
 
-        <div className="mt-2 grid gap-2 md:grid-cols-[1fr_116px_92px_minmax(150px,190px)_auto]">
-          <Input
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={
-              mediaType === "video"
-                ? "Video generation runs through chat or actions"
-                : "Generate a new image asset"
-            }
-            className="h-9"
-            disabled={mediaType === "video"}
-          />
-          <Select value={aspectRatio} onValueChange={setAspectRatio}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ASPECT_RATIOS.map((ratio) => (
-                <SelectItem key={ratio} value={ratio}>
-                  {ratio}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={String(count)}
-            onValueChange={(value) => setCount(normalizeCount(value))}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GENERATION_COUNTS.map((option) => (
-                <SelectItem key={option} value={String(option)}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={presetId}
-            onValueChange={(value) => setPresetId(value)}
-            disabled={!generationPresets.length}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Preset" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">No preset</SelectItem>
-              {generationPresets.map((preset) => (
-                <SelectItem key={preset.id} value={preset.id}>
-                  {preset.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button className="h-9" disabled={!canGenerate} onClick={runGenerate}>
-            {generateBatch.isPending ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <IconPhotoPlus className="h-4 w-4" />
-            )}
-            Generate
-          </Button>
-        </div>
+        {mediaType === "image" ? (
+          <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
+            <Input
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey) return;
+                if (!canGenerate) return;
+                event.preventDefault();
+                runGenerate();
+              }}
+              placeholder="Generate an image asset"
+              className="h-11 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+            <div className="flex items-center gap-1 px-2 pb-2">
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
+                <Select value={aspectRatio} onValueChange={setAspectRatio}>
+                  <SelectTrigger
+                    aria-label="Aspect ratio"
+                    className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
+                  >
+                    <span>{aspectRatio}</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {ASPECT_RATIOS.map((ratio) => (
+                        <SelectItem key={ratio} value={ratio}>
+                          {ratio}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={String(count)}
+                  onValueChange={(value) => setCount(normalizeCount(value))}
+                >
+                  <SelectTrigger
+                    aria-label="Candidate count"
+                    className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
+                  >
+                    <span>{count}x</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {GENERATION_COUNTS.map((option) => (
+                        <SelectItem key={option} value={String(option)}>
+                          {option}x
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {generationPresets.length > 0 || presetId !== "none" ? (
+                  <Select
+                    value={presetId}
+                    onValueChange={(value) => setPresetId(value)}
+                  >
+                    <SelectTrigger
+                      aria-label="Preset"
+                      className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
+                    >
+                      <SelectValue placeholder="Preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="none">No preset</SelectItem>
+                        {generationPresets.map((preset) => (
+                          <SelectItem key={preset.id} value={preset.id}>
+                            {preset.title}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </div>
+              <Button
+                className="h-7 shrink-0 px-3 text-xs"
+                disabled={!canGenerate}
+                onClick={runGenerate}
+              >
+                {generateBatch.isPending ? "Generating..." : "Generate"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {setupNeeded && (
-          <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             <span className="min-w-0 truncate">{setupMessage}</span>
-            <Button asChild variant="outline" size="sm" className="h-7">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+            >
               <a
                 href={absoluteAppUrl("/settings")}
                 target="_blank"
@@ -1039,10 +1019,7 @@ export default function AssetPicker() {
               onClick={prepareGenerationLibrary}
               disabled={preparingGenerationLibrary}
             >
-              {preparingGenerationLibrary ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              Create library
+              {preparingGenerationLibrary ? "Preparing..." : "Create library"}
             </Button>
           </div>
         )}
@@ -1066,8 +1043,7 @@ export default function AssetPicker() {
         )}
 
         {selectedLibraryId && !assetsLoading && assets.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <IconPhoto className="h-8 w-8 text-muted-foreground" />
+          <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
                 ? `No matching ${mediaLabel} assets in this library.`
@@ -1082,7 +1058,9 @@ export default function AssetPicker() {
               <button
                 key={asset.id}
                 type="button"
+                aria-label={`Select ${assetDisplayTitle(asset)}`}
                 onClick={() => chooseAsset(asset)}
+                title={assetDisplayTitle(asset)}
                 className="group overflow-hidden rounded-md border border-border bg-card text-left shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="aspect-square bg-muted">
@@ -1097,16 +1075,6 @@ export default function AssetPicker() {
                     />
                   ) : (
                     <AssetThumbnail asset={asset} />
-                  )}
-                </div>
-                <div className="space-y-1 p-2">
-                  <div className="truncate text-xs font-medium">
-                    {assetDisplayTitle(asset)}
-                  </div>
-                  {assetContextLabel(asset) && (
-                    <div className="text-[11px] text-muted-foreground">
-                      {assetContextLabel(asset)}
-                    </div>
                   )}
                 </div>
               </button>
