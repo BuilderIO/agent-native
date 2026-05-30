@@ -302,6 +302,9 @@ export default function CalendarView() {
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
   const committingDraftIdsRef = useRef<Set<string>>(new Set());
+  const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
+    new Map(),
+  );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
@@ -516,23 +519,18 @@ export default function CalendarView() {
       const draft = pendingPatch
         ? applyDraftPatch(eventDraft, pendingPatch)
         : eventDraft;
+      discardedCommittingDraftsRef.current.delete(draftId);
       if (pendingPatch) {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
       const trimmedTitle = draft.title?.trim();
       const title =
-        trimmedTitle && trimmedTitle !== "(No title)"
-          ? trimmedTitle
-          : isSlotDraftId(draftId)
-            ? "(No title)"
-            : "";
-      if (!title || title === "(No title)") {
-        if (!isSlotDraftId(draftId)) {
-          committingDraftIdsRef.current.delete(draftId);
-          toast.error("Add a title before creating the event");
-          return;
-        }
+        trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
+      if (!title && !isSlotDraftId(draftId)) {
+        committingDraftIdsRef.current.delete(draftId);
+        toast.error("Add a title before creating the event");
+        return;
       }
 
       const { start, end } = draftRange(draft, selectedDate);
@@ -595,6 +593,7 @@ export default function CalendarView() {
         },
         {
           onSuccess: (result) => {
+            discardedCommittingDraftsRef.current.delete(draftId);
             deletePersistedCalendarDraft(draftId);
             setEventDraft(null);
             setQuickEditEventId(null);
@@ -615,10 +614,19 @@ export default function CalendarView() {
             }
             toast("Event created");
           },
-          onError: (error) =>
+          onError: (error) => {
+            const discardedDraft =
+              discardedCommittingDraftsRef.current.get(draftId);
+            if (discardedDraft) {
+              discardedCommittingDraftsRef.current.delete(draftId);
+              persistCalendarDraft(discardedDraft);
+              setEventDraft(discardedDraft);
+              setQuickEditEventId(calendarDraftEventId(draftId));
+            }
             toast.error(
               error instanceof Error ? error.message : "Failed to create event",
-            ),
+            );
+          },
           onSettled: () => {
             committingDraftIdsRef.current.delete(draftId);
           },
@@ -645,6 +653,12 @@ export default function CalendarView() {
     (eventId: string) => {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
+      if (committingDraftIdsRef.current.has(draftId)) {
+        discardedCommittingDraftsRef.current.set(draftId, eventDraft);
+        committingDraftIdsRef.current.delete(draftId);
+      } else {
+        discardedCommittingDraftsRef.current.delete(draftId);
+      }
       deletePersistedCalendarDraft(draftId);
       setEventDraft(null);
       setQuickEditEventId(null);
