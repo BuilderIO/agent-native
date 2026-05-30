@@ -24,6 +24,9 @@ describe("get-asset", () => {
     expect(asset.previewUrl).toContain(
       "/library-presets/soft-travel-3d/location-clay.webp",
     );
+    expect(asset.downloadUrl).toContain(
+      "Special:Redirect/file/Location-dynamic-clay.png",
+    );
     expect(asset.urlPath).toBe("/asset/starter-soft-travel-3d-location-clay");
   });
 });

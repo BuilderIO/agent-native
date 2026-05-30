@@ -14,7 +14,7 @@ function starterAsset(id: string) {
     for (const reference of preset.referenceImages) {
       const starterId = `starter-${preset.id}-${reference.id}`;
       if (id !== starterId) continue;
-      return serializeAsset(
+      const asset = serializeAsset(
         {
           id: starterId,
           libraryId: `starter:${preset.id}`,
@@ -52,6 +52,10 @@ function starterAsset(id: string) {
         },
         null,
       );
+      return {
+        ...asset,
+        downloadUrl: reference.downloadUrl || asset.previewUrl,
+      };
     }
   }
   return null;

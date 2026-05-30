@@ -7,6 +7,7 @@ import {
 import {
   agentNativePath,
   appPath,
+  getEmbedAuthToken,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
@@ -198,7 +199,10 @@ function shouldUseContentProxyForPreview(asset: Asset) {
 
 function embedTokenParam() {
   if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get("__an_embed_token");
+  return (
+    getEmbedAuthToken() ??
+    new URLSearchParams(window.location.search).get("__an_embed_token")
+  );
 }
 
 function assetContentUrl(asset: Asset, variant?: "thumb") {
@@ -245,9 +249,12 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const assetPrompt = asset.prompt?.trim() ?? "";
   const displayTitle = assetDisplayTitle(asset);
   const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
-  const previewUrl = absoluteAssetUrl(asset.previewUrl);
+  const embeddedContentUrl = shouldUseContentProxyForPreview(asset)
+    ? assetContentUrl(asset)
+    : undefined;
+  const previewUrl = absoluteAssetUrl(embeddedContentUrl ?? asset.previewUrl);
   const url = absoluteAssetUrl(
-    asset.previewUrl ?? asset.downloadUrl ?? asset.url,
+    embeddedContentUrl ?? asset.previewUrl ?? asset.downloadUrl ?? asset.url,
   );
   const thumbnailUrl = absoluteAssetUrl(asset.thumbnailUrl);
   const downloadUrl = absoluteAssetUrl(asset.downloadUrl);
@@ -325,15 +332,10 @@ async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
     : "image/png";
   if (!url || payload.mediaType !== "image") return null;
   try {
-    const appOrigin =
-      typeof window !== "undefined"
-        ? (embeddedAppOrigin() ?? window.location.origin)
-        : undefined;
     const credentials =
       typeof window !== "undefined" &&
-      appOrigin &&
-      new URL(url, window.location.href).origin === appOrigin
-        ? "include"
+      new URL(url, window.location.href).origin === window.location.origin
+        ? "same-origin"
         : "omit";
     const response = await fetch(url, { credentials });
     if (!response.ok) return null;

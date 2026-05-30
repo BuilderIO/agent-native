@@ -17,6 +17,7 @@ describe("MCP embed headers", () => {
     for (const origin of [
       "https://files.oaiusercontent.com",
       "https://example.oaiusercontent.com",
+      "https://web-sandbox.oaiusercontent.com",
       "https://web-sandbox.oaiusercontent.com.evil.example",
     ]) {
       expect(isChatGptMcpSandboxOrigin(origin)).toBe(false);
