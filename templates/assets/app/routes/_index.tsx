@@ -220,7 +220,7 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
     ? "Connect generation models"
     : "Finish asset setup";
   const description = builderAvailable
-    ? "Connect to enable image generation, video generation, LLMs, and asset storage. Free credits and no keys needed."
+    ? "Connect to enable image generation, video generation, LLMs, and asset storage. Free credits and no keys needed"
     : "This deployment uses manual provider setup. Add the missing pieces in Settings.";
   const showContent = !!issueMessage || !!flow.error || builderAvailable;
 
