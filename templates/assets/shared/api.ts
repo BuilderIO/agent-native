@@ -160,6 +160,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
+  intent?: "subject" | string;
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;

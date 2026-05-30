@@ -26,9 +26,9 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
 
-export const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+export { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
@@ -213,13 +213,38 @@ function isAuthenticatedCookieName(name: string): boolean {
   );
 }
 
-function applyDefaultSsrCacheHeader(headers: Headers, status: number) {
-  if (headers.has("cache-control")) return;
-  if (status < 200 || status >= 400) return;
+function shouldUseDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+  hasAuthSignal: boolean,
+): boolean {
+  if (status < 200 || status >= 400) return false;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/html")) return;
+  if (contentType.includes("text/html")) {
+    return !headers.has("cache-control");
+  }
 
+  if (!pathname.endsWith(".data")) return false;
+  if (hasAuthSignal) return false;
+  if (!contentType.includes("text/x-script")) return false;
+
+  const cacheControl = headers.get("cache-control");
+  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+}
+
+function applyDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+  hasAuthSignal: boolean,
+) {
+  if (
+    !shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)
+  ) {
+    return;
+  }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -244,10 +269,12 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
+  pathname: string,
+  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -327,11 +354,15 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
             headers: response.headers,
           }),
           basePath,
+          p,
+          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
+        p,
+        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

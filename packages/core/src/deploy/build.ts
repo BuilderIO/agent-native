@@ -377,13 +377,47 @@ function injectDefaultSocialImageMeta(html) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function applyDefaultSsrCacheHeader(headers, status) {
-  if (headers.has("cache-control")) return;
-  if (status < 200 || status >= 400) return;
+const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
+const AUTH_SESSION_COOKIE_RE = /^(?:an_session(?:_[^=;]+)?|an_embed_session|[^=;]+\\.session_(?:token|data))$/;
+
+function requestHasAuthenticatedCookie(cookieHeader) {
+  if (!cookieHeader) return false;
+  return cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim().split("=", 1)[0]?.trim())
+    .filter(Boolean)
+    .map((name) => name.replace(/^__(?:Secure|Host)-/, ""))
+    .some((name) => !ANONYMOUS_SESSION_COOKIE_NAMES.has(name) && AUTH_SESSION_COOKIE_RE.test(name));
+}
+
+function requestHasAuthSignal(request) {
+  const url = new URL(request.url);
+  return Boolean(
+    request.headers.get("authorization") ||
+    requestHasAuthenticatedCookie(request.headers.get("cookie")) ||
+    url.searchParams.has("__an_embed_token") ||
+    url.searchParams.has("_session")
+  );
+}
+
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+  if (status < 200 || status >= 400) return false;
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
-  if (!contentType.includes("text/html")) return;
+  if (contentType.includes("text/html")) {
+    return !headers.has("cache-control");
+  }
 
+  if (!pathname.endsWith(".data")) return false;
+  if (hasAuthSignal) return false;
+  if (!contentType.includes("text/x-script")) return false;
+
+  const cacheControl = headers.get("cache-control");
+  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+}
+
+function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -407,10 +441,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath) {
+async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -521,6 +555,7 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
+    const hasAuthSignal = requestHasAuthSignal(event.req);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -531,9 +566,11 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
+        p,
+        hasAuthSignal,
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
   }));
 
   _handler = app.fetch.bind(app);

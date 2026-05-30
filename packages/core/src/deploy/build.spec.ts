@@ -36,6 +36,23 @@ async function importGeneratedWorker(entrySource: string) {
 export function createRequestHandler() {
   return async (request) => {
     const url = new URL(request.url);
+    if (url.pathname.endsWith(".data")) {
+      if (url.pathname === "/custom.data") {
+        return new Response('{"ok":true}', {
+          headers: {
+            "cache-control": "no-cache",
+            "content-type": "application/json",
+          },
+        });
+      }
+      return new Response('["data"]', {
+        headers: {
+          "cache-control": url.pathname === "/private.data" ? "private, no-store" : "no-cache",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      });
+    }
     if (url.pathname === "/redirect") {
       return new Response(null, {
         status: 302,
@@ -192,6 +209,58 @@ export default (event) =>
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );
+  });
+
+  it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox.data"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("preserves React Router's default no-cache policy on authenticated Cloudflare worker data responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox.data", {
+        headers: { cookie: "an_session=active" },
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("preserves explicit private cache policies on Cloudflare worker data responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/private.data"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/custom.data"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {

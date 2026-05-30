@@ -122,6 +122,79 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("replaces React Router's default no-cache policy on .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('[{"_1":2},"routes/docs.$slug"]', {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs/template-calendar.data"));
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+  });
+
+  it("preserves React Router's default no-cache policy on authenticated .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('[{"_1":2},"routes/account"]', {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/account.data", "GET", {
+        headers: { cookie: "an_session=active" },
+      }),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("preserves explicit private cache policies on .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('[{"_1":2},"routes/private"]', {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/private.data"));
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("does not replace no-cache on non-React Router .data responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('{"ok":true}', {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/custom.data"));
+
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
   it("injects the default social image into SSR HTML without one", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response(

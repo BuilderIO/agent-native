@@ -112,6 +112,10 @@ function calendarDraftIdFromEventId(eventId: string) {
     : null;
 }
 
+function isSlotDraftId(id: string) {
+  return id.startsWith("slot-");
+}
+
 function parseValidDate(value: string | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
@@ -297,6 +301,10 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const committingDraftIdsRef = useRef<Set<string>>(new Set());
+  const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
+    new Map(),
+  );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
@@ -349,6 +357,7 @@ export default function CalendarView() {
     data: rawEventsData,
     error: eventsError,
     isLoading,
+    isPlaceholderData,
   } = useEvents(from, to, overlayEmails);
   const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
   const draftEvent = useMemo(
@@ -407,7 +416,7 @@ export default function CalendarView() {
 
   // Show skeleton only when loading with no cached data (new date range).
   // Tab refocus keeps cached data visible and refetches in background.
-  const eventsLoading = isLoading;
+  const eventsLoading = isLoading || isPlaceholderData;
 
   // Apply overlay colors and filter hidden calendars
   const events = useMemo(() => {
@@ -501,57 +510,32 @@ export default function CalendarView() {
     viewMode,
   ]);
 
-  const updateDraftEvent = useCallback(
-    (eventId: string, patch: DraftEventPatch) => {
-      const draftId = calendarDraftIdFromEventId(eventId);
-      if (!draftId || !eventDraft || eventDraft.id !== draftId) return null;
-      const nextDraft = applyDraftPatch(eventDraft, patch);
-      setEventDraft(nextDraft);
-      persistCalendarDraft(nextDraft);
-      return nextDraft;
-    },
-    [eventDraft, setEventDraft],
-  );
-
-  const discardDraftEvent = useCallback(
-    (eventId: string) => {
-      const draftId = calendarDraftIdFromEventId(eventId);
-      if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
-      deletePersistedCalendarDraft(draftId);
-      setEventDraft(null);
-      setQuickEditEventId(null);
-      if (sidebarEvent?.id === eventId) setSidebarEvent(null);
-      if (focusedEvent?.id === eventId) setFocusedEvent(null);
-    },
-    [
-      eventDraft,
-      focusedEvent,
-      setEventDraft,
-      setFocusedEvent,
-      setSidebarEvent,
-      sidebarEvent,
-    ],
-  );
-
   const createDraftEvent = useCallback(
     (eventId: string, pendingPatch?: DraftEventPatch) => {
       const draftId = calendarDraftIdFromEventId(eventId);
       if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
+      if (committingDraftIdsRef.current.has(draftId)) return;
+      committingDraftIdsRef.current.add(draftId);
       const draft = pendingPatch
         ? applyDraftPatch(eventDraft, pendingPatch)
         : eventDraft;
+      discardedCommittingDraftsRef.current.delete(draftId);
       if (pendingPatch) {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
-      const title = draft.title?.trim();
-      if (!title || title === "(No title)") {
+      const trimmedTitle = draft.title?.trim();
+      const title =
+        trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
+      if (!title && !isSlotDraftId(draftId)) {
+        committingDraftIdsRef.current.delete(draftId);
         toast.error("Add a title before creating the event");
         return;
       }
 
       const { start, end } = draftRange(draft, selectedDate);
       if (end.getTime() <= start.getTime()) {
+        committingDraftIdsRef.current.delete(draftId);
         toast.error("End time must be after start time");
         return;
       }
@@ -575,6 +559,7 @@ export default function CalendarView() {
 
       createEvent.mutate(
         {
+          _tempId: eventId,
           title,
           description: draft.description ?? "",
           start: start.toISOString(),
@@ -608,6 +593,7 @@ export default function CalendarView() {
         },
         {
           onSuccess: (result) => {
+            discardedCommittingDraftsRef.current.delete(draftId);
             deletePersistedCalendarDraft(draftId);
             setEventDraft(null);
             setQuickEditEventId(null);
@@ -628,14 +614,65 @@ export default function CalendarView() {
             }
             toast("Event created");
           },
-          onError: (error) =>
+          onError: (error) => {
+            const discardedDraft =
+              discardedCommittingDraftsRef.current.get(draftId);
+            if (discardedDraft) {
+              discardedCommittingDraftsRef.current.delete(draftId);
+              persistCalendarDraft(discardedDraft);
+              setEventDraft(discardedDraft);
+              setQuickEditEventId(calendarDraftEventId(draftId));
+            }
             toast.error(
               error instanceof Error ? error.message : "Failed to create event",
-            ),
+            );
+          },
+          onSettled: () => {
+            committingDraftIdsRef.current.delete(draftId);
+          },
         },
       );
     },
     [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
+  );
+
+  const updateDraftEvent = useCallback(
+    (eventId: string, patch: DraftEventPatch) => {
+      const draftId = calendarDraftIdFromEventId(eventId);
+      if (!draftId || !eventDraft || eventDraft.id !== draftId) return null;
+
+      const nextDraft = applyDraftPatch(eventDraft, patch);
+      setEventDraft(nextDraft);
+      persistCalendarDraft(nextDraft);
+      return nextDraft;
+    },
+    [eventDraft, setEventDraft],
+  );
+
+  const discardDraftEvent = useCallback(
+    (eventId: string) => {
+      const draftId = calendarDraftIdFromEventId(eventId);
+      if (!draftId || !eventDraft || eventDraft.id !== draftId) return;
+      if (committingDraftIdsRef.current.has(draftId)) {
+        discardedCommittingDraftsRef.current.set(draftId, eventDraft);
+        committingDraftIdsRef.current.delete(draftId);
+      } else {
+        discardedCommittingDraftsRef.current.delete(draftId);
+      }
+      deletePersistedCalendarDraft(draftId);
+      setEventDraft(null);
+      setQuickEditEventId(null);
+      if (sidebarEvent?.id === eventId) setSidebarEvent(null);
+      if (focusedEvent?.id === eventId) setFocusedEvent(null);
+    },
+    [
+      eventDraft,
+      focusedEvent,
+      setEventDraft,
+      setFocusedEvent,
+      setSidebarEvent,
+      sidebarEvent,
+    ],
   );
 
   const selectedEvent = useMemo(() => {

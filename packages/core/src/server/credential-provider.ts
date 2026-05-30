@@ -161,6 +161,10 @@ function isCompleteBuilderConnection(creds: BuilderResolvedCredentials) {
   return Boolean(creds.privateKey && creds.publicKey);
 }
 
+export function isBuilderPrivateKey(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().startsWith("bpk-");
+}
+
 async function readBuilderCredentialScope(
   readAppSecret: typeof import("../secrets/storage.js").readAppSecret,
   scope: "user" | "org" | "workspace",
@@ -595,6 +599,19 @@ export async function writeBuilderCredentials(
   },
   options?: { orgId?: string | null; role?: string | null },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
+  const privateKey = creds.privateKey.trim();
+  const publicKey = creds.publicKey.trim();
+  if (!isBuilderPrivateKey(privateKey)) {
+    throw new Error(
+      "Builder returned a credential that is not a Builder private key (expected bpk-...). Restart the Builder connect flow and choose a space that can issue a private key.",
+    );
+  }
+  if (!publicKey) {
+    throw new Error(
+      "Builder did not return a public API key. Restart the Builder connect flow.",
+    );
+  }
+
   const { writeAppSecret, deleteAppSecret } =
     await import("../secrets/storage.js");
   const target = resolveCredentialWriteScope(
@@ -622,8 +639,8 @@ export async function writeBuilderCredentials(
   await Promise.all(cleanups);
 
   const entries: Array<{ key: string; value: string }> = [
-    { key: "BUILDER_PRIVATE_KEY", value: creds.privateKey },
-    { key: "BUILDER_PUBLIC_KEY", value: creds.publicKey },
+    { key: "BUILDER_PRIVATE_KEY", value: privateKey },
+    { key: "BUILDER_PUBLIC_KEY", value: publicKey },
   ];
   if (creds.userId) {
     entries.push({ key: "BUILDER_USER_ID", value: creds.userId });
@@ -645,8 +662,8 @@ export async function writeBuilderCredentials(
     ),
   );
   await clearBuilderCredentialAuthFailure({
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
+    privateKey,
+    publicKey,
   });
   return target;
 }
