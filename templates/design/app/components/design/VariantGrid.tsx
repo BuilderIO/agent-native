@@ -24,19 +24,25 @@ export function VariantGrid({
 }: VariantGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // Determine grid layout based on variant count
+  // The same grid renders both in the full editor and in compact MCP App
+  // embeds, so it needs to wrap instead of squeezing previews into slivers.
   const gridClass =
     variants.length <= 1
       ? "grid-cols-1"
       : variants.length === 2
-        ? "grid-cols-2"
+        ? "grid-cols-1 sm:grid-cols-2"
         : variants.length === 3
-          ? "grid-cols-3"
-          : "grid-cols-2";
+          ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
+          : "grid-cols-1 sm:grid-cols-2";
 
   return (
-    <div className="flex h-full w-full flex-col bg-background p-6">
-      <div className={cn("grid flex-1 gap-4", gridClass)}>
+    <div className="flex h-full w-full flex-col overflow-y-auto bg-background p-3 sm:p-4 lg:p-6">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 auto-rows-[minmax(260px,1fr)] gap-3 sm:gap-4",
+          gridClass,
+        )}
+      >
         {variants.map((variant) => {
           const isSelected = selectedId === variant.id;
           const isHovered = hoveredId === variant.id;
@@ -67,7 +73,7 @@ export function VariantGrid({
                     height: "200%",
                     transform: "scale(0.5)",
                   }}
-                  sandbox="allow-same-origin"
+                  sandbox="allow-scripts"
                   title={variant.label}
                 />
 
@@ -113,17 +119,31 @@ export function VariantGrid({
   );
 }
 
-/** Wrap raw HTML content in a minimal document for the iframe */
+/** Prepare generated HTML for the iframe preview without changing full docs. */
 function wrapContent(content: string): string {
+  const previewStyle = `<style data-agent-native-preview>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body { background: #0a0a0a; }
+  </style>`;
+  const trimmed = content.trim();
+
+  if (/<!doctype\s+html|<html[\s>]/i.test(trimmed)) {
+    if (/<\/head>/i.test(trimmed)) {
+      return trimmed.replace(/<\/head>/i, `${previewStyle}</head>`);
+    }
+    return trimmed.replace(
+      /<html([^>]*)>/i,
+      `<html$1><head>${previewStyle}</head>`,
+    );
+  }
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0a; overflow: hidden; }
-  </style>
+  ${previewStyle}
 </head>
-<body>${content}</body>
+<body>${trimmed}</body>
 </html>`;
 }

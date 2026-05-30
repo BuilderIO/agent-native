@@ -24,11 +24,12 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
+  agent-native skills add design-exploration
   agent-native skills add assets --client claude-code
   agent-native skills add ./dist/assets-skill --client codex
 
@@ -86,8 +87,59 @@ or generated image/video assets that another app can reference by ID and URL.
   generation, picker UI, search/list/export, and asset context.
 `;
 
+const DESIGN_EXPLORATION_SKILL_MD = `---
+name: design-exploration
+description: >-
+  Use Design for UI/UX exploration, side-by-side design directions,
+  interactive prototype previews, user selection, iteration, and design-to-code
+  handoff through the hosted Design MCP app.
+metadata:
+  visibility: exported
+---
+
+# Design Exploration
+
+Use the Design app when a workflow needs visual UI exploration, prototype
+iteration, or a human-in-the-loop choice among design directions.
+
+## Choose The Path
+
+- Use \`create-design\` first to create a project shell. Do not report the
+  design as ready until it has renderable HTML.
+- For open-ended UX exploration, generate three distinct, complete HTML
+  directions and call \`present-design-variants\`. The inline Design MCP app
+  shows the options, lets the user pick one, and persists the selected variant.
+- For direct refinements to an already chosen direction, call
+  \`get-design-snapshot\`, edit from the current tuned HTML, then call
+  \`generate-design\`.
+- Use \`export-coding-handoff\` when the user wants to implement the chosen
+  design in a codebase.
+
+## Exploration Defaults
+
+1. Default to three variants unless the user asks for a different count.
+2. Make variants structurally and stylistically distinct, not just color swaps.
+3. Each variant must be a complete standalone HTML document that renders
+   without a build step.
+4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
+   and realistic controls over decorative mockups.
+5. After \`present-design-variants\`, wait for the user's pick before
+   generating the next version. If they say "I like #2 but...", snapshot the
+   chosen design and refine that direction with \`generate-design\`.
+
+## Cross-App Use
+
+- Hosted default: connect \`https://design.agent-native.com/_agent-native/mcp\`.
+  Do not put shared secrets in skill files.
+- Dispatch can expose Design alongside other apps. Use Design for UI/UX design
+  tasks, Assets for image/media selection, Slides for decks, and so on.
+- Keep the loop visual: surface the inline MCP App or the returned "Open
+  design" link instead of pasting large HTML blobs into chat.
+`;
+
 const BUILT_IN_APP_SKILLS = {
   assets: {
+    skillName: "assets",
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "assets",
@@ -132,9 +184,53 @@ const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: ASSETS_SKILL_MD,
   },
+  design: {
+    skillName: "design-exploration",
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "design",
+      displayName: "Design",
+      description:
+        "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+      hosted: {
+        url: "https://design.agent-native.com",
+        mcpUrl: "https://design.agent-native.com/_agent-native/mcp",
+      },
+      mcp: { serverName: "agent-native-design" },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate with the Design MCP connector in the host app. No shared secrets are stored in skill files.",
+      },
+      surfaces: [
+        {
+          id: "design-exploration",
+          action: "present-design-variants",
+          path: "/design",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/design-exploration",
+          visibility: "exported",
+          exportAs: "design-exploration",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: DESIGN_EXPLORATION_SKILL_MD,
+  },
 } satisfies Record<
   string,
-  { manifest: AppSkillManifest; skillMarkdown: string }
+  { manifest: AppSkillManifest; skillMarkdown: string; skillName: string }
 >;
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
@@ -148,10 +244,22 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "image-generation": "assets",
   "agent-native-assets": "assets",
   "agent-native-images": "assets",
+  design: "design",
+  "ui-design": "design",
+  "ux-design": "design",
+  "design-exploration": "design",
+  "ux-exploration": "design",
+  "agent-native-design": "design",
+  "agent-native-design-exploration": "design",
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   assets: ["images", "image-generation", "agent-native-images"],
+  design: [
+    "design-exploration",
+    "ux-exploration",
+    "agent-native-design-exploration",
+  ],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
 type SkillsCommand = "list" | "add" | "help";
@@ -281,9 +389,9 @@ function loadSkillTarget(target: string): SkillInstallTarget {
         file: `<built-in:${builtIn.manifest.id}>`,
         dir: process.cwd(),
       },
-      skillNames: ["assets"],
+      skillNames: [builtIn.skillName],
       materializeInstructions(outDir) {
-        const skillDir = path.join(outDir, "skills", "assets");
+        const skillDir = path.join(outDir, "skills", builtIn.skillName);
         fs.mkdirSync(skillDir, { recursive: true });
         fs.writeFileSync(
           path.join(skillDir, "SKILL.md"),

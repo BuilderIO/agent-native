@@ -203,7 +203,7 @@ function Screen({
           >
             <iframe
               srcDoc={screen.content}
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts"
               className="pointer-events-none border-0"
               style={{
                 width: 1280,

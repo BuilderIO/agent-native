@@ -11,7 +11,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, isEmbedAuthActive } from "@agent-native/core/client";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +68,26 @@ export function Layout({ children }: LayoutProps) {
   );
   const isDesignEditor = location.pathname.startsWith("/design/");
   const showMobileTopBar = !isDesignEditor;
+  const embedded = isEmbedAuthActive();
+
+  if (embedded) {
+    return (
+      <HeaderActionsProvider>
+        <MobileSidebarContext.Provider value={null}>
+          <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
+            <main
+              className={cn(
+                "min-w-0 flex-1",
+                isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+              )}
+            >
+              {children}
+            </main>
+          </div>
+        </MobileSidebarContext.Provider>
+      </HeaderActionsProvider>
+    );
+  }
 
   return (
     <HeaderActionsProvider>

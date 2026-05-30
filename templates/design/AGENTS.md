@@ -24,7 +24,8 @@ patterns live in `.agents/skills/`.
 - Persist useful work early: create/update the design and files as soon as a
   coherent candidate exists, then iterate.
 - For multi-variant work, write candidates incrementally so the UI can preview
-  progress.
+  progress. External MCP hosts should use `present-design-variants` so the same
+  picker opens inline instead of writing `application_state` directly.
 - Use framework sharing actions for design and design-system visibility/grants.
 - When the user asks to download/export, use export actions or point to the
   editor download menu.
@@ -36,6 +37,17 @@ patterns live in `.agents/skills/`.
 - `navigate` moves the UI and is auto-deleted after the client consumes it.
 - `show-questions` opens focused pre-generation questions when needed.
 - `design-variants` contains in-progress candidates for the variant picker.
+
+## App-Backed Skill Distribution
+
+- The preferred hosted install path is
+  `npx @agent-native/core@latest skills add design-exploration` (or `design`).
+  It installs the exported Design exploration instructions and registers the
+  hosted Design MCP connector together.
+- For human-in-the-loop UI exploration, create a design shell, call
+  `present-design-variants` with 2-5 complete HTML directions, wait for the
+  user to pick one, then use `get-design-snapshot` and `generate-design` for
+  follow-up refinements.
 
 ## Skills
 
