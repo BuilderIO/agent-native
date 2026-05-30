@@ -40,6 +40,7 @@ export interface McpAppHostChatMessage {
   message: string;
   context?: string;
   content?: McpAppModelContextContentPart[];
+  structuredContent?: unknown;
 }
 
 export interface McpAppHostCapabilities {
@@ -349,6 +350,9 @@ function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
             context: chat.context?.trim() || "",
             submit: true,
             ...(chat.content?.length ? { content: chat.content } : {}),
+            ...(chat.structuredContent !== undefined
+              ? { structuredContent: chat.structuredContent }
+              : {}),
           },
         },
         "*",
@@ -550,7 +554,12 @@ export function sendMcpAppHostMessage(
         openAiBridge.setWidgetState({
           ...objectValue(openAiBridge.widgetState),
           agentNativeChatContext: context,
-          agentNativeModelContext: { content: contextContent },
+          agentNativeModelContext: {
+            content: contextContent,
+            ...(chat.structuredContent !== undefined
+              ? { structuredContent: chat.structuredContent }
+              : {}),
+          },
         });
       }
       await openAiBridge.sendFollowUpMessage({
@@ -564,6 +573,9 @@ export function sendMcpAppHostMessage(
     try {
       await postJsonRpcRequest("ui/update-model-context", {
         content: contextContent,
+        ...(chat.structuredContent !== undefined
+          ? { structuredContent: chat.structuredContent }
+          : {}),
       });
     } catch {
       // Best effort: a host without model-context support should still receive

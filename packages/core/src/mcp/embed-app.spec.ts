@@ -30,9 +30,8 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.setOpenInAppUrl");
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("prompt: message");
-    expect(html).toContain(
-      "agentNativeModelContext: { content: contextContent }",
-    );
+    expect(html).toContain("const modelContext = {");
+    expect(html).toContain("agentNativeModelContext: modelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',

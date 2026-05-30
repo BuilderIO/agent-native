@@ -464,6 +464,12 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
       message: "Use the selected Assets image",
+      structuredContent: {
+        selectedAsset: {
+          assetId: "asset-123",
+          url: "https://example.com/a.png",
+        },
+      },
       content: [
         { type: "text", text: "Use the selected Assets image" },
         { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
@@ -479,6 +485,12 @@ describe("MCP app host client helpers", () => {
           { type: "text", text: "Hidden selected asset context" },
           { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
         ],
+        structuredContent: {
+          selectedAsset: {
+            assetId: "asset-123",
+            url: "https://example.com/a.png",
+          },
+        },
       },
     });
     expect(sendFollowUpMessage).toHaveBeenCalledWith({
@@ -494,6 +506,12 @@ describe("MCP app host client helpers", () => {
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
       message: "Use the selected Assets image",
+      structuredContent: {
+        selectedAsset: {
+          assetId: "asset-123",
+          url: "https://example.com/a.png",
+        },
+      },
       content: [
         { type: "text", text: "Use the selected Assets image" },
         { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
@@ -513,6 +531,12 @@ describe("MCP app host client helpers", () => {
             { type: "text", text: "Use the selected Assets image" },
             { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
           ],
+          structuredContent: {
+            selectedAsset: {
+              assetId: "asset-123",
+              url: "https://example.com/a.png",
+            },
+          },
           submit: true,
         },
       },
@@ -603,6 +627,12 @@ describe("MCP app host client helpers", () => {
     ];
     const result = sendMcpAppHostMessage({
       context: "Hidden selected asset context",
+      structuredContent: {
+        selectedAsset: {
+          assetId: "asset-123",
+          url: "https://example.com/a.png",
+        },
+      },
       content,
       message: "Use the selected Assets image",
     });
@@ -627,6 +657,12 @@ describe("MCP app host client helpers", () => {
           { type: "text", text: "Hidden selected asset context" },
           { type: "image", data: "ZmFrZS1pbWFnZQ==", mimeType: "image/webp" },
         ],
+        structuredContent: {
+          selectedAsset: {
+            assetId: "asset-123",
+            url: "https://example.com/a.png",
+          },
+        },
       },
     });
     dispatchHostMessage({ jsonrpc: "2.0", id: contextCall.id, result: {} });
