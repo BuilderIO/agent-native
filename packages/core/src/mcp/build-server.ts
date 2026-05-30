@@ -115,6 +115,7 @@ export interface MCPConfig {
  */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
+  orgId?: string | undefined;
   orgDomain: string | undefined;
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthScopes?: string[];
@@ -1201,7 +1202,9 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = effectiveIdentity?.orgId
+    ? Promise.resolve(effectiveIdentity.orgId)
+    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
 
   /**
    * Wrap a callback in
@@ -1711,6 +1714,7 @@ export async function verifyAuth(
         authed: true,
         identity: {
           userEmail: oauthIdentity.userEmail,
+          ...(oauthIdentity.orgId ? { orgId: oauthIdentity.orgId } : {}),
           orgDomain: oauthIdentity.orgDomain,
           oauthScopes: oauthIdentity.scopes,
           oauthClientId: oauthIdentity.clientId,

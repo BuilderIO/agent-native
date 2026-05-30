@@ -125,6 +125,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
     const token = await signMcpOAuthAccessToken({
       ownerEmail: "oauth@example.com",
+      orgId: "org_123",
       orgDomain: "builder.io",
       clientId: "client-123",
       scope: "mcp:read mcp:apps",
@@ -138,6 +139,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.fullSurface).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "oauth@example.com",
+      orgId: "org_123",
       orgDomain: "builder.io",
       oauthScopes: ["mcp:read", "mcp:apps"],
       oauthClientId: "client-123",

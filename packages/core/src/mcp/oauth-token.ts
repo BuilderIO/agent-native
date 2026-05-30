@@ -9,6 +9,7 @@ export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
+  org_id?: string;
   org_domain?: string;
   scope: string;
   client_id: string;
@@ -51,6 +52,7 @@ export function hasMcpOAuthScope(
 
 export async function signMcpOAuthAccessToken(params: {
   ownerEmail: string;
+  orgId?: string | null;
   orgDomain?: string | null;
   clientId: string;
   scope: string;
@@ -60,6 +62,7 @@ export async function signMcpOAuthAccessToken(params: {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
     sub: params.ownerEmail,
+    ...(params.orgId ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
     scope: params.scope,
     client_id: params.clientId,
@@ -79,6 +82,7 @@ export async function verifyMcpOAuthAccessToken(
   resource: string | undefined,
 ): Promise<{
   userEmail: string;
+  orgId?: string;
   orgDomain?: string;
   scopes: string[];
   clientId: string;
@@ -101,6 +105,7 @@ export async function verifyMcpOAuthAccessToken(
     }
     return {
       userEmail: payload.sub,
+      orgId: typeof payload.org_id === "string" ? payload.org_id : undefined,
       orgDomain:
         typeof payload.org_domain === "string" ? payload.org_domain : undefined,
       scopes,
