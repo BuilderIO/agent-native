@@ -1,15 +1,15 @@
 /**
- * Dev-mode database admin page — the shell that hosts the table browser, the
+ * Code-mode database admin page — the shell that hosts the table browser, the
  * table editor, and the SQL editor.
  *
- * Gated to development mode: when the app is not running in a dev environment
+ * Gated to Code mode: when the app cannot toggle into Code mode
  * (`canToggle` is false) we render a clean notice instead of the tool. The
  * backend also enforces this with a 403, so this is purely a friendlier UX.
  */
 import { useEffect, useMemo, useState } from "react";
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
-import { useDevMode } from "../use-dev-mode.js";
+import { useCodeMode } from "../use-dev-mode.js";
 import type { DbAdminFilter, DbAdminColumn } from "../../db-admin/types.js";
 import { useOverview } from "./useDbAdmin.js";
 import { TableBrowser } from "./TableBrowser.js";
@@ -24,7 +24,7 @@ const DIALECT_LABEL: Record<string, string> = {
 };
 
 export function DbAdminPage() {
-  const { canToggle, isLoading: devLoading } = useDevMode();
+  const { canToggle, isLoading: devLoading } = useCodeMode();
   const { data: overview, isLoading: overviewLoading } = useOverview();
 
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function DbAdminPage() {
   // (Table-name autocomplete still works; column autocomplete fills in lazily.)
   const columnsByTable = useMemo<Record<string, string[]>>(() => ({}), []);
 
-  // ─── Dev gate ──────────────────────────────────────────────────────────
+  // ─── Code mode gate ──────────────────────────────────────────────────────
   if (!devLoading && !canToggle) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background p-6">
@@ -68,10 +68,10 @@ export function DbAdminPage() {
             />
           </div>
           <h2 className="text-base font-semibold text-foreground">
-            Development mode only
+            Code mode only
           </h2>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Database admin is available in development mode only.
+            Database admin is available in Code mode only.
           </p>
         </div>
       </div>

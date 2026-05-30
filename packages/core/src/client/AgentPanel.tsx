@@ -1343,6 +1343,7 @@ function AgentPanelInner({
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
+            `[data-agent-fullscreen='true'] .agent-running-activity,` +
             `[data-agent-fullscreen='true'] .agent-composer-area{` +
             `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,

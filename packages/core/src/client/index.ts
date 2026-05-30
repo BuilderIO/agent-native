@@ -8,7 +8,7 @@ export {
   type AgentChatMessage,
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
-export { useDevMode } from "./use-dev-mode.js";
+export { useCodeMode, useDevMode } from "./use-dev-mode.js";
 export {
   agentNativePath,
   appApiPath,

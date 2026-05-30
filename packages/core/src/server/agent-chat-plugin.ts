@@ -4916,9 +4916,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Persistence is best-effort — in-memory flag still applies for
               // the lifetime of this process even if the settings write fails.
             }
-            return { devMode: currentDevMode, canToggle };
+            return {
+              devMode: currentDevMode,
+              codeMode: currentDevMode,
+              canToggle,
+            };
           }
-          return { devMode: currentDevMode, canToggle };
+          return {
+            devMode: currentDevMode,
+            codeMode: currentDevMode,
+            canToggle,
+          };
         }),
       );
 

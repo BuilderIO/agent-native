@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { agentNativePath } from "./api-path.js";
 
-interface DevModeState {
+interface CodeModeState {
   devMode: boolean;
   canToggle: boolean;
 }
 
-let cached: DevModeState | null = null;
-let fetchPromise: Promise<DevModeState> | null = null;
-let listeners: Set<(state: DevModeState) => void> = new Set();
+let cached: CodeModeState | null = null;
+let fetchPromise: Promise<CodeModeState> | null = null;
+let listeners: Set<(state: CodeModeState) => void> = new Set();
 
-function notifyListeners(state: DevModeState) {
+function notifyListeners(state: CodeModeState) {
   cached = state;
   listeners.forEach((fn) => fn(state));
 }
@@ -21,22 +21,22 @@ function isLocalhostHostname(): boolean {
   return h === "localhost" || h === "127.0.0.1" || h === "::1";
 }
 
-function fetchDevMode(apiBase: string): Promise<DevModeState> {
+function fetchCodeMode(apiBase: string): Promise<CodeModeState> {
   if (!fetchPromise) {
     fetchPromise = fetch(`${apiBase}/mode`)
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status}`);
         return res.json();
       })
-      .then((data: DevModeState) => {
+      .then((data: CodeModeState) => {
         cached = data;
         return cached;
       })
       .catch(() => {
         // If the server isn't reachable (503 during boot, connection refused,
-        // etc.) but we're clearly on localhost, assume dev mode so the CLI
-        // tab and dev toggle still work. Without this, a transient server
-        // error permanently disables dev features in the sidebar.
+        // etc.) but we're clearly on localhost, assume Code mode is on so the
+        // CLI tab and Code mode toggle still work. Without this, a transient
+        // server error permanently disables code features in the sidebar.
         cached = isLocalhostHostname()
           ? { devMode: true, canToggle: true }
           : { devMode: false, canToggle: false };
@@ -50,18 +50,21 @@ function fetchDevMode(apiBase: string): Promise<DevModeState> {
 }
 
 /**
- * Returns whether the app is running in dev mode and whether mode can be toggled.
- * Fetches /_agent-native/agent-chat/mode on first call, then stays in sync via setDevMode.
+ * Shared internal state machine backing both `useCodeMode` (primary) and the
+ * deprecated `useDevMode` alias. Returns the raw `{ codeMode, canToggle,
+ * isLoading, setCodeMode }` shape; the public hooks adapt the field names.
+ *
+ * The `/mode` endpoint and its `devMode` payload key are unchanged for
+ * back-compat — only the user-facing concept name moved from "dev mode" to
+ * "Code mode".
  */
-export function useDevMode(
-  apiBase = agentNativePath("/_agent-native/agent-chat"),
-): {
-  isDevMode: boolean;
+function useCodeModeInternal(apiBase: string): {
+  codeMode: boolean;
   canToggle: boolean;
   isLoading: boolean;
-  setDevMode: (devMode: boolean) => Promise<void>;
+  setCodeMode: (codeMode: boolean) => Promise<void>;
 } {
-  const [state, setState] = useState<DevModeState>(
+  const [state, setState] = useState<CodeModeState>(
     cached ?? { devMode: false, canToggle: false },
   );
   const [isLoading, setIsLoading] = useState(cached === null);
@@ -80,23 +83,24 @@ export function useDevMode(
       setIsLoading(false);
       return;
     }
-    fetchDevMode(apiBase).then((val) => {
+    fetchCodeMode(apiBase).then((val) => {
       setState(val);
       setIsLoading(false);
     });
   }, [apiBase]);
 
-  const setDevMode = useCallback(
-    async (devMode: boolean) => {
-      // Optimistic update — apply immediately, then confirm with server
-      notifyListeners({ devMode, canToggle: true });
+  const setCodeMode = useCallback(
+    async (codeMode: boolean) => {
+      // Optimistic update — apply immediately, then confirm with server.
+      // The endpoint still speaks `devMode` for back-compat.
+      notifyListeners({ devMode: codeMode, canToggle: true });
       const res = await fetch(`${apiBase}/mode`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ devMode }),
+        body: JSON.stringify({ devMode: codeMode }),
       });
       if (res.ok) {
-        const data: DevModeState = await res.json();
+        const data: CodeModeState = await res.json();
         notifyListeners(data);
       }
     },
@@ -104,9 +108,56 @@ export function useDevMode(
   );
 
   return {
-    isDevMode: state.devMode,
+    codeMode: state.devMode,
     canToggle: state.canToggle,
     isLoading,
-    setDevMode,
+    setCodeMode,
+  };
+}
+
+/**
+ * Whether the agent is in "Code mode" — the capability toggle that lets the
+ * agent run shell/file/raw-DB tools and edit the app's own source code. This is
+ * distinct from environment dev mode (NODE_ENV / Vite).
+ *
+ * Fetches `/_agent-native/agent-chat/mode` on first call, then stays in sync via
+ * `setCodeMode`. The endpoint, its `devMode` payload key, the `AGENT_MODE` env
+ * var, and the `agent-chat.mode` settings key are unchanged for back-compat.
+ */
+export function useCodeMode(
+  apiBase = agentNativePath("/_agent-native/agent-chat"),
+): {
+  isCodeMode: boolean;
+  canToggle: boolean;
+  isLoading: boolean;
+  setCodeMode: (codeMode: boolean) => Promise<void>;
+} {
+  const { codeMode, canToggle, isLoading, setCodeMode } =
+    useCodeModeInternal(apiBase);
+  return { isCodeMode: codeMode, canToggle, isLoading, setCodeMode };
+}
+
+/**
+ * @deprecated Use {@link useCodeMode} instead. The agent-capability "dev mode"
+ * was renamed to "Code mode" to disambiguate it from environment/NODE_ENV dev
+ * mode. This alias preserves the old `{ isDevMode, canToggle, isLoading,
+ * setDevMode }` shape so existing callers keep working; it delegates to the same
+ * shared internal state as `useCodeMode`.
+ */
+export function useDevMode(
+  apiBase = agentNativePath("/_agent-native/agent-chat"),
+): {
+  isDevMode: boolean;
+  canToggle: boolean;
+  isLoading: boolean;
+  setDevMode: (devMode: boolean) => Promise<void>;
+} {
+  const { codeMode, canToggle, isLoading, setCodeMode } =
+    useCodeModeInternal(apiBase);
+  return {
+    isDevMode: codeMode,
+    canToggle,
+    isLoading,
+    setDevMode: setCodeMode,
   };
 }

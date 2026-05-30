@@ -107,7 +107,7 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
     "db-admin-mutate": {
       tool: {
         description:
-          'DEV ONLY. Insert, update, and/or delete rows in one table (unscoped). Pass `dryRun: "true"` to get the SQL without executing. Each update/delete must include a where clause.',
+          'DEV ONLY. Insert, update, and/or delete rows in one table (unscoped — full database access). PREFER THIS over db-exec/db-patch for any database-admin edit, and ALWAYS use it (not db-exec) for tables without owner_email/org_id columns — db-exec auto-scopes to the current user and will match 0 rows on unscoped tables. Pass `dryRun: "true"` to get the SQL without executing. Each update/delete must include a where clause.',
         parameters: {
           type: "object",
           properties: {
@@ -158,7 +158,7 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
     "db-admin-query": {
       tool: {
         description:
-          'DEV ONLY. Run arbitrary SQL against the full database (unscoped). Bare SELECTs are auto-limited to 100 rows. Destructive statements (DROP / TRUNCATE / unscoped DELETE or UPDATE) require confirmDestructive: "true".',
+          'DEV ONLY. Run arbitrary SQL against the full database (unscoped). PREFER THIS over db-query/db-exec for database-admin work and for any table without owner_email/org_id scoping (the scoped tools match 0 rows on those). Bare SELECTs are auto-limited to 100 rows. Destructive statements (DROP / TRUNCATE / unscoped DELETE or UPDATE) require confirmDestructive: "true".',
         parameters: {
           type: "object",
           properties: {
