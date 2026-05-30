@@ -240,6 +240,11 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/")
       ? "video"
       : requestedMediaType;
+  const assetTitle = asset.title?.trim() ?? "";
+  const assetAltText = asset.altText?.trim() ?? "";
+  const assetPrompt = asset.prompt?.trim() ?? "";
+  const displayTitle = assetDisplayTitle(asset);
+  const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
   const previewUrl = absoluteAssetUrl(asset.previewUrl);
   const url = absoluteAssetUrl(
     asset.previewUrl ?? asset.downloadUrl ?? asset.url,
@@ -258,8 +263,9 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
     downloadUrl,
     embedUrl,
     embedPath: asset.embedPath,
-    altText: asset.altText ?? asset.title ?? "",
-    title: asset.title ?? "",
+    altText: assetAltText || fallbackLabel,
+    title: assetTitle || fallbackLabel,
+    prompt: asset.prompt ?? null,
     width: asset.width ?? null,
     height: asset.height ?? null,
     mimeType: asset.mimeType ?? null,
@@ -274,11 +280,16 @@ function selectedAssetText(payload: ReturnType<typeof assetPayload>) {
 function selectedAssetLabel(payload: ReturnType<typeof assetPayload>) {
   const title = payload.title?.trim() ?? "";
   const altText = payload.altText?.trim() ?? "";
+  const prompt = payload.prompt?.trim() ?? "";
   const machineLikeTitle =
     title === payload.assetId || /^[A-Za-z0-9_-]{12,}$/.test(title);
+  const genericGeneratedTitle = /^Original \d+$/i.test(title);
+  if (prompt && (!title || machineLikeTitle || genericGeneratedTitle)) {
+    return prompt;
+  }
   if (altText && altText !== title) return altText;
   if (title && !machineLikeTitle) return title;
-  return altText || title || payload.assetId;
+  return prompt || altText || title || payload.assetId;
 }
 
 function selectedAssetFollowUpMessage(
