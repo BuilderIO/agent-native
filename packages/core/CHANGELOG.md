@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.26.8
+
+### Patch Changes
+
+- 0d72061: Preserve organization identity in remote MCP OAuth access tokens so MCP App
+  embed sessions can resolve org-scoped credentials.
+
 ## 0.26.7
 
 ### Patch Changes
