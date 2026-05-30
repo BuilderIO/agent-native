@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.26.6
+
+### Patch Changes
+
+- fcca046: Retry secret-store table bootstrap after transient database failures and use a
+  complete Builder connection check for setup UIs.
+
 ## 0.26.5
 
 ### Patch Changes
