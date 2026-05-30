@@ -323,6 +323,7 @@ export {
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
   resolveHasBuilderPrivateKey,
+  resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredential,
   writeBuilderCredentials,

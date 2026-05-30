@@ -59,6 +59,19 @@ const CAPABILITY_BY_ID = new Map(
   BUILTIN_MCP_CAPABILITIES.map((capability) => [capability.id, capability]),
 );
 
+export function areBuiltinMcpCapabilitiesSupported(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.VERCEL || process.env.VERCEL_ENV) return false;
+  if (process.env.NETLIFY && process.env.NETLIFY_LOCAL !== "true") {
+    return false;
+  }
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AWS_EXECUTION_ENV) {
+    return false;
+  }
+  if (process.env.CF_PAGES || process.env.CLOUDFLARE_WORKERS) return false;
+  return true;
+}
+
 export function getBuiltinMcpCapability(
   id: string,
 ): BuiltinMcpCapability | null {
@@ -76,6 +89,15 @@ export function isBuiltinMcpCapabilityAvailable(
   platform: NodeJS.Platform = process.platform,
 ): boolean {
   return !capability.platforms || capability.platforms.includes(platform);
+}
+
+export function listSupportedBuiltinMcpCapabilities(
+  platform: NodeJS.Platform = process.platform,
+): BuiltinMcpCapability[] {
+  if (!areBuiltinMcpCapabilitiesSupported()) return [];
+  return BUILTIN_MCP_CAPABILITIES.filter((capability) =>
+    isBuiltinMcpCapabilityAvailable(capability, platform),
+  );
 }
 
 export function normalizeBuiltinMcpCapabilityIds(

@@ -39,6 +39,7 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
   resolveBuilderCredentialSource,
+  resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
 
@@ -631,6 +632,27 @@ describe("resolveBuilderCredential", () => {
       orgKind: null,
     });
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
+  });
+
+  it("only reports a complete Builder connection when private and public keys resolve together", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key }) =>
+      key === "BUILDER_PRIVATE_KEY"
+        ? { value: "private-only", last4: "only", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveHasCompleteBuilderConnection()).resolves.toBe(false);
+
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) =>
+      scope === "org" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveHasCompleteBuilderConnection()).resolves.toBe(true);
   });
 });
 

@@ -49,11 +49,6 @@ import {
   type McpServerScope,
 } from "./use-mcp-servers.js";
 import { McpServerDetail } from "./McpServerDetail.js";
-import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import {
-  parseMcpBuiltinVirtualId,
-  useBuiltinCapabilities,
-} from "./use-builtin-capabilities.js";
 import { useOrg } from "../org/hooks.js";
 import {
   Tooltip,
@@ -1285,7 +1280,6 @@ export function ResourcesPanel() {
   });
   const workspaceTreeQuery = useResourceTree("workspace");
   const mcpServersQuery = useMcpServers();
-  const builtinCapabilitiesQuery = useBuiltinCapabilities();
   const createMcpServer = useCreateMcpServer();
   const deleteMcpServer = useDeleteMcpServer();
 
@@ -1298,11 +1292,6 @@ export function ResourcesPanel() {
     withMcpServersFolder(
       personalTreeQuery.data ?? [],
       mcpServersQuery.data?.user ?? [],
-      {
-        builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
-          (capability) => ({ capability, scope: "user" as const }),
-        ),
-      },
     ),
     { show: showAgentScratch },
   );
@@ -1310,11 +1299,6 @@ export function ResourcesPanel() {
     withMcpServersFolder(
       sharedTreeQuery.data ?? [],
       mcpServersQuery.data?.org ?? [],
-      {
-        builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
-          (capability) => ({ capability, scope: "org" as const }),
-        ),
-      },
     ),
     { show: showAgentScratch },
   );
@@ -1340,17 +1324,6 @@ export function ResourcesPanel() {
     return list.find((s) => s.id === parsed.serverId) ?? null;
   }, [selectedResourceId, mcpServersQuery.data]);
 
-  const selectedBuiltinCapability = React.useMemo(() => {
-    const parsed = selectedResourceId
-      ? parseMcpBuiltinVirtualId(selectedResourceId)
-      : null;
-    if (!parsed) return null;
-    const capability = (builtinCapabilitiesQuery.data?.capabilities ?? []).find(
-      (item) => item.id === parsed.capabilityId,
-    );
-    return capability ? { capability, scope: parsed.scope } : null;
-  }, [selectedResourceId, builtinCapabilitiesQuery.data]);
-
   // Sync activeScope once the org role arrives (canEditOrg is resolved async).
   useEffect(() => {
     if (!canEditOrg && activeScope === "shared") {
@@ -1360,9 +1333,7 @@ export function ResourcesPanel() {
   // Virtual MCP ids aren't in the resources store — skip the fetch so
   // useResource doesn't 404-flash.
   const resourceQuery = useResource(
-    selectedResourceId &&
-      !parseMcpVirtualId(selectedResourceId) &&
-      !parseMcpBuiltinVirtualId(selectedResourceId)
+    selectedResourceId && !parseMcpVirtualId(selectedResourceId)
       ? selectedResourceId
       : null,
   );
@@ -1483,7 +1454,6 @@ export function ResourcesPanel() {
         );
         return;
       }
-      if (parseMcpBuiltinVirtualId(id)) return;
       deleteResource.mutate(id);
       if (selectedResourceId === id) {
         setSelectedResourceId(null);
@@ -1592,10 +1562,6 @@ export function ResourcesPanel() {
               <PathBreadcrumb
                 path={`mcp-servers/${selectedMcpServer.name}.json`}
               />
-            ) : selectedBuiltinCapability ? (
-              <PathBreadcrumb
-                path={`mcp-servers/${selectedBuiltinCapability.capability.name}.json`}
-              />
             ) : resourceQuery.data ? (
               <PathBreadcrumb path={resourceQuery.data.path} />
             ) : null}
@@ -1658,7 +1624,7 @@ export function ResourcesPanel() {
                   </TooltipProvider>
                 </div>
               )}
-            {!selectedBuiltinCapability && !selectedResourceReadOnly && (
+            {!selectedResourceReadOnly && (
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1787,14 +1753,6 @@ export function ResourcesPanel() {
           selectedMcpServer ? (
             <div className="flex-1 min-h-0 overflow-hidden">
               <McpServerDetail server={selectedMcpServer} />
-            </div>
-          ) : selectedBuiltinCapability ? (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <BuiltinCapabilityDetail
-                capability={selectedBuiltinCapability.capability}
-                scope={selectedBuiltinCapability.scope}
-                canEditOrg={canEditOrg}
-              />
             </div>
           ) : selectedResourceId && resourceQuery.data ? (
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">

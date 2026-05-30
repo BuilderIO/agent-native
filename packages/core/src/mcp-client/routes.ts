@@ -41,9 +41,11 @@ import type { McpConfig, McpServerConfig } from "./config.js";
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
 import {
+  areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
   isBuiltinMcpCapabilityAvailable,
+  listSupportedBuiltinMcpCapabilities,
   normalizeBuiltinMcpCapabilityIds,
   toBuiltinMcpServerConfig,
   type BuiltinMcpCapability,
@@ -211,32 +213,34 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
         await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
-  for (const [fullKey, value] of Object.entries(all)) {
-    const settingsKey = builtinMcpCapabilitiesSettingsKey();
-    const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
-    const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
-    let scope: RemoteMcpScope | null = null;
-    let ownerId: string | null = null;
-    if (userMatch) {
-      scope = "user";
-      ownerId = userMatch[1];
-    } else if (orgMatch) {
-      scope = "org";
-      ownerId = orgMatch[1];
-    }
-    if (!scope || !ownerId) continue;
-    const enabledIds = normalizeBuiltinMcpCapabilityIds(
-      Array.isArray((value as any).enabledIds)
-        ? (value as any).enabledIds.map(String)
-        : [],
-    );
-    for (const id of enabledIds) {
-      const capability = getBuiltinMcpCapability(id);
-      if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
-        continue;
+  if (areBuiltinMcpCapabilitiesSupported()) {
+    for (const [fullKey, value] of Object.entries(all)) {
+      const settingsKey = builtinMcpCapabilitiesSettingsKey();
+      const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
+      const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
+      let scope: RemoteMcpScope | null = null;
+      let ownerId: string | null = null;
+      if (userMatch) {
+        scope = "user";
+        ownerId = userMatch[1];
+      } else if (orgMatch) {
+        scope = "org";
+        ownerId = orgMatch[1];
       }
-      servers[builtinMergedConfigKey(scope, capability, ownerId)] =
-        toBuiltinMcpServerConfig(capability);
+      if (!scope || !ownerId) continue;
+      const enabledIds = normalizeBuiltinMcpCapabilityIds(
+        Array.isArray((value as any).enabledIds)
+          ? (value as any).enabledIds.map(String)
+          : [],
+      );
+      for (const id of enabledIds) {
+        const capability = getBuiltinMcpCapability(id);
+        if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
+          continue;
+        }
+        servers[builtinMergedConfigKey(scope, capability, ownerId)] =
+          toBuiltinMcpServerConfig(capability);
+      }
     }
   }
 
@@ -647,61 +651,74 @@ async function handleBuiltinList(
   };
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userEnabled = email
-    ? await listEnabledBuiltinMcpCapabilities("user", email)
-    : [];
-  const orgEnabled = orgId
-    ? await listEnabledBuiltinMcpCapabilities("org", orgId)
-    : [];
+  const supported = areBuiltinMcpCapabilitiesSupported();
+  const userEnabled =
+    supported && email
+      ? await listEnabledBuiltinMcpCapabilities("user", email)
+      : [];
+  const orgEnabled =
+    supported && orgId
+      ? await listEnabledBuiltinMcpCapabilities("org", orgId)
+      : [];
 
   return {
-    capabilities: BUILTIN_MCP_CAPABILITIES.map((capability) => {
-      const available = isBuiltinMcpCapabilityAvailable(capability);
-      const userMergedId = email
-        ? builtinMergedConfigKey("user", capability, email)
-        : undefined;
-      const orgMergedId = orgId
-        ? builtinMergedConfigKey("org", capability, orgId)
-        : undefined;
-      return {
-        id: capability.id,
-        serverId: capability.serverId,
-        name: capability.name,
-        description: capability.description,
-        command: capability.command,
-        args: capability.args,
-        exclusiveGroup: capability.exclusiveGroup,
-        available,
-        unavailableReason: available
-          ? undefined
-          : `Only available on ${capability.platforms?.join(", ")}`,
-        notes: capability.notes,
-        enabled: {
-          user: userEnabled.includes(capability.id),
-          org: orgEnabled.includes(capability.id),
-        },
-        mergedIds: {
-          user: userMergedId,
-          org: orgMergedId,
-        },
-        status: {
-          user:
-            userMergedId && userEnabled.includes(capability.id)
-              ? statusFor(manager, userMergedId)
-              : undefined,
-          org:
-            orgMergedId && orgEnabled.includes(capability.id)
-              ? statusFor(manager, orgMergedId)
-              : undefined,
-        },
-      };
-    }),
+    capabilities: (supported ? BUILTIN_MCP_CAPABILITIES : []).map(
+      (capability) => {
+        const available = isBuiltinMcpCapabilityAvailable(capability);
+        const userMergedId = email
+          ? builtinMergedConfigKey("user", capability, email)
+          : undefined;
+        const orgMergedId = orgId
+          ? builtinMergedConfigKey("org", capability, orgId)
+          : undefined;
+        return {
+          id: capability.id,
+          serverId: capability.serverId,
+          name: capability.name,
+          description: capability.description,
+          command: capability.command,
+          args: capability.args,
+          exclusiveGroup: capability.exclusiveGroup,
+          available,
+          unavailableReason: available
+            ? undefined
+            : `Only available on ${capability.platforms?.join(", ")}`,
+          notes: capability.notes,
+          enabled: {
+            user: userEnabled.includes(capability.id),
+            org: orgEnabled.includes(capability.id),
+          },
+          mergedIds: {
+            user: userMergedId,
+            org: orgMergedId,
+          },
+          status: {
+            user:
+              userMergedId && userEnabled.includes(capability.id)
+                ? statusFor(manager, userMergedId)
+                : undefined,
+            org:
+              orgMergedId && orgEnabled.includes(capability.id)
+                ? statusFor(manager, orgMergedId)
+                : undefined,
+          },
+        };
+      },
+    ),
     user: { enabledIds: userEnabled },
     org: { enabledIds: orgEnabled, orgId, role },
   };
 }
 
 async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
+  if (!areBuiltinMcpCapabilitiesSupported()) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "Built-in local MCP capabilities are only available in local development.",
+    };
+  }
+
   const body = (await readBody(event).catch(() => ({}))) as {
     scope?: unknown;
     enabledIds?: unknown;
@@ -786,7 +803,10 @@ async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
 function validateBuiltinCapabilityForEnable(id: string): string | null {
   const capability = getBuiltinMcpCapability(id);
   if (!capability) return `Unknown built-in MCP capability "${id}"`;
-  if (!isBuiltinMcpCapabilityAvailable(capability)) {
+  if (!listSupportedBuiltinMcpCapabilities().includes(capability)) {
+    if (!areBuiltinMcpCapabilitiesSupported()) {
+      return "Built-in local MCP capabilities are only available in local development.";
+    }
     return `${capability.name} is only available on ${capability.platforms?.join(", ")}`;
   }
   return null;

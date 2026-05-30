@@ -113,11 +113,13 @@ const llmStep: OnboardingStep = {
   ],
   isComplete: async () => {
     try {
-      const { resolveHasBuilderPrivateKey } =
+      const { resolveHasCompleteBuilderConnection } =
         await import("../server/credential-provider.js");
-      if (await resolveHasBuilderPrivateKey()) return true;
+      if (await resolveHasCompleteBuilderConnection()) return true;
     } catch {
-      if (process.env.BUILDER_PRIVATE_KEY) return true;
+      if (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) {
+        return true;
+      }
     }
     try {
       if (await detectEngineFromUserSecrets()) return true;

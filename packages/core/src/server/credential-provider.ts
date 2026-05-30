@@ -404,6 +404,15 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 }
 
 /**
+ * Check whether the current request has the complete Builder credential bundle
+ * needed for Builder-backed assistant/image-generation calls.
+ */
+export async function resolveHasCompleteBuilderConnection(): Promise<boolean> {
+  const creds = await resolveBuilderCredentials();
+  return !!(creds.privateKey && creds.publicKey);
+}
+
+/**
  * Resolve where the effective Builder assistant connection came from. This
  * intentionally requires a complete private+public key pair from one scope so
  * status UIs don't report a mixed user/org credential set as connected.
