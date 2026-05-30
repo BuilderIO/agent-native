@@ -1,4 +1,10 @@
-import { Resvg } from "@resvg/resvg-js";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  Resvg,
+  type RenderedImage,
+  type ResvgRenderOptions,
+} from "@resvg/resvg-js";
 
 export interface BookingOgImageInput {
   title?: string | null;
@@ -20,6 +26,15 @@ const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
 const FG = "#ededed";
 const MUTED = "#a0a0a0";
+const FONT_FAMILY = "Liberation Sans, Arial, system-ui, sans-serif";
+const FONT_FILES = [
+  fileURLToPath(
+    new URL("../../assets/fonts/LiberationSans-Regular.ttf", import.meta.url),
+  ),
+  fileURLToPath(
+    new URL("../../assets/fonts/LiberationSans-Bold.ttf", import.meta.url),
+  ),
+].filter((fontFile) => existsSync(fontFile));
 const AVATAR_CX = 996;
 const AVATAR_CY = 170;
 const AVATAR_SIZE = 172;
@@ -154,7 +169,7 @@ function textBlock({
   weight: number;
   fill: string;
 }): string {
-  return `<text x="${x}" y="${y}" font-family="Inter, Arial, system-ui, sans-serif" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
+  return `<text x="${x}" y="${y}" font-family="${FONT_FAMILY}" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
     .map(
       (line, index) =>
         `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeSvg(line)}</tspan>`,
@@ -180,7 +195,7 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
   const avatarContent = profileImageDataUrl
     ? `<image x="${AVATAR_CX - AVATAR_SIZE / 2}" y="${AVATAR_CY - AVATAR_SIZE / 2}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
     : `<circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
-       <text x="${AVATAR_CX}" y="${AVATAR_CY + 20}" text-anchor="middle" font-family="Inter, Arial, system-ui, sans-serif" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
+       <text x="${AVATAR_CX}" y="${AVATAR_CY + 20}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>Agent-Native Calendar booking link</title>
@@ -205,8 +220,8 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     <g transform="scale(0.62)">
       ${LOGO_MARK}
     </g>
-    <text x="90" y="31" font-family="Inter, Arial, system-ui, sans-serif" font-size="28" font-weight="800" fill="${FG}">Agent-Native</text>
-    <text x="91" y="58" font-family="Inter, Arial, system-ui, sans-serif" font-size="18" font-weight="600" fill="${MUTED}">Calendar</text>
+    <text x="90" y="31" font-family="${FONT_FAMILY}" font-size="28" font-weight="800" fill="${FG}">Agent-Native</text>
+    <text x="91" y="58" font-family="${FONT_FAMILY}" font-size="18" font-weight="600" fill="${MUTED}">Calendar</text>
   </g>
   <g>
     <circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="86" fill="${SURFACE}" stroke="${BORDER}" stroke-width="2"/>
@@ -226,19 +241,46 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     <g transform="translate(0 ${durationY})">
       <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="${SURFACE}" stroke="${BORDER}"/>
       <circle cx="31" cy="-5" r="8" fill="${BRAND_MINT}"/>
-      <text x="54" y="4" font-family="Inter, Arial, system-ui, sans-serif" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
+      <text x="54" y="4" font-family="${FONT_FAMILY}" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
     </g>
   </g>
 </svg>`;
 }
 
+interface BookingOgRenderOptions {
+  fontFiles?: string[];
+}
+
+function bookingOgResvgOptions(
+  options: BookingOgRenderOptions = {},
+): ResvgRenderOptions {
+  const fontFiles = (
+    options.fontFiles?.length ? options.fontFiles : FONT_FILES
+  ).filter((fontFile) => existsSync(fontFile));
+  const hasBundledFonts = fontFiles.length > 0;
+  return {
+    fitTo: { mode: "width", value: WIDTH },
+    font: {
+      loadSystemFonts: !hasBundledFonts,
+      ...(hasBundledFonts ? { fontFiles } : {}),
+      defaultFontFamily: "Liberation Sans",
+      sansSerifFamily: "Liberation Sans",
+    },
+  };
+}
+
+export function renderBookingOgImage(
+  input: BookingOgImageInput,
+  options: BookingOgRenderOptions = {},
+): RenderedImage {
+  return new Resvg(renderBookingOgImageSvg(input), {
+    ...bookingOgResvgOptions(options),
+  }).render();
+}
+
 export function renderBookingOgImagePng(
   input: BookingOgImageInput,
+  options: BookingOgRenderOptions = {},
 ): Uint8Array {
-  return new Resvg(renderBookingOgImageSvg(input), {
-    fitTo: { mode: "width", value: WIDTH },
-    font: { loadSystemFonts: true },
-  })
-    .render()
-    .asPng();
+  return renderBookingOgImage(input, options).asPng();
 }

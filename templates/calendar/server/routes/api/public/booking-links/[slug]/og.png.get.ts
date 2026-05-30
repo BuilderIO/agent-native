@@ -6,7 +6,11 @@ import {
   type H3Event,
 } from "h3";
 import { eq } from "drizzle-orm";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { getUserSetting } from "@agent-native/core/settings";
+import { assets as serverAssets } from "#nitro/virtual/server-assets";
 import { getDb, schema } from "../../../../../db/index.js";
 import { getBookingUsername } from "../../../../../handlers/booking-usernames.js";
 import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js";
@@ -15,6 +19,19 @@ import {
   type BookingOgImageInput,
 } from "../../../../../lib/booking-og-image.js";
 import type { Settings } from "../../../../../../shared/api.js";
+
+const FONT_ASSETS = [
+  {
+    asset: "server/fonts/LiberationSans-Regular.ttf",
+    filename: "LiberationSans-Regular.ttf",
+  },
+  {
+    asset: "server/fonts/LiberationSans-Bold.ttf",
+    filename: "LiberationSans-Bold.ttf",
+  },
+];
+
+let cachedFontFiles: string[] | undefined;
 
 function parseDurations(value: string | null): number[] | undefined {
   if (!value) return undefined;
@@ -71,6 +88,40 @@ async function fetchProfileImageDataUrl(
   }
 }
 
+function bytesFromStorageValue(value: unknown): Buffer | undefined {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (typeof value === "string") return Buffer.from(value, "binary");
+  return undefined;
+}
+
+async function loadBundledOgFontFiles(): Promise<string[] | undefined> {
+  if (cachedFontFiles) return cachedFontFiles;
+
+  try {
+    const fontDir = path.join(tmpdir(), "agent-native-calendar-og-fonts");
+    mkdirSync(fontDir, { recursive: true });
+
+    const fontFiles: string[] = [];
+    for (const font of FONT_ASSETS) {
+      const target = path.join(fontDir, font.filename);
+      if (!existsSync(target)) {
+        const raw = await serverAssets.getItem(font.asset);
+        const bytes = bytesFromStorageValue(raw);
+        if (!bytes?.byteLength) return undefined;
+        writeFileSync(target, bytes);
+      }
+      fontFiles.push(target);
+    }
+
+    cachedFontFiles = fontFiles;
+    return fontFiles;
+  } catch {
+    return undefined;
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const slug = getRouterParam(event, "slug");
   if (!slug) {
@@ -111,7 +162,11 @@ export default defineEventHandler(async (event: H3Event) => {
     bookingPageTitle: ownerSettings?.bookingPageTitle,
     profileImageDataUrl,
   };
-  const png = renderBookingOgImagePng(imageInput);
+  const fontFiles = await loadBundledOgFontFiles();
+  const png = renderBookingOgImagePng(
+    imageInput,
+    fontFiles ? { fontFiles } : {},
+  );
   const body = png.buffer.slice(
     png.byteOffset,
     png.byteOffset + png.byteLength,
