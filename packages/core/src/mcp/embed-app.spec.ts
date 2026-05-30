@@ -4,7 +4,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("renders a controlled app frame for ChatGPT and direct/transplant paths for Claude", () => {
+  it("transplants app documents in ChatGPT and Claude MCP sandboxes", () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -18,6 +18,8 @@ describe("embedApp", () => {
     expect(html).toContain("app.callServerTool");
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
+    expect(html).toContain('return await rpcRequest("ui/message"');
+    expect(html).not.toContain('rpcNotify("ui/message"');
     expect(html).toContain("window.openai");
     expect(html).toContain('"openai:set_globals"');
     expect(html).toContain("bridge.toolInput");
@@ -88,6 +90,9 @@ describe("embedApp", () => {
     expect(html).toContain("await runModuleScriptAsClassic(script, config)");
     expect(html).toContain("stripDevOnlyModuleImports");
     expect(html).toContain("__x00__virtual:react-router");
+    expect(html).toContain("__vite_plugin_react_preamble_installed__");
+    expect(html).toContain("$RefreshReg$");
+    expect(html).toContain("$RefreshSig$");
     expect(html).toContain("rootRelativeSpecifierToAppUrl");
     expect(html).toContain("url.searchParams.set(config.embedTokenParam");
     expect(html).toContain("await import($1)");
@@ -95,6 +100,11 @@ describe("embedApp", () => {
     expect(html).toContain('mode === "transplant"');
     expect(html).toContain('render.frame === "transplant"');
     expect(html).toContain("isClaudeMcpContentHost()");
+    expect(html).toContain("if (isClaudeMcpContentHost()) return true;");
+    expect(html).toContain(
+      "isClaudeMcpContentHost() ||\n        isChatGptSandboxHost()",
+    );
+    expect(html).toContain("if (shouldTransplantAppDocument())");
     expect(html).toContain("const embedUrl = withChatBridgeParam(launchUrl)");
     expect(html).toContain("!selfNavigate && isEmbedStartUrl(embedUrl)");
     expect(html).toContain('typeof data.startUrl !== "string"');
@@ -224,6 +234,20 @@ describe("embedApp", () => {
     expect(openAiIndex).toBeGreaterThanOrEqual(0);
     expect(dynamicImportIndex).toBeGreaterThan(openAiIndex);
     expect(html).not.toContain('import { App } from "https://esm.sh');
+  });
+
+  it("waits longer for ChatGPT's bridge before falling back to the generic MCP Apps module", () => {
+    const resource = embedApp({ title: "Mail" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "manage-draft", appId: "mail" })
+        : resource.html;
+
+    expect(html).toContain("chatGptOpenAiBridgeWaitMs = 5000");
+    expect(html).toContain(
+      'new URLSearchParams(window.location.search).get("app") === "chatgpt"',
+    );
+    expect(html).toContain("openAiBridgePollMs = 50");
   });
 
   it("allows full-app embeds to request a 900px canvas", () => {

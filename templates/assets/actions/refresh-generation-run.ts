@@ -8,7 +8,7 @@ import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 
 export default defineAction({
   description:
-    "Refresh a generation run. For video runs, polls the provider operation and creates the video asset once complete.",
+    "Refresh an async video generation run. Images are synchronous and already return final assets from generate-image or generate-image-batch, so do not use this for image runs.",
   schema: z.object({
     runId: z.string(),
   }),

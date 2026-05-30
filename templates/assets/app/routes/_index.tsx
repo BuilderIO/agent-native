@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   PromptComposer,
@@ -14,16 +14,12 @@ import { toast } from "sonner";
 import {
   IconAlertCircle,
   IconArrowUpRight,
-  IconCheck,
-  IconCloudUpload,
+  IconChevronDown,
   IconExternalLink,
-  IconKey,
   IconLoader2,
-  IconMovie,
   IconPhoto,
   IconPhotoPlus,
 } from "@tabler/icons-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -61,7 +57,6 @@ import {
   getSkippedDuplicateCount,
   type AssetUploadResult,
 } from "@/lib/upload-results";
-import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
   loadLastLibraryId,
@@ -174,195 +169,153 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
     trackingSource: "assets_create_setup_notice",
     trackingFlow: "image_generation",
     onConnected: async () => {
+      if (config.builderEnabled !== false) {
+        queryClient.setQueriesData<ImageGenerationConfig>(
+          { queryKey: ["action", "get-image-generation-config"] },
+          (previous) =>
+            previous
+              ? {
+                  ...previous,
+                  builderConnected: true,
+                  objectStorageConfigured: true,
+                  configured: true,
+                  lastIssue: null,
+                }
+              : previous,
+        );
+      }
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-image-generation-config"],
+        refetchType: "active",
       });
     },
   });
-  const issueMessage =
-    typeof config.lastIssue?.message === "string"
+  const builderConnected =
+    config.builderEnabled !== false &&
+    (!!config.builderConnected || flow.configured);
+  const issueMessage = builderConnected
+    ? null
+    : typeof config.lastIssue?.message === "string"
       ? config.lastIssue.message
       : null;
   const imageReady =
+    builderConnected ||
     config.configured === true ||
     !!config.openaiConfigured ||
     !!config.geminiConfigured;
-  const videoReady = !!config.geminiConfigured;
-  const storageReady = !!config.objectStorageConfigured;
+  const storageReady = builderConnected || !!config.objectStorageConfigured;
   const needsSetup = !imageReady || !storageReady || !!issueMessage;
   if (!needsSetup) return null;
+
+  const builderAvailable = config.builderEnabled !== false;
   const settingsHref = appPath("/settings#asset-generation-setup");
+  const manualHint =
+    !imageReady && !storageReady
+      ? "Add an OpenAI or Gemini key and S3-compatible storage."
+      : !imageReady
+        ? "Add an OpenAI or Gemini key for image generation."
+        : "Add S3-compatible storage for originals, thumbnails, and exports.";
+  const title = builderAvailable
+    ? "Connect Builder to create assets"
+    : "Finish asset setup";
+  const description = builderAvailable
+    ? "One click enables image generation and asset storage. No provider keys needed."
+    : "This deployment uses manual provider setup. Add the missing pieces in Settings.";
+  const showContent = !!issueMessage || !!flow.error || builderAvailable;
 
   return (
-    <Card className="overflow-hidden border-border/80 bg-card/80 text-left shadow-sm">
-      <CardHeader className="gap-4 p-4 pb-3 sm:flex-row sm:items-start sm:justify-between sm:p-5 sm:pb-4">
-        <div className="flex min-w-0 gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-sm">
-            <IconPhoto className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base leading-tight">
-                Connect generation and storage
-              </CardTitle>
-              <Badge
-                variant="secondary"
-                className="border border-border/70 bg-secondary/80 text-[11px]"
-              >
-                Setup required
-              </Badge>
+    <Card className="border-border/80 bg-card/70 text-left shadow-sm">
+      <CardHeader className="p-4 sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground">
+              <IconPhoto className="size-4" />
             </div>
-            <CardDescription className="max-w-2xl text-sm leading-6">
-              Use Builder.io for managed media and storage in one step, or bring
-              your own OpenAI/Gemini keys and S3-compatible storage.
-            </CardDescription>
+            <div className="min-w-0">
+              <CardTitle className="text-base leading-tight">{title}</CardTitle>
+              <CardDescription className="mt-1 max-w-xl text-sm leading-6">
+                {description}
+              </CardDescription>
+            </div>
           </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
-        <div className="grid gap-2 sm:grid-cols-3">
-          <SetupStatusPill
-            icon={<IconKey className="size-4" />}
-            title="Image generation"
-            detail={
-              imageReady
-                ? "Builder or BYOK is ready"
-                : "Builder, OpenAI, or Gemini"
-            }
-            ready={imageReady}
-          />
-          <SetupStatusPill
-            icon={<IconCloudUpload className="size-4" />}
-            title="Object storage"
-            detail={
-              storageReady ? "Storage is ready" : "Builder or S3-compatible"
-            }
-            ready={storageReady}
-          />
-          <SetupStatusPill
-            icon={<IconMovie className="size-4" />}
-            title="Video generation"
-            detail={videoReady ? "Gemini is ready" : "Gemini API key"}
-            ready={videoReady}
-            required={false}
-          />
-        </div>
-
-        {issueMessage || flow.error ? (
-          <div
-            role="alert"
-            className="mt-3 flex gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-          >
-            <IconAlertCircle className="mt-0.5 size-3.5 shrink-0" />
-            <p className="line-clamp-3 leading-relaxed">
-              {flow.error ?? issueMessage}
-            </p>
-          </div>
-        ) : null}
-
-        <div className="mt-4 flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-md text-xs leading-5 text-muted-foreground">
-            {config.builderEnabled !== false
-              ? "Builder.io is the fastest path for image generation and asset storage. Manual setup keeps provider keys in your own stack."
-              : "Manual setup connects your own provider keys and object storage."}
-          </p>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-            {config.builderEnabled !== false ? (
-              <Button
-                type="button"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => flow.start()}
-                disabled={flow.connecting}
-              >
-                {flow.connecting ? (
-                  <>
-                    <IconLoader2 className="size-3.5 animate-spin" />
-                    Waiting...
-                  </>
-                ) : (
-                  <>
-                    Connect Builder.io
-                    <IconExternalLink className="size-3.5" />
-                  </>
-                )}
-              </Button>
-            ) : null}
+          {builderAvailable ? (
+            <Button
+              type="button"
+              size="sm"
+              className="w-full shrink-0 sm:w-auto"
+              onClick={() => flow.start()}
+              disabled={flow.connecting}
+            >
+              {flow.connecting ? (
+                <>
+                  <IconLoader2 className="size-3.5 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  Connect Builder
+                  <IconExternalLink className="size-3.5" />
+                </>
+              )}
+            </Button>
+          ) : (
             <Button
               asChild
-              variant={config.builderEnabled !== false ? "outline" : "default"}
+              type="button"
               size="sm"
               className="w-full sm:w-auto"
             >
               <a href={settingsHref}>
-                Manual setup
+                Open setup
                 <IconArrowUpRight className="size-3.5" />
               </a>
             </Button>
-          </div>
+          )}
         </div>
-      </CardContent>
+      </CardHeader>
+
+      {showContent ? (
+        <CardContent className="px-4 pb-4 pt-0 sm:px-5 sm:pb-5 sm:pt-0">
+          {issueMessage || flow.error ? (
+            <div
+              role="alert"
+              className="mb-3 flex gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <IconAlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <p className="line-clamp-3 leading-relaxed">
+                {flow.error ?? issueMessage}
+              </p>
+            </div>
+          ) : null}
+
+          {builderAvailable ? (
+            <details className="group/details border-t border-border/70 pt-3">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <IconChevronDown className="size-3.5 transition-transform group-open/details:rotate-180" />
+                Use manual setup instead
+              </summary>
+              <div className="mt-3 flex flex-col gap-3 rounded-md border border-border/70 bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {manualHint}
+                </p>
+                <Button
+                  asChild
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full shrink-0 sm:w-auto"
+                >
+                  <a href={settingsHref}>
+                    Open setup
+                    <IconArrowUpRight className="size-3.5" />
+                  </a>
+                </Button>
+              </div>
+            </details>
+          ) : null}
+        </CardContent>
+      ) : null}
     </Card>
-  );
-}
-
-function SetupStatusPill({
-  icon,
-  title,
-  detail,
-  ready,
-  required = true,
-}: {
-  icon: ReactNode;
-  title: string;
-  detail: string;
-  ready: boolean;
-  required?: boolean;
-}) {
-  const statusLabel = ready ? "Ready" : required ? "Needed" : "Optional";
-
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-md border border-border/80 bg-background/70 p-3",
-        ready && "border-emerald-500/20 bg-emerald-500/5",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground",
-            ready &&
-              "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-          )}
-        >
-          {ready ? <IconCheck className="size-4" /> : icon}
-        </div>
-        <Badge
-          variant="outline"
-          className={cn(
-            "h-5 shrink-0 px-1.5 text-[10px] font-medium",
-            ready &&
-              "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-            !ready &&
-              required &&
-              "border-border bg-secondary text-secondary-foreground",
-            !ready && !required && "text-muted-foreground",
-          )}
-        >
-          {statusLabel}
-        </Badge>
-      </div>
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-foreground">
-          {title}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {detail}
-        </div>
-      </div>
-    </div>
   );
 }
 

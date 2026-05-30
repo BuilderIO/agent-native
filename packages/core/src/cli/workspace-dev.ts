@@ -72,6 +72,7 @@ const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
 const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
@@ -622,6 +623,11 @@ export async function runWorkspaceDev(
     env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
       DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
   );
+  const proxyNonHtmlResponseTimeoutMs = Number(
+    env.WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS ??
+      env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+      DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
+  );
   let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
   const apps = discoverApps(appsDir, appPortStart);
@@ -1032,6 +1038,9 @@ export async function runWorkspaceDev(
       const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
       let settled = false;
       let responseTimer: NodeJS.Timeout;
+      const responseTimeoutMs = wantsHtml(req)
+        ? proxyResponseTimeoutMs
+        : proxyNonHtmlResponseTimeoutMs;
       const proxyReq = http.request(
         {
           hostname: "127.0.0.1",
@@ -1068,9 +1077,9 @@ export async function runWorkspaceDev(
         }
         res.writeHead(504, { "content-type": "text/plain" });
         res.end(
-          `App "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+          `App "${app.id}" did not return response headers within ${formatProxyReadyTimeout(responseTimeoutMs)}.`,
         );
-      }, proxyResponseTimeoutMs);
+      }, responseTimeoutMs);
       responseTimer.unref();
 
       proxyReq.on("error", (err) => {

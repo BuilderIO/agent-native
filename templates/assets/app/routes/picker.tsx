@@ -122,7 +122,7 @@ function normalizeMediaType(value: unknown): PickerMediaType {
 function normalizeHostConfig(value: unknown): HostConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
-  return {
+  const config: HostConfig = {
     mediaType:
       record.mediaType === "image" || record.mediaType === "video"
         ? record.mediaType
@@ -136,11 +136,14 @@ function normalizeHostConfig(value: unknown): HostConfig {
     presetId: typeof record.presetId === "string" ? record.presetId : undefined,
     count:
       record.count === undefined ? undefined : normalizeCount(record.count),
-    autoGenerate:
+  };
+  if (Object.prototype.hasOwnProperty.call(record, "autoGenerate")) {
+    config.autoGenerate =
       record.autoGenerate === true ||
       record.autoGenerate === "true" ||
-      record.autoGenerate === "1",
-  };
+      record.autoGenerate === "1";
+  }
+  return config;
 }
 
 function embeddedAppOrigin() {
@@ -185,10 +188,51 @@ function absoluteAssetUrl(value: string | undefined) {
   }
 }
 
-function shouldInlineAssetPreviews() {
+function shouldUseContentProxyForPreview(asset: Asset) {
   if (typeof window === "undefined") return false;
-  const appOrigin = embeddedAppOrigin();
-  return Boolean(appOrigin && appOrigin !== window.location.origin);
+  if (!isEmbeddedWindow()) return false;
+  return (
+    asset.libraryId !== STARTER_LIBRARY_ID && !asset.id.startsWith("starter-")
+  );
+}
+
+function embedTokenParam() {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("__an_embed_token");
+}
+
+function assetContentUrl(asset: Asset, variant?: "thumb") {
+  const params = new URLSearchParams();
+  if (variant === "thumb") params.set("variant", "thumb");
+  const embedToken = embedTokenParam();
+  if (embedToken) params.set("__an_embed_token", embedToken);
+  const query = params.toString();
+  return absoluteAssetUrl(
+    `/api/assets/${asset.id}/content${query ? `?${query}` : ""}`,
+  );
+}
+
+function assetThumbnailSource(asset: Asset) {
+  if (shouldUseContentProxyForPreview(asset)) {
+    return assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined);
+  }
+  return (
+    asset.thumbnailUrl ?? asset.previewUrl ?? asset.downloadUrl ?? asset.url
+  );
+}
+
+function previewFetchCredentials(
+  source: string | undefined,
+): RequestCredentials {
+  if (!source || typeof window === "undefined") return "omit";
+  try {
+    return new URL(source, window.location.href).origin ===
+      window.location.origin
+      ? "same-origin"
+      : "omit";
+  } catch {
+    return "omit";
+  }
 }
 
 function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
@@ -198,7 +242,7 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
       : requestedMediaType;
   const previewUrl = absoluteAssetUrl(asset.previewUrl);
   const url = absoluteAssetUrl(
-    asset.previewUrl ?? asset.url ?? asset.downloadUrl,
+    asset.previewUrl ?? asset.downloadUrl ?? asset.url,
   );
   const thumbnailUrl = absoluteAssetUrl(asset.thumbnailUrl);
   const downloadUrl = absoluteAssetUrl(asset.downloadUrl);
@@ -227,12 +271,28 @@ function selectedAssetText(payload: ReturnType<typeof assetPayload>) {
   return `Selected ${payload.mediaType} asset ${payload.assetId}${url ? `: ${url}` : ""}`;
 }
 
+function selectedAssetLabel(payload: ReturnType<typeof assetPayload>) {
+  const title = payload.title?.trim() ?? "";
+  const altText = payload.altText?.trim() ?? "";
+  const machineLikeTitle =
+    title === payload.assetId || /^[A-Za-z0-9_-]{12,}$/.test(title);
+  if (altText && altText !== title) return altText;
+  if (title && !machineLikeTitle) return title;
+  return altText || title || payload.assetId;
+}
+
 function selectedAssetFollowUpMessage(
   payload: ReturnType<typeof assetPayload>,
 ) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
-  const label = payload.title || payload.altText || payload.assetId;
-  return `Continue the user's request using this selected Assets ${payload.mediaType}: ${label}${url ? ` - ${url}` : ""}`;
+  const label = selectedAssetLabel(payload);
+  return [
+    `Selected Assets ${payload.mediaType} for the next step: ${label}`,
+    url ? `URL: ${url}` : null,
+    "Use this selected asset in the current artifact or design.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -247,69 +307,28 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
-  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
-  const mimeType = payload.mimeType?.startsWith("image/")
-    ? payload.mimeType
-    : "image/png";
-  if (!url || payload.mediaType !== "image") return null;
-  try {
-    const appOrigin =
-      typeof window !== "undefined"
-        ? (embeddedAppOrigin() ?? window.location.origin)
-        : undefined;
-    const credentials =
-      typeof window !== "undefined" &&
-      appOrigin &&
-      new URL(url, window.location.href).origin === appOrigin
-        ? "include"
-        : "omit";
-    const response = await fetch(url, { credentials });
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    const detectedMimeType = blob.type.startsWith("image/")
-      ? blob.type
-      : mimeType;
-    return {
-      type: "image",
-      data: await blobToBase64(blob),
-      mimeType: detectedMimeType,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
-  void Promise.resolve(imageContentForAsset(payload))
-    .catch(() => null)
-    .then(async (imageContent) => {
-      const context = { selectedAsset: payload };
-      const content = [
-        { type: "text", text: selectedAssetText(payload) },
-        ...(imageContent ? [imageContent] : []),
-      ];
-      await Promise.resolve(
-        updateMcpAppModelContext({
-          structuredContent: context,
-          content,
-        }) || false,
-      ).catch(() => false);
-      return (
+  const context = { selectedAsset: payload };
+  const message = selectedAssetFollowUpMessage(payload);
+  const modelContent = [{ type: "text", text: selectedAssetText(payload) }];
+  const chatContent = [{ type: "text", text: message }];
+
+  return Promise.resolve(
+    updateMcpAppModelContext({
+      structuredContent: context,
+      content: modelContent,
+    }) || false,
+  )
+    .catch(() => false)
+    .then(() =>
+      Promise.resolve(
         sendMcpAppHostMessage({
-          message: selectedAssetFollowUpMessage(payload),
+          message,
           context: JSON.stringify(context, null, 2),
-          content: [
-            {
-              type: "text",
-              text: selectedAssetFollowUpMessage(payload),
-            },
-            ...(imageContent ? [imageContent] : []),
-          ],
-        }) || false
-      );
-    })
-    .catch(() => false);
+          content: chatContent,
+        }) || false,
+      ).catch(() => false),
+    );
 }
 
 function dimensions(asset: Asset) {
@@ -331,15 +350,17 @@ function assetContextLabel(asset: Asset) {
 }
 
 function AssetThumbnail({ asset }: { asset: Asset }) {
-  const source =
-    asset.thumbnailUrl ?? asset.previewUrl ?? asset.downloadUrl ?? asset.url;
+  const source = assetThumbnailSource(asset);
   const [displayUrl, setDisplayUrl] = useState(source);
 
   useEffect(() => {
     let cancelled = false;
     setDisplayUrl(source);
-    if (!source || !shouldInlineAssetPreviews()) return;
-    fetch(source, { credentials: "omit" })
+    if (!source || !shouldUseContentProxyForPreview(asset)) return;
+    fetch(source, {
+      cache: "no-store",
+      credentials: previewFetchCredentials(source),
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error("Preview fetch failed");
         const blob = await response.blob();
@@ -369,20 +390,25 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 export default function AssetPicker() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const urlHostConfig = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey);
+    return {
+      mediaType: normalizeMediaType(params.get("mediaType")),
+      prompt: params.get("prompt") ?? undefined,
+      query: params.get("q") ?? undefined,
+      libraryId: params.get("libraryId") ?? undefined,
+      aspectRatio: params.get("aspectRatio") ?? undefined,
+      presetId: params.get("presetId") ?? undefined,
+      count: normalizeCount(params.get("count")),
+      autoGenerate:
+        params.get("autoGenerate") === "1" ||
+        params.get("autoGenerate") === "true",
+    } satisfies HostConfig;
+  }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
   const embedded = useMemo(() => isEmbeddedWindow(), []);
-  const [hostConfig, setHostConfig] = useState<HostConfig>(() => ({
-    mediaType: normalizeMediaType(searchParams.get("mediaType")),
-    prompt: searchParams.get("prompt") ?? undefined,
-    query: searchParams.get("q") ?? undefined,
-    libraryId: searchParams.get("libraryId") ?? undefined,
-    aspectRatio: searchParams.get("aspectRatio") ?? undefined,
-    presetId: searchParams.get("presetId") ?? undefined,
-    count: normalizeCount(searchParams.get("count")),
-    autoGenerate:
-      searchParams.get("autoGenerate") === "1" ||
-      searchParams.get("autoGenerate") === "true",
-  }));
+  const [hostConfig, setHostConfig] = useState<HostConfig>(() => urlHostConfig);
   const [mediaType, setMediaType] = useState<PickerMediaType>(
     () => hostConfig.mediaType ?? "image",
   );
@@ -400,6 +426,17 @@ export default function AssetPicker() {
     useState<Library | null>(null);
   const autoGenerateKeyRef = useRef<string | null>(null);
   const autoCreateLibraryRef = useRef(false);
+
+  useEffect(() => {
+    setHostConfig((current) => ({ ...current, ...urlHostConfig }));
+    setMediaType(urlHostConfig.mediaType ?? "image");
+    setQuery(urlHostConfig.query ?? "");
+    setPrompt(urlHostConfig.prompt ?? "");
+    setSelectedLibraryId(urlHostConfig.libraryId ?? "");
+    setAspectRatio(urlHostConfig.aspectRatio ?? "16:9");
+    setPresetId(urlHostConfig.presetId ?? "none");
+    setCount(urlHostConfig.count ?? 3);
+  }, [urlHostConfig]);
 
   const { data: libraryData } = useActionQuery("list-libraries", {
     compact: true,
@@ -514,7 +551,16 @@ export default function AssetPicker() {
     if (payload.mediaType === "image") {
       bridgeRef.current?.postMessage("chooseImage", payload);
     }
-    notifyMcpHost(payload);
+    const hostPost = notifyMcpHost(payload);
+    if (embedded) {
+      void hostPost.then((ok) => {
+        if (ok) {
+          toast.success(`Selected ${selectedAssetLabel(payload)}`);
+        } else {
+          toast.error("Could not send the selected asset back to chat");
+        }
+      });
+    }
     if (!embedded && !posted) {
       navigate(`/asset/${asset.id}`);
     }
@@ -586,6 +632,7 @@ export default function AssetPicker() {
         prompt: prompt.trim(),
         aspectRatio: effectiveAspectRatio,
         imageSize: selectedPreset?.imageSize || "2K",
+        dismissible: false,
       })),
       source: "ui",
     } as any);
