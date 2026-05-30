@@ -15,7 +15,10 @@ describe("open-asset-picker", () => {
       embed: true,
       count: 3,
       autoGenerate: false,
+      fallbackInstructions: expect.stringContaining("paste"),
     });
+    expect(result.message).toContain("browser tab");
+    expect(result.message).toContain("paste");
     expect(action.http).toEqual({ method: "GET" });
     expect(action.readOnly).toBe(true);
     expect(action.mcpApp?.compactCatalog).toBe(true);
@@ -38,10 +41,14 @@ describe("open-asset-picker", () => {
     expect(result).toMatchObject({
       mediaType: "video",
       path: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      url: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      message: expect.stringContaining("paste"),
+      fallbackInstructions: expect.stringContaining("handoff summary"),
       presetId: "preset_hero",
       count: 4,
       autoGenerate: true,
     });
+    expect(result.url).not.toContain("/asset/");
     expect(link).toEqual({
       url: result.url,
       label: "Open Assets picker",

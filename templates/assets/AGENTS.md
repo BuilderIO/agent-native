@@ -49,3 +49,5 @@ Read the relevant skill before deeper work:
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
   `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
   preview, tweak by preset/aspect/count, and choose.
+- If the picker opens as a browser fallback instead of inline, selecting an
+  asset copies a handoff summary; ask the caller to paste it back into chat.

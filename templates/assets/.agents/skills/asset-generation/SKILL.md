@@ -32,7 +32,8 @@ or generated image/video assets that another app can reference by ID and URL.
   applying library style, and making targeted changes. Do not surface separate
   restyle, edit, or quality-tier buttons in host UIs.
 - Use browser/deep-link fallback when the host cannot render MCP Apps inline.
-  Surface the returned picker link instead of inventing a separate UI.
+  Surface the returned picker link. If it opens in a normal browser tab, have
+  the user select an asset there and paste back the copied handoff summary.
 
 ## Image Workflows
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
@@ -14,10 +14,16 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
-import { IconArrowUpRight, IconX } from "@tabler/icons-react";
+import {
+  IconArrowUpRight,
+  IconCheck,
+  IconClipboard,
+  IconX,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -307,11 +313,22 @@ function selectedAssetFollowUpMessage(
   const label = selectedAssetLabel(payload);
   return [
     `Selected Assets ${payload.mediaType} for the next step: ${label}`,
-    url ? `URL: ${url}` : null,
+    url ? `Media URL: ${url}` : null,
     "Use this selected asset in the current artifact or design.",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function selectedAssetClipboardText(payload: ReturnType<typeof assetPayload>) {
+  return [
+    "Paste this selection back into your chat so the agent can use it.",
+    "",
+    selectedAssetFollowUpMessage(payload),
+    "",
+    "Selected asset context:",
+    JSON.stringify({ selectedAsset: payload }, null, 2),
+  ].join("\n");
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -449,7 +466,6 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 }
 
 export default function AssetPicker() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const urlHostConfig = useMemo(() => {
@@ -618,26 +634,61 @@ export default function AssetPicker() {
       ? visibleStarterAssets
       : []
     : (assetData?.assets ?? []);
+  const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
+    typeof assetPayload
+  > | null>(null);
+  const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+  const standaloneSelectionText = useMemo(
+    () =>
+      standaloneSelection
+        ? selectedAssetClipboardText(standaloneSelection)
+        : "",
+    [standaloneSelection],
+  );
+  const standaloneSelectionUrl =
+    standaloneSelection?.url ??
+    standaloneSelection?.downloadUrl ??
+    standaloneSelection?.previewUrl;
+  const canOpenStandaloneAsset =
+    Boolean(standaloneSelection) &&
+    standaloneSelection?.libraryId !== STARTER_LIBRARY_ID &&
+    !standaloneSelection?.assetId.startsWith("starter-");
+  const copyStandaloneSelection = useCallback(
+    async (payload: ReturnType<typeof assetPayload>) => {
+      const text = selectedAssetClipboardText(payload);
+      try {
+        await navigator.clipboard.writeText(text);
+        setStandaloneCopyOk(true);
+        toast.success("Selection copied");
+        return true;
+      } catch {
+        setStandaloneCopyOk(false);
+        toast.info("Selection ready");
+        return false;
+      }
+    },
+    [],
+  );
 
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
-    const posted = bridgeRef.current?.postMessage("chooseAsset", payload);
-    if (payload.mediaType === "image") {
-      bridgeRef.current?.postMessage("chooseImage", payload);
-    }
-    const hostPost = notifyMcpHost(payload);
     if (embedded) {
-      void hostPost.then((ok) => {
+      bridgeRef.current?.postMessage("chooseAsset", payload);
+      if (payload.mediaType === "image") {
+        bridgeRef.current?.postMessage("chooseImage", payload);
+      }
+      void notifyMcpHost(payload).then((ok) => {
         if (ok) {
           toast.success(`Selected ${selectedAssetLabel(payload)}`);
         } else {
           toast.error("Could not send the selected asset back to chat");
         }
       });
+      return;
     }
-    if (!embedded && !posted) {
-      navigate(`/asset/${asset.id}`);
-    }
+    setStandaloneSelection(payload);
+    setStandaloneCopyOk(false);
+    void copyStandaloneSelection(payload);
   };
 
   const createPickerLibrary = useActionMutation(
@@ -1026,6 +1077,61 @@ export default function AssetPicker() {
           </div>
         )}
       </section>
+
+      {!embedded && standaloneSelection && (
+        <section className="shrink-0 border-b border-border bg-muted/30 px-3 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">
+                {selectedAssetLabel(standaloneSelection)}
+              </div>
+              {standaloneSelectionUrl && (
+                <div className="truncate text-xs text-muted-foreground">
+                  {standaloneSelectionUrl}
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => copyStandaloneSelection(standaloneSelection)}
+              >
+                {standaloneCopyOk ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  <IconClipboard className="h-3.5 w-3.5" />
+                )}
+                {standaloneCopyOk ? "Copied" : "Copy"}
+              </Button>
+              {canOpenStandaloneAsset && (
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                >
+                  <Link
+                    to={`/asset/${encodeURIComponent(
+                      standaloneSelection.assetId,
+                    )}`}
+                  >
+                    <IconArrowUpRight className="h-3.5 w-3.5" />
+                    Open
+                  </Link>
+                </Button>
+              )}
+            </div>
+          </div>
+          <Textarea
+            readOnly
+            value={standaloneSelectionText}
+            className="mt-2 h-24 resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        </section>
+      )}
 
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
         {!selectedLibraryId && (
