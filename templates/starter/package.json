@@ -4,6 +4,9 @@
   "description": "Blank agent-native app scaffold.",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "agent-native dev --open",
     "build": "agent-native build",

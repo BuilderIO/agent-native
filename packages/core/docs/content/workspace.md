@@ -63,6 +63,25 @@ Resources have three runtime scopes:
 
 The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
+### Global resources and canonical paths {#global-resources}
+
+Workspace-scope resources are managed from Dispatch's **Resources** page and inherited by apps at runtime — no copy or sync step. Dispatch supports two grant scopes:
+
+- **All apps** — global resources every app in the workspace inherits. Most company, brand, persona, positioning, messaging, and guardrail context should be **All apps**.
+- **Selected apps** — resources granted to specific apps for app-specific context or tools. Use these sparingly.
+
+The path determines how the agent uses a resource. These canonical paths apply across all three scopes (workspace, organization/app, personal):
+
+| Runtime resource        | Path                                    | How agents use it                               |
+| ----------------------- | --------------------------------------- | ----------------------------------------------- |
+| Guardrail instructions  | `AGENTS.md` or `instructions/<slug>.md` | Loaded every turn in every app that receives it |
+| Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
+| Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
+| Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
+| Shared HTTP MCP servers | `mcp-servers/<slug>.json`               | Loaded into granted apps' MCP tool registry     |
+
+This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
+
 ## Workspace Panel {#workspace-panel}
 
 The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.

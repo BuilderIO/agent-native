@@ -23,7 +23,7 @@ For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape ha
 | Store               | Purpose                                              | Access                                     |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------ |
 | `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
-| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `setSetting()`            |
+| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `putSetting()`            |
 | `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
 | `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
 

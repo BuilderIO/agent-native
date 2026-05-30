@@ -66,6 +66,33 @@ The rest of this doc is for anyone forking the Design template or extending it.
 pnpm dlx @agent-native/core create my-design --template design --standalone
 ```
 
+### Data Model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs and design systems carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+| Table                                    | What it holds                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
+| `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
+| `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
+| `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
+| `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
+
+A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
+
+Routes in the UI live under `templates/design/app/routes/`: `_index.tsx` (list), `design.$id.tsx` (editor), `present.$id.tsx` (presentation), `design-systems.tsx` and `design-systems_.setup.tsx`, `templates.tsx`, `examples.tsx`, plus `settings.tsx` and `team.tsx`.
+
+### Key Actions
+
+Every agent-callable operation is a TypeScript file in `templates/design/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. The groupings:
+
+- **Designs** — `create-design` (empty shell), `generate-design` (write generated HTML/JSX content), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design`, and `apply-tweaks` for persisting live tweak-knob values (accent color, density, etc.).
+- **Files** — `create-file`, `update-file`, `list-files`, `delete-file` for the files inside a design project.
+- **Design systems** — `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system`, and `analyze-brand-assets` for gathering brand data ahead of analysis.
+- **Import** — `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` to lift a design system out of an existing project.
+- **Export & handoff** — `export-html`, `export-pdf`, `export-svg`, `export-zip`, and `export-coding-handoff` to turn a design into a coding-tool handoff.
+- **Context & navigation** — `view-screen` (current design, open file, view, pending question or variant grid), `get-design-snapshot` (current state for an external agent to continue from), and `navigate`.
+
 ### Customize It
 
 Design is a complete, cloneable template. Some practical extension ideas:

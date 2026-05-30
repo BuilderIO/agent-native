@@ -4,7 +4,7 @@ import {
   IconCircleCheck,
   IconAlertCircle,
   IconMessage,
-  IconRobot,
+  IconMessageChatbot,
   IconTool,
   IconUser,
 } from "@tabler/icons-react";
@@ -170,7 +170,7 @@ function KindIcon({ kind }: { kind: NormalizedKind }) {
   switch (kind) {
     case "assistant-message":
       return (
-        <IconRobot
+        <IconMessageChatbot
           size={16}
           className="mt-0.5 shrink-0 text-muted-foreground"
           aria-hidden

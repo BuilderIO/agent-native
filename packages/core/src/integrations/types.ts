@@ -17,6 +17,17 @@ export interface IncomingMessage {
   senderEmail?: string;
   /** Platform-specific sender ID */
   senderId?: string;
+  /**
+   * Whether the platform cryptographically authenticated that the message
+   * genuinely came from the claimed sender (e.g. inbound email that passed
+   * DKIM, or an aligned SPF pass, for the From domain). Defaults to
+   * undefined/false for platforms that don't provide sender authentication.
+   *
+   * Owner-resolution paths that grant a real user's identity/credentials
+   * MUST treat a missing/false value as "unverified" and fail closed —
+   * never derive a privileged acting identity from an unverified sender.
+   */
+  senderVerified?: boolean;
   /** Raw platform-specific context needed for routing responses */
   platformContext: Record<string, unknown>;
   /** Message timestamp (epoch ms) */

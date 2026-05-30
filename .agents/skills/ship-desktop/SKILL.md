@@ -1,7 +1,7 @@
 ---
 name: ship-desktop
 description: Build the Agent Native desktop app locally, kill the running copy, install the fresh DMG to /Applications, and launch it. Use when the user says "rebuild/reinstall the desktop app", "ship desktop", "install the desktop app", or similar.
-user_invocable: true
+user-invocable: true
 ---
 
 # Ship Desktop
@@ -71,7 +71,7 @@ cp -R "packages/desktop-app/dist/mac-arm64/Agent Native.app" /Applications/
 
 ### 5. Refresh icon caches + launch
 
-macOS aggressively caches Dock/Finder icons. Without flushing, a fresh `.icns` won't show until logout. The `mv … .tmp && mv … back` is the no-`killall Dock` cache buster (the harness usually denies `killall Dock`).
+macOS aggressively caches Dock/Finder icons. Without flushing, a fresh `.icns` won't show until logout. The `mv … .tmp && mv … back` is the no-`killall Dock` cache buster (the agent sandbox usually denies `killall Dock`).
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Agent Native.app" 2>/dev/null

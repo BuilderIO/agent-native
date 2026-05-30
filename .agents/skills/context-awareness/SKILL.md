@@ -2,7 +2,7 @@
 name: context-awareness
 description: >-
   How the agent knows what the user is looking at. Use when exposing UI state to
-  the agent, implementing view-screen or navigate scripts, wiring navigation
+  the agent, implementing view-screen or navigate actions, wiring navigation
   state, or debugging agent context issues.
 ---
 
@@ -185,5 +185,5 @@ The mail template demonstrates all three patterns working together:
 
 - **adding-a-feature** — Context awareness is area 4 of the four-area checklist
 - **real-time-sync** — How `useDbSync` delivers app-state changes to the UI
-- **scripts** — How to create the `view-screen` and `navigate` scripts
+- **actions** — How to create the `view-screen` and `navigate` actions
 - **storing-data** — Application-state is one of the core SQL stores

@@ -142,7 +142,7 @@ export interface AuthSession {
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
-  /** Active organization ID (from Better Auth organization plugin) */
+  /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
   orgRole?: string;

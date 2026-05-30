@@ -13,7 +13,7 @@ cd agent-native/framework
 pnpm install
 ```
 
-The `postinstall` script automatically builds `@agent-native/core` and `@agent-native/pinpoint`, which other packages depend on.
+The `postinstall` script automatically builds the workspace packages other packages depend on (`shared-app-config`, `core`, `code-agents-ui`, `migrate`, `pinpoint`, `scheduling`, `embedding`, `dispatch`).
 
 ## Development
 
@@ -47,20 +47,26 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 ### Packages (`packages/`)
 
-| Package             | Description                                                                                    |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| `core`              | Core framework library (`@agent-native/core`) -- CLI, server plugins, agent tools, Vite plugin |
-| `desktop-app`       | Electron desktop app                                                                           |
-| `mobile-app`        | Mobile app                                                                                     |
-| `docs`              | Documentation site                                                                             |
-| `pinpoint`          | Pinpoint package                                                                               |
-| `shared-app-config` | Shared app configuration                                                                       |
+| Package             | Description                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `core`              | Core framework library (`@agent-native/core`) -- CLI, server plugins, agent tools, Vite plugin                      |
+| `code-agents-ui`    | Reusable React UI for Agent-Native Code surfaces                                                                    |
+| `desktop-app`       | Electron desktop app                                                                                                |
+| `dispatch`          | Workspace control plane -- vault, integrations, destinations, scheduled jobs, and cross-app delegation as a drop-in |
+| `docs`              | Documentation site                                                                                                  |
+| `embedding`         | Embed Agent-Native apps, pickers, and agents inside other apps                                                      |
+| `frame`             | Local dev frame -- agent chat + CLI sidebar wrapping the app iframe                                                 |
+| `migrate`           | Migration Workbench engine for moving existing apps to agent-native with verifiable, resumable migration runs       |
+| `mobile-app`        | Mobile app                                                                                                          |
+| `pinpoint`          | Visual feedback and annotation tool for agent-native web applications                                               |
+| `scheduling`        | Scheduling primitives -- event types, availability, bookings, team scheduling, workflows, routing forms             |
+| `shared-app-config` | Shared Agent-Native app catalog and configuration helpers                                                           |
 
 ### Templates (`templates/`)
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `brain`, `calendar`, `calls`, `clips`, `code`, `content`, `design`, `dispatch`, `forms`, `images`, `issues`, `macros`, `mail`, `meeting-notes`, `migration`, `recruiting`, `scheduling`, `slides`, `starter`, `videos`, `voice`
+Templates: `analytics`, `assets`, `brain`, `calendar`, `calls`, `clips`, `code`, `content`, `design`, `dispatch`, `forms`, `issues`, `macros`, `mail`, `meeting-notes`, `migration`, `recruiting`, `scheduling`, `slides`, `starter`, `videos`, `voice`, `workbench`
 
 Each template uses the same scripts:
 
@@ -101,14 +107,32 @@ All SQL must be dialect-agnostic -- never assume SQLite.
 
 Run these from the repo root:
 
-| Command              | Description                                             |
-| -------------------- | ------------------------------------------------------- |
-| `pnpm run prep`      | Format + typecheck + test in parallel (run before push) |
-| `pnpm run fmt`       | Format all files with Prettier                          |
-| `pnpm run fmt:check` | Check formatting without writing                        |
-| `pnpm run typecheck` | Type-check all packages and templates                   |
-| `pnpm test`          | Run tests (core + docs)                                 |
-| `pnpm run lint`      | Format check + typecheck                                |
+| Command              | Description                                                      |
+| -------------------- | ---------------------------------------------------------------- |
+| `pnpm run prep`      | Format + typecheck + test + guards in parallel (run before push) |
+| `pnpm run fmt`       | Format all files with Prettier                                   |
+| `pnpm run fmt:check` | Check formatting without writing                                 |
+| `pnpm run typecheck` | Type-check all packages and templates                            |
+| `pnpm test`          | Run tests (core + migrate + docs + dispatch + brain evals)       |
+| `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)    |
+| `pnpm run lint`      | Format check + typecheck                                         |
+
+## Guards
+
+The `guards` script chains a suite of guard scripts under `scripts/guard-*.mjs`,
+each codifying a real past incident or invariant (cross-tenant data leaks,
+credential leaks, `drizzle-kit push` against prod, unscoped ownable queries,
+env-based credentials, the public template allow-list, etc.). Read the header
+comment of each `scripts/guard-*.mjs` for what it enforces.
+
+Enforcement:
+
+- All guards run locally as part of `pnpm run prep`.
+- In CI, the `Security guards` job (`.github/workflows/ci.yml`) runs the full
+  `pnpm guards` suite on every PR. For it to block merges it must be added to
+  the required-status-checks ruleset for `main`.
+- There is intentionally **no pre-commit hook** (see project conventions); run
+  `pnpm run prep` before pushing.
 
 ## Building
 

@@ -8,9 +8,12 @@
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
 
-# Slides builds can legitimately need several model/tool iterations. Keep this
-# above templates/slides/server/plugins/agent-chat.ts (runSoftTimeoutMs =
-# 240_000) so the hidden auto-continuation path can hand off before Netlify
-# kills the function.
+# Function wall for the non-agent long-request paths (deck import/export,
+# image generation). NOTE: this does NOT set the agent-chat chunk boundary —
+# on hosted runtimes the agent run soft-timeout is clamped to
+# HOSTED_SOFT_TIMEOUT_CEILING_MS (40s) in @agent-native/core run-manager.ts,
+# regardless of the per-template runSoftTimeoutMs. The agent's hidden
+# auto-continuation hands off at ~40s; this 300s ceiling only protects the
+# longer non-agent HTTP handlers.
 [functions."*"]
   timeout = 300

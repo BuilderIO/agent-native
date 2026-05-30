@@ -164,14 +164,37 @@ export async function resolveDispatchOwner(
     });
     if (owner) return owner;
 
-    // For email, the sender's email address is already a natural identity.
-    // If the senderId looks like an email address, use it directly as the owner.
+    // For email, the sender's `From:` address is attacker-settable: SMTP lets
+    // anyone claim any From, and our inbound webhook secret only authenticates
+    // the provider→app hop, not the original sender. So we must NOT grant a
+    // real user's identity (their API keys, org secrets, personal
+    // instructions, ownable data) off the bare From. Mirror the Slack gate:
+    // only return the sender email as the acting owner when BOTH
+    //   (a) the message is DKIM/SPF-verified for the From domain, AND
+    //   (b) that email maps to a real org member.
+    // Otherwise fall through to the synthetic, credential-less fallback owner.
+    // (A linked identity, handled by resolveLinkedOwner above, remains an
+    // always-allowed way to bind an address regardless of verification.)
+    //
+    // Escape hatch: set DISPATCH_TRUST_UNVERIFIED_EMAIL_SENDER=1 to restore
+    // the legacy "trust the From header" behavior. OFF by default; only use
+    // this if you fully control the inbound mail path and accept that a
+    // spoofed From can act as any org member. See FINDING 3 (inbound-email
+    // impersonation) in the webhook security audit.
     if (
       incoming.platform === "email" &&
       incoming.senderId &&
       incoming.senderId.includes("@")
     ) {
-      return incoming.senderId;
+      if (process.env.DISPATCH_TRUST_UNVERIFIED_EMAIL_SENDER === "1") {
+        return incoming.senderId;
+      }
+      if (incoming.senderVerified) {
+        const orgId = await resolveOrgIdForEmail(incoming.senderId);
+        if (orgId) return incoming.senderId;
+      }
+      // Unverified or not an org member — do not impersonate. Fall through to
+      // the synthetic fallback owner below.
     }
 
     // Slack gives us a user id in the event payload. Resolve it to a verified

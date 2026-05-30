@@ -8,6 +8,7 @@ import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
 import { OrgSwitcher, InvitationBanner } from "@agent-native/core/client/org";
 import {
   AgentSidebar,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -238,6 +239,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </div>
 
             <div className="px-2">
+              <DevDatabaseLink />
               <FeedbackButton />
             </div>
 

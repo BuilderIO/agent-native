@@ -294,7 +294,7 @@ The email adapter also enforces:
 
 ### Proactive sends {#proactive-sends}
 
-The agent can send messages on its own initiative (notifications, reminders, scheduled summaries) by calling the `send-platform-message` action with a `platform` field of `"slack"`, `"telegram"`, `"whatsapp"`, or `"email"`. The action lives in the Dispatch template at `actions/send-platform-message.ts` and you can copy/adapt it for any template.
+The agent can send messages on its own initiative (notifications, reminders, scheduled summaries) by calling the `send-platform-message` action with a `platform` field of `"slack"`, `"telegram"`, `"whatsapp"`, or `"email"`. The action lives in the Dispatch package at `packages/dispatch/src/actions/send-platform-message.ts` and you can copy/adapt it for any template.
 
 ### Custom adapters {#custom-adapters}
 

@@ -15,7 +15,10 @@
 import path from "path";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoSchemaQualifiedTables,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
@@ -203,6 +206,7 @@ Options:
     );
   }
   assertNoSensitiveFrameworkTables(stripped, "read");
+  assertNoSchemaQualifiedTables(stripped, "read");
 
   // Resolve database URL: --db flag → DATABASE_URL env → default file path
   let url: string;

@@ -29,7 +29,11 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton, appPath } from "@agent-native/core/client";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
@@ -694,6 +698,7 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
+        <DevDatabaseLink />
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">

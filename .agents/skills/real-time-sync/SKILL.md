@@ -47,9 +47,9 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
    For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
-3. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
+4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds. If SSE is disabled or unavailable, polling continues at the normal cadence.
 
-4. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
+5. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 
 ## Don't
 

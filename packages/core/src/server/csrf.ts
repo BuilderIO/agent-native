@@ -98,10 +98,18 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  *
  * We accept ANY of these — the goal is "did the request come through a
  * channel the browser would have preflighted", not a strict-mode token.
+ *
+ * NOTE: `Sec-Fetch-Site: same-site` is deliberately NOT trusted. Under a
+ * shared cookie domain (COOKIE_DOMAIN / crossSubDomainCookies), the browser
+ * labels a request from a SIBLING subdomain (evil.example.com → app.example.com)
+ * as `same-site` even though it is cross-origin and would ride the shared
+ * session cookie — a CSRF vector. Legitimate first-party clients all also send
+ * `X-Agent-Native-CSRF` or `application/json`, so they still pass via those
+ * paths and iframe/embed flows are unaffected.
  */
 function looksFirstParty(event: any): boolean {
   const sfs = getRequestHeader(event, "sec-fetch-site");
-  if (sfs === "same-origin" || sfs === "same-site" || sfs === "none") {
+  if (sfs === "same-origin" || sfs === "none") {
     return true;
   }
   if (getRequestHeader(event, "x-agent-native-csrf")) {

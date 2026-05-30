@@ -9,6 +9,8 @@
  * No framework dependencies — no defineAction, no zod, no drizzle.
  */
 
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -146,7 +148,14 @@ export interface GitHubJsonResult<T = unknown> {
 // SSRF Guard
 // ---------------------------------------------------------------------------
 
-/** Validate a URL is safe to fetch (blocks localhost, private IPs, metadata endpoints). */
+/**
+ * Cheap synchronous pre-filter for obviously-internal URLs. This is a fast
+ * fail, NOT the real guard: it cannot resolve DNS and does not re-check
+ * redirects. All actual outbound fetches in this module go through
+ * `ssrfSafeFetch`, which performs the DNS-aware check, a connect-time
+ * private-IP guard, and per-redirect re-validation. Keep both: this gives a
+ * clear early error for literal private hosts, ssrfSafeFetch is the backstop.
+ */
 export function validateUrl(url: string): void {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -234,7 +243,7 @@ export async function fetchGitHubJsonResult<T = unknown>(
 ): Promise<GitHubJsonResult<T>> {
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   validateUrl(url);
-  const res = await fetch(url, {
+  const res = await ssrfSafeFetch(url, {
     headers: githubHeaders("application/vnd.github.v3+json", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -276,7 +285,7 @@ export async function fetchGitHubRaw(
 ): Promise<string | null> {
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   validateUrl(url);
-  const res = await fetch(url, {
+  const res = await ssrfSafeFetch(url, {
     headers: githubHeaders("application/vnd.github.v3.raw", options),
     signal: AbortSignal.timeout(FETCH_TIMEOUT),
   });
@@ -914,7 +923,7 @@ export async function extractDesignTokensFromUrl(
   const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
   validateUrl(url);
 
-  const response = await fetch(url, {
+  const response = await ssrfSafeFetch(url, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",

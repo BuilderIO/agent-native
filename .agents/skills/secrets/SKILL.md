@@ -96,22 +96,22 @@ row is written — status is derived from `hasOAuthTokens("google")`.
 ## Reading a secret from an action
 
 ```ts
+import { z } from "zod";
 import { defineAction } from "@agent-native/core";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { getSession } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server";
 
 export default defineAction({
-  name: "transcribe-audio",
   description: "Transcribe an audio file with Whisper",
-  input: { fileUrl: "string" },
-  handler: async ({ fileUrl }, ctx) => {
-    const session = await getSession(ctx.event);
-    if (!session?.email) throw new Error("Not signed in");
+  schema: z.object({ fileUrl: z.string() }),
+  run: async ({ fileUrl }) => {
+    const email = await getRequestUserEmail();
+    if (!email) throw new Error("Not signed in");
 
     const stored = await readAppSecret({
       key: "OPENAI_API_KEY",
       scope: "user",
-      scopeId: session.email,
+      scopeId: email,
     });
     // Env var wins if set (useful for hosted deployments).
     const apiKey = process.env.OPENAI_API_KEY ?? stored?.value;

@@ -117,20 +117,21 @@ Once your app is running, the most useful follow-ups are:
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
 
-| Template                            | Replaces                                        |
-| ----------------------------------- | ----------------------------------------------- |
-| [Calendar](/templates/calendar)     | Google Calendar, Calendly                       |
-| [Content](/templates/content)       | Notion, Google Docs                             |
-| [Brain](/templates/brain)           | Company chat with cited institutional memory    |
-| [Assets](/templates/assets)         | Brand asset libraries and generated media       |
-| [Slides](/templates/slides)         | Google Slides, Pitch                            |
-| [Analytics](/templates/analytics)   | Amplitude, Mixpanel, Looker                     |
-| [Mail](/templates/mail)             | Superhuman, Gmail                               |
-| [Clips](/templates/clips)           | Replaces Loom — screen + camera recording       |
-| [Design](/templates/design)         | HTML prototyping studios                        |
-| [Forms](/docs/template-forms)       | Typeform                                        |
-| [Dispatch](/docs/template-dispatch) | Workspace control plane — integrations, routing |
-| [Starter](/docs/template-starter)   | Minimal scaffold — build from scratch           |
+| Template                              | Replaces                                        |
+| ------------------------------------- | ----------------------------------------------- |
+| [Calendar](/docs/template-calendar)   | Google Calendar, Calendly                       |
+| [Content](/docs/template-content)     | Notion, Google Docs                             |
+| [Brain](/docs/template-brain)         | Company chat with cited institutional memory    |
+| [Assets](/docs/template-assets)       | Brand asset libraries and generated media       |
+| [Slides](/docs/template-slides)       | Google Slides, Pitch                            |
+| [Video](/docs/template-videos)        | Remotion-based video editing                    |
+| [Analytics](/docs/template-analytics) | Amplitude, Mixpanel, Looker                     |
+| [Mail](/docs/template-mail)           | Superhuman, Gmail                               |
+| [Clips](/docs/template-clips)         | Replaces Loom — screen + camera recording       |
+| [Design](/docs/template-design)       | HTML prototyping studios                        |
+| [Forms](/docs/template-forms)         | Typeform                                        |
+| [Dispatch](/docs/template-dispatch)   | Workspace control plane — integrations, routing |
+| [Starter](/docs/template-starter)     | Minimal scaffold — build from scratch           |
 
 Browse the [template gallery](/templates) for live demos, or see [Templates](/docs/cloneable-saas) for the full list and the clone → customize → deploy flow.
 

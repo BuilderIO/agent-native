@@ -12,6 +12,7 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   AgentToggleButton,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -133,6 +134,7 @@ export function Header() {
               <ExtensionsSidebarSection />
             </div>
             <div className="space-y-2 border-t border-border px-3 py-2">
+              <DevDatabaseLink />
               <FeedbackButton />
               <OrgSwitcher />
             </div>

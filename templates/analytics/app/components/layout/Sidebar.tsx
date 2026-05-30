@@ -81,6 +81,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  DevDatabaseLink,
   FeedbackButton,
   appApiPath,
   appPath,
@@ -1757,6 +1758,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <OrgSwitcher />
             <TooltipProvider delayDuration={200}>
               <div className="flex items-center gap-1">
+                <DevDatabaseLink />
                 <FeedbackButton className="min-w-0 flex-1" />
                 <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>

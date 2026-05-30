@@ -19,6 +19,7 @@ import {
 import {
   AgentSidebar,
   AgentToggleButton,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -488,6 +489,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
                   <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
                     <OrgSwitcher settingsPath="/settings/organization" />
+                    <DevDatabaseLink />
                     <FeedbackButton />
                   </div>
                 </>

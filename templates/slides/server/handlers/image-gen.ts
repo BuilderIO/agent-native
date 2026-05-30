@@ -1,3 +1,4 @@
+import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../../shared/api";
 
 interface ReferenceImage {
@@ -12,7 +13,12 @@ async function urlToReferenceImage(
   url: string,
 ): Promise<ReferenceImage | null> {
   try {
-    const res = await fetch(url);
+    // SSRF guard: reference URLs can be agent-supplied. Block private/internal
+    // targets (cloud metadata, localhost, LAN) and do not follow redirects —
+    // a reference image is a direct URL, so a 3xx is treated as a miss.
+    if (await isBlockedExtensionUrlWithDns(url)) return null;
+    const res = await fetch(url, { redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) return null;
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") || "image/png";
     const buffer = Buffer.from(await res.arrayBuffer());

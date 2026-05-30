@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import {
   AgentSidebar,
+  DevDatabaseLink,
   FeedbackButton,
   agentNativePath,
   appPath,
@@ -270,6 +271,7 @@ function SidebarContent({
           </div>
 
           <div className="space-y-2 border-t border-border px-3 py-2">
+            <DevDatabaseLink />
             <FeedbackButton />
             <OrgSwitcher />
           </div>

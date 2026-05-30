@@ -148,7 +148,7 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 export default createAgentChatPlugin({
   actions: scriptRegistry,
   systemPrompt: "You are a helpful assistant...",
-  mentionProviders: [contactsProvider],
+  mentionProviders: { contacts: contactsProvider },
 });
 ```
 

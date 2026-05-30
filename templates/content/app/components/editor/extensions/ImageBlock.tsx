@@ -22,7 +22,7 @@ import {
   IconPhoto,
   IconPlus,
   IconRefresh,
-  IconSparkles,
+  IconWand,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -958,7 +958,7 @@ export function ImageBlock({
                       disabled={isGeneratingAlt}
                       onClick={() => void handleGenerateAltText()}
                     >
-                      <IconSparkles size={18} />
+                      <IconWand size={18} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>Generate alt text</TooltipContent>

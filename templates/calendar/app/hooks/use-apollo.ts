@@ -16,19 +16,18 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export function useApolloStatus() {
-  const { data } = useQuery<{ apiKey?: string } | null>({
+  // The raw API key is never sent to the browser. This endpoint returns only
+  // `{ connected }`; the secret stays in the encrypted per-user vault server-side.
+  const { data } = useQuery<{ connected: boolean } | null>({
     queryKey: ["apollo-status"],
     queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/apollo"),
-      );
-      if (res.status === 404) return null;
+      const res = await fetch(appApiPath("/api/apollo/status"));
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();
     },
     staleTime: 30_000,
   });
-  return { connected: !!data?.apiKey };
+  return { connected: !!data?.connected };
 }
 
 export function useApolloConnect() {
@@ -36,7 +35,7 @@ export function useApolloConnect() {
 
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      await apiFetch("/_agent-native/application-state/apollo", {
+      await apiFetch("/api/apollo/key", {
         method: "PUT",
         body: JSON.stringify({ apiKey }),
       });
@@ -53,7 +52,7 @@ export function useApolloDisconnect() {
 
   return useMutation({
     mutationFn: async () => {
-      await apiFetch("/_agent-native/application-state/apollo", {
+      await apiFetch("/api/apollo/key", {
         method: "DELETE",
       });
     },

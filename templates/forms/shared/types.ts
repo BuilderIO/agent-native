@@ -73,6 +73,42 @@ export interface FormSettings {
   allowedOrigins?: string[];
 }
 
+/**
+ * The subset of {@link FormSettings} that is safe to expose to anonymous
+ * respondents of a published form. This is an explicit ALLOWLIST: only the
+ * fields the public fill page (and SSR renderer) actually need to render and
+ * submit a form are included. Owner-private settings such as
+ * `integrations` (which carry Slack/Discord/generic webhook URLs) and
+ * `allowedOrigins` are deliberately omitted and must never reach the client.
+ *
+ * When adding a new public-facing setting, add it here explicitly so the
+ * default stays "private unless allowlisted".
+ */
+export interface PublicFormSettings {
+  submitText?: string;
+  successMessage?: string;
+  redirectUrl?: string;
+  showProgressBar?: boolean;
+}
+
+/**
+ * Project a full {@link FormSettings} object down to the public-safe
+ * {@link PublicFormSettings} allowlist. Strips integration webhook URLs,
+ * allowed-origins, and any future owner-private fields so the public
+ * form-fetch endpoint and SSR path never leak owner secrets.
+ */
+export function toPublicFormSettings(
+  settings: FormSettings | null | undefined,
+): PublicFormSettings {
+  const s = settings ?? {};
+  return {
+    submitText: s.submitText,
+    successMessage: s.successMessage,
+    redirectUrl: s.redirectUrl,
+    showProgressBar: s.showProgressBar,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Form
 // ---------------------------------------------------------------------------

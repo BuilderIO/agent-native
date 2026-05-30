@@ -58,7 +58,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8080` and create your first page. The agent panel is on the right — try asking it to "create a page called Onboarding and add three sub-pages under it".
+Open `http://localhost:8083` and create your first page. The agent panel is on the right — try asking it to "create a page called Onboarding and add three sub-pages under it".
 
 ### Key features (technical) {#key-features}
 

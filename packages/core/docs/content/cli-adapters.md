@@ -174,12 +174,20 @@ export class DockerAdapter implements CliAdapter {
 
 Expose the registry to the UI via an API route so actions and components can discover and invoke CLIs:
 
+`createServer()` returns an H3 `{ app, router }`. Mount routes on `router` with H3 handlers (`defineEventHandler`, `readBody`, `getRouterParam`):
+
 ```ts
 // server/index.ts
 import { createServer } from "@agent-native/core";
 import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+import {
+  defineEventHandler,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+} from "h3";
 
-const app = createServer();
+const { router } = createServer();
 const cliRegistry = new CliRegistry();
 
 cliRegistry.register(
@@ -190,23 +198,31 @@ cliRegistry.register(
 );
 
 // Discovery endpoint — agent can query this
-app.get("/api/cli", async (_req, res) => {
-  const tools = await cliRegistry.describe();
-  res.json(tools);
-});
+router.get(
+  "/api/cli",
+  defineEventHandler(async () => {
+    return await cliRegistry.describe();
+  }),
+);
 
 // Execution endpoint
-app.post("/api/cli/:name", async (req, res) => {
-  const adapter = cliRegistry.get(req.params.name);
-  if (!adapter) return res.status(404).json({ error: "CLI not found" });
+router.post(
+  "/api/cli/:name",
+  defineEventHandler(async (event) => {
+    const name = getRouterParam(event, "name");
+    const adapter = name ? cliRegistry.get(name) : undefined;
+    if (!adapter) {
+      setResponseStatus(event, 404);
+      return { error: "CLI not found" };
+    }
 
-  const { args } = req.body;
-  const result = await adapter.execute(args ?? []);
-  res.json(result);
-});
+    const { args } = await readBody(event);
+    return await adapter.execute(args ?? []);
+  }),
+);
 ```
 
-## Using from actions {#from-scripts}
+## Using from actions {#from-actions}
 
 Actions can use CLI adapters directly for structured access:
 
@@ -240,9 +256,9 @@ export default async function listPrs() {
   }
 
   const prs = JSON.parse(result.stdout);
-  const fs = await import("node:fs/promises");
-  await fs.writeFile("data/prs.json", JSON.stringify(prs, null, 2));
-  console.log(`Fetched ${prs.length} PRs`);
+  console.error(`Fetched ${prs.length} PRs`);
+  // Return the data (or persist it to SQL) — don't write durable state to data/.
+  return prs;
 }
 ```
 

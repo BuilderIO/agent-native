@@ -14,6 +14,7 @@ import {
   getHeader,
 } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isAgentActionStopError } from "../action.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { notifyActionChange } from "./action-change.js";
@@ -260,16 +261,34 @@ export function mountActionRoutes(
               return result;
             } catch (err: any) {
               const msg = err?.message ?? String(err);
-              // Return 400 for validation errors, 500 for everything else
-              setResponseStatus(
-                event,
-                msg.startsWith("Invalid action parameters")
-                  ? 400
-                  : typeof err?.statusCode === "number"
-                    ? err.statusCode
-                    : 500,
+              const isValidationError = msg.startsWith(
+                "Invalid action parameters",
               );
-              return { error: msg };
+              const explicitStatus =
+                typeof err?.statusCode === "number"
+                  ? err.statusCode
+                  : undefined;
+              // Return 400 for validation errors, the explicit statusCode if
+              // set, otherwise 500.
+              const status = isValidationError ? 400 : (explicitStatus ?? 500);
+              setResponseStatus(event, status);
+
+              // Only echo the raw message for known-safe cases:
+              //  - validation errors (deterministic, parameter-shape only)
+              //  - explicit user-facing errors (AgentActionStopError / fail())
+              //  - errors with an explicit statusCode < 500 (client errors)
+              // For uncategorized 500s, return a generic message and keep the
+              // real detail server-side only — it can contain DB/driver/
+              // upstream text we must not leak to HTTP callers.
+              const isUserFacing =
+                isValidationError ||
+                isAgentActionStopError(err) ||
+                (explicitStatus !== undefined && explicitStatus < 500);
+              if (isUserFacing) {
+                return { error: msg };
+              }
+              console.error(`[agent-native] action '${name}' failed:`, err);
+              return { error: "Internal server error" };
             }
           },
         ); // end runWithRequestContext

@@ -18,6 +18,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Using Your Agent",
     items: [
+      { label: "Overview", to: "/docs/using-your-agent" as const },
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Voice Input", to: "/docs/voice-input" as const },
@@ -46,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Multi-App Workspaces",
         to: "/docs/multi-app-workspace" as const,
       },
+      { label: "Onboarding & API Keys", to: "/docs/onboarding" as const },
     ],
   },
   {
@@ -63,7 +65,6 @@ export const NAV_SECTIONS: NavSection[] = [
         label: "Workspace Connections",
         to: "/docs/workspace-connections" as const,
       },
-      { label: "Onboarding & API Keys", to: "/docs/onboarding" as const },
     ],
   },
   {
@@ -96,22 +97,27 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Architecture",
+    title: "Core Architecture",
     items: [
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },
       { label: "Actions", to: "/docs/actions" as const },
       { label: "Agent Web Surfaces", to: "/docs/agent-web-surfaces" as const },
+      { label: "Database", to: "/docs/database" as const },
+      { label: "File Uploads", to: "/docs/file-uploads" as const },
+      { label: "Deployment", to: "/docs/deployment" as const },
+      { label: "Progress", to: "/docs/progress" as const },
+    ],
+  },
+  {
+    title: "Data, Auth & Governance",
+    items: [
       { label: "Authentication", to: "/docs/authentication" as const },
       { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
       { label: "Security & Data Scoping", to: "/docs/security" as const },
       { label: "Sharing & Privacy", to: "/docs/sharing" as const },
-      { label: "Database", to: "/docs/database" as const },
-      { label: "File Uploads", to: "/docs/file-uploads" as const },
       { label: "Tracking & Analytics", to: "/docs/tracking" as const },
       { label: "Observability", to: "/docs/observability" as const },
-      { label: "Progress Tracking", to: "/docs/progress" as const },
-      { label: "Deployment", to: "/docs/deployment" as const },
     ],
   },
   {
@@ -121,7 +127,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Frames", to: "/docs/frames" as const },
       { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
       {
-        label: "/migrate Goal",
+        label: "Migration Workbench",
         to: "/docs/migration-workbench" as const,
       },
       { label: "Agent-Native Code UI", to: "/docs/code-agents-ui" as const },

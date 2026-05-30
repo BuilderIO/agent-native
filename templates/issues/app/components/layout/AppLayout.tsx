@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -209,6 +210,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {!sidebarCollapsed && (
               <div className="mb-1">
                 <ExtensionsSidebarSection />
+              </div>
+            )}
+            {!sidebarCollapsed && (
+              <div className="mb-1">
+                <DevDatabaseLink />
               </div>
             )}
             {!sidebarCollapsed && (

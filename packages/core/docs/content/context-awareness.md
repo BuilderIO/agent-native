@@ -53,28 +53,44 @@ Every template should have a `view-screen` action. It reads navigation state, fe
 
 ```ts
 // actions/view-screen.ts
+import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
 
-export default async function main() {
-  const navigation = await readAppState("navigation");
-  const screen: Record<string, unknown> = { navigation };
+export default defineAction({
+  description:
+    "See what the user is currently looking at on screen. Reads navigation state and fetches matching data.",
+  schema: z.object({}),
+  http: false,
+  run: async () => {
+    const navigation = (await readAppState("navigation")) as any;
+    const screen: Record<string, unknown> = {};
+    if (navigation) screen.navigation = navigation;
 
-  // Fetch data based on what the user is viewing
-  if (navigation?.view === "inbox") {
-    const res = await fetch(
-      "http://localhost:3000/api/emails?label=" + navigation.label,
-    );
-    screen.emailList = await res.json();
-  }
-  if (navigation?.threadId) {
-    const res = await fetch(
-      "http://localhost:3000/api/threads/" + navigation.threadId,
-    );
-    screen.thread = await res.json();
-  }
+    const db = getDb();
 
-  console.log(JSON.stringify(screen, null, 2));
-}
+    // Fetch data based on what the user is viewing
+    if (navigation?.view === "inbox") {
+      screen.emailList = await db
+        .select()
+        .from(schema.emails)
+        .where(eq(schema.emails.label, navigation.label));
+    }
+    if (navigation?.threadId) {
+      screen.thread = await db
+        .select()
+        .from(schema.threads)
+        .where(eq(schema.threads.id, navigation.threadId));
+    }
+
+    if (Object.keys(screen).length === 0) {
+      return "No application state found. Is the app running?";
+    }
+    return screen;
+  },
+});
 ```
 
 The agent should always call `pnpm action view-screen` before acting. This is a hard convention across all templates. When adding new features, update `view-screen` to return data for the new view.

@@ -11,7 +11,7 @@ Use it when your team needs reusable visual direction and searchable source asse
 
 ![Assets library for brand media and generated output](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200)
 
-## Start Here
+## Getting started
 
 1. **Create a library.** Add the brand, campaign, product, or content stream you
    want to manage.
@@ -23,7 +23,7 @@ Use it when your team needs reusable visual direction and searchable source asse
 4. **Use the asset elsewhere.** Copy the export, embed the picker in another
    app, or let another agent call Assets over A2A.
 
-## Useful Prompts
+## Useful prompts
 
 - "Generate three blog hero options using the Acme product screenshots as references."
 - "Create a square social image in the launch-campaign style."
@@ -31,7 +31,7 @@ Use it when your team needs reusable visual direction and searchable source asse
 - "Turn this uploaded diagram into a cleaner product explainer image."
 - "Create a video storyboard and save the best frame set to this library."
 
-## What You Can Do With It
+## What you can do with it
 
 - **Create asset libraries.** Group reference images, videos, canonical logos, style notes, palettes, folders, and generated output by brand, campaign, product, or category.
 - **Generate through chat.** The home composer and library Generate controls send the prompt to the agent with `sendToAgentChat()`, so users can inspect variants, give feedback, and iterate.
@@ -43,13 +43,13 @@ Use it when your team needs reusable visual direction and searchable source asse
 - **Install as an app-backed skill.** The `agent-native.app-skill.json` manifest exports an Assets skill plus MCP connector metadata so marketplaces can install the app, its instructions, and its picker together.
 - **Serve other agents.** Slides, Design, Content, Mail, and Dispatch can call Assets through A2A to list libraries, generate batches, create videos, refine an asset, fetch exports, and render inline previews where embedding is allowed.
 
-## Why It's Interesting
+## Why it's interesting
 
 Most AI media tools treat brand consistency as a prompt-writing problem. Assets treats it as application state: references, folders, collections, style briefs, run history, descriptions, and saved assets live in SQL, while binary media lives in object storage or the local file-upload fallback during development.
 
 Because generation and library management are actions and chat workflows, the UI and the agent share the same operations. A user can start from the big prompt box, a library detail page, another app's chat, or an A2A request from Slides, and the same audit and lineage model is preserved. Once enabled, the provider path prefers Builder-managed image generation so teams do not need to paste model-provider keys into every app.
 
-## For Developers
+## For developers
 
 The rest of this doc is for anyone forking the Assets template or extending it.
 
@@ -59,7 +59,7 @@ The rest of this doc is for anyone forking the Assets template or extending it.
 pnpm dlx @agent-native/core create my-assets --template assets --standalone
 ```
 
-### Customize It
+### Customizing it
 
 Assets is a complete, cloneable template. Some practical extension ideas:
 
@@ -71,7 +71,7 @@ Assets is a complete, cloneable template. Some practical extension ideas:
 
 The agent edits routes, components, actions, skills, and SQL-backed models as needed. See [Templates](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [A2A Protocol](/docs/a2a-protocol) for cross-app generation.
 
-### Embed The Picker
+### Embed the picker
 
 Use the picker route when a human is choosing or generating an asset inside
 another product. Image is the default media type; pass `mediaType=video` when
@@ -104,7 +104,7 @@ generation preset before choosing the final asset URL.
 Use A2A when another agent needs to create, search, or export assets without a
 human picker UI.
 
-### Developer: Distribute The App Skill
+### Developer: distribute the app skill
 
 The Assets app skill has app id `assets` and hosted MCP URL
 `https://assets.agent-native.com/_agent-native/mcp`.
@@ -151,7 +151,7 @@ hosted MCP connector so those instructions can call the live Assets app:
 npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes
 ```
 
-## What's Next
+## What's next
 
 - [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Embedding SDK**](/docs/embedding-sdk) — iframe picker and sidecar patterns

@@ -137,7 +137,7 @@ The whole pipeline is built to survive on every serverless host (Netlify, Vercel
 - **A2A continuation polling.** When Dispatch delegates to another app, it polls the downstream task with a bounded timeout. If the downstream agent takes too long or crashes, Dispatch records the continuation and the retry job picks it up — the user's Slack reply still arrives.
 - **Auto-signed cross-app A2A.** Hosted multi-app workspaces auto-generate per-app A2A credentials at deploy time, so apps in the same workspace can call each other without you ever pasting a JWT secret. Dispatch's agent-discovery layer reads those creds from the workspace database so newly added apps appear as callable peers automatically.
 
-This is the recently-hardened story — see PRs #439, #441, and #443 for the underlying changes. Conceptually: every step that crosses a network or a process boundary is recoverable.
+This is the hardened reliability story. Conceptually: every step that crosses a network or a process boundary is recoverable.
 
 ## Setup {#setup}
 

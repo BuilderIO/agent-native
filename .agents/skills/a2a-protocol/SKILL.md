@@ -247,5 +247,5 @@ import type {
 ## Related Skills
 
 - **delegate-to-agent** — For work the local agent handles. Use A2A when the work goes to a different agent.
-- **scripts** — A2A calls typically happen in scripts
+- **actions** — A2A calls typically happen inside actions
 - **storing-data** — Results from A2A calls are stored in SQL like any other data

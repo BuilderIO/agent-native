@@ -8,6 +8,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { toPublicFormSettings, type FormSettings } from "../../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Public form handler (unauthenticated — stays as API route)
@@ -46,13 +47,17 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  // Return only what public users need
+  // Return only what public, anonymous respondents need. Crucially, project
+  // settings through `toPublicFormSettings` so owner-private integration
+  // webhook URLs (Slack/Discord/generic) and allowed-origins never leak to
+  // the unauthenticated client.
+  const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,
     title: row.title,
     description: row.description,
     fields: JSON.parse(row.fields),
-    settings: JSON.parse(row.settings),
+    settings: toPublicFormSettings(settings),
   };
 
   return result;

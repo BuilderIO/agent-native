@@ -1,5 +1,5 @@
 ---
-title: "Dispatch Template"
+title: "Dispatch"
 description: "Dispatch is the workspace control plane — central inbox, cross-app orchestration, secrets vault, Slack/Telegram integration, and scheduled jobs."
 ---
 
@@ -73,7 +73,7 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
 _How it works under the hood (for developers)._
 
 - **Orchestrator agent.** The chat is set up as a router: it reads `AGENTS.md`, `LEARNINGS.md`, and routes to specialist sub-agents or remote A2A agents.
-- **Remote agent registry.** A2A manifests live in `remote-agents/*.json` — one per app. Dispatch calls them using the `call-agent` action. In a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed.
+- **Remote agent registry.** A2A agent manifests are workspace-runtime entries (not a checked-in template source folder): in a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed. Dispatch calls them using the `call-agent` action.
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
 - **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
@@ -89,7 +89,7 @@ When Dispatch approval policy is enabled, applying a shared or team-wide dream p
 
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
 
-### Dream Input Validation Boundaries
+### Dream input validation boundaries
 
 Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream processor enforces strict input validation boundaries to prevent prompt injection and payload-size attacks:
 

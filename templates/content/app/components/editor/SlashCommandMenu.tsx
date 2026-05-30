@@ -14,7 +14,7 @@ import {
   IconCode,
   IconMinus,
   IconTable as TableIcon,
-  IconSparkles,
+  IconWand,
   IconArrowUp,
   IconInfoCircle,
   IconMusic,
@@ -417,7 +417,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: "Generate",
     description: "Generate content with AI",
-    icon: IconSparkles,
+    icon: IconWand,
     action: () => {
       openGeneratePopover(position);
     },
@@ -730,7 +730,7 @@ export function SlashCommandMenu({
           >
             <div className="p-4 pb-3">
               <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconSparkles size={14} className="text-muted-foreground" />
+                <IconWand size={14} className="text-muted-foreground" />
                 Generate with AI
               </p>
               <textarea

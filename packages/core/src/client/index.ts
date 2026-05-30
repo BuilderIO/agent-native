@@ -378,6 +378,10 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  DevDatabaseLink,
+  type DevDatabaseLinkProps,
+} from "./db-admin/DevDatabaseLink.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 export { ClientOnly } from "./ClientOnly.js";

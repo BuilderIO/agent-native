@@ -21,12 +21,12 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Authentication
 
-Auth is automatic and environment-driven:
+Auth is real Better Auth in every environment — there is **no dev bypass**:
 
-- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts.
+- **Development**: the same Better Auth flow as production. On first run the framework auto-creates a throwaway dev account and signs you in (so you are not stuck at a login wall). `getSession()` returns the signed-in user or `null` — it never returns a `local@localhost` sentinel.
+- **Production**: Better Auth with email/password + social providers; organizations built in.
 
-Use `getSession(event)` server-side and `useSession()` client-side.
+Use `getSession(event)` server-side and `useSession()` client-side. When there is no session, **throw or return 401** — never fall back to `local@localhost` (that pools every unauthenticated request into one shared tenant).
 
 ## Resources
 

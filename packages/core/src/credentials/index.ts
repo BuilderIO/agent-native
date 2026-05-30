@@ -1,4 +1,9 @@
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  encryptSecretValue,
+  decryptSecretValue,
+  isEncryptedSecretValue,
+} from "../secrets/crypto.js";
 
 const SETTING_PREFIX = "credential:";
 
@@ -21,9 +26,19 @@ async function readCredentialSetting(
   settingKey: string,
 ): Promise<string | undefined> {
   const setting = await getSetting(settingKey);
-  return setting && typeof setting.value === "string"
-    ? setting.value
-    : undefined;
+  if (!setting || typeof setting.value !== "string") return undefined;
+  const stored = setting.value;
+  // Values written by saveCredential are AES-256-GCM encrypted at rest.
+  // Rows that predate encryption are plaintext — read them transparently
+  // (the migrate-encrypt-credentials script re-encrypts them in place).
+  if (!isEncryptedSecretValue(stored)) return stored;
+  try {
+    return decryptSecretValue(stored);
+  } catch {
+    // Key rotated, corrupt, or tampered row — treat as not set rather than
+    // surfacing ciphertext or throwing into every credential lookup.
+    return undefined;
+  }
 }
 
 /**
@@ -98,15 +113,21 @@ export async function saveCredential(
   if (!ctx?.userEmail) {
     throw new Error("saveCredential requires CredentialContext with userEmail");
   }
+  // Encrypt at rest (AES-256-GCM) so a leaked DB backup / pg_dump / read
+  // replica doesn't expose plaintext keys. resolveCredential decrypts
+  // transparently on read.
+  const encrypted = encryptSecretValue(value);
   if (ctx.scope === "org") {
     if (!ctx.orgId) {
       throw new Error("saveCredential scope='org' requires orgId");
     }
-    await putSetting(orgCredentialSettingKey(ctx.orgId, key), { value });
+    await putSetting(orgCredentialSettingKey(ctx.orgId, key), {
+      value: encrypted,
+    });
     return;
   }
   await putSetting(userCredentialSettingKey(ctx.userEmail, key), {
-    value,
+    value: encrypted,
   });
 }
 

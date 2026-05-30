@@ -163,7 +163,17 @@ function buildScopedTables(
           .replace(/%/g, "\\%")
           .replace(/_/g, "\\_");
         const prefix = `u:${likeEmail}:`;
-        whereSql = `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'`;
+        // Hide per-user credential rows (u:<email>:credential:<KEY>) from the
+        // raw db-query/db-exec tools. resolveCredential() stores API keys and
+        // third-party tokens here as plaintext, and the agent never needs to
+        // read them via SQL — it uses them implicitly server-side. Excluding
+        // them from the view removes a prompt-injection exfiltration channel
+        // (read own secret → send to attacker URL). Schema-qualified attempts
+        // to reach the base table (public.settings / main.settings) are
+        // rejected separately by assertNoSchemaQualifiedTables in safety.ts.
+        whereSql =
+          `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'` +
+          ` AND "${coreScoping.column}" NOT LIKE '${prefix}credential:%' ESCAPE '\\'`;
       } else {
         whereSql = `"${coreScoping.column}" = '${safeEmail}'`;
       }

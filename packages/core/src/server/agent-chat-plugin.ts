@@ -6,6 +6,7 @@ import {
   ensureRequestRunContext,
 } from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -17,7 +18,6 @@ import {
   actionsToEngineTools,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
-  getRun,
   abortRun,
   subscribeToRun,
   type ActionEntry,
@@ -108,6 +108,7 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -4812,6 +4813,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...browserTools,
                   ...mcpActionEntries,
                   ...(await createDevScriptRegistry()),
+                  // Dev-only full-database admin tools (gated to dev+localhost
+                  // by the surrounding `canToggle` block — never in prodActions).
+                  ...createDbAdminAgentTools(),
                 },
         );
         // Keep dev action dict in sync with runtime MCP additions. When
@@ -5756,6 +5760,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const method = getMethod(event);
           const url = event.node?.req?.url || event.path || "";
 
+          // Authorization: a run's events/abort and a thread's active-run
+          // status must only be exposed to the user who OWNS the thread.
+          // agent_runs carries no owner column — ownership lives on the
+          // chat_threads row via thread_id. callerOwnsRun/callerOwnsThread
+          // (agent/run-ownership.ts) resolve the run's thread (in-memory first,
+          // SQL fallback) and compare its ownerEmail. Without this, any
+          // authenticated tenant who learns another tenant's runId/threadId
+          // could stream their live agent turn (assistant text + tool-result
+          // payloads) or abort their run.
+          const ownsThread = (threadId: string | null | undefined) =>
+            callerOwnsThread(owner, threadId);
+          const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
+
           // Route: GET /runs/list?goalId=agent-team
           // Returns hosted Agent Teams in the Code hub-compatible run shape.
           const listMatch =
@@ -5783,6 +5800,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
+            if (!(await ownsRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to non-owners.
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
             let reason = "user";
             try {
               const body = await readBody(event);
@@ -5828,6 +5850,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/events/);
           if (eventsMatch && method === "GET") {
             const runId = decodeURIComponent(eventsMatch[1]);
+            if (!(await ownsRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to non-owners.
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
             const query = getQuery(event);
             const after = parseInt(String(query.after ?? "0"), 10) || 0;
 
@@ -5850,6 +5877,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
+            }
+
+            // Only reveal a thread's active run to the thread's owner.
+            // Present non-owners (or unknown threads) as idle rather than
+            // 404 so thread existence isn't leaked and the client polls
+            // benignly.
+            if (!(await ownsThread(threadId))) {
+              return {
+                active: false,
+                threadId,
+                status: "idle",
+                heartbeatAt: null,
+                lastProgressAt: null,
+              };
             }
 
             // Check in-memory first, then SQL (cross-isolate on Workers)

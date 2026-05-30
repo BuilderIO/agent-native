@@ -29,6 +29,7 @@ const config = async () => {
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "fs";
 import { dirname, join } from "path";
 import pLimit from "p-limit";
+import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -234,9 +235,20 @@ Options:
         refFetchLimit(async () => {
           try {
             console.log(`Loading reference image: ${url}`);
+            // SSRF guard: extra reference URLs are agent-supplied. Block
+            // private/internal targets and do not follow redirects into them.
+            if (await isBlockedExtensionUrlWithDns(url)) {
+              console.warn(`Blocked private/internal reference image: ${url}`);
+              return null;
+            }
             const res = await fetch(url, {
               signal: AbortSignal.timeout(8000),
+              redirect: "manual",
             });
+            if (res.status >= 300 && res.status < 400) {
+              console.warn(`Refusing redirected reference image: ${url}`);
+              return null;
+            }
             if (!res.ok) {
               console.warn(`Failed to load reference image: ${url}`);
               return null;

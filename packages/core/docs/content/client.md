@@ -117,25 +117,10 @@ sendToAgentChat({
 
 ## MCP App Host Bridge {#mcp-app-host-bridge}
 
-Routes embedded by `embedApp()` should be URL-first: load the current artifact
-from path/query params, render the real React route or a focused shared
-component, and use host bridge messages only for host-owned behavior.
-
-Default direct route embeds use the standard MCP Apps `ui/*` JSON-RPC bridge.
-The exported helpers below send `ui/update-model-context`, `ui/open-link`, and
-`ui/request-display-mode` directly to the host. The explicit nested diagnostic
-mode still uses the wrapper relay:
-
-| Direction       | Message type                             | Purpose                                           |
-| --------------- | ---------------------------------------- | ------------------------------------------------- |
-| wrapper → route | `agentNative.mcpHostContext`             | Push host context such as theme/display mode      |
-| route → wrapper | `agentNative.mcpHost.updateModelContext` | Add hidden model context                          |
-| route → wrapper | `agentNative.mcpHost.openLink`           | Ask the host to open a URL                        |
-| route → wrapper | `agentNative.mcpHost.requestDisplayMode` | Ask for `inline`, `fullscreen`, or `pip`          |
-| wrapper → route | `agentNative.mcpHost.response`           | Resolve or reject a request by matching requestId |
-
-Use the exported helpers from `@agent-native/core/client` inside embedded
-routes:
+Routes embedded as MCP Apps should be URL-first: load the current artifact from
+path/query params, render the real React route or a focused shared component,
+and use the host bridge only for host-owned behavior. `@agent-native/core/client`
+exports the helpers embedded routes call:
 
 ```ts
 import {
@@ -149,9 +134,15 @@ import {
 
 `getMcpAppHostContext()` reads the latest pushed host context snapshot;
 `useMcpAppHostContext()` subscribes React components to changes. The request
-helpers return `false` outside an embedded MCP App frame, or
+helpers (`openMcpAppHostLink`, `requestMcpAppDisplayMode`,
+`updateMcpAppModelContext`) return `false` outside an embedded MCP App frame, or
 `Promise<boolean>` inside a frame. `sendToAgentChat()` uses the same bridge for
 auto-submitted prompts from embedded routes.
+
+The bridge itself — the `ui/*` JSON-RPC messages, the `agentNative.mcpHost.*`
+wrapper relay, transplant vs. controlled-frame rendering, host context, and
+display-mode requests — is owned by
+[External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Dynamic Suggestions {#dynamic-suggestions}
 

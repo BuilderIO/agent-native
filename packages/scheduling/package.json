@@ -51,8 +51,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
-    "prepublishOnly": "npm run build",
-    "release": "npm version patch && npm publish --access public"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@date-fns/tz": "^1.2.0",
