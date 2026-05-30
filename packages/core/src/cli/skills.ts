@@ -441,8 +441,32 @@ function skillsAgentsForClients(clients: ClientId[]): string[] {
   return [...agents];
 }
 
+function shellArg(value: string): string {
+  if (/^[A-Za-z0-9_/:=.,@+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function commandString(cmd: string, args: string[]): string {
-  return [cmd, ...args].join(" ");
+  return [cmd, ...args].map(shellArg).join(" ");
+}
+
+function dryRunInstallCommand(
+  parsed: ParsedSkillsArgs,
+  target: string,
+): string {
+  const args = [
+    "skills",
+    "add",
+    target,
+    "--client",
+    parsed.client,
+    "--scope",
+    parsed.scope,
+  ];
+  if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
+  if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
+  if (parsed.yes || isKnownSkill(target)) args.push("--yes");
+  return commandString("agent-native", args);
 }
 
 async function runCommand(cmd: string, args: string[]): Promise<number> {
@@ -477,6 +501,22 @@ export async function addAgentNativeSkill(
   const installTarget = loadSkillTarget(target);
   const clients = resolveClients(parsed.client);
   const skillsAgents = skillsAgentsForClients(clients);
+  if (parsed.dryRun) {
+    try {
+      return {
+        id: installTarget.id,
+        displayName: installTarget.displayName,
+        skillNames: installTarget.skillNames,
+        skillsAgents,
+        mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
+        mcpClients: clients,
+        dryRun: true,
+        commands: [dryRunInstallCommand(parsed, target)],
+      };
+    } finally {
+      installTarget.cleanup?.();
+    }
+  }
   const commands: string[] = [];
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
@@ -557,8 +597,9 @@ export async function runSkills(
   options: RunSkillsOptions = {},
 ): Promise<void> {
   const parsed = parseSkillsArgs(argv);
-  const log = (message: string) =>
-    (parsed.printJson ? process.stderr : process.stdout).write(`${message}\n`);
+  const log = parsed.printJson
+    ? undefined
+    : (message: string) => process.stdout.write(`${message}\n`);
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);

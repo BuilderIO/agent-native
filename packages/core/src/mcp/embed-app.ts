@@ -1178,22 +1178,26 @@ export function embedApp(
       const content = Array.isArray(chat.content) && chat.content.length
         ? chat.content
         : [{ type: "text", text: message }];
+      const structuredContent =
+        chat && chat.structuredContent !== undefined
+          ? chat.structuredContent
+          : undefined;
       try {
+        const contextContent = context
+          ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+          : content.filter((part) => part && part.type !== "text");
+        const modelContext = {
+          content: contextContent,
+          ...(structuredContent !== undefined ? { structuredContent } : {})
+        };
         if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-          const contextContent = context
-            ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
-            : content.filter((part) => part && part.type !== "text");
           openAiBridge.setWidgetState({
             ...objectValue(openAiBridge.widgetState),
             agentNativeChatContext: context || null,
-            agentNativeModelContext: { content: contextContent }
+            agentNativeModelContext: modelContext
           });
         } else if (app && typeof app.updateModelContext === "function") {
-          await app.updateModelContext({
-            content: context
-              ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
-              : content.filter((part) => part && part.type !== "text")
-          });
+          await app.updateModelContext(modelContext);
         }
       } catch (err) {
         console.warn("[agent-native] MCP host rejected model context update", err);

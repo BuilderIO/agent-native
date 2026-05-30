@@ -382,6 +382,7 @@ function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
               message,
               context: JSON.stringify(context, null, 2),
               content: chatContent,
+              structuredContent: context,
             }) || false,
           ).catch(() => false),
         );

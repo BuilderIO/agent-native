@@ -248,6 +248,8 @@ function claudeCodeUserConfig(): string {
   return path.join(os.homedir(), ".claude.json");
 }
 function codexConfigPath(): string {
+  const codexHome = process.env.CODEX_HOME?.trim();
+  if (codexHome) return path.join(codexHome, "config.toml");
   return path.join(os.homedir(), ".codex", "config.toml");
 }
 

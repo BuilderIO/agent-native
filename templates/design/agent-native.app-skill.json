@@ -13,7 +13,7 @@
   "local": {
     "template": "design",
     "sourcePath": ".",
-    "defaultUrl": "http://127.0.0.1:8101",
+    "defaultUrl": "http://127.0.0.1:8099",
     "commands": {
       "install": "pnpm install",
       "dev": "pnpm dev",

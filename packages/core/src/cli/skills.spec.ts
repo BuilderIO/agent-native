@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addAgentNativeSkill, parseSkillsArgs } from "./skills.js";
+import { addAgentNativeSkill, parseSkillsArgs, runSkills } from "./skills.js";
 
 const tmpRoots: string[] = [];
 
@@ -11,6 +11,7 @@ afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+  vi.restoreAllMocks();
 });
 
 function tmpDir(): string {
@@ -148,7 +149,101 @@ describe("agent-native skills", () => {
       { baseDir: root },
     );
 
-    expect(result.commands.join("\n")).toContain("npx --yes skills@latest add");
+    expect(result.commands).toEqual([
+      "agent-native skills add assets --client codex --scope project --yes",
+    ]);
+    expect(result.commands.join("\n")).not.toContain(os.tmpdir());
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+  });
+
+  it("writes Codex MCP config under CODEX_HOME when set", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--mcp-only",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      const codexConfig = path.join(codexHome, "config.toml");
+      expect(fs.readFileSync(codexConfig, "utf-8")).toContain(
+        'url = "https://assets.agent-native.com/_agent-native/mcp"',
+      );
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("keeps --json output machine-readable for MCP-only installs", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runSkills(
+        [
+          "add",
+          "assets",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--mcp-only",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: root },
+      );
+
+      const result = JSON.parse(stdout.join(""));
+      expect(result.id).toBe("assets");
+      expect(result.mcpUrl).toBe(
+        "https://assets.agent-native.com/_agent-native/mcp",
+      );
+      expect(stderr.join("")).toBe("");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
   });
 });
