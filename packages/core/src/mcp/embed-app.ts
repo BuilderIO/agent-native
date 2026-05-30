@@ -1008,7 +1008,7 @@ export function embedApp(
       try {
         const host = window.location.hostname || "";
         const appParam = new URL(window.location.href).searchParams.get("app");
-        return /(^|\\.)oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
+        return /(^|\\.)web-sandbox\\.oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
       } catch {
         return false;
       }

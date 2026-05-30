@@ -318,28 +318,71 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
-  const context = { selectedAsset: payload };
-  const message = selectedAssetFollowUpMessage(payload);
-  const modelContent = [{ type: "text", text: selectedAssetText(payload) }];
-  const chatContent = [{ type: "text", text: message }];
+async function imageContentForAsset(payload: ReturnType<typeof assetPayload>) {
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const mimeType = payload.mimeType?.startsWith("image/")
+    ? payload.mimeType
+    : "image/png";
+  if (!url || payload.mediaType !== "image") return null;
+  try {
+    const appOrigin =
+      typeof window !== "undefined"
+        ? (embeddedAppOrigin() ?? window.location.origin)
+        : undefined;
+    const credentials =
+      typeof window !== "undefined" &&
+      appOrigin &&
+      new URL(url, window.location.href).origin === appOrigin
+        ? "include"
+        : "omit";
+    const response = await fetch(url, { credentials });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const detectedMimeType = blob.type.startsWith("image/")
+      ? blob.type
+      : mimeType;
+    return {
+      type: "image",
+      data: await blobToBase64(blob),
+      mimeType: detectedMimeType,
+    };
+  } catch {
+    return null;
+  }
+}
 
-  return Promise.resolve(
-    updateMcpAppModelContext({
-      structuredContent: context,
-      content: modelContent,
-    }) || false,
-  )
-    .catch(() => false)
-    .then(() =>
-      Promise.resolve(
-        sendMcpAppHostMessage({
-          message,
-          context: JSON.stringify(context, null, 2),
-          content: chatContent,
+function notifyMcpHost(payload: ReturnType<typeof assetPayload>) {
+  return Promise.resolve(imageContentForAsset(payload))
+    .catch(() => null)
+    .then((imageContent) => {
+      const context = { selectedAsset: payload };
+      const message = selectedAssetFollowUpMessage(payload);
+      const modelContent = [
+        { type: "text", text: selectedAssetText(payload) },
+        ...(imageContent ? [imageContent] : []),
+      ];
+      const chatContent = [
+        { type: "text", text: message },
+        ...(imageContent ? [imageContent] : []),
+      ];
+
+      return Promise.resolve(
+        updateMcpAppModelContext({
+          structuredContent: context,
+          content: modelContent,
         }) || false,
-      ).catch(() => false),
-    );
+      )
+        .catch(() => false)
+        .then(() =>
+          Promise.resolve(
+            sendMcpAppHostMessage({
+              message,
+              context: JSON.stringify(context, null, 2),
+              content: chatContent,
+            }) || false,
+          ).catch(() => false),
+        );
+    });
 }
 
 function dimensions(asset: Asset) {

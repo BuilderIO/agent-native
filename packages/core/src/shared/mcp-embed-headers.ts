@@ -3,8 +3,7 @@ export const MCP_EMBED_CORS_ALLOW_HEADERS =
 export const EMBED_TRANSPLANT_HEADER = "x-agent-native-embed-transplant";
 
 const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
-const CHATGPT_MCP_SANDBOX_HOST_RE =
-  /(^|\.)(?:web-sandbox\.)?oaiusercontent\.com$/i;
+const CHATGPT_MCP_SANDBOX_HOST_RE = /(^|\.)web-sandbox\.oaiusercontent\.com$/i;
 
 export function isClaudeMcpContentOrigin(
   origin: string | null | undefined,
