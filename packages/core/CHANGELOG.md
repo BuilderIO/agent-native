@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.26.9
+
+### Patch Changes
+
+- 4e7b04a: Add the hosted Design exploration app-backed skill so local agents can install Design MCP instructions and connector setup with `agent-native skills add design-exploration`.
+
 ## 0.26.8
 
 ### Patch Changes
