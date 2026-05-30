@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.26.5
+
+### Patch Changes
+
+- a6c58a8: Validate Builder private keys before storing them and send the matching public
+  key with managed image-generation requests.
+- a6c58a8: Serve unauthenticated app HTML as cacheable 200 responses and let the sign-in page perform client-side session redirects.
+- a6c58a8: Apply the default public SSR cache policy to React Router `.data` responses
+  that only carry React Router's default `no-cache` header.
+- a6c58a8: Pin Better Auth in scaffolded workspace roots until the latest Kysely adapter build is compatible.
+
 ## 0.26.4
 
 ### Patch Changes
