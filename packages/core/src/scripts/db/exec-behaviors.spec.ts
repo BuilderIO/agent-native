@@ -140,26 +140,29 @@ describe("db-exec behaviors", () => {
     expect(text).toMatch(/owned by a different user|per-user.*scoping/i);
   });
 
-  it("BUG: INSERT OR IGNORE is not qualified to the base table under SQLite scoping, so it hits the temp view and errors (the qualify regex only matches a bare 'INSERT INTO')", async () => {
+  it("qualifies INSERT OR IGNORE to the base table and skips a duplicate (changes=0) instead of erroring on the scoped view", async () => {
     await withClient((c) =>
       c.execute({
         sql: `INSERT INTO notes VALUES (?, ?, ?)`,
         args: ["dup", "owner@x.com", "first"],
       }),
     );
-    const { default: dbExec } = await import("./exec.js");
-    // A plain `INSERT INTO` is rewritten to main."notes" and works, but the
-    // `OR IGNORE` variant slips past the rewrite and runs against the scoped
-    // view, which SQLite refuses to modify. (Would otherwise have exercised the
-    // INSERT zero-changes UNIQUE-constraint hint.)
-    await expect(
-      dbExec([
-        "--db",
-        dbFile,
-        "--sql",
-        "INSERT OR IGNORE INTO notes (id, title) VALUES ('dup', 'second')",
-      ]),
-    ).rejects.toThrow(/cannot modify notes because it is a view/);
+    // The `INSERT OR <conflict>` conflict forms must be qualified to
+    // main."notes" (like a bare INSERT INTO) so the write reaches the real
+    // table, not the non-updatable scoped temp view. id='dup' already exists,
+    // so OR IGNORE skips the row: 0 changes, no error.
+    const out = await runExecJson([
+      "--sql",
+      "INSERT OR IGNORE INTO notes (id, title) VALUES ('dup', 'second')",
+    ]);
+    expect(out.changes).toBe(0);
+    // The pre-existing row is untouched (IGNORE did not overwrite it).
+    const title = await withClient((c) =>
+      c
+        .execute(`SELECT title FROM notes WHERE id = 'dup'`)
+        .then((r) => (r.rows[0]?.title ?? r.rows[0]?.[0]) as string),
+    );
+    expect(title).toBe("first");
   });
 
   // ── INSERT ownership injection (SQLite) ─────────────────────────────────
@@ -196,7 +199,7 @@ describe("db-exec behaviors", () => {
   });
 
   // ── REPLACE scoping ─────────────────────────────────────────────────────
-  it("BUG: REPLACE INTO is qualified to the base table but does NOT receive owner_email injection, so the row lands unowned and is invisible to the writer under scoping (only INSERT triggers ownership injection)", async () => {
+  it("auto-injects owner_email on REPLACE INTO so the row is visible to the writer under scoping", async () => {
     const out = await runExecJson([
       "--sql",
       "REPLACE INTO notes (id, title) VALUES (?, ?)",
@@ -211,9 +214,10 @@ describe("db-exec behaviors", () => {
           (r) => (r.rows[0]?.owner_email ?? r.rows[0]?.[0]) as string | null,
         ),
     );
-    // Documenting the current (buggy) behavior: owner_email is null, so a
-    // follow-up scoped read by the same user will not see this row.
-    expect(owner).toBeNull();
+    // REPLACE creates a new row under the current user, so ownership injection
+    // must apply (just like INSERT) — otherwise the row lands unowned and a
+    // follow-up scoped read by the same user would not see it.
+    expect(owner).toBe("owner@x.com");
   });
 
   // ── Batch transactional rollback ────────────────────────────────────────

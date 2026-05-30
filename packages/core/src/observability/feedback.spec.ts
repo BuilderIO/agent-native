@@ -163,14 +163,14 @@ describe("computeSatisfactionScore", () => {
 
     const score = await computeSatisfactionScore("t1");
 
-    // BUG: computeSentimentScore double-scales — the formula is
-    //   Math.min(100, (negativeRatio * 70 + terseRatio * 30) * 100)
-    // where negativeRatio/terseRatio are already in [0,1]. The trailing
-    // `* 100` means a single matching message already yields 70*100=7000,
-    // which clamps to 100. So sentiment saturates at 100 the moment ANY
-    // negative phrase appears, making the 70/30 sub-weights meaningless.
-    // Asserting the current (buggy) saturated value; see bugsFound.
-    expect(score.sentimentScore).toBe(100);
+    // sentimentScore = min(100, negativeRatio * 70 + terseRatio * 30).
+    // Both user messages match a NEGATIVE_PATTERN ("not what i"/"that's not"
+    // and "still wrong"/"useless") → negativeRatio = 2/2 = 1.0. Neither is
+    // terse (>2 words) → terseRatio = 0. So the score is the graded 70, NOT
+    // the saturated 100 the old double-scaling (`* 100`) produced. This is the
+    // assertion that guards against that regression — the 70/30 sub-weights
+    // must remain meaningful rather than clamping on the first negative phrase.
+    expect(score.sentimentScore).toBe(70);
   });
 
   it("treats short final user replies as mild abandonment", async () => {

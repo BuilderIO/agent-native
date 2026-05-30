@@ -458,7 +458,10 @@ function qualifySqliteWrite(sql: string, scoping: ScopingContext): string {
   }
 
   return sql.replace(
-    /^\s*(INSERT\s+INTO|REPLACE\s+INTO)\s+(?:"([^"]+)"|'([^']+)'|(\w+))/i,
+    new RegExp(
+      `^\\s*(${INSERT_OR_REPLACE_INTO})\\s+(?:"([^"]+)"|'([^']+)'|(\\w+))`,
+      "i",
+    ),
     (match, keyword, quotedDouble, quotedSingle, bare) => {
       const tableName = quotedDouble ?? quotedSingle ?? bare;
       if (

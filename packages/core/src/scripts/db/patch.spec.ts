@@ -784,11 +784,44 @@ describe("db-patch", () => {
       ).rejects.toThrow(/require an authenticated user identity/);
     });
 
-    it('BUG: under SQLite scoping a successful patch fails because the UPDATE hits the scoped temp view, which SQLite/libSQL cannot modify (desktop/local path). db-exec avoids this by qualifying writes to main."table"; db-patch does not.', async () => {
+    it('writes a scoped patch to main."table" (SQLite views are not updatable, so the UPDATE must target the real table with the scope predicate re-applied)', async () => {
       await seedDoc("d1", "owner@x.com", "the quik brown fox");
       const { default: dbPatch } = await import("./patch.js");
-      // The SELECT reads through the view fine and the text match succeeds, but
-      // the UPDATE "documents" SET ... resolves to the temp view and throws.
+      // The SELECT reads through the scoped temp view; the UPDATE must NOT —
+      // it targets main."documents" with the view's owner_email predicate
+      // re-applied, so the patch lands on the real table without ever exposing
+      // a row the SELECT couldn't see.
+      await dbPatch([
+        "--db",
+        dbFile,
+        "--table",
+        "documents",
+        "--column",
+        "content",
+        "--where",
+        "id = 'd1'",
+        "--find",
+        "quik",
+        "--replace",
+        "quick",
+      ]);
+      const after = await withClient((c) =>
+        c
+          .execute({
+            sql: `SELECT content FROM documents WHERE id = ?`,
+            args: ["d1"],
+          })
+          .then((r) => (r.rows[0]?.content ?? r.rows[0]?.[0]) as string),
+      );
+      expect(after).toBe("the quick brown fox");
+    });
+
+    it("refuses to patch a row owned by a different user under SQLite scoping (the re-applied predicate blocks the cross-tenant write)", async () => {
+      // The row exists but belongs to someone else. The scoped SELECT can't see
+      // it, so db-patch reports "no rows matched" and never issues the UPDATE —
+      // the cross-tenant row must stay untouched.
+      await seedDoc("d-other", "someone-else@x.com", "secret value");
+      const { default: dbPatch } = await import("./patch.js");
       await expect(
         dbPatch([
           "--db",
@@ -798,23 +831,22 @@ describe("db-patch", () => {
           "--column",
           "content",
           "--where",
-          "id = 'd1'",
+          "id = 'd-other'",
           "--find",
-          "quik",
+          "secret",
           "--replace",
-          "quick",
+          "leaked",
         ]),
-      ).rejects.toThrow(/cannot modify documents because it is a view/);
-      // And the row is left unchanged.
+      ).rejects.toThrow(/No rows matched/);
       const after = await withClient((c) =>
         c
           .execute({
             sql: `SELECT content FROM documents WHERE id = ?`,
-            args: ["d1"],
+            args: ["d-other"],
           })
           .then((r) => (r.rows[0]?.content ?? r.rows[0]?.[0]) as string),
       );
-      expect(after).toBe("the quik brown fox");
+      expect(after).toBe("secret value");
     });
   });
 });
