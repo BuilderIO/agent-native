@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router";
-import { useState } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   sendToAgentChat,
@@ -8,15 +8,16 @@ import {
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
+  IconClipboard,
   IconCopy,
   IconDownload,
-  IconMessageCircle,
   IconTrash,
   IconVideo,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import {
   AlertDialog,
@@ -29,6 +30,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function AssetDetailPage() {
   const { id } = useParams();
@@ -71,7 +77,30 @@ export default function AssetDetailPage() {
     });
   }
 
-  function createHandoff() {
+  async function copyTextToClipboard(text: string, successMessage: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(successMessage);
+    } catch {
+      toast.error("Could not copy to clipboard.");
+    }
+  }
+
+  function assetUrlForClipboard(url: string | undefined) {
+    if (!url) return "";
+    return new URL(url, window.location.origin).toString();
+  }
+
+  function handoffPrompt(payload: any) {
+    const previewLine = previewUrl
+      ? `Preview URL: ${assetUrlForClipboard(previewUrl)}`
+      : null;
+    return [payload.message, previewLine, payload.context]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  function copyHandoffPrompt() {
     createSession.mutate(
       {
         libraryId: asset.libraryId,
@@ -91,12 +120,13 @@ export default function AssetDetailPage() {
             { id: session.id },
             {
               onSuccess: (payload: any) => {
-                sendToAgentChat({
-                  message: payload.message,
-                  context: payload.context,
-                  submit: true,
-                  newTab: true,
-                });
+                void copyTextToClipboard(
+                  handoffPrompt(payload),
+                  "Copied prompt",
+                );
+              },
+              onError: (error: Error) => {
+                toast.error(error.message || "Could not prepare handoff.");
               },
             },
           );
@@ -107,6 +137,9 @@ export default function AssetDetailPage() {
       },
     );
   }
+
+  const handoffPending =
+    createSession.isPending || prepareSessionContinuation.isPending;
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -158,89 +191,106 @@ export default function AssetDetailPage() {
           />
         </div>
         <Separator className="my-5" />
-        <div className="grid gap-2">
+        <div className="grid gap-3">
           {!isStarterAsset ? (
-            <Button className="gap-2" onClick={refine}>
-              <IconMessageCircle className="h-4 w-4" />
+            <Button onClick={refine}>
               {isVideo ? "Make video variation" : "Make variations"}
             </Button>
           ) : null}
-          {!isVideo && !isStarterAsset ? (
-            <Button variant="outline" className="gap-2" onClick={createHandoff}>
-              <IconMessageCircle className="h-4 w-4" />
-              Handoff to designer
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              if (isStarterAsset) {
-                const downloadUrl =
-                  assetMediaUrl(asset.downloadUrl) ?? previewUrl;
-                if (downloadUrl) window.location.href = downloadUrl;
-                return;
-              }
-              exportAsset.mutate(
-                { assetId: asset.id },
-                {
-                  onSuccess: (result: any) => {
-                    window.location.href =
-                      assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+          <div className="flex items-center gap-2">
+            {!isVideo && !isStarterAsset ? (
+              <AssetActionButton
+                label="Handoff"
+                disabled={handoffPending}
+                onClick={copyHandoffPrompt}
+              >
+                <IconClipboard className="h-4 w-4" />
+              </AssetActionButton>
+            ) : null}
+            <AssetActionButton
+              label="Download"
+              disabled={exportAsset.isPending}
+              onClick={() => {
+                if (isStarterAsset) {
+                  const downloadUrl =
+                    assetMediaUrl(asset.downloadUrl) ?? previewUrl;
+                  if (downloadUrl) window.location.href = downloadUrl;
+                  return;
+                }
+                exportAsset.mutate(
+                  { assetId: asset.id },
+                  {
+                    onSuccess: (result: any) => {
+                      window.location.href =
+                        assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+                    },
                   },
-                },
-              );
-            }}
-          >
-            <IconDownload className="h-4 w-4" />
-            Download
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              if (previewUrl) void navigator.clipboard?.writeText(previewUrl);
-            }}
-          >
-            <IconCopy className="h-4 w-4" />
-            Copy URL
-          </Button>
-          {!isStarterAsset ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="gap-2">
-                  <IconTrash className="h-4 w-4" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete asset?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This removes the asset from the library. Existing exports
-                    that already use this URL may stop rendering.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={() =>
-                      deleteAsset.mutate(
-                        { id: asset.id },
-                        {
-                          onSuccess: () =>
-                            navigate(`/library/${asset.libraryId}`),
-                        },
-                      )
-                    }
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          ) : null}
+                );
+              }}
+            >
+              <IconDownload className="h-4 w-4" />
+            </AssetActionButton>
+            <AssetActionButton
+              label="Copy URL"
+              disabled={!previewUrl}
+              onClick={() => {
+                if (previewUrl) {
+                  void copyTextToClipboard(
+                    assetUrlForClipboard(previewUrl),
+                    "Copied URL",
+                  );
+                }
+              }}
+            >
+              <IconCopy className="h-4 w-4" />
+            </AssetActionButton>
+            {!isStarterAsset ? (
+              <AlertDialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete"
+                        className="size-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        disabled={deleteAsset.isPending}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Delete</TooltipContent>
+                </Tooltip>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes the asset from the library. Existing exports
+                      that already use this URL may stop rendering.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() =>
+                        deleteAsset.mutate(
+                          { id: asset.id },
+                          {
+                            onSuccess: () =>
+                              navigate(`/library/${asset.libraryId}`),
+                          },
+                        )
+                      }
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+          </div>
         </div>
       </aside>
       <div className="flex min-h-0 items-center justify-center bg-muted/30 p-6">
@@ -259,6 +309,34 @@ export default function AssetDetailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function AssetActionButton({
+  label,
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof Button> & {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={label}
+          className={cn("size-9 shrink-0", className)}
+          {...props}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
