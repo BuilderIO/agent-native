@@ -43,7 +43,7 @@ const schema = z.object({
 type OpenAssetPickerArgs = z.infer<typeof schema>;
 
 const FALLBACK_INSTRUCTIONS =
-  "If the picker opens in a normal browser tab instead of inline, select an asset there. The picker copies a handoff summary and shows a copyable context block; paste that context back into chat so the agent can use the selected asset.";
+  'If the picker opens in a normal browser tab instead of inline, the user has two ways to choose: (1) click an asset — the picker auto-copies a short handoff summary they paste back into chat, or (2) just tell you which one in words (e.g. "use the second image"). Either way, continue with the chosen asset.';
 
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
@@ -62,7 +62,7 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
 
 export default defineAction({
   description:
-    "Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. If the host can only open a browser link, the picker copies a paste-back handoff summary after selection. Use search-assets, generate-image, generate-video, and export-asset for unattended flows.",
+    'Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
   schema,
   http: { method: "GET" },
   readOnly: true,
@@ -114,10 +114,10 @@ export default defineAction({
           : "Select an image asset",
       message:
         args.mediaType === "video"
-          ? "Assets video picker is ready. If it opens in a browser tab, select an asset there and paste the copied selection back into chat."
+          ? 'Assets video picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").'
           : args.autoGenerate && args.prompt
-            ? "Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration. If it opens in a browser tab, select an asset there and paste the copied selection back into chat."
-            : "Assets image picker is ready. If it opens in a browser tab, select an asset there and paste the copied selection back into chat.",
+            ? 'Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").'
+            : 'Assets image picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").',
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       query: args.query ?? null,
       prompt: args.prompt ?? null,

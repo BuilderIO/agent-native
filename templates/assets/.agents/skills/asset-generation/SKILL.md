@@ -31,9 +31,13 @@ or generated image/video assets that another app can reference by ID and URL.
 - Use chat-driven `restyle-image` and `edit-image` for preserving subjects,
   applying library style, and making targeted changes. Do not surface separate
   restyle, edit, or quality-tier buttons in host UIs.
-- Use browser/deep-link fallback when the host cannot render MCP Apps inline.
-  Surface the returned picker link. If it opens in a normal browser tab, have
-  the user select an asset there and paste back the copied handoff summary.
+- Use browser/deep-link fallback when the host cannot render MCP Apps inline
+  (CLIs and code editors like Claude Code and Codex). Surface the returned
+  picker link. When the user opens it, they can either click an asset — the
+  page auto-copies a short handoff summary for them to paste back into chat —
+  or simply tell you which one in words (e.g. "use image A" / "the second
+  one"). Both are first-class; don't insist on the paste-back if they just name
+  the pick.
 
 ## Image Workflows
 

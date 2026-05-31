@@ -312,22 +312,34 @@ function selectedAssetFollowUpMessage(
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const label = selectedAssetLabel(payload);
   return [
-    `Selected Assets ${payload.mediaType} for the next step: ${label}`,
-    url ? `Media URL: ${url}` : null,
-    "Use this selected asset in the current artifact or design.",
+    `Use this selected ${payload.mediaType} in the current work: ${label}`,
+    url ? `URL: ${url}` : null,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
+/** Compact, agent-usable context — not the full internal payload. */
+function selectedAssetContext(payload: ReturnType<typeof assetPayload>) {
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const width = Number(payload.width);
+  const height = Number(payload.height);
+  return {
+    assetId: payload.assetId,
+    title: payload.title,
+    mediaType: payload.mediaType,
+    url,
+    ...(Number.isFinite(width) && Number.isFinite(height) && width && height
+      ? { width, height }
+      : {}),
+  };
+}
+
 function selectedAssetClipboardText(payload: ReturnType<typeof assetPayload>) {
   return [
-    "Paste this selection back into your chat so the agent can use it.",
-    "",
     selectedAssetFollowUpMessage(payload),
     "",
-    "Selected asset context:",
-    JSON.stringify({ selectedAsset: payload }, null, 2),
+    JSON.stringify(selectedAssetContext(payload), null, 2),
   ].join("\n");
 }
 
@@ -1124,12 +1136,23 @@ export default function AssetPicker() {
               )}
             </div>
           </div>
-          <Textarea
-            readOnly
-            value={standaloneSelectionText}
-            className="mt-2 h-24 resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
-            onFocus={(event) => event.currentTarget.select()}
-          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            {standaloneCopyOk
+              ? "Copied to your clipboard — paste it into your agent chat to use it"
+              : "Copy the text below and paste it into your agent chat"}
+            , or just tell your agent which one (e.g. “use this”).
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+              Show paste text
+            </summary>
+            <Textarea
+              readOnly
+              value={standaloneSelectionText}
+              className="mt-2 h-24 resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </details>
         </section>
       )}
 

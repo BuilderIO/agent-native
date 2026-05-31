@@ -20,7 +20,9 @@ function designDeepLink(designId: string): string {
 const FALLBACK_INSTRUCTIONS =
   "If the design opens as a browser link instead of inline, the user picks a " +
   "direction there and the editor shows a copyable summary. Ask them to paste " +
-  "that summary back into chat so you can continue from the chosen direction.";
+  "that summary back into chat so you can continue from the chosen direction. " +
+  'They can also just tell you which one in words (e.g. "use variant A" / "the ' +
+  'editorial one") — honor that too instead of insisting on the paste-back.';
 
 const variantSchema = z.object({
   id: z.string().min(1).describe("Stable variant id, e.g. 'minimal-focus'"),
@@ -42,7 +44,8 @@ export default defineAction({
     "visually compare options and pick one. Provide 2-5 variants (3 is the " +
     "sweet spot). Use this for design exploration before calling " +
     "generate-design. The user's choice is persisted automatically by the app; " +
-    "if it opens as a browser link, they paste a copyable summary back to chat.",
+    "if it opens as a browser link, they paste a copyable summary back to chat " +
+    'or simply tell you which one (e.g. "use variant A").',
   schema: z.object({
     designId: z.string().describe("Design project ID to show variants for"),
     prompt: z
