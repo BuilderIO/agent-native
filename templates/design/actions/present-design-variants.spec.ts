@@ -65,9 +65,10 @@ describe("present-design-variants", () => {
     expect(result).toMatchObject({
       designId: "design_123",
       count: 3,
-      path: "/design/design_123",
+      path: "/design/design_123?handoff=chat",
       embed: true,
     });
+    expect(typeof result.fallbackInstructions).toBe("string");
     expect(action.mcpApp?.compactCatalog).toBe(true);
     expect(action.mcpApp?.resource.title).toBe("Design directions");
     expect(action.mcpApp?.resource.html()).toContain(
@@ -75,23 +76,23 @@ describe("present-design-variants", () => {
     );
   });
 
-  it("requires exactly three variants for the MCP picker flow", () => {
-    const base = {
+  it("accepts 2-5 variants for the MCP picker flow", () => {
+    const variant = (n: number) => ({
+      id: `v${n}`,
+      label: `V${n}`,
+      content: `<html>${n}</html>`,
+    });
+    const withVariants = (count: number) => ({
       designId: "design_123",
-      variants: [
-        { id: "one", label: "One", content: "<html>One</html>" },
-        { id: "two", label: "Two", content: "<html>Two</html>" },
-        { id: "three", label: "Three", content: "<html>Three</html>" },
-      ],
-    };
+      variants: Array.from({ length: count }, (_, i) => variant(i + 1)),
+    });
 
-    expect(action.schema.safeParse(base).success).toBe(true);
-    expect(
-      action.schema.safeParse({
-        ...base,
-        variants: base.variants.slice(0, 2),
-      }).success,
-    ).toBe(false);
+    // 3 is the sweet spot, but 2-5 are all valid; 1 and 6 are rejected.
+    expect(action.schema.safeParse(withVariants(2)).success).toBe(true);
+    expect(action.schema.safeParse(withVariants(3)).success).toBe(true);
+    expect(action.schema.safeParse(withVariants(5)).success).toBe(true);
+    expect(action.schema.safeParse(withVariants(1)).success).toBe(false);
+    expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
   });
 
   it("returns an editor deep link for external hosts", async () => {

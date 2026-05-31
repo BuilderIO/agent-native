@@ -34,10 +34,11 @@ Then, for any non-trivial first prompt, write `application-state/show-questions`
 #  uses the framework's `db-exec` to upsert into application_state.)
 ```
 
-### Phase 2 — Generate three side-by-side variations
+### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
-For new designs, default to **three** variations. In normal app-agent flows,
-write candidates to `application-state/design-variants`:
+For new designs, default to **three** variations (`present-design-variants`
+accepts 2-5; three is the sweet spot). In normal app-agent flows, write
+candidates to `application-state/design-variants`:
 
 ```json
 {
@@ -58,24 +59,19 @@ The framework persists the chosen content as `index.html` automatically when the
 When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
 Dispatch), call `present-design-variants` instead of writing
 `application-state` directly. Pass the existing `designId`, a concise prompt
-caption, and 2-5 complete HTML variants. The action opens the same editor
-variant picker as the first-party app and keeps the workflow visible inside
-MCP Apps.
+caption, and 2-5 complete HTML variants (three by default). The action opens
+the same editor variant picker as the first-party app and keeps the workflow
+visible inside MCP Apps. After that, wait for the user's pick before refining.
 
-How the pick comes back depends on the host:
-
-- **Inline MCP apps** (ChatGPT, Claude desktop/web): the user clicks "Use this
-  one" and their choice returns to you automatically.
-- **Browser / CLI fallback** (Claude Code, Codex, any host that can only open a
-  link): the directions open as a normal browser tab. After the user clicks
-  "Use this one", the page auto-copies a short handoff summary for them to paste
-  back into chat — or they can simply tell you which one in words (e.g. "use
-  variant A" / "the editorial one"). Both are first-class; don't insist on the
-  paste-back if they just name the pick.
-
-Either way the chosen variant is saved as `index.html` automatically. Once you
-know the choice, read it with `get-design-snapshot` and refine from there — do
-not present new variants unless the user asks for "more options".
+For inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) the pick
+rides the chat bridge automatically — no copy/paste. But if the Design app opens
+as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
+the deep link carries `handoff=chat`), the user picks a direction there and the
+editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
+them to paste it back into chat so you can continue from the chosen direction.
+The user can also simply name the pick in words (e.g. "use variant A" / "the
+editorial one") instead of pasting — honor either. The
+`present-design-variants` result's `fallbackInstructions` describe this.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 

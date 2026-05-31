@@ -23,8 +23,6 @@ import {
   IconPhoto,
   IconRefresh,
   IconMenu2,
-  IconCheck,
-  IconClipboard,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -62,6 +60,7 @@ import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
+import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -340,10 +339,8 @@ export default function DesignEditor() {
     state: pendingVariants,
     useVariant: handleVariantChoice,
     dismiss: handleVariantsDismiss,
-    handoff: variantHandoff,
-    handoffCopied: variantHandoffCopied,
-    copyHandoff: copyVariantHandoff,
-    clearHandoff: clearVariantHandoff,
+    standalonePick,
+    dismissStandalonePick,
   } = useVariantFlow(id);
 
   const { session } = useSession();
@@ -1894,49 +1891,13 @@ ${serializedHtml}
           </div>
         )}
 
-        {/* Standalone handoff: when no host chat received the pick (a CLI or
-            code editor opened the editor as a plain tab), surface a copy-paste
-            summary. Auto-copied on pick; the user can also just tell their
-            agent which one. */}
-        {variantHandoff && !pendingVariants && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-4">
-            <div className="pointer-events-auto flex max-w-md items-center gap-3 rounded-xl border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                <IconCheck className="h-3.5 w-3.5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground/90">
-                  Applied “{variantHandoff.label}”
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  Paste into your agent chat — or just say “use{" "}
-                  {variantHandoff.label}”.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 shrink-0 cursor-pointer gap-1.5"
-                onClick={() => copyVariantHandoff(variantHandoff.text)}
-              >
-                {variantHandoffCopied ? (
-                  <IconCheck className="h-3.5 w-3.5" />
-                ) : (
-                  <IconClipboard className="h-3.5 w-3.5" />
-                )}
-                {variantHandoffCopied ? "Copied" : "Copy"}
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7 shrink-0 cursor-pointer"
-                onClick={clearVariantHandoff}
-                aria-label="Dismiss"
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
+        {/* Link-only (CLI / Codex / Claude Code) paste-back: after a pick there
+            is no chat bridge, so surface a copyable summary to continue. */}
+        {standalonePick && (
+          <VariantHandoffCard
+            pick={standalonePick}
+            onDismiss={dismissStandalonePick}
+          />
         )}
 
         {/* Canvas */}

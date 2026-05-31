@@ -5,22 +5,24 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
-const FALLBACK_INSTRUCTIONS =
-  "If the directions open in a normal browser tab instead of inline (e.g. a CLI " +
-  "or code editor like Claude Code or Codex), the user can choose in two ways: " +
-  '(1) click "Use this one" — the page auto-copies a short handoff summary to ' +
-  'paste back into chat, or (2) just tell you which one in words (e.g. "use ' +
-  'variant A" / "the editorial one"). The chosen variant is saved as the ' +
-  "design's index.html automatically; call get-design-snapshot to read it.";
-
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
     params: { designId },
-    to: `/design/${encodeURIComponent(designId)}`,
+    // `handoff=chat` marks a link opened from a link-only host (CLI / Codex /
+    // Claude Code) so the editor shows a copyable paste-back summary after the
+    // user picks — the choice can't ride a host chat bridge there.
+    to: `/design/${encodeURIComponent(designId)}?handoff=chat`,
   });
 }
+
+const FALLBACK_INSTRUCTIONS =
+  "If the design opens as a browser link instead of inline, the user picks a " +
+  "direction there and the editor shows a copyable summary. Ask them to paste " +
+  "that summary back into chat so you can continue from the chosen direction. " +
+  'They can also just tell you which one in words (e.g. "use variant A" / "the ' +
+  'editorial one") — honor that too instead of insisting on the paste-back.';
 
 const variantSchema = z.object({
   id: z.string().min(1).describe("Stable variant id, e.g. 'minimal-focus'"),
@@ -38,13 +40,12 @@ const variantSchema = z.object({
 
 export default defineAction({
   description:
-    "Present exactly 3 generated design directions in the Design editor so the " +
-    "user can visually compare options and pick one. Use this for design " +
-    "exploration before calling generate-design. The user's choice is " +
-    "persisted automatically by the app. Inline MCP hosts return the pick to " +
-    "you automatically; if it opens as a browser link (a CLI or code editor), " +
-    "the user either pastes the auto-copied summary or just tells you which " +
-    'one (e.g. "use variant A").',
+    "Present generated design directions in the Design editor so the user can " +
+    "visually compare options and pick one. Provide 2-5 variants (3 is the " +
+    "sweet spot). Use this for design exploration before calling " +
+    "generate-design. The user's choice is persisted automatically by the app; " +
+    "if it opens as a browser link, they paste a copyable summary back to chat " +
+    'or simply tell you which one (e.g. "use variant A").',
   schema: z.object({
     designId: z.string().describe("Design project ID to show variants for"),
     prompt: z
@@ -53,9 +54,10 @@ export default defineAction({
       .describe("Caption shown above the variant grid"),
     variants: z
       .array(variantSchema)
-      .length(3)
+      .min(2)
+      .max(5)
       .describe(
-        "Exactly 3 concise, visually distinct generated design options to preview side by side. Inline CSS so all options render in the MCP app preview.",
+        "2-5 concise, visually distinct generated design options to preview side by side (3 is the sweet spot). Inline CSS so all options render in the MCP app preview.",
       ),
   }),
   mcpApp: {
@@ -82,22 +84,11 @@ export default defineAction({
       designId,
       prompt: prompt ?? "Pick a direction",
       count: variants.length,
-      path: `/design/${encodeURIComponent(designId)}`,
+      path: `/design/${encodeURIComponent(designId)}?handoff=chat`,
       embed: true,
-      message:
-        "Design directions are ready in the editor. In an inline MCP app the " +
-        "user's pick comes back to you automatically. If it opens as a browser " +
-        'tab (CLI or code editor), the user clicks "Use this one" — the page ' +
-        "auto-copies a short summary to paste back — or simply tells you which " +
-        'one (e.g. "use the editorial one"). The chosen variant is saved as ' +
-        "index.html automatically.",
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        "Wait for the user to choose a direction. Their pick may arrive as a " +
-        "chat message (inline app), a pasted summary, or a plain-language " +
-        'choice ("use variant A"). Once you know the choice, call ' +
-        "get-design-snapshot to read the saved index.html and continue from " +
-        "there — do not present new variants unless they ask for more options.",
+        "Wait for the user to pick a variant before refining or calling generate-design.",
     };
   },
   link: ({ result }) => {
