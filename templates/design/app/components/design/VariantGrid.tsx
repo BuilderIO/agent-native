@@ -25,6 +25,10 @@ export function VariantGrid({
   compact = false,
 }: VariantGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [internalSelectedId, setInternalSelectedId] = useState<
+    string | undefined
+  >(selectedId);
+  const activeSelectedId = selectedId ?? internalSelectedId;
   const previewScale = compact ? 0.36 : 0.5;
   const previewSize = `${100 / previewScale}%`;
 
@@ -63,8 +67,13 @@ export function VariantGrid({
         )}
       >
         {variants.map((variant) => {
-          const isSelected = selectedId === variant.id;
+          const isSelected = activeSelectedId === variant.id;
           const isHovered = hoveredId === variant.id;
+          const showAction = isSelected || isHovered;
+          const selectVariant = () => {
+            setInternalSelectedId(variant.id);
+            onSelect(variant.id);
+          };
 
           return (
             <div
@@ -75,15 +84,15 @@ export function VariantGrid({
             >
               {/* Preview frame */}
               <div
-                onClick={() => onSelect(variant.id)}
+                onClick={selectVariant}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
-                  onSelect(variant.id);
+                  selectVariant();
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label={`Use ${variant.label}`}
+                aria-label={`Preview ${variant.label}`}
                 className={cn(
                   "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isSelected
@@ -111,8 +120,8 @@ export function VariantGrid({
                   </div>
                 )}
 
-                {/* Hover overlay with "Use this one" */}
-                {isHovered && (
+                {/* Commit action appears after hover or selection, including touch. */}
+                {showAction && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <Button
                       size="sm"
@@ -120,8 +129,9 @@ export function VariantGrid({
                         e.stopPropagation();
                         onUse(variant.id);
                       }}
+                      aria-label={`Use ${variant.label}`}
                     >
-                      Use this one
+                      Use this direction
                     </Button>
                   </div>
                 )}

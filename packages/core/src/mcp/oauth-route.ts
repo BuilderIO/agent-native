@@ -354,7 +354,7 @@ function base64UrlDecode(value: string): Buffer {
 }
 
 function consentSigningKey(): string {
-  return process.env.A2A_SECRET || getAuthSecret();
+  return process.env.A2A_SECRET?.trim() || getAuthSecret();
 }
 
 function consentPayload(params: {

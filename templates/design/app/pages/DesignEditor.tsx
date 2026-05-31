@@ -344,6 +344,23 @@ export default function DesignEditor() {
   } = useVariantFlow(id);
 
   const { session } = useSession();
+  const pendingVariantKey = useMemo(
+    () =>
+      pendingVariants
+        ? `${pendingVariants.designId}:${pendingVariants.variants
+            .map((variant) => variant.id)
+            .join(",")}`
+        : "",
+    [pendingVariants],
+  );
+  const [selectedVariantId, setSelectedVariantId] = useState<
+    string | undefined
+  >();
+  const initialVariantId = pendingVariants?.variants[0]?.id;
+
+  useEffect(() => {
+    setSelectedVariantId(initialVariantId);
+  }, [initialVariantId, pendingVariantKey]);
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -1854,7 +1871,7 @@ ${serializedHtml}
           )}
 
         {/* Variant grid overlay — full canvas takeover with 2-5 candidate
-            designs. "Use this one" persists the chosen content as index.html. */}
+            designs. "Use this direction" persists the chosen content as index.html. */}
         {pendingVariants && (
           <div className="absolute inset-0 z-40 flex flex-col bg-background">
             <div
@@ -1883,7 +1900,8 @@ ${serializedHtml}
             <div className="flex-1 overflow-hidden">
               <VariantGrid
                 variants={pendingVariants.variants}
-                onSelect={handleVariantChoice}
+                selectedId={selectedVariantId}
+                onSelect={setSelectedVariantId}
                 onUse={handleVariantChoice}
                 compact={embedded}
               />

@@ -43,7 +43,10 @@ import {
 } from "../shared/agent-sidebar-url.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
-import { MCP_CONNECT_SCOPE } from "./connect-store.js";
+import {
+  MCP_CONNECT_OAUTH_CLIENT_ID,
+  MCP_CONNECT_SCOPE,
+} from "./connect-store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   MCP_OAUTH_SCOPES,
@@ -1660,6 +1663,22 @@ async function verifyA2AJwtForMcp(
   return null;
 }
 
+async function isConnectTokenAllowed(
+  jti: string | undefined,
+): Promise<boolean> {
+  if (!jti) return false;
+  try {
+    const { isJtiRevoked, touchTokenUsed } = await import("./connect-store.js");
+    if (await isJtiRevoked(jti)) return false;
+    // Best-effort usage telemetry — never blocks / throws.
+    void touchTokenUsed(jti);
+  } catch {
+    // Store import / lookup failed — fail open. Signature verification already
+    // passed; this only gates explicit revokes.
+  }
+  return true;
+}
+
 /**
  * Verify the inbound auth header. Returns:
  *   - { authed: true, identity } when verified — `identity` is derived from
@@ -1700,7 +1719,7 @@ export async function verifyAuth(
   // established that this is a loopback/local dev request. Still honour an
   // owner hint there so the local install/connect flow stays tenant-scoped.
   const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET;
+  const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice(7)
     : undefined;
@@ -1710,6 +1729,12 @@ export async function verifyAuth(
       options.resourceUrl,
     );
     if (oauthIdentity) {
+      if (
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
+        !(await isConnectTokenAllowed(oauthIdentity.jti))
+      ) {
+        return { authed: false };
+      }
       return {
         authed: true,
         identity: {
@@ -1757,20 +1782,8 @@ export async function verifyAuth(
     // cryptographically verified, so failing open here only widens the
     // explicit-revoke gate, never the trust boundary.
     if (tokenScope === MCP_CONNECT_SCOPE) {
-      if (typeof payload.jti !== "string" || !payload.jti) {
+      if (!(await isConnectTokenAllowed(payload.jti as string | undefined))) {
         return { authed: false };
-      }
-      const jti = payload.jti;
-      try {
-        const { isJtiRevoked, touchTokenUsed } =
-          await import("./connect-store.js");
-        if (await isJtiRevoked(jti)) {
-          return { authed: false };
-        }
-        // Best-effort usage telemetry — never blocks / throws.
-        void touchTokenUsed(jti);
-      } catch {
-        // Store import / lookup failed — fail open (see comment above).
       }
     }
 

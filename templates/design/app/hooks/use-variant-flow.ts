@@ -243,6 +243,7 @@ export function useVariantFlow(designId: string | undefined) {
   );
 
   const dismiss = useCallback(() => {
+    const embedded = isEmbedAuthActive();
     clear();
     if (isLinkOnlyHandoff() && !isEmbedAuthActive()) {
       // No chat bridge to relay the dismissal — give the user a copyable note
@@ -257,7 +258,8 @@ export function useVariantFlow(designId: string | undefined) {
       message: "Close the variants — none of these.",
       context:
         "User dismissed the variant grid without picking. Ask what direction they want instead.",
-      submit: false,
+      submit: embedded,
+      ...(embedded ? { openSidebar: false } : {}),
     });
   }, [clear]);
 

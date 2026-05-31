@@ -315,10 +315,18 @@ interface SkillInstallTarget {
   cleanup?: () => void;
 }
 
+interface RunCommandOptions {
+  stdio?: "inherit" | "stderr";
+}
+
 interface RunSkillsOptions {
   baseDir?: string;
   log?: (message: string) => void;
-  runCommand?: (cmd: string, args: string[]) => Promise<number>;
+  runCommand?: (
+    cmd: string,
+    args: string[],
+    options?: RunCommandOptions,
+  ) => Promise<number>;
 }
 
 function normalizeKnownSkillTarget(
@@ -469,6 +477,35 @@ function commandString(cmd: string, args: string[]): string {
   return [cmd, ...args].map(shellArg).join(" ");
 }
 
+function preserveMcpUrlAppPathOverride(
+  target: SkillInstallTarget,
+  input: string | undefined,
+): SkillInstallTarget {
+  if (!input) return target;
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return target;
+  }
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  const appPath = trimmedPath.endsWith("/_agent-native/mcp")
+    ? trimmedPath.slice(0, -"/_agent-native/mcp".length).replace(/\/+$/, "")
+    : trimmedPath;
+  if (!appPath) return target;
+  const url = `${parsed.origin}${appPath}`;
+  return {
+    ...target,
+    loaded: {
+      ...target.loaded,
+      manifest: {
+        ...target.loaded.manifest,
+        hosted: { url, mcpUrl: `${url}/_agent-native/mcp` },
+      },
+    },
+  };
+}
+
 function dryRunInstallCommand(
   parsed: ParsedSkillsArgs,
   target: string,
@@ -489,13 +526,22 @@ function dryRunInstallCommand(
   return commandString("agent-native", args);
 }
 
-async function runCommand(cmd: string, args: string[]): Promise<number> {
+async function runCommand(
+  cmd: string,
+  args: string[],
+  options: RunCommandOptions = {},
+): Promise<number> {
   return new Promise((resolve, reject) => {
+    const pipeToStderr = options.stdio === "stderr";
     const child = spawn(cmd, args, {
-      stdio: "inherit",
+      stdio: pipeToStderr ? ["inherit", "pipe", "pipe"] : "inherit",
       shell: process.platform === "win32",
       env: process.env,
     });
+    if (pipeToStderr) {
+      child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
+      child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    }
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       if (signal) {
@@ -561,6 +607,7 @@ export async function addAgentNativeSkill(
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
   }
   const clients = resolveClients(parsed.client);
+  installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
@@ -598,11 +645,14 @@ export async function addAgentNativeSkill(
         "--copy",
         ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
         ...skillsAgents.flatMap((agent) => ["-a", agent]),
+        ...(parsed.scope === "user" ? ["-g"] : []),
         ...(parsed.yes || knownTarget ? ["-y"] : []),
       ];
       commands.push(commandString("npx", args));
       if (!parsed.dryRun) {
-        const code = await (options.runCommand ?? runCommand)("npx", args);
+        const code = await (options.runCommand ?? runCommand)("npx", args, {
+          stdio: parsed.printJson ? "stderr" : "inherit",
+        });
         if (code !== 0) throw new Error(`npx skills add exited with ${code}.`);
       }
     }

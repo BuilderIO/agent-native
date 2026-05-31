@@ -35,6 +35,12 @@ let _initPromise: Promise<void> | undefined;
  */
 export const MCP_CONNECT_SCOPE = "mcp-connect";
 
+/**
+ * Client id used when connect/device flows have to mint a standard MCP OAuth
+ * access token instead of an A2A JWT (for deployments without A2A_SECRET).
+ */
+export const MCP_CONNECT_OAUTH_CLIENT_ID = "agent-native-connect";
+
 /** Device codes are valid for 10 minutes. */
 export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 

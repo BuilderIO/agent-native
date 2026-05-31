@@ -16,12 +16,11 @@
  *        POST /connect/device/authorize  (session) → binds user to the code
  *        POST /connect/device/poll       (unauth)  → mints + returns the token
  *
- * The minted token reuses the existing A2A signer (`signA2AToken`) — no new
- * crypto. We only add a random `jti` + `scope: "mcp-connect"` claim so it can
- * be revoked. `verifyAuth` already verifies A2A_SECRET JWTs and extracts
- * `sub`/`org_domain`, so a minted token works against `/_agent-native/mcp`
- * with no verify changes for the happy path (the revoke check is the only
- * addition there).
+ * When A2A_SECRET exists, the minted token reuses the existing A2A signer
+ * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
+ * it can be revoked. Deployments without A2A_SECRET mint the same standard MCP
+ * OAuth access-token format used by remote MCP OAuth, signed with the auth
+ * secret fallback and bound to the exact MCP resource URL.
  *
  * Node-only (crypto + the A2A signer), bundled alongside the other framework
  * routes. Dialect-agnostic SQL lives in `connect-store.ts`.
@@ -50,15 +49,21 @@ import {
   finishDeviceCodeMint,
   releaseDeviceCodeMint,
   expireDeviceCode,
+  MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
+import {
+  MCP_OAUTH_DEFAULT_SCOPE,
+  signMcpOAuthAccessToken,
+} from "./oauth-token.js";
 
 /** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
+const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 // Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
@@ -192,26 +197,26 @@ function clampTtlDays(input: unknown): number {
 }
 
 /**
- * Mint a connect-scoped JWT and record it. The JWT is signed by the existing
- * A2A signer (HS256 over A2A_SECRET); we add a random `jti` and
- * `scope: "mcp-connect"` so the token is individually revocable. The token
- * value is returned to the caller exactly once and never persisted.
+ * Mint a connect-scoped JWT and record it. The token value is returned to the
+ * caller exactly once and never persisted; only the random `jti` is stored for
+ * revocation.
  */
 async function mintConnectToken(params: {
   email: string;
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
+  appUrl: string;
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
   const jti = randomUUID();
-  // signA2AToken signs { sub: email, org_domain? } over A2A_SECRET (global)
-  // or the org secret. We extend its claims via the standard jose builder by
-  // re-using the same signer with extra claims threaded through `options`.
-  const token = await signA2AToken(params.email, orgDomain, undefined, {
-    preferGlobalSecret: true,
+  const token = await signConnectToken({
+    ownerEmail: params.email,
+    orgId: params.orgId,
+    orgDomain,
+    appUrl: params.appUrl,
     expiresIn: `${params.ttlDays}d`,
-    extraClaims: { jti, scope: MCP_CONNECT_SCOPE },
+    jti,
   });
   await recordMintedToken({
     jti,
@@ -222,17 +227,49 @@ async function mintConnectToken(params: {
   return { token, jti };
 }
 
+async function signConnectToken(params: {
+  ownerEmail: string;
+  orgId: string | null | undefined;
+  orgDomain: string | undefined;
+  appUrl: string;
+  expiresIn: string;
+  jti: string;
+}): Promise<string> {
+  if (process.env.A2A_SECRET?.trim()) {
+    return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
+      preferGlobalSecret: true,
+      expiresIn: params.expiresIn,
+      extraClaims: { jti: params.jti, scope: MCP_CONNECT_SCOPE },
+    });
+  }
+
+  return signMcpOAuthAccessToken({
+    ownerEmail: params.ownerEmail,
+    orgId: params.orgId ?? null,
+    orgDomain: params.orgDomain ?? null,
+    clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+    scope: MCP_OAUTH_DEFAULT_SCOPE,
+    resource: mcpResourceUrl(params.appUrl),
+    issuer: params.appUrl,
+    jti: params.jti,
+    expiresIn: params.expiresIn,
+  });
+}
+
 function mcpResultPayload(
   appUrl: string,
   options: McpConnectRouteOptions,
   auth: { token?: string; ownerEmail?: string },
 ) {
-  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const mcpUrl = mcpResourceUrl(appUrl);
   const name = serverName(appUrl, options);
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+  }
+  if (auth.token || auth.ownerEmail) {
+    headers[MCP_FULL_CATALOG_HEADER] = "1";
   }
   return {
     token: auth.token ?? "",
@@ -245,6 +282,10 @@ function mcpResultPayload(
     },
     cli: `agent-native connect ${appUrl}`,
   };
+}
+
+function mcpResourceUrl(appUrl: string): string {
+  return `${appUrl}/_agent-native/mcp`;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,14 +619,19 @@ function renderConnectPage(params: {
   .primary-link {
     display: inline-flex; align-items: center; justify-content: center;
     gap: 0.35rem; min-height: 36px; padding: 0.45rem 0.85rem;
-    background: var(--accent); color: var(--accent-fg);
-    border: 1px solid var(--accent); border-radius: 8px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 8px;
     font-size: 0.86rem; font-weight: 650; text-decoration: none;
-    cursor: pointer; width: 100%; text-align: center;
+    cursor: pointer; width: auto; max-width: 100%; text-align: center;
     margin: 0.5rem 0 0.2rem;
   }
-  .primary-link:hover { background: #e4e4e7; border-color: #e4e4e7; }
-  .primary-link.compact { width: auto; min-width: 0; }
+  .tab-panel a.primary-link {
+    color: var(--text); text-decoration: none;
+  }
+  .primary-link:hover {
+    background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
+  }
+  .primary-link.compact { min-width: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
@@ -1041,18 +1087,9 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
-    if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(event)) {
-        return json(
-          mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
-        );
-      }
+    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
       return json(
-        {
-          error:
-            "This deployment has no A2A_SECRET configured, so connect tokens cannot be minted.",
-        },
-        503,
+        mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
       );
     }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -1070,6 +1107,7 @@ export async function handleMcpConnect(
         orgId: session.orgId,
         label,
         ttlDays,
+        appUrl,
       });
       return json(mcpResultPayload(appUrl, options, { token }));
     } catch {
@@ -1156,25 +1194,22 @@ export async function handleMcpConnect(
       return json({ status: "pending" });
     }
     // status === "approved" && ownerEmail bound → mint exactly once.
-    if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(event)) {
-        const consumed = await consumeDeviceCode(
-          deviceCode,
-          `dev-open-${randomUUID()}`,
-        );
-        if (!consumed) {
-          const fresh = await getDeviceCode(deviceCode);
-          if (fresh?.status === "consumed") return json({ status: "consumed" });
-          return json({ status: "pending" });
-        }
-        return json({
-          status: "approved",
-          ...mcpResultPayload(appUrl, options, {
-            ownerEmail: row.ownerEmail,
-          }),
-        });
+    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
+      const consumed = await consumeDeviceCode(
+        deviceCode,
+        `dev-open-${randomUUID()}`,
+      );
+      if (!consumed) {
+        const fresh = await getDeviceCode(deviceCode);
+        if (fresh?.status === "consumed") return json({ status: "consumed" });
+        return json({ status: "pending" });
       }
-      return json({ status: "error", error: "A2A_SECRET not configured" }, 503);
+      return json({
+        status: "approved",
+        ...mcpResultPayload(appUrl, options, {
+          ownerEmail: row.ownerEmail,
+        }),
+      });
     }
     try {
       const jti = randomUUID();
@@ -1189,10 +1224,13 @@ export async function handleMcpConnect(
       let token: string;
       try {
         const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
-        token = await signA2AToken(claimed.ownerEmail!, orgDomain, undefined, {
-          preferGlobalSecret: true,
+        token = await signConnectToken({
+          ownerEmail: claimed.ownerEmail!,
+          orgId: claimed.orgId,
+          orgDomain,
+          appUrl,
           expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
-          extraClaims: { jti, scope: MCP_CONNECT_SCOPE },
+          jti,
         });
         await recordMintedToken({
           jti,

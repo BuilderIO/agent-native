@@ -51,6 +51,7 @@ const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
+const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code": "Claude Code",
@@ -410,6 +411,12 @@ export function supportsRemoteMcpOAuth(client: ClientId): boolean {
 
 function clientLabelList(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
+}
+
+function withFullCatalogHeader(
+  headers: Record<string, string> | undefined,
+): Record<string, string> {
+  return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
@@ -1133,7 +1140,9 @@ async function devHeadersForApp(params: {
   if (ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = ownerEmail;
   }
-  return Object.keys(headers).length ? headers : undefined;
+  return Object.keys(headers).length
+    ? withFullCatalogHeader(headers)
+    : undefined;
 }
 
 function connectableApps(includeHidden = false): ConnectableApp[] {
@@ -1468,7 +1477,7 @@ async function connectOne(
         token,
         scope,
         baseDir,
-        headers,
+        withFullCatalogHeader(headers),
       ),
     );
   }

@@ -10,6 +10,7 @@ const touchTokenUsedMock = vi.fn(async () => {});
 const getA2ASecretByDomainMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
+  MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   isJtiRevoked: (...a: any[]) => isJtiRevokedMock(...a),
   touchTokenUsed: (...a: any[]) => touchTokenUsedMock(...a),
 }));
@@ -160,6 +161,49 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.authed).toBe(false);
     expect(res.identity).toBeUndefined();
+  });
+
+  it("accepts a connect-minted MCP OAuth token whose jti is not revoked", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-active",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.fullSurface).toBe(true);
+    expect(res.identity).toMatchObject({
+      userEmail: "oauth-connect@example.com",
+      oauthClientId: "agent-native-connect",
+    });
+    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-oauth-active");
+    expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-oauth-active");
+  });
+
+  it("rejects a revoked connect-minted MCP OAuth token", async () => {
+    isJtiRevokedMock.mockResolvedValue(true);
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-revoked",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(false);
+    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-oauth-revoked");
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it("rejects a connect-scoped token without a jti", async () => {

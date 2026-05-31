@@ -109,13 +109,14 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
       orgDomain: "example.com",
     });
     const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       userEmail: "owner@example.com",
       orgId: "org-1",
       orgDomain: "example.com",
       scopes: ["mcp:read", "mcp:write"],
       clientId: "client-abc",
     });
+    expect(typeof result?.jti).toBe("string");
   });
 
   it("omits org claims entirely when not provided", async () => {
@@ -139,6 +140,28 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     expect(decoded.exp).toBeGreaterThan(decoded.iat);
   });
 
+  it("uses a provided jti when supplied", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      jti: "connect-jti-123",
+    });
+    const decoded = jose.decodeJwt(token) as any;
+    expect(decoded.jti).toBe("connect-jti-123");
+    const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
+    expect(result?.jti).toBe("connect-jti-123");
+  });
+
+  it("uses a provided expiry when supplied", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      expiresIn: "30d",
+    });
+    const decoded = jose.decodeJwt(token) as any;
+    const lifetimeDays = (decoded.exp - decoded.iat) / 86400;
+    expect(Math.round(lifetimeDays)).toBe(30);
+  });
+
   it("prefers A2A_SECRET over the better-auth secret for signing+verify", async () => {
     process.env.A2A_SECRET = "a2a-strong-secret";
     const token = await signMcpOAuthAccessToken(baseSign);
@@ -147,6 +170,23 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     // A token signed under A2A_SECRET must fail once the secret changes.
     delete process.env.A2A_SECRET;
     expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+  });
+
+  it("ignores whitespace-only A2A_SECRET and falls back to the auth secret", async () => {
+    process.env.A2A_SECRET = "   ";
+    const token = await signMcpOAuthAccessToken(baseSign);
+
+    expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).not.toBeNull();
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("   "), {
+        audience: RESOURCE,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("fallback-auth-secret"), {
+        audience: RESOURCE,
+      }),
+    ).resolves.toBeTruthy();
   });
 });
 
