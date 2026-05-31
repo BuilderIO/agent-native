@@ -175,6 +175,23 @@ pnpm action import-design-project --designId _ --designSystemId "ds-456"
 
 Extracts CSS tokens from a project's generated HTML, or clones an existing design system for forking.
 
+### Source: Figma file
+
+```bash
+pnpm action import-figma --figmaUrl "https://figma.com/design/<key>/..." \
+  --description "<extracted tokens / styles summary>"
+```
+
+**Prefer the connected Figma MCP** when available (tools like
+`get_variable_defs`, `get_design_context`, `get_metadata`, `get_screenshot`).
+Call those on the file/selection FIRST to pull real variables (tokens), color
+and text styles, and a screenshot — this sidesteps REST/Enterprise limits and
+returns a token map directly. Then pass that summary to `import-figma` and build
+the system with `create-design-system`. Convert Figma colors (0-1 RGBA) to hex,
+effects to CSS box-shadow, and text styles to font tokens; snap spacing to a
+4/8px scale. If no Figma MCP is connected, ask the user to paste the token
+values or describe the file.
+
 ### Source: Brand Analysis (combines website + notes)
 
 ```bash
@@ -191,10 +208,11 @@ Returns CSS properties, colors, fonts, theme-color, metadata.
 When the user provides multiple sources, call all applicable import actions in parallel, then synthesize:
 
 1. **Prioritize code sources** (GitHub, local files) — these have the most accurate tokens
-2. **Cross-reference with website** — validates colors/fonts are actually deployed
-3. **Documents supplement** — presentations may reveal brand colors not in code
-4. **Images inform mood** — color temperature, density, visual style
-5. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
+2. **Figma variables/styles** (via the Figma MCP) — authoritative when the team designs in Figma
+3. **Cross-reference with website** — validates colors/fonts are actually deployed
+4. **Documents supplement** — presentations may reveal brand colors not in code
+5. **Images inform mood** — color temperature, density, visual style
+6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
 6. **Call `create-design-system`** with the combined result
 7. **Link to design** via `update-design --designSystemId`
 

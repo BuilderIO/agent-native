@@ -15,14 +15,15 @@ import {
   IconPlus,
   IconLayoutGrid,
   IconX,
-  IconPencilPlus,
   IconPin,
-  IconDownload,
   IconCode,
   IconArchive,
   IconPhoto,
   IconRefresh,
   IconMenu2,
+  IconChevronDown,
+  IconCheck,
+  IconDots,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -52,9 +53,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { EditPanel } from "@/components/design/EditPanel";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
@@ -1031,18 +1037,6 @@ export default function DesignEditor() {
     });
   }, [viewMode]);
 
-  const handleDrawToolToggle = useCallback(() => {
-    if (!activeFile || viewMode === "overview") return;
-    if (drawMode) {
-      setDrawMode(false);
-      setMode("comment");
-      return;
-    }
-    setMode("draw");
-    setDrawMode(true);
-    setPinMode(false);
-  }, [activeFile, drawMode, viewMode]);
-
   const handlePinToolToggle = useCallback(() => {
     if (!activeFile || viewMode === "overview") return;
     if (pinMode) {
@@ -1403,11 +1397,6 @@ ${serializedHtml}
     }
   }, [design?.title, fallbackExportName, triggerBlobDownload]);
 
-  const exportPending =
-    exportHtmlMutation.isPending ||
-    exportZipMutation.isPending ||
-    createCodingHandoffMutation.isPending ||
-    svgExporting;
   const zoomLabel = `${Math.round(zoom)}%`;
 
   if (!id) {
@@ -1416,11 +1405,7 @@ ${serializedHtml}
   }
 
   if (designLoading || (!design && pendingGenerationActive)) {
-    return (
-      <div className="flex-1 bg-background flex items-center justify-center">
-        <Spinner className="size-8 text-foreground/30" />
-      </div>
-    );
+    return <DesignEditorSkeleton embedded={embedded} />;
   }
 
   if (!design) {
@@ -1570,108 +1555,110 @@ ${serializedHtml}
 
             {!embedded && (
               <>
-                <div className="w-px h-5 bg-accent mx-1" />
-
-                {/* Device frame — only meaningful in single-screen mode. */}
-                <div className="flex items-center gap-0.5">
+                {/* Device preview — collapsed into a single menu. */}
+                <DropdownMenu>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
-                        variant={deviceFrame === "none" ? "secondary" : "ghost"}
-                        size="icon"
-                        className="h-7 w-7 cursor-pointer"
-                        onClick={() => setDeviceFrame("none")}
-                        disabled={viewMode === "overview"}
-                      >
-                        <IconDeviceDesktopOff className="w-3.5 h-3.5" />
-                      </Button>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 cursor-pointer"
+                          disabled={viewMode === "overview"}
+                        >
+                          {deviceFrame === "desktop" ? (
+                            <IconDeviceDesktop className="w-3.5 h-3.5" />
+                          ) : deviceFrame === "tablet" ? (
+                            <IconDeviceTablet className="w-3.5 h-3.5" />
+                          ) : deviceFrame === "mobile" ? (
+                            <IconDeviceMobile className="w-3.5 h-3.5" />
+                          ) : (
+                            <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                          )}
+                          <IconChevronDown className="w-3 h-3 opacity-60" />
+                        </Button>
+                      </DropdownMenuTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>No frame</TooltipContent>
+                    <TooltipContent>Device preview</TooltipContent>
                   </Tooltip>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuRadioGroup
+                      value={deviceFrame}
+                      onValueChange={(v) =>
+                        setDeviceFrame(v as DeviceFrameType)
+                      }
+                    >
+                      <DropdownMenuRadioItem value="none">
+                        <IconDeviceDesktopOff className="mr-2 h-4 w-4" />
+                        Responsive
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="desktop">
+                        <IconDeviceDesktop className="mr-2 h-4 w-4" />
+                        Desktop
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="tablet">
+                        <IconDeviceTablet className="mr-2 h-4 w-4" />
+                        Tablet
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="mobile">
+                        <IconDeviceMobile className="mr-2 h-4 w-4" />
+                        Mobile
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Zoom — collapsed into a single menu. */}
+                <DropdownMenu>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
-                        variant={
-                          deviceFrame === "desktop" ? "secondary" : "ghost"
-                        }
-                        size="icon"
-                        className="h-7 w-7 cursor-pointer"
-                        onClick={() => setDeviceFrame("desktop")}
-                        disabled={viewMode === "overview"}
-                      >
-                        <IconDeviceDesktop className="w-3.5 h-3.5" />
-                      </Button>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs tabular-nums text-muted-foreground cursor-pointer"
+                        >
+                          {zoomLabel}
+                          <IconChevronDown className="w-3 h-3 opacity-60" />
+                        </Button>
+                      </DropdownMenuTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>Desktop</TooltipContent>
+                    <TooltipContent>Zoom</TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={
-                          deviceFrame === "tablet" ? "secondary" : "ghost"
-                        }
-                        size="icon"
-                        className="h-7 w-7 cursor-pointer"
-                        onClick={() => setDeviceFrame("tablet")}
-                        disabled={viewMode === "overview"}
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={handleZoomOut}>
+                      <IconZoomOut className="mr-2 h-4 w-4" />
+                      Zoom out
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleZoomIn}>
+                      <IconZoomIn className="mr-2 h-4 w-4" />
+                      Zoom in
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {ZOOM_PRESETS.map((preset) => (
+                      <DropdownMenuItem
+                        key={preset}
+                        onClick={() => setZoom(preset)}
+                        className="justify-between"
                       >
-                        <IconDeviceTablet className="w-3.5 h-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Tablet</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={
-                          deviceFrame === "mobile" ? "secondary" : "ghost"
-                        }
-                        size="icon"
-                        className="h-7 w-7 cursor-pointer"
-                        onClick={() => setDeviceFrame("mobile")}
-                        disabled={viewMode === "overview"}
-                      >
-                        <IconDeviceMobile className="w-3.5 h-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Mobile</TooltipContent>
-                  </Tooltip>
-                </div>
+                        <span>{preset}%</span>
+                        {Math.round(zoom) === preset && (
+                          <IconCheck className="h-4 w-4" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-                <div className="w-px h-5 bg-accent mx-1" />
-
-                {/* Zoom */}
-                <div className="flex items-center gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={handleZoomOut}
-                  >
-                    <IconZoomOut className="w-3.5 h-3.5" />
-                  </Button>
-                  <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
-                    {zoomLabel}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={handleZoomIn}
-                  >
-                    <IconZoomIn className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                <div className="w-px h-5 bg-accent mx-1" />
+                <div className="mx-1 h-5 w-px bg-border" />
               </>
             )}
 
-            {/* Actions */}
+            {/* Tweaks */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
+                  variant={tweaksVisible ? "secondary" : "ghost"}
                   size="icon"
                   className="h-7 w-7 cursor-pointer"
                   onClick={() => setTweaksVisible(!tweaksVisible)}
@@ -1681,56 +1668,6 @@ ${serializedHtml}
               </TooltipTrigger>
               <TooltipContent>Tweaks</TooltipContent>
             </Tooltip>
-
-            {!embedded && (
-              <>
-                {/* Draw on canvas — overlays the iframe with pencil + text. */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={drawMode ? "secondary" : "ghost"}
-                      size="icon"
-                      className="h-7 w-7 cursor-pointer"
-                      data-toolbar-draw-button
-                      onClick={handleDrawToolToggle}
-                      disabled={!activeFile || viewMode === "overview"}
-                    >
-                      <IconPencilPlus className="w-3.5 h-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {viewMode === "overview"
-                      ? "Open a single screen to draw"
-                      : drawMode
-                        ? "Exit draw mode"
-                        : "Draw on current screen"}
-                  </TooltipContent>
-                </Tooltip>
-
-                {/* Drop comment pin — overlays the iframe with click-to-comment. */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={pinMode ? "secondary" : "ghost"}
-                      size="icon"
-                      className="h-7 w-7 cursor-pointer"
-                      data-toolbar-pin-button
-                      onClick={handlePinToolToggle}
-                      disabled={!activeFile || viewMode === "overview"}
-                    >
-                      <IconPin className="w-3.5 h-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {viewMode === "overview"
-                      ? "Open a single screen to comment"
-                      : pinMode
-                        ? "Exit comment pin mode"
-                        : "Drop comment pin"}
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            )}
 
             {/* Save state — currently the design template doesn't expose a
               dedicated "save in flight" signal (file edits go through Yjs +
@@ -1746,6 +1683,7 @@ ${serializedHtml}
               />
             )}
 
+            {/* More: comment pin + export (progressive disclosure). */}
             {!embedded && (
               <DropdownMenu>
                 <Tooltip>
@@ -1754,16 +1692,29 @@ ${serializedHtml}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 cursor-pointer"
-                        disabled={!activeFile || exportPending}
+                        className="relative h-7 w-7 cursor-pointer"
                       >
-                        <IconDownload className="w-3.5 h-3.5" />
+                        <IconDots className="w-3.5 h-3.5" />
+                        {pinMode && (
+                          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#609FF8]" />
+                        )}
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Export</TooltipContent>
+                  <TooltipContent>More</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={handlePinToolToggle}
+                    disabled={!activeFile || viewMode === "overview"}
+                  >
+                    <IconPin className="mr-2 h-4 w-4" />
+                    {pinMode ? "Exit comment pin" : "Drop comment pin"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    Export
+                  </DropdownMenuLabel>
                   <DropdownMenuItem
                     onClick={handleDownloadHtml}
                     disabled={!activeFile || exportHtmlMutation.isPending}
@@ -1954,6 +1905,23 @@ ${serializedHtml}
                 onExitPinMode={() => setPinMode(false)}
                 designId={id}
                 designTitle={design?.title}
+                onPrototypeNavigate={(screen) => {
+                  if (!screen) return;
+                  const norm = (s: string) =>
+                    s
+                      .replace(/^\.?\//, "")
+                      .replace(/\.html?$/i, "")
+                      .toLowerCase();
+                  const target = norm(screen);
+                  if (!target) return;
+                  const match =
+                    files.find((f) => norm(f.filename) === target) ??
+                    files.find((f) => norm(f.filename).includes(target));
+                  if (match) {
+                    setViewMode("single");
+                    setActiveFileId(match.id);
+                  }
+                }}
               />
             )
           ) : (

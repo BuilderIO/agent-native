@@ -67,6 +67,67 @@ const ZOOM_BRIDGE_SCRIPT = `
 `;
 
 /**
+ * Navigation bridge. ALWAYS injected. A prototype lives in a `srcdoc` iframe,
+ * so a plain `<a href="/pricing">` resolves the relative URL against the PARENT
+ * app document and navigates the iframe to the Design app itself ("Design not
+ * found"), nuking the prototype. We intercept link clicks + relative form
+ * submits and route them to the parent instead:
+ *   - in-page anchors (`#...`) and `javascript:`/`@click` handlers: left alone
+ *   - external `http(s)`/`//` links: opened in a new tab by the parent
+ *   - internal/relative links (or an explicit `data-screen`): asked to switch
+ *     to the matching screen in a multi-screen design; otherwise a no-op so the
+ *     prototype never blows itself away.
+ */
+const NAV_BRIDGE_SCRIPT = `
+<script data-agent-native-nav-bridge>
+(function() {
+  function classify(href) {
+    var h = (href || '').trim();
+    if (!h) return null;
+    var lower = h.toLowerCase();
+    if (lower.charAt(0) === '#') return null;
+    if (lower.indexOf('javascript:') === 0) return null;
+    if (lower.indexOf('mailto:') === 0 || lower.indexOf('tel:') === 0) {
+      return { external: true, href: h };
+    }
+    if (/^https?:\\/\\//i.test(h) || /^\\/\\//.test(h)) {
+      return { external: true, href: h };
+    }
+    var screen = h.replace(/^\\.?\\//, '').split(/[?#]/)[0];
+    return { external: false, href: h, screen: screen };
+  }
+  document.addEventListener('click', function(e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var a = t.closest('a[href], [data-screen]');
+    if (!a) return;
+    var ds = a.getAttribute && a.getAttribute('data-screen');
+    var info = ds
+      ? { external: false, href: ds, screen: ds.replace(/^\\.?\\//, '').split(/[?#]/)[0] }
+      : classify(a.getAttribute('href'));
+    if (!info) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({
+        type: 'prototype-navigate',
+        external: !!info.external,
+        href: info.href,
+        screen: info.screen || '',
+      }, '*');
+    } catch (err) {}
+  }, true);
+  document.addEventListener('submit', function(e) {
+    var f = e.target;
+    if (!f || f.tagName !== 'FORM') return;
+    var action = f.getAttribute('action') || '';
+    if (/^https?:\\/\\//i.test(action)) return;
+    e.preventDefault();
+  }, true);
+})();
+</script>
+`;
+
+/**
  * Edit-mode bridge: element click/hover overlays + selector-targeted
  * style-change messages. Only injected when the user is in Edit mode.
  */
@@ -254,6 +315,13 @@ interface DesignCanvasProps {
   designId?: string;
   /** Human-readable label for the design (used in agent prompt). */
   designTitle?: string;
+  /**
+   * Called when a link inside the prototype points to another screen (a
+   * relative href or `data-screen`). Lets the editor switch the active screen
+   * instead of letting the iframe navigate to the app. External links are
+   * opened in a new tab here and never reach this callback.
+   */
+  onPrototypeNavigate?: (screen: string, href: string) => void;
 }
 
 export function DesignCanvas({
@@ -271,6 +339,7 @@ export function DesignCanvas({
   onExitPinMode,
   designId,
   designTitle,
+  onPrototypeNavigate,
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -293,6 +362,7 @@ export function DesignCanvas({
     const bridgeToInject =
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
+      NAV_BRIDGE_SCRIPT +
       (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
       return content.replace("</body>", bridgeToInject + "</body>");
@@ -323,6 +393,19 @@ export function DesignCanvas({
       }
       if (e.data.type === "element-hover") {
         onElementHover(e.data.payload);
+      }
+      if (e.data.type === "prototype-navigate") {
+        if (e.data.external) {
+          if (e.data.href) {
+            window.open(String(e.data.href), "_blank", "noopener,noreferrer");
+          }
+        } else {
+          onPrototypeNavigate?.(
+            String(e.data.screen || ""),
+            String(e.data.href || ""),
+          );
+        }
+        return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
         if (!onZoomChange) return;
@@ -366,7 +449,13 @@ export function DesignCanvas({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onElementSelect, onElementHover, onZoomChange, deviceFrame]);
+  }, [
+    onElementSelect,
+    onElementHover,
+    onZoomChange,
+    deviceFrame,
+    onPrototypeNavigate,
+  ]);
 
   // Send tweak values to the iframe whenever they change OR the iframe
   // (re)loads. The reload case matters: changing `content` or toggling Edit

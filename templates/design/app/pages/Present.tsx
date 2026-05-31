@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DesignFile {
   id: string;
@@ -59,8 +59,8 @@ export default function Present() {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-screen bg-black flex items-center justify-center">
-        <Spinner className="size-8 text-white/30" />
+      <div className="h-screen w-screen bg-black flex items-center justify-center p-10">
+        <Skeleton className="h-full w-full max-w-5xl rounded-xl bg-white/5" />
       </div>
     );
   }
