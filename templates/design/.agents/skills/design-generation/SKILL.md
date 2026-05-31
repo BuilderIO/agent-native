@@ -60,7 +60,22 @@ Dispatch), call `present-design-variants` instead of writing
 `application-state` directly. Pass the existing `designId`, a concise prompt
 caption, and 2-5 complete HTML variants. The action opens the same editor
 variant picker as the first-party app and keeps the workflow visible inside
-MCP Apps. After that, wait for the user's pick before refining.
+MCP Apps.
+
+How the pick comes back depends on the host:
+
+- **Inline MCP apps** (ChatGPT, Claude desktop/web): the user clicks "Use this
+  one" and their choice returns to you automatically.
+- **Browser / CLI fallback** (Claude Code, Codex, any host that can only open a
+  link): the directions open as a normal browser tab. After the user clicks
+  "Use this one", the page auto-copies a short handoff summary for them to paste
+  back into chat — or they can simply tell you which one in words (e.g. "use
+  variant A" / "the editorial one"). Both are first-class; don't insist on the
+  paste-back if they just name the pick.
+
+Either way the chosen variant is saved as `index.html` automatically. Once you
+know the choice, read it with `get-design-snapshot` and refine from there — do
+not present new variants unless the user asks for "more options".
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 

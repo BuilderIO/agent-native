@@ -23,6 +23,8 @@ import {
   IconPhoto,
   IconRefresh,
   IconMenu2,
+  IconCheck,
+  IconClipboard,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -38,7 +40,6 @@ import {
   NotificationsBell,
   ShareButton,
   isEmbedAuthActive,
-  sendToAgentChat,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -337,30 +338,13 @@ export default function DesignEditor() {
   } = useQuestionFlow(id);
   const {
     state: pendingVariants,
-    useVariant: handleUseVariant,
+    useVariant: handleVariantChoice,
     dismiss: handleVariantsDismiss,
+    handoff: variantHandoff,
+    handoffCopied: variantHandoffCopied,
+    copyHandoff: copyVariantHandoff,
+    clearHandoff: clearVariantHandoff,
   } = useVariantFlow(id);
-  const handleVariantChoice = useCallback(
-    async (variantId: string) => {
-      const chosen = pendingVariants?.variants.find(
-        (variant) => variant.id === variantId,
-      );
-      await handleUseVariant(variantId);
-
-      if (!embedded || !chosen || !id) return;
-      sendToAgentChat({
-        message: `I picked "${chosen.label}".`,
-        context: [
-          `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${id} inside the embedded Design MCP app.`,
-          "Continue from the chosen direction when the user asks for refinements.",
-          'If the user asks for another iteration, use get-design-snapshot and generate-design against the current index.html; do not present new variants unless they ask for "more options" or "alternatives".',
-        ].join("\n"),
-        submit: true,
-        openSidebar: false,
-      });
-    },
-    [embedded, handleUseVariant, id, pendingVariants],
-  );
 
   const { session } = useSession();
 
@@ -1906,6 +1890,51 @@ ${serializedHtml}
                 onUse={handleVariantChoice}
                 compact={embedded}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Standalone handoff: when no host chat received the pick (a CLI or
+            code editor opened the editor as a plain tab), surface a copy-paste
+            summary. Auto-copied on pick; the user can also just tell their
+            agent which one. */}
+        {variantHandoff && !pendingVariants && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-4">
+            <div className="pointer-events-auto flex max-w-md items-center gap-3 rounded-xl border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                <IconCheck className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground/90">
+                  Applied “{variantHandoff.label}”
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Paste into your agent chat — or just say “use{" "}
+                  {variantHandoff.label}”.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 cursor-pointer gap-1.5"
+                onClick={() => copyVariantHandoff(variantHandoff.text)}
+              >
+                {variantHandoffCopied ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  <IconClipboard className="h-3.5 w-3.5" />
+                )}
+                {variantHandoffCopied ? "Copied" : "Copy"}
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0 cursor-pointer"
+                onClick={clearVariantHandoff}
+                aria-label="Dismiss"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
         )}
