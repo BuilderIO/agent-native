@@ -42,10 +42,6 @@ export default function AssetDetailPage() {
   const { data } = useActionQuery("get-asset", { id: id! }) as any;
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
-  const createSession = useActionMutation("create-generation-session");
-  const prepareSessionContinuation = useActionMutation(
-    "prepare-generation-session-continuation",
-  );
   const asset = data;
 
   if (!asset) {
@@ -91,55 +87,23 @@ export default function AssetDetailPage() {
     return new URL(url, window.location.origin).toString();
   }
 
-  function handoffPrompt(payload: any) {
+  function handoffPrompt() {
     const previewLine = previewUrl
       ? `Preview URL: ${assetUrlForClipboard(previewUrl)}`
       : null;
-    return [payload.message, previewLine, payload.context]
+    return [
+      `Handoff asset ${asset.id}.`,
+      `Library ID: ${asset.libraryId}`,
+      asset.collectionId ? `Collection ID: ${asset.collectionId}` : null,
+      asset.metadata?.presetId ? `Preset ID: ${asset.metadata.presetId}` : null,
+      asset.generationRunId ? `Run ID: ${asset.generationRunId}` : null,
+      previewLine,
+      `Prompt: ${asset.prompt || asset.description || "Continue refining this asset."}`,
+      "Ask what should change, then refine this active image and show the new preview.",
+    ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n");
   }
-
-  function copyHandoffPrompt() {
-    createSession.mutate(
-      {
-        libraryId: asset.libraryId,
-        collectionId: asset.collectionId ?? null,
-        presetId: asset.metadata?.presetId ?? null,
-        title: asset.title || "Image handoff",
-        brief:
-          asset.prompt || asset.description || "Continue refining this asset.",
-        activeAssetId: asset.id,
-        assetIds: [asset.id],
-        runIds: asset.generationRunId ? [asset.generationRunId] : [],
-        feedback: "Needs design refinement.",
-      },
-      {
-        onSuccess: (session: any) => {
-          prepareSessionContinuation.mutate(
-            { id: session.id },
-            {
-              onSuccess: (payload: any) => {
-                void copyTextToClipboard(
-                  handoffPrompt(payload),
-                  "Copied prompt",
-                );
-              },
-              onError: (error: Error) => {
-                toast.error(error.message || "Could not prepare handoff.");
-              },
-            },
-          );
-        },
-        onError: (error: Error) => {
-          toast.error(error.message || "Could not create handoff.");
-        },
-      },
-    );
-  }
-
-  const handoffPending =
-    createSession.isPending || prepareSessionContinuation.isPending;
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -201,8 +165,9 @@ export default function AssetDetailPage() {
             {!isVideo && !isStarterAsset ? (
               <AssetActionButton
                 label="Handoff"
-                disabled={handoffPending}
-                onClick={copyHandoffPrompt}
+                onClick={() =>
+                  void copyTextToClipboard(handoffPrompt(), "Copied prompt")
+                }
               >
                 <IconClipboard className="h-4 w-4" />
               </AssetActionButton>
