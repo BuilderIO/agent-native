@@ -124,6 +124,55 @@ Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck",
 
 If you find yourself writing `submit: true` with a hardcoded creative verb (`"design a..."`, `"write a..."`, `"build a..."`), stop and add a Popover.
 
+## Delegating to a Sub-Agent (Agent Teams)
+
+`sendToAgentChat()` delegates from app code _to_ the agent. The other axis of
+delegation is the agent handing work _to a sub-agent_ through the Agent Teams
+run-manager. The main chat stays the orchestrator: it spawns sub-agents, then
+reads and integrates their results.
+
+### When to spawn a sub-agent vs do it yourself
+
+- **Do it yourself** when the work is small, on the critical path, or tightly
+  coupled to what you're already doing. Sub-agent overhead and coordination risk
+  outweigh the benefit.
+- **Spawn a sub-agent** for a self-contained unit of work that can run
+  independently — a disjoint investigation, an isolated implementation slice, a
+  long-running search — especially when it frees the main thread to keep
+  orchestrating.
+
+### Briefing contract
+
+Every sub-agent brief must specify four things, or the sub-agent will guess:
+
+- **Objective** — the one concrete outcome it owns, in a sentence.
+- **Context** — the facts it needs (paths, prior findings, constraints) so it
+  doesn't re-derive them.
+- **Output** — the exact shape you want back (a summary, a file edited, a list
+  of paths, a yes/no with rationale).
+- **Boundaries** — what it must NOT touch (files, branches, side effects) and
+  when to stop and report rather than push forward.
+
+### Fan-out discipline
+
+- **Default to a single sub-agent.** Most delegation is one focused task.
+- **Spawn multiple only for genuinely independent units** that don't share state
+  or files. Never parallelize coupled work — if B needs A's output, run them in
+  sequence.
+- **Cap parallel fan-out at ~3.** More sub-agents means more synthesis cost and
+  more chance of conflicting edits to the same area.
+
+### Synthesis discipline
+
+- **Read every result** before concluding — don't act on the first one back.
+- **Reconcile conflicts** between sub-agent findings explicitly; decide which is
+  right rather than averaging or ignoring.
+- **Integrate into one answer.** The main thread produces the single coherent
+  result; it never just forwards raw sub-agent transcripts to the user.
+
+Background sub-agents must use the core run-manager / Agent Teams infrastructure
+rather than ad-hoc LLM calls.
+
 ## Don't
 
 - Don't `import Anthropic from "@anthropic-ai/sdk"` in client or server code

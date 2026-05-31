@@ -30,13 +30,15 @@ you built it as an extension.
 
 ## Workflow
 
-### Step 1: Understand the Question
+### Step 1: Understand the Question (catalog-first, clarify-first)
 
-Clarify the scope before gathering data:
+Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
-- What data sources are relevant?
+- What data sources are relevant? (map each fact to the one source that owns it)
 - What output does the user expect? (summary, ranking, comparison, trend)
+
+If the metric definition, date range, or grain is ambiguous and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before gathering data. Ask at most once per turn, and skip it when the dictionary or the user already answered.
 
 ### Step 2: Gather Data from Multiple Sources
 
@@ -55,9 +57,8 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
 - Use `--grep` and `--fields` to narrow results before cross-referencing
-- Match records across sources by email, company name, or domain
-- When matching is fuzzy (e.g., company names), note the match quality in findings
-- If a data source is not configured, mention what's missing and work with what's available
+- When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
+- If a data source is not configured, mention what's missing and work with what's available — never invent rows to fill a gap.
 
 ### Step 3: Analyze and Synthesize
 
@@ -67,6 +68,7 @@ Don't just dump raw data. Synthesize findings:
 - Rank or categorize items when useful
 - Call out surprises or actionable insights
 - Compare against benchmarks or prior periods when possible
+- Only report figures you actually retrieved from a source — never present a number you did not query. Attribute each figure to its source and time window.
 
 ### Step 4: Generate Charts (when useful)
 

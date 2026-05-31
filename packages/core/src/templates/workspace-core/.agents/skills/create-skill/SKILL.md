@@ -12,26 +12,34 @@ description: >-
 
 Create a new skill when:
 
-- There's a pattern the agent should follow repeatedly
-- A workflow needs step-by-step guidance
-- You want to scaffold files from a template
+- There's a pattern the agent should follow repeatedly.
+- A multi-step workflow needs reliable, step-by-step guidance.
+- You want to scaffold files from a template.
 
 Don't create a skill when:
 
-- The guidance already exists in another skill (extend it instead)
-- You're documenting something the agent already knows (e.g., how to write TypeScript)
-- The guidance is a one-off — put it in `AGENTS.md` or `learnings.md` instead
+- The guidance already exists in another skill — extend it instead.
+- You're documenting something the agent already knows (e.g., how to write
+  TypeScript).
+- It's a one-off — put it in `AGENTS.md` (for everyone) or `memory/MEMORY.md`
+  (personal, per-user). See **capture-learnings**.
 
-## 5-Question Interview
+## Interview
 
 Before writing the skill, answer these:
 
 1. **What should this skill enable?** — The core purpose in one sentence.
-2. **Which agent-native rule does it serve?** — Rule 1 (data in SQL), Rule 2 (delegate to agent), Rule 3 (scripts), Rule 4 (polling sync), Rule 5 (self-modify), Rule 6 (app-state in SQL), or "utility."
-3. **When should it trigger?** — Describe the situations in natural language. Be slightly pushy — over-triggering is better than under-triggering.
-4. **Does it involve context awareness?** — Does the agent need to know what the user is looking at to use this skill? If yes, the skill should reference the `navigation` app-state key and the `view-screen` script pattern. See the **context-awareness** skill.
-5. **What type of skill?** — Pattern, Workflow, or Generator (see templates below).
-6. **Does it need supporting files?** — References (read-only context) or none. Keep it minimal.
+2. **Which of the four areas does it serve?** — UI, actions, skills/instructions,
+   or application state (see the **adding-a-feature** skill). Most skills are
+   about how to touch one or more of these correctly.
+3. **When should it trigger?** — Describe the situations in natural language.
+   Be slightly pushy — over-triggering is better than under-triggering.
+4. **Does it involve context awareness?** — Does the agent need to know what the
+   user is looking at? If so, reference the `navigation` application-state key and
+   the `view-screen` action pattern. See the **context-awareness** skill.
+5. **What type of skill?** — Pattern, Workflow, or Generator (see below).
+6. **Does it need supporting files?** — References (read-only context) or none.
+   Keep it minimal; push depth into `references/`.
 
 ## Skill Types and Templates
 
@@ -43,7 +51,7 @@ For documenting how things should be done:
 ---
 name: my-pattern
 description: >-
-  [Under 40 words. When should this trigger?]
+  [Under 40 words. What it covers AND when it should trigger.]
 ---
 
 # [Pattern Name]
@@ -77,7 +85,7 @@ For multi-step implementation tasks:
 ---
 name: my-workflow
 description: >-
-  [Under 40 words. When should this trigger?]
+  [Under 40 words. What it covers AND when it should trigger.]
 ---
 
 # [Workflow Name]
@@ -109,7 +117,7 @@ For creating files from templates:
 ---
 name: my-generator
 description: >-
-  [Under 40 words. When should this trigger?]
+  [Under 40 words. What it covers AND when it should trigger.]
 ---
 
 # [Generator Name]
@@ -128,30 +136,36 @@ description: >-
 
 ## After Generation
 
-[What to do next — wire up SSE, add routes, etc.]
+[What to do next — wire up sync, add routes, register the action, etc.]
 
 ## Related Skills
 ```
 
 ## Naming Conventions
 
-- Hyphen-case only: `[a-z0-9-]`, max 64 characters
-- Pattern skills: descriptive names (`storing-data`, `delegate-to-agent`)
-- Workflow/generator skills: verb-noun (`create-script`, `capture-learnings`)
+- Hyphen-case only: `[a-z0-9-]`, max 64 characters.
+- Pattern skills: descriptive names (`storing-data`, `delegate-to-agent`).
+- Workflow/generator skills: verb-noun (`create-skill`, `capture-learnings`).
+- The directory name must match the `name` in frontmatter.
 
 ## Tips
 
-- **Keep descriptions under 40 words** — They're loaded into context on every conversation.
-- **Keep SKILL.md under 500 lines** — Move detailed content to `references/` files.
-- **Use standard markdown headings** — No XML tags or custom formats.
+- **Keep descriptions under 40 words** — they load into context on every
+  conversation. State what the skill does AND when to trigger it.
+- **Keep SKILL.md lean (under ~500 lines)** — move detailed content to
+  `references/` files (progressive disclosure).
+- **Use standard markdown headings** — no XML tags or custom formats.
 
 ## Anti-Patterns
 
-- **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
-- **Database patterns** — Skills must not introduce databases (violates Rule 1)
-- **Ignoring db sync** — If a skill creates data, mention wiring up `useDbSync`
-- **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
-- **Pure documentation** — Skills should guide action, not just explain concepts
+- **Inline LLM calls** — skills must not call LLMs directly. All AI work goes
+  through the agent chat (see **delegate-to-agent**).
+- **Introducing databases** — data lives in SQL via Drizzle (see **storing-data**).
+- **Ignoring sync** — if a skill creates data, mention wiring `useDbSync` /
+  `useActionQuery` so the UI updates (see **real-time-sync**).
+- **Vague descriptions** — "Helps with development" won't trigger. Be specific
+  about _when_.
+- **Pure documentation** — skills should guide action, not just explain concepts.
 
 ## File Structure
 
@@ -164,5 +178,9 @@ description: >-
 
 ## Related Skills
 
-- **capture-learnings** — When a learning graduates to reusable guidance, create a skill
-- **self-modifying-code** — The agent can create new skills (Tier 2 modification)
+- **adding-a-feature** — The four-area model every skill ultimately serves.
+- **writing-agent-instructions** — How to write AGENTS.md and skills well for
+  apps and templates you ship to others.
+- **capture-learnings** — When a learning graduates to reusable guidance, create
+  a skill; one-offs go to `AGENTS.md` or `memory/MEMORY.md`.
+- **self-modifying-code** — The agent can create new skills (Tier 2 modification).

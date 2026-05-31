@@ -11,10 +11,12 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
+0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
 1. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
-2. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
-3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
-4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
+2. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
+3. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
+4. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
+5. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
@@ -78,6 +80,8 @@ export default async function main(args: string[]) {
 
 ## Cross-Referencing Sources
 
+For answers that span multiple sources, follow the `cross-source-analysis` skill: plan which source owns each fact, fetch per source, stitch identities on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and cite per-source provenance.
+
 For complete answers, combine data from multiple sources:
 
 - **BigQuery** for analytics events, signups, pageviews
@@ -90,7 +94,7 @@ For complete answers, combine data from multiple sources:
 
 ## Important Notes
 
-- Always query real data — never guess or approximate
+- Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns

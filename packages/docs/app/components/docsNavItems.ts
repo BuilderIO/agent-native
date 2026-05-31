@@ -124,6 +124,10 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Build & Extend",
     items: [
       { label: "Creating Templates", to: "/docs/creating-templates" as const },
+      {
+        label: "Writing Agent Instructions",
+        to: "/docs/writing-agent-instructions" as const,
+      },
       { label: "Frames", to: "/docs/frames" as const },
       { label: "Embedding SDK", to: "/docs/embedding-sdk" as const },
       {
