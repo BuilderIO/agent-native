@@ -38,7 +38,6 @@ import {
   NotificationsBell,
   ShareButton,
   isEmbedAuthActive,
-  sendToAgentChat,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -61,6 +60,7 @@ import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
+import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -337,30 +337,11 @@ export default function DesignEditor() {
   } = useQuestionFlow(id);
   const {
     state: pendingVariants,
-    useVariant: handleUseVariant,
+    useVariant: handleVariantChoice,
     dismiss: handleVariantsDismiss,
+    standalonePick,
+    dismissStandalonePick,
   } = useVariantFlow(id);
-  const handleVariantChoice = useCallback(
-    async (variantId: string) => {
-      const chosen = pendingVariants?.variants.find(
-        (variant) => variant.id === variantId,
-      );
-      await handleUseVariant(variantId);
-
-      if (!embedded || !chosen || !id) return;
-      sendToAgentChat({
-        message: `I picked "${chosen.label}".`,
-        context: [
-          `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${id} inside the embedded Design MCP app.`,
-          "Continue from the chosen direction when the user asks for refinements.",
-          'If the user asks for another iteration, use get-design-snapshot and generate-design against the current index.html; do not present new variants unless they ask for "more options" or "alternatives".',
-        ].join("\n"),
-        submit: true,
-        openSidebar: false,
-      });
-    },
-    [embedded, handleUseVariant, id, pendingVariants],
-  );
 
   const { session } = useSession();
 
@@ -1908,6 +1889,15 @@ ${serializedHtml}
               />
             </div>
           </div>
+        )}
+
+        {/* Link-only (CLI / Codex / Claude Code) paste-back: after a pick there
+            is no chat bridge, so surface a copyable summary to continue. */}
+        {standalonePick && (
+          <VariantHandoffCard
+            pick={standalonePick}
+            onDismiss={dismissStandalonePick}
+          />
         )}
 
         {/* Canvas */}

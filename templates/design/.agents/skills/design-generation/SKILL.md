@@ -34,10 +34,11 @@ Then, for any non-trivial first prompt, write `application-state/show-questions`
 #  uses the framework's `db-exec` to upsert into application_state.)
 ```
 
-### Phase 2 — Generate three side-by-side variations
+### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
-For new designs, default to **three** variations. In normal app-agent flows,
-write candidates to `application-state/design-variants`:
+For new designs, default to **three** variations (`present-design-variants`
+accepts 2-5; three is the sweet spot). In normal app-agent flows, write
+candidates to `application-state/design-variants`:
 
 ```json
 {
@@ -58,9 +59,17 @@ The framework persists the chosen content as `index.html` automatically when the
 When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
 Dispatch), call `present-design-variants` instead of writing
 `application-state` directly. Pass the existing `designId`, a concise prompt
-caption, and 2-5 complete HTML variants. The action opens the same editor
-variant picker as the first-party app and keeps the workflow visible inside
-MCP Apps. After that, wait for the user's pick before refining.
+caption, and 2-5 complete HTML variants (three by default). The action opens
+the same editor variant picker as the first-party app and keeps the workflow
+visible inside MCP Apps. After that, wait for the user's pick before refining.
+
+For inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) the pick
+rides the chat bridge automatically — no copy/paste. But if the Design app opens
+as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
+the deep link carries `handoff=chat`), the user picks a direction there and the
+editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
+them to paste it back into chat so you can continue from the chosen direction.
+The `present-design-variants` result's `fallbackInstructions` describe this.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 

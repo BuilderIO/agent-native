@@ -113,6 +113,20 @@ Restart the agent client after connecting so it picks up the new MCP server; OAu
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
+First-party app skills install the instructions and the hosted MCP connector together with `skills add <name>`. Each has a short alias for demos and tutorials:
+
+```bash
+npx @agent-native/core@latest skills add assets              # aliases: images, image-generation
+npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
+```
+
+| Skill                | Alias    | For                    |
+| -------------------- | -------- | ---------------------- |
+| `assets`             | `images` | image/video generation |
+| `design-exploration` | `design` | UI/design exploration  |
+
+The default client is `codex`; add `--client claude-code` or `--client all` for others. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
+
 When you truly need an isolated app instead of Dispatch's workspace gateway,
 run the same command with that app's host:
 
@@ -408,7 +422,7 @@ List/search actions point at a record-focused view the same way — e.g. calenda
 
 For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.
 
-Use the real React app with `embedRoute()` or `embedApp()` whenever the user needs UI. The mental model is simple: the action's `link` target is also the MCP App embed target. Expose the operation as a normal action/tool, return a focused deep link with `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that same route inline instead of opening a new tab. When both should be built from the same route, prefer `embedRoute({ title, openLabel, path })`; it returns matching `link` and `mcpApp` action fields.
+Use the real React app with `embedRoute()` or `embedApp()` whenever the user needs UI. The mental model is simple: the action's `link` target is also the MCP App embed target. Expose the operation as a normal action/tool, return a focused deep link with `link`, and add `mcpApp.resource = embedApp(...)` so capable hosts load that same route inline instead of opening a new tab. When both should be built from the same route, prefer `embedRoute({ title, openLabel, path })`: it is the convenience wrapper that returns matching `link` and `mcpApp` fields from one call, while `embedApp(...)` is the lower-level resource you assign to `mcpApp.resource` directly.
 
 That means full-app embeds can do anything the route can do once opened: review or edit an email draft, show a filtered inbox/search, open a calendar event or event draft, load an extension page, inspect a full analytics dashboard or saved analysis, continue a deck in the Slides editor, or open a Design project/editor. Prefer URL/deep-link params and the existing `/_agent-native/open` navigation/app-state bridge over inventing a second state protocol for MCP Apps.
 
