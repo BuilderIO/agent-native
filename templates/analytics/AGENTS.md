@@ -11,6 +11,17 @@ details live in `.agents/skills/`.
 
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
+- Catalog-first: before querying, consult known data sources (data-source
+  status) and the injected `<data-dictionary>` to learn what exists and which
+  table/columns/join paths to use. Don't fan out blind queries when the catalog
+  already answers where a fact lives.
+- Clarify-first for ambiguous ad-hoc work: when the metric definition, date
+  range, or grain is ambiguous and a wrong guess would change the numbers, use
+  the `ask-question` clarifying tool (multiple-choice) before computing. Ask at
+  most once per turn, and never when the dictionary or the user already settled
+  it.
+- Verify before claiming: only present numbers you actually retrieved from a
+  source. Never report a value you did not query.
 - Use actions for data sources, queries, charts, dashboards, analyses, and
   sharing. Do not bypass app access checks with raw SQL for ownable resources.
 - In dev, call actions with `pnpm action <name>`; in production, call native
@@ -19,6 +30,9 @@ details live in `.agents/skills/`.
   unless the user explicitly asks for low-level inspection.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
+- For questions that span multiple sources, follow `cross-source-analysis`:
+  stitch identities on BOTH a stable id AND email, de-duplicate, and cite
+  per-source provenance.
 - Dashboards and charts should be useful, explainable, and scoped to the user's
   question. Avoid decorative metrics.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
@@ -42,6 +56,8 @@ Read the relevant skill before deeper work:
 
 - `data-querying` for source inspection, SQL/query generation, and result
   handling.
+- `cross-source-analysis` for questions that span multiple data sources
+  (identity stitching, de-duplication, consolidated provenance).
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers.
 - `bigquery` and `prometheus` for provider-specific behavior.

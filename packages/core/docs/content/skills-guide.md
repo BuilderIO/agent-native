@@ -180,6 +180,8 @@ The frontmatter `name` and `description` are used by the agent's tool system for
 
 Save the file at `.agents/skills/my-skill/SKILL.md`. The directory name should match the `name` in frontmatter.
 
+> **See also:** [Writing Agent Instructions](/docs/writing-agent-instructions) for how to word skill descriptions, apply progressive disclosure, and keep `AGENTS.md` lean.
+
 ## Skills vs AGENTS.md {#skills-vs-agents-md}
 
 > **AGENTS.md** — The overview. Lists all scripts, describes the data model, explains the app architecture. The agent reads this first to understand the app.

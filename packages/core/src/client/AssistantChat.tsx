@@ -76,6 +76,10 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
 import {
@@ -4872,6 +4876,24 @@ const AssistantChatInner = forwardRef<
     !missingApiKey;
   const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
 
+  // Clarifying-question surface: the `ask-question` action writes a
+  // GuidedQuestionPayload to application_state under "guided-questions". The
+  // hook polls that key, and on submit/skip composes the answer as a normal
+  // user turn (via the shared sendToAgentChat) and clears the persisted key so
+  // the question does not reappear.
+  const {
+    questions: guidedQuestions,
+    title: guidedQuestionsTitle,
+    description: guidedQuestionsDescription,
+    skipLabel: guidedQuestionsSkipLabel,
+    submitLabel: guidedQuestionsSubmitLabel,
+    handleSubmit: handleGuidedQuestionsSubmit,
+    handleSkip: handleGuidedQuestionsSkip,
+  } = useGuidedQuestionFlow({
+    stateKey: "guided-questions",
+    queryKey: ["guided-questions"],
+  });
+
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
@@ -5189,6 +5211,30 @@ const AssistantChatInner = forwardRef<
             )}
 
             {composerSlot}
+            {guidedQuestions && guidedQuestions.length > 0 && (
+              <div className="shrink-0 px-3 pb-2 pt-1">
+                <div className="rounded-lg border border-border bg-card/60 shadow-sm">
+                  <GuidedQuestionFlow
+                    questions={guidedQuestions}
+                    onSubmit={handleGuidedQuestionsSubmit}
+                    onSkip={handleGuidedQuestionsSkip}
+                    {...(guidedQuestionsTitle
+                      ? { title: guidedQuestionsTitle }
+                      : {})}
+                    {...(guidedQuestionsDescription
+                      ? { description: guidedQuestionsDescription }
+                      : {})}
+                    {...(guidedQuestionsSkipLabel
+                      ? { skipLabel: guidedQuestionsSkipLabel }
+                      : {})}
+                    {...(guidedQuestionsSubmitLabel
+                      ? { submitLabel: guidedQuestionsSubmitLabel }
+                      : {})}
+                    className="h-auto items-stretch justify-stretch bg-transparent"
+                  />
+                </div>
+              </div>
+            )}
             {showPlanModeCallout && (
               <PlanModeCallout
                 canImplementPlan={canImplementPlan}

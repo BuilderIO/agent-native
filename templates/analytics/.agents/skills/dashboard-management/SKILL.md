@@ -42,12 +42,13 @@ Do not use `app-db` as a dashboard source. For first-party events collected thro
 
 When the user asks for a dashboard:
 
-1. Read the injected `<data-dictionary>` block first. If relevant entries exist, use their `table`, `columns`, `queryTemplate`, and gotchas verbatim.
-2. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
-3. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-4. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section.
-5. Persist with `update-dashboard`, not raw SQL or settings writes.
-6. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
+1. Read the injected `<data-dictionary>` block first (catalog-first). If relevant entries exist, use their `table`, `columns`, `queryTemplate`, and gotchas verbatim.
+2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
+3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
+4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section.
+6. Persist with `update-dashboard`, not raw SQL or settings writes.
+7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
@@ -199,7 +200,7 @@ Writes require editor access; deletes require admin access. Owners always satisf
 
 ## Important Rules
 
-- Never fabricate data or create a dashboard from guessed schema.
+- Never fabricate data or create a dashboard from guessed schema. A panel's SQL must hit a real source; do not present figures you did not actually query.
 - Never write dashboard configs into the settings table.
 - Never set `panel.source` to a table name or unsupported backend.
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
