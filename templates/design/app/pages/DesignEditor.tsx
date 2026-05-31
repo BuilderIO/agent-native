@@ -1914,9 +1914,9 @@ ${serializedHtml}
                       .toLowerCase();
                   const target = norm(screen);
                   if (!target) return;
-                  const match =
-                    files.find((f) => norm(f.filename) === target) ??
-                    files.find((f) => norm(f.filename).includes(target));
+                  // Exact (normalized) filename match only — a substring match
+                  // could send "board" to "dashboard.html".
+                  const match = files.find((f) => norm(f.filename) === target);
                   if (match) {
                     setViewMode("single");
                     setActiveFileId(match.id);

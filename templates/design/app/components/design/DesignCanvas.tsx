@@ -106,11 +106,21 @@ const NAV_BRIDGE_SCRIPT = `
       ? { external: false, href: ds, screen: ds.replace(/^\\.?\\//, '').split(/[?#]/)[0] }
       : classify(a.getAttribute('href'));
     if (!info) return;
+    if (info.external) {
+      // Open external links in a new tab from the iframe itself (the sandbox
+      // grants allow-popups), bound to this real user click. We deliberately do
+      // NOT round-trip through the parent: a parent window.open() driven by
+      // postMessage would let any script in here spawn popups without a gesture.
+      try {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+      } catch (err) {}
+      return; // allow the native click to proceed
+    }
     e.preventDefault();
     try {
       window.parent.postMessage({
         type: 'prototype-navigate',
-        external: !!info.external,
         href: info.href,
         screen: info.screen || '',
       }, '*');
@@ -319,7 +329,7 @@ interface DesignCanvasProps {
    * Called when a link inside the prototype points to another screen (a
    * relative href or `data-screen`). Lets the editor switch the active screen
    * instead of letting the iframe navigate to the app. External links are
-   * opened in a new tab here and never reach this callback.
+   * opened in a new tab by the iframe itself and never reach this callback.
    */
   onPrototypeNavigate?: (screen: string, href: string) => void;
 }
@@ -395,16 +405,12 @@ export function DesignCanvas({
         onElementHover(e.data.payload);
       }
       if (e.data.type === "prototype-navigate") {
-        if (e.data.external) {
-          if (e.data.href) {
-            window.open(String(e.data.href), "_blank", "noopener,noreferrer");
-          }
-        } else {
-          onPrototypeNavigate?.(
-            String(e.data.screen || ""),
-            String(e.data.href || ""),
-          );
-        }
+        // External links are opened inside the iframe (sandbox allow-popups);
+        // only internal screen switches reach the parent.
+        onPrototypeNavigate?.(
+          String(e.data.screen || ""),
+          String(e.data.href || ""),
+        );
         return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
@@ -530,7 +536,7 @@ export function DesignCanvas({
       <iframe
         ref={iframeRef}
         srcDoc={srcdoc}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
         className="border-0 bg-white block w-full h-full"
         title="Design Preview"
       />

@@ -68,4 +68,10 @@ describe("applyEdits", () => {
       /non-empty/,
     );
   });
+
+  it("treats self-overlapping matches as ambiguous", () => {
+    expect(() => applyEdits(`aaa`, [{ search: `aa`, replace: `b` }])).toThrow(
+      /matched 2 places/,
+    );
+  });
 });

@@ -29,7 +29,16 @@ export default defineAction({
       .describe("File to edit (e.g. 'index.html')"),
     edits: z
       .preprocess(
-        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        (v) => {
+          if (typeof v !== "string") return v;
+          // Don't let malformed JSON throw an uncaught SyntaxError — return the
+          // raw value so Zod produces a clean validation error instead.
+          try {
+            return JSON.parse(v);
+          } catch {
+            return v;
+          }
+        },
         z
           .array(
             z.object({
@@ -81,8 +90,11 @@ export default defineAction({
     let base = file.content ?? "";
     try {
       if (await hasCollabState(file.id)) {
+        // When a collab session exists it is authoritative — use its text even
+        // if empty (a legitimately cleared file), rather than silently editing
+        // stale stored HTML.
         const live = await getText(file.id, "content");
-        if (typeof live === "string" && live.length > 0) base = live;
+        if (typeof live === "string") base = live;
       }
     } catch {
       // Collab read is best-effort; fall back to stored content.

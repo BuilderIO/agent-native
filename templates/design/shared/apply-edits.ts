@@ -30,7 +30,15 @@ function escapeRegExp(value: string): string {
 
 function countOccurrences(haystack: string, needle: string): number {
   if (!needle) return 0;
-  return haystack.split(needle).length - 1;
+  // Step by 1 (not by needle length) so self-overlapping matches — e.g. "aa"
+  // inside "aaa" — are both counted and treated as ambiguous, not unique.
+  let count = 0;
+  let idx = haystack.indexOf(needle);
+  while (idx !== -1) {
+    count += 1;
+    idx = haystack.indexOf(needle, idx + 1);
+  }
+  return count;
 }
 
 /**
