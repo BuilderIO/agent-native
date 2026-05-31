@@ -4892,6 +4892,7 @@ const AssistantChatInner = forwardRef<
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     queryKey: ["guided-questions"],
+    ...(browserTabId ? { browserTabId } : {}),
   });
 
   return (
