@@ -10,6 +10,58 @@ Every generated design uses:
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
 - **CSS Custom Properties** — for theming and tweaks panel integration
 
+## Aesthetic Quality Bar — avoid generic "AI slop"
+
+The single biggest lever on quality is refusing the defaults the model reaches
+for. Before generating, commit to a specific, opinionated direction. Banned by
+default (use only if the user explicitly asks):
+
+- **Fonts:** Inter, Roboto, Arial, system-ui, or other safe defaults. Always
+  pick a distinctive Google Font pairing (see the table below).
+- **The purple/indigo gradient on white** and other one-click hero clichés.
+- **Default shadcn/Tailwind grays** as the whole palette; flat indigo/blue
+  accents; the recurring "fingerprint" combo (teal accent + blinking status dot
+  + left accent bars + three-column hero).
+- **Predictable, evenly-weighted layouts** with no focal point.
+
+Do not converge even within your own "creative" picks — vary deliberately across
+generations so two designs never share the same fingerprint.
+
+## Prompt the design in four layers
+
+Decide each layer explicitly before writing HTML. This is what makes variations
+genuinely distinct instead of three near-identical layouts:
+
+1. **Context** — audience, domain, and the one job this screen must do.
+2. **Structure** — a named layout topology: bento grid, sidebar app shell,
+   editorial column, split-screen, masonry, dashboard tiles.
+3. **Aesthetic** — a named visual movement: editorial serif, neo-brutalist,
+   glassmorphic, Swiss/International, warm organic, technical/mono, etc. Each
+   variant gets a *different* aesthetic + font pairing.
+4. **Tech stack** — Tailwind v4 + Alpine, mobile-first, light/dark via tokens.
+
+Push each dimension to extremes rather than safe middles: weight extremes
+(100–200 vs 800–900), 3×+ type-scale jumps, one dominant color + a single sharp
+accent, layered gradient/pattern backgrounds (not flat fills), and one
+orchestrated staggered page-load reveal (via `animation-delay`).
+
+Pick a preset by `projectType`:
+- **Brand / marketing** (landing pages, decks): expressive, atmospheric,
+  animated, full-bleed.
+- **Product / app** (dashboards, tools): dense, restrained, token-driven, fast.
+
+## Measurable rules (bake these in)
+
+- 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
+- Body text ≥ 16px, labels ≥ 12px.
+- Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
+- WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
+- Mobile-first breakpoints; never ship a layout that breaks under 640px.
+- No arbitrary one-off Tailwind values where a scale step exists.
+- **Token grounding is non-negotiable:** every color/font/radius references a
+  `:root` CSS variable. Never hardcode `text-white` / `bg-black` / hex literals
+  in the markup — that's what keeps brand + multi-screen consistency automatic.
+
 ## Generation Workflow — the canonical 4-phase flow
 
 This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
@@ -137,6 +189,16 @@ Every `index.html` must include:
       text-wrap: balance;
     }
     p { text-wrap: pretty; }
+
+    /* Respect users who ask for less motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
   </style>
 </head>
 <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
@@ -343,7 +405,9 @@ Every `index.html` must include:
 
 ## Font Recommendations
 
-Good distinctive font pairings (heading / body):
+Good distinctive font pairings (heading / body). **Rotate through these** — don't
+reach for Space Grotesk (or any single pairing) every time; matching the pairing
+to the chosen Aesthetic layer is what keeps designs from sharing a fingerprint:
 
 | Heading | Body | Mood |
 | --- | --- | --- |
@@ -356,12 +420,84 @@ Good distinctive font pairings (heading / body):
 | Clash Display | General Sans | Bold statement |
 | Archivo | Nunito Sans | Friendly SaaS |
 
+## Multi-screen prototypes & navigation
+
+A prototype with more than one screen is **multiple files** in the same design
+(e.g. `index.html`, `dashboard.html`, `checkout.html`). The editor shows them
+all in the artboard/overview and as screen tabs.
+
+The preview renders each file in a sandboxed `srcdoc` iframe. A real
+`<a href="/pricing">` or `<a href="page.html">` resolves against the *app* URL
+and navigates the iframe to the Design app itself ("Design not found"), nuking
+the prototype. **Never link screens with real URLs.** Use one of:
+
+1. **In-screen flows (preferred):** keep the flow in one file with Alpine state
+   and `x-show`. Links become buttons:
+   ```html
+   <div x-data="{ screen: 'home' }">
+     <button @click="screen = 'pricing'" class="cursor-pointer">See pricing</button>
+     <section x-show="screen === 'home'">…</section>
+     <section x-show="screen === 'pricing'" x-cloak>…</section>
+   </div>
+   ```
+2. **Cross-file screen links:** to jump to another file in the design, use
+   `data-screen` (or a bare filename href). The editor intercepts the click and
+   switches to that screen instead of navigating:
+   ```html
+   <a data-screen="checkout.html" class="cursor-pointer">Checkout</a>
+   ```
+   The target should match the other file's name (`checkout.html` →
+   `checkout.html`; the `.html` is optional in the match).
+3. **In-page scroll:** `href="#features"` is fine and scrolls within the screen.
+
+External links (`https://…`) are allowed — the editor opens them in a new tab.
+Never use `target="_top"` or relative paths expecting a real page load.
+
+## Making edits — minimal, scoped "smart" diffs
+
+When refining an existing design, change the **smallest** amount possible. Full
+regeneration is slow, expensive, and regresses unrelated parts.
+
+1. **Read before you edit.** Pull the current file with `get-design-snapshot`
+   (or `get-design`) so you edit the live content, not a stale memory of it.
+2. **Prefer `edit-design` for small changes.** It applies one or more
+   search/replace blocks to a file's HTML — surgical, cheap, and it preserves
+   everything you didn't touch (Alpine state, scroll, other screens):
+   ```bash
+   pnpm action edit-design --designId "<id>" --filename index.html \
+     --edits '[{"search":"<h1 class=\"text-4xl\">Hello</h1>","replace":"<h1 class=\"text-5xl\">Hello there</h1>"}]'
+   ```
+   Each `search` must match the file **exactly and uniquely** — include enough
+   surrounding context to be unambiguous. Wrapping an element in a new div is
+   just a search/replace whose `replace` adds the wrapper around the original.
+3. **Reserve `generate-design` for** net-new files or large structural rewrites.
+   Never resend files you aren't changing.
+4. **Treat `:root` as the global spec.** For theme-wide restyles, edit the
+   tokens in `:root` rather than touching every element.
+5. **Don't add unrequested features** during a refinement pass.
+
+## Tailwind v4 + motion gotchas
+
+- **Gradients:** Tailwind v4 renamed the utilities. Use `bg-linear-to-r`,
+  `bg-radial`, `bg-conic` — the v3 `bg-gradient-to-*` classes silently do
+  nothing on the v4 browser CDN.
+- **Respect reduced motion.** Wrap non-essential animation so it's disabled for
+  users who ask for it (already included in the mandatory `<style>` below).
+- Use Tailwind scale steps, not arbitrary `[…px]` values, unless truly needed.
+
 ## What NOT to Do
 
+- Never use safe/generic fonts (Inter, Roboto, Arial, system-ui) or the
+  purple-on-white gradient, default shadcn grays, or the teal-accent +
+  blinking-dot + three-column-hero cliché — see the Aesthetic Quality Bar.
+- Never link prototype screens with real/relative URLs — use Alpine state,
+  `data-screen`, or `#` anchors (see Multi-screen prototypes & navigation).
+- Never hardcode colors — always reference CSS custom properties (no raw
+  `text-white` / `bg-black` / hex literals in markup).
+- Never use the v3 `bg-gradient-to-*` classes — use v4 `bg-linear-to-*`.
 - Never use `<script>` blocks with raw DOM manipulation — use Alpine.js directives
 - Never inline `onclick="..."` handlers — use `@click`
 - Never use `!important` except in `[x-cloak]`
-- Never hardcode colors — always use CSS custom properties
 - Never use position: fixed for modals — wrap in a portal-like pattern with Alpine.js
 - Never forget `cursor-pointer` on interactive elements
 - Never use `<img>` with placeholder URLs — use colored divs or gradients

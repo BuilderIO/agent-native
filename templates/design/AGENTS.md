@@ -19,6 +19,13 @@ patterns live in `.agents/skills/`.
   different export format. They should render in the iframe without a build step.
 - Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
   directives over raw inline event handlers.
+- Navigate between prototype screens with Alpine state (`x-show`), a
+  `data-screen="file.html"` attribute, or `#` anchors — never real/relative
+  URLs, which would navigate the preview iframe to the app itself.
+- To refine an existing design, make the smallest change: read it with
+  `get-design-snapshot`, then use `edit-design` (search/replace). Reserve
+  `generate-design` for new files or large structural rewrites; never resend
+  files you aren't changing.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
 - Persist useful work early: create/update the design and files as soon as a
