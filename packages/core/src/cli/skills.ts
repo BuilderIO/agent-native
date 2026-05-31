@@ -24,18 +24,22 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
   agent-native skills add assets --client claude-code
+  agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
 
 The add command installs skill instructions with the open skills CLI, then
-registers the app-backed MCP connector. Use app-skill pack for marketplace
-bundles and custom adapter output.`;
+registers the app-backed MCP connector. Pass --mcp-url to register that
+connector against a custom origin (an ngrok tunnel, a local dev server, or a
+self-hosted deployment) instead of the built-in hosted default — a bare origin
+gets the standard /_agent-native/mcp path appended. Use app-skill pack for
+marketplace bundles and custom adapter output.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -282,6 +286,12 @@ export interface ParsedSkillsArgs {
   printJson: boolean;
   instructions: boolean;
   mcp: boolean;
+  /**
+   * Optional MCP URL override. When set, the skill's hosted MCP connector is
+   * registered against this URL instead of the built-in hosted default — e.g.
+   * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
+   */
+  mcpUrl?: string;
 }
 
 export interface SkillsAddResult {
@@ -376,6 +386,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     let value: string | undefined;
     if ((value = eat("--client")) !== undefined) out.client = value;
     else if ((value = eat("--scope")) !== undefined) out.scope = value;
+    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -479,6 +490,7 @@ function dryRunInstallCommand(
     "--scope",
     parsed.scope,
   ];
+  if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
   if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
   if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
   if (parsed.yes || isKnownSkill(target)) args.push("--yes");
@@ -512,6 +524,44 @@ async function runCommand(
   });
 }
 
+/**
+ * Resolve a `--mcp-url` override into the `{ url, mcpUrl }` pair the manifest
+ * expects. Accepts a bare origin (`https://x.ngrok-free.dev`) — appending the
+ * standard `/_agent-native/mcp` path — or a full MCP URL already ending in it.
+ */
+function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error(`--mcp-url must be a valid URL (got "${input}").`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("--mcp-url must use http:// or https://.");
+  }
+  const origin = parsed.origin;
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  const mcpUrl = trimmedPath.endsWith("/_agent-native/mcp")
+    ? `${origin}${trimmedPath}`
+    : `${origin}/_agent-native/mcp`;
+  return { url: origin, mcpUrl };
+}
+
+/** Return a copy of the install target with its hosted MCP URL overridden. */
+function withMcpUrlOverride(
+  target: SkillInstallTarget,
+  input: string,
+): SkillInstallTarget {
+  const { url, mcpUrl } = resolveMcpUrlOverride(input);
+  return {
+    ...target,
+    loaded: {
+      ...target.loaded,
+      manifest: { ...target.loaded.manifest, hosted: { url, mcpUrl } },
+    },
+  };
+}
+
 export async function addAgentNativeSkill(
   parsed: ParsedSkillsArgs,
   options: RunSkillsOptions = {},
@@ -523,7 +573,10 @@ export async function addAgentNativeSkill(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
     );
   }
-  const installTarget = loadSkillTarget(target);
+  let installTarget = loadSkillTarget(target);
+  if (parsed.mcpUrl) {
+    installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
+  }
   const clients = resolveClients(parsed.client);
   const skillsAgents = skillsAgentsForClients(clients);
   if (parsed.dryRun) {

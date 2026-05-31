@@ -69,7 +69,9 @@ as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
 the deep link carries `handoff=chat`), the user picks a direction there and the
 editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
 them to paste it back into chat so you can continue from the chosen direction.
-The `present-design-variants` result's `fallbackInstructions` describe this.
+The user can also simply name the pick in words (e.g. "use variant A" / "the
+editorial one") instead of pasting — honor either. The
+`present-design-variants` result's `fallbackInstructions` describe this.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 
