@@ -29,9 +29,10 @@ be installed as an app-backed skill plus MCP connector:
 npx @agent-native/core@latest skills add design-exploration
 ```
 
-That gives the agent instructions to create a design shell, present three visual
-directions in the inline Design MCP app, wait for your pick, and iterate from
-the selected prototype.
+That gives the agent instructions to create a design shell, present 2-5 visual
+directions (3 is the sweet spot) in the inline Design MCP app, wait for your
+pick, and iterate from the selected prototype. See [Using it from your coding
+agent](#coding-agent) for the full flow.
 
 ## Useful Prompts
 
@@ -49,6 +50,33 @@ the selected prototype.
 - **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
 - **Import references.** Bring in existing HTML or reference material as context for a new design pass.
 - **Export real files.** Export HTML, ZIP, or PDF from the generated prototype.
+
+## Using It From Your Coding Agent {#coding-agent}
+
+Generate and pick design directions without leaving Codex, Claude Code, Claude, or ChatGPT.
+
+1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add design-exploration   # aliases: design, ux-exploration
+   ```
+
+   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+
+2. **Ask for directions.** In your agent's chat: "Create three landing-page directions for a technical analytics product." The agent generates 2-5 directions (3 is the sweet spot) you can compare side by side.
+3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the variant grid renders right in the chat — pick a direction and it auto-persists as `index.html`, then keep refining. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Design →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "I picked direction B".
+
+   ```text
+   Paste this back into your chat so your agent continues from the chosen design.
+
+   I picked the "<label>" design direction.
+   It's saved as index.html in design <designId>. Refine from here with get-design-snapshot + generate-design, or export-coding-handoff to bring it into code. Don't show new variants unless I ask.
+
+   Design selection context:
+   { "selectedDesign": { "designId": "...", "variantId": "...", "label": "...", "file": "index.html" } }
+   ```
+
+4. **Apply to code.** Run `export-coding-handoff`; it returns a tokenized raw-code URL plus a ready-to-paste prompt. Your coding agent fetches that URL and writes the code.
 
 ## Why It's Interesting
 

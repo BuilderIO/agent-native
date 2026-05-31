@@ -107,9 +107,15 @@ iteration, or a human-in-the-loop choice among design directions.
 
 - Use \`create-design\` first to create a project shell. Do not report the
   design as ready until it has renderable HTML.
-- For open-ended UX exploration, generate three distinct, complete HTML
-  directions and call \`present-design-variants\`. The inline Design MCP app
-  shows the options, lets the user pick one, and persists the selected variant.
+- For open-ended UX exploration, generate distinct, complete HTML directions
+  (2-5, three by default) and call \`present-design-variants\`. The inline
+  Design MCP app shows the options, lets the user pick one, and persists the
+  selected variant.
+- If the Design app opens as a browser link instead of inline (CLI hosts like
+  Codex / Claude Code, where the deep link carries \`handoff=chat\`), the user
+  picks a direction there and the editor shows a copyable summary — ask them to
+  paste it back into chat so you can continue from the chosen direction. The
+  \`present-design-variants\` result's \`fallbackInstructions\` describe this.
 - For direct refinements to an already chosen direction, call
   \`get-design-snapshot\`, edit from the current tuned HTML, then call
   \`generate-design\`.
@@ -118,7 +124,8 @@ iteration, or a human-in-the-loop choice among design directions.
 
 ## Exploration Defaults
 
-1. Default to three variants unless the user asks for a different count.
+1. Default to three variants unless the user asks for a different count
+   (\`present-design-variants\` accepts 2-5; three is the sweet spot).
 2. Make variants structurally and stylistically distinct, not just color swaps.
 3. Each variant must be a complete standalone HTML document that renders
    without a build step.

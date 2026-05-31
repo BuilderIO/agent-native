@@ -43,6 +43,34 @@ Use it when your team needs reusable visual direction and searchable source asse
 - **Install as an app-backed skill.** The `agent-native.app-skill.json` manifest exports an Assets skill plus MCP connector metadata so marketplaces can install the app, its instructions, and its picker together.
 - **Serve other agents.** Slides, Design, Content, Mail, and Dispatch can call Assets through A2A to list libraries, generate batches, create videos, refine an asset, fetch exports, and render inline previews where embedding is allowed.
 
+## Using it from your coding agent
+
+Generate and pick brand media without leaving Codex, Claude Code, Claude, or ChatGPT.
+
+1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add assets   # aliases: images, image-generation
+   ```
+
+   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+
+2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
+3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
+
+   ```text
+   Paste this selection back into your chat so the agent can use it.
+
+   Selected Assets image for the next step: <label>
+   Media URL: <url>
+   Use this selected asset in the current artifact or design.
+
+   Selected asset context:
+   { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "image", ... } }
+   ```
+
+4. **Apply to code.** The chosen Media URL and `assetId` come back to the agent, which uses the URL directly in the code it writes (an `<img>` src, a download) or calls `export-asset`.
+
 ## Why it's interesting
 
 Most AI media tools treat brand consistency as a prompt-writing problem. Assets treats it as application state: references, folders, collections, style briefs, run history, descriptions, and saved assets live in SQL, while binary media lives in object storage or the local file-upload fallback during development.
