@@ -156,6 +156,63 @@ describe("agent-native skills", () => {
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
   });
 
+  it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--mcp-url",
+        "https://archer.ngrok-free.dev",
+      ]),
+      { baseDir: root, runCommand: async () => 0 },
+    );
+
+    expect(result.mcpUrl).toBe(
+      "https://archer.ngrok-free.dev/_agent-native/mcp",
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"))
+        .mcpServers["agent-native-assets"].url,
+    ).toBe("https://archer.ngrok-free.dev/_agent-native/mcp");
+  });
+
+  it("accepts a full --mcp-url and surfaces it in dry-run", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "design-exploration",
+        "--scope",
+        "project",
+        "--mcp-url",
+        "http://localhost:8092/_agent-native/mcp",
+        "--dry-run",
+      ]),
+      { baseDir: root },
+    );
+
+    expect(result.mcpUrl).toBe("http://localhost:8092/_agent-native/mcp");
+    expect(result.commands[0]).toContain(
+      "--mcp-url http://localhost:8092/_agent-native/mcp",
+    );
+  });
+
+  it("rejects an invalid --mcp-url", async () => {
+    await expect(
+      addAgentNativeSkill(
+        parseSkillsArgs(["add", "assets", "--mcp-url", "not-a-url"]),
+        { baseDir: tmpDir(), runCommand: async () => 0 },
+      ),
+    ).rejects.toThrow(/must be a valid URL/);
+  });
+
   it("writes Codex MCP config under CODEX_HOME when set", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
