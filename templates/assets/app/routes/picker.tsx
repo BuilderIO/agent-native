@@ -246,6 +246,25 @@ function previewFetchCredentials(
   }
 }
 
+/**
+ * True when `url` points at a different origin than the current document.
+ * Inline embeds load under `Cross-Origin-Embedder-Policy: require-corp`, which
+ * blocks cross-origin `<img>` subresources unless they opt in via CORS. Marking
+ * cross-origin previews `crossOrigin="anonymous"` makes the browser CORS-fetch
+ * them (the asset CDN sends `Access-Control-Allow-Origin: *`), satisfying COEP.
+ * Same-origin and `data:`/`blob:` URLs return false so their cookies / inline
+ * bytes are untouched.
+ */
+function isCrossOriginPreview(url: string | undefined): boolean {
+  if (!url || typeof window === "undefined") return false;
+  if (url.startsWith("data:") || url.startsWith("blob:")) return false;
+  try {
+    return new URL(url, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const mediaType =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/")
@@ -471,6 +490,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
   return (
     <img
       src={displayUrl}
+      crossOrigin={isCrossOriginPreview(displayUrl) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
       className="h-full w-full object-cover transition group-hover:scale-[1.02]"
     />
