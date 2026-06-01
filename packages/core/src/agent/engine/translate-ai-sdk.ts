@@ -253,9 +253,11 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
     }
 
     case "finish-step":
-      if (part.usage) {
-        events.push(usageEventFromLanguageModelUsage(part.usage));
-      }
+      // Intentionally no usage emission here. The terminal `finish` part
+      // carries `totalUsage` (cumulative across all steps), and the agent loop
+      // accumulates usage events additively. Emitting per-step usage here too
+      // would double-count tokens on every single-step turn (the common case,
+      // since runAgentLoop dispatches tools outside the SDK).
       break;
 
     case "finish":

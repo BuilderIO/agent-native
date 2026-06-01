@@ -78,6 +78,10 @@ export function EmbeddedExtension({
     role: "viewer",
     isAuthor: false,
   });
+  // Honor only the first binding announcement per render — see ExtensionViewer:
+  // without this, sandboxed user content could postMessage a forged binding to
+  // escalate its own role.
+  const bindingReceivedRef = useRef(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -114,6 +118,13 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
+  // On (re)load, drop back to deny-by-default and re-arm the one-shot binding
+  // guard so the fresh render can announce its role exactly once.
+  useEffect(() => {
+    bridgeContextRef.current = { role: "viewer", isAuthor: false };
+    bindingReceivedRef.current = false;
+  }, [iframeSrc]);
+
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -140,6 +151,8 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        if (bindingReceivedRef.current) return;
+        bindingReceivedRef.current = true;
         const binding = (message as any).binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||

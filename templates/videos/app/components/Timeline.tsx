@@ -48,7 +48,7 @@ interface KeyframeDragState {
   startX: number;
   barAreaWidth: number;
   movingKeys?: string[]; // "trackId:frame" keys being moved
-  originalFrames?: Map<string, number>; // key -> original frame
+  originalFrames?: Map<number, number>; // original frame -> original frame
 }
 
 interface KeyframeConflict {
@@ -100,6 +100,24 @@ const EASING_COLORS: Record<
     border: "rgba(148,163,184,0.35)",
     activeBorder: "#94a3b8",
     text: "#94a3b8",
+  },
+  "ease-in": {
+    bg: "rgba(59,130,246,0.15)",
+    border: "rgba(59,130,246,0.35)",
+    activeBorder: "#3b82f6",
+    text: "#3b82f6",
+  },
+  "ease-out": {
+    bg: "rgba(59,130,246,0.15)",
+    border: "rgba(59,130,246,0.35)",
+    activeBorder: "#3b82f6",
+    text: "#3b82f6",
+  },
+  "ease-in-out": {
+    bg: "rgba(37,99,235,0.15)",
+    border: "rgba(37,99,235,0.35)",
+    activeBorder: "#2563eb",
+    text: "#2563eb",
   },
   spring: {
     bg: "rgba(251,191,36,0.15)",

@@ -239,12 +239,15 @@ export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
   try {
     await ensureTable();
     const client = getDbExec();
-    const result = await client.execute({
+    await client.execute({
       sql: `INSERT INTO identity_sso_jti (jti, seen_at) VALUES (?, ?)`,
       args: [jti, Date.now()],
     });
-    // A successful insert means this jti was never seen → not a replay.
-    return result.rowsAffected === 0;
+    // The INSERT completed without throwing → this jti was never seen → not a
+    // replay. (A replay manifests as a PK-conflict *exception*, handled below.)
+    // Don't key off rowsAffected: some drivers report 0 for a successful insert,
+    // which would wrongly flag a legitimate first-time sign-in as a replay.
+    return false;
   } catch (err) {
     // Primary-key conflict = the jti already exists = replay.
     const msg = String((err as any)?.message ?? "").toLowerCase();

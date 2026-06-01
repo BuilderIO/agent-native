@@ -1,20 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * SECONDARY BUTTON ATOM
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A secondary/outline button with optional icon.
- * Demonstrates hover brightness animation.
- *
- * Features:
- * - Optional icon
- * - Outline style with border
- * - Hover brightness effect
- * - Click animation
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill, useVideoConfig } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
@@ -91,7 +74,7 @@ export const SecondaryButton =
     render: ({ cursorHistory, registerForCursor }, props) => {
       const {
         label = "Share",
-        icon = "🔗",
+        icon,
         x = 860,
         y = 524,
         backgroundColor = "#2a2a2a",

@@ -6,7 +6,6 @@
  *
  * NOTE: These are pure functions, not hooks, so they can be called inside loops.
  */
-import { interpolate } from "remotion";
 import { getAnimationValue, interpolateColor } from "@/types/elementAnimations";
 import type { ElementAnimation } from "@/types/elementAnimations";
 

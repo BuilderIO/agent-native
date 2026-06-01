@@ -358,8 +358,9 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
 
   it("unpacks cacheReadTokens from v6 inputTokenDetails", () => {
     const events = aiSdkPartToEngineEvents({
-      type: "finish-step",
-      usage: {
+      type: "finish",
+      finishReason: "stop",
+      totalUsage: {
         inputTokens: 100,
         outputTokens: 20,
         totalTokens: 120,
@@ -370,8 +371,8 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
         },
       },
     });
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    const usage = events.find((e) => e.type === "usage");
+    expect(usage).toMatchObject({
       type: "usage",
       inputTokens: 100,
       outputTokens: 20,
@@ -382,27 +383,30 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
 
   it("falls back to deprecated cachedInputTokens on pre-v6 usage shapes", () => {
     const events = aiSdkPartToEngineEvents({
-      type: "finish-step",
-      usage: {
+      type: "finish",
+      finishReason: "stop",
+      totalUsage: {
         inputTokens: 100,
         outputTokens: 20,
         cachedInputTokens: 25,
       },
     });
-    expect(events[0]).toMatchObject({
+    const usage = events.find((e) => e.type === "usage");
+    expect(usage).toMatchObject({
       type: "usage",
       cacheReadTokens: 25,
     });
   });
 
-  it("finish-step emits usage only, no stop (stop waits for finish)", () => {
+  it("finish-step emits no events (usage is carried by the terminal finish)", () => {
     const events = aiSdkPartToEngineEvents({
       type: "finish-step",
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       finishReason: "stop",
     });
-    expect(events.some((e) => e.type === "stop")).toBe(false);
-    expect(events.some((e) => e.type === "usage")).toBe(true);
+    // finish-step must NOT emit usage — doing so would double-count tokens
+    // against finish.totalUsage. It also must not emit a stop.
+    expect(events).toHaveLength(0);
   });
 
   it("converts error part to stop-with-error event", () => {

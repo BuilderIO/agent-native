@@ -67,6 +67,10 @@ let _versionSeeded = false;
 
 /** Tracks the latest updated_at we've seen from the DB, per table. */
 let _lastDbCheck = 0;
+// Coalesces concurrent checkExternalDbChanges runs. The 1s throttle alone does
+// not prevent overlap when a single check takes longer than 1s — two overlapping
+// runs would each read+advance the shared watermarks and double-emit events.
+let _checkPromise: Promise<void> | null = null;
 let _lastAppStateTs = 0;
 let _lastSettingsTs = 0;
 let _lastExtensionsTs = 0;
@@ -426,6 +430,12 @@ async function seedVersionFromDb(): Promise<void> {
     _lastActionMarkerTs = 0;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
+    // We just read every relevant table to seed the watermarks above, so the
+    // very next poll's checkExternalDbChanges would otherwise re-query them all
+    // immediately (since _lastDbCheck is still 0). Stamp the throttle now to
+    // skip that redundant cold-start round-trip. (_lastActionMarkerTs stays 0
+    // intentionally — see the note above.)
+    _lastDbCheck = Date.now();
   } catch {
     // Tables may not exist yet — ignore
   }
@@ -438,8 +448,18 @@ async function seedVersionFromDb(): Promise<void> {
 async function checkExternalDbChanges(): Promise<void> {
   const now = Date.now();
   if (now - _lastDbCheck < 1000) return;
+  // Coalesce: if a check is already running, await it instead of starting a
+  // second overlapping run that would double-advance the shared watermarks
+  // (and double-emit change events).
+  if (_checkPromise) return _checkPromise;
   _lastDbCheck = now;
+  _checkPromise = doCheckExternalDbChanges().finally(() => {
+    _checkPromise = null;
+  });
+  return _checkPromise;
+}
 
+async function doCheckExternalDbChanges(): Promise<void> {
   try {
     const db = getDbExec();
 
@@ -504,7 +524,7 @@ async function checkExternalDbChanges(): Promise<void> {
     // updated_at bumps, emit a distinct event so the client invalidates
     // all queries (not just the ones matching its default queryKey prefix).
     const refreshResult = await db.execute({
-      sql: "SELECT updated_at, value FROM application_state WHERE key = ?",
+      sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ? ORDER BY updated_at DESC",
       args: [SCREEN_REFRESH_KEY],
     });
     const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
@@ -520,10 +540,19 @@ async function checkExternalDbChanges(): Promise<void> {
           if (typeof parsed?.scope === "string") scope = parsed.scope;
         }
       } catch {}
+      // Scope the refresh to the session that requested it. Without an owner,
+      // canSeeChangeForUser treats a no-owner/no-org event as visible to every
+      // authenticated caller, so one user's refresh-screen would force a full
+      // query invalidation for every polling user on the deployment.
+      const owner =
+        typeof refreshResult.rows[0]?.session_id === "string"
+          ? (refreshResult.rows[0].session_id as string)
+          : undefined;
       recordChange({
         source: "screen-refresh",
         type: "change",
         key: SCREEN_REFRESH_KEY,
+        ...(owner ? { owner } : {}),
         ...(scope ? { scope } : {}),
       });
       _lastScreenRefreshTs = refreshTs;

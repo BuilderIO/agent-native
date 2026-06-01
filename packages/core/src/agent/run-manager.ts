@@ -699,6 +699,11 @@ function subscribeFromSQL(
           // Read new events from SQL
           const events = await getRunEventsSince(runId, lastSeq);
           for (const { seq, eventData } of events) {
+            // Advance the cursor first, before any parse/enqueue branch can
+            // `continue`/`return`. Otherwise a single corrupt (unparseable)
+            // event row is re-fetched on every poll tick forever, wedging the
+            // SSE stream open and never delivering a terminal event.
+            lastSeq = seq + 1;
             let parsed: any;
             try {
               parsed = JSON.parse(eventData);
@@ -715,7 +720,6 @@ function subscribeFromSQL(
               cancelled = true;
               return;
             }
-            lastSeq = seq + 1;
 
             // Close on terminal events
             if (isTerminalRunEvent(parsed)) {
@@ -736,6 +740,8 @@ function subscribeFromSQL(
               // Run ended — do one final event read, then close
               const finalEvents = await getRunEventsSince(runId, lastSeq);
               for (const { seq, eventData } of finalEvents) {
+                // Advance first — see the main poll loop above for why.
+                lastSeq = seq + 1;
                 let parsed: any;
                 try {
                   parsed = JSON.parse(eventData);
@@ -752,7 +758,6 @@ function subscribeFromSQL(
                   cancelled = true;
                   return;
                 }
-                lastSeq = seq + 1;
                 if (isTerminalRunEvent(parsed)) {
                   if (pingTimer) clearInterval(pingTimer);
                   controller.close();

@@ -1,20 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * FOLDER ITEM ATOM
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A collapsible folder item with chevron icon.
- * Demonstrates hover brightness and expand/collapse animation.
- *
- * Features:
- * - Chevron icon (rotates when expanded)
- * - Folder icon
- * - Folder name
- * - Hover brightness effect
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";

@@ -455,7 +455,14 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       updateSnapshotFromInitialize(result);
       postJsonRpcNotification("ui/notifications/initialized", {});
       return true;
-    })().catch(() => false);
+    })().catch(() => {
+      // Reset so the next call retries the handshake. Otherwise one timed-out
+      // ui/initialize (e.g. host briefly unresponsive) leaves a permanently
+      // resolved `Promise<false>` cached here, and every later bridge call
+      // fails until full page reload.
+      directMcpAppInit = null;
+      return false as boolean;
+    });
   }
 
   return directMcpAppInit;

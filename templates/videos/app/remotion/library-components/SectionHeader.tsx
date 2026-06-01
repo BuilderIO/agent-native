@@ -1,20 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * SECTION HEADER ATOM
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A section header with icon and uppercase text.
- * Used for consistent section labeling like "ALL CHANGES", "ALL FILES", etc.
- *
- * Features:
- * - Icon image support
- * - Uppercase text styling
- * - Consistent typography
- * - Optional chevron/dropdown indicator
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";

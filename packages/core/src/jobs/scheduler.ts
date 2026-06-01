@@ -91,7 +91,12 @@ export function parseJobFrontmatter(content: string): {
         meta.lastStatus = value as JobFrontmatter["lastStatus"];
         break;
       case "lastError":
-        meta.lastError = value;
+        // Reverse the escaping applied in buildJobContent.
+        meta.lastError = value
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
         break;
       case "nextRun":
         meta.nextRun = value;
@@ -111,8 +116,17 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   if (meta.lastRun) lines.push(`lastRun: ${meta.lastRun}`);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
-  if (meta.lastError)
-    lines.push(`lastError: "${meta.lastError.replace(/"/g, '\\"')}"`);
+  if (meta.lastError) {
+    // Escape backslash, quote, then CR/LF. The frontmatter parser splits on
+    // "\n", so an un-escaped newline (common in stack traces) would otherwise
+    // split the value across lines and corrupt/truncate the stored error.
+    const escaped = meta.lastError
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\r/g, "\\r")
+      .replace(/\n/g, "\\n");
+    lines.push(`lastError: "${escaped}"`);
+  }
   if (meta.nextRun) lines.push(`nextRun: ${meta.nextRun}`);
   lines.push(`---`);
   lines.push("");

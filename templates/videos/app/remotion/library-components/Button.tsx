@@ -1,29 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * BUTTON COMPONENT
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * An interactive button component with text.
- * Demonstrates hover and click animations controlled by the UI.
- *
- * Features:
- * - Configurable label and colors
- * - Default hover animation (scale + brightness)
- * - Default click animation (scale down + brightness)
- * - Animations stored in animation system (UI-controlled)
- *
- * Usage:
- *   import { Button } from "@/remotion/library-components";
- *
- *   <Button
- *     label="Click Me"
- *     backgroundColor="#3b82f6"
- *     textColor="#ffffff"
- *   />
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";

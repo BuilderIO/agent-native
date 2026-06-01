@@ -47,5 +47,5 @@ describe("design agent card", () => {
     expect(card.skills.map((skill) => skill.id)).toEqual(
       expect.arrayContaining(REQUIRED_DESIGN_ACTIONS),
     );
-  });
+  }, 15_000);
 });

@@ -1,20 +1,20 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
 import type { ElementAnimation } from "@/types/elementAnimations";
+import { debug } from "@/utils/debug";
 
 export interface CurrentElement {
   id: string;
-  type: string; // Component type, e.g., "Card", "Button"
+  type: string;
   label: string;
   compositionId: string;
-  cursorType?: "default" | "pointer" | "text"; // Current cursor type for this element
+  cursorType?: "default" | "pointer" | "text";
 }
 
 interface CurrentElementContextType {
   currentElement: CurrentElement | null;
   setCurrentElement: (element: CurrentElement | null) => void;
 
-  // Element animations storage
-  elementAnimations: Record<string, ElementAnimation[]>; // compositionId -> animations
+  elementAnimations: Record<string, ElementAnimation[]>;
   getAnimationsForElement: (
     compositionId: string,
     elementType: string,
@@ -27,7 +27,6 @@ interface CurrentElementContextType {
   ) => void;
   deleteAnimation: (compositionId: string, animationId: string) => void;
 
-  // Cursor type storage per element
   getCursorType: (
     compositionId: string,
     elementType: string,
@@ -64,7 +63,7 @@ function saveElementAnimations(animations: Record<string, ElementAnimation[]>) {
   }
 }
 
-type CursorTypeMap = Record<string, "default" | "pointer" | "text">; // "compositionId:elementType" -> cursorType
+type CursorTypeMap = Record<string, "default" | "pointer" | "text">;
 
 function loadCursorTypes(): CursorTypeMap {
   try {
@@ -100,8 +99,8 @@ export const CurrentElementProvider: React.FC<{
     const reloadAnimations = () => {
       const loaded = loadElementAnimations();
       setElementAnimations(loaded);
-      console.log(
-        "🔄 Reloaded animations:",
+      debug.verbose(
+        "Reloaded animations",
         Object.keys(loaded).reduce(
           (acc, key) => ({ ...acc, [key]: loaded[key].length }),
           {},
@@ -109,10 +108,8 @@ export const CurrentElementProvider: React.FC<{
       );
     };
 
-    // Reload once after a short delay to catch initialization
     const timer = setTimeout(reloadAnimations, 100);
 
-    // Listen for storage events from other windows/tabs
     window.addEventListener("storage", reloadAnimations);
 
     return () => {

@@ -1,20 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * PRIMARY BUTTON ATOM
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A primary action button with solid background and optional icon.
- * Used for main CTAs like "Send PR" or "Push to Remote".
- *
- * Features:
- * - Solid background color
- * - Optional icon (image URL)
- * - Hover brightness effect
- * - Click animation
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill, useVideoConfig } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";

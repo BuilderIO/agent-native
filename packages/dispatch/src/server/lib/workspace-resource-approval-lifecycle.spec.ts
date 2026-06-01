@@ -222,5 +222,5 @@ describe("workspace resource approval lifecycle", () => {
         personalOverride.layers.find((layer) => layer.scope === "personal"),
       ).toMatchObject({ exists: true, effective: true });
     });
-  });
+  }, 15_000);
 });

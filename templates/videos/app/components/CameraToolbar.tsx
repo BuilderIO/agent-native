@@ -152,7 +152,11 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
           return {
             ...prop,
             keyframes: [
-              { frame: currentFrame, value: valueStr, easing: "expo.inOut" },
+              {
+                frame: currentFrame,
+                value: valueStr,
+                easing: "expo.inOut" as const,
+              },
             ],
           };
         }
@@ -172,7 +176,11 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
         } else {
           const newKeyframes = [
             ...prop.keyframes,
-            { frame: currentFrame, value: valueStr, easing: "expo.inOut" },
+            {
+              frame: currentFrame,
+              value: valueStr,
+              easing: "expo.inOut" as const,
+            },
           ];
           newKeyframes.sort((a, b) => a.frame - b.frame);
           return { ...prop, keyframes: newKeyframes };

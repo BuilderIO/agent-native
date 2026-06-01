@@ -10,7 +10,7 @@
  *   The autoCursorType system automatically overrides it to "pointer" on hover.
  */
 
-import type { AnimationTrack } from "@/types";
+import type { AnimationTrack, EasingKey } from "@/types";
 
 /**
  * Create a standard camera track with default values (no movement).
@@ -51,7 +51,7 @@ export function createCursorTrack(
     startX?: number;
     startY?: number;
     startOpacity?: number;
-    easing?: string;
+    easing?: EasingKey;
   },
 ): AnimationTrack {
   const {
