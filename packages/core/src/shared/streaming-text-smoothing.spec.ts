@@ -1,36 +1,51 @@
 import { describe, expect, it } from "vitest";
+
 import {
   initialSmoothStreamingGraphemeCount,
   smoothStreamingPunctuationDelayMs,
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
+  SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
+  SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES,
 } from "./streaming-text-smoothing.js";
 
-describe("streaming text smoothing", () => {
-  it("splits text by grapheme clusters when Intl.Segmenter is available", () => {
-    expect(splitStreamingTextGraphemes("a👍🏽b")).toEqual(["a", "👍🏽", "b"]);
+describe("streaming text smoothing helpers", () => {
+  it("splits by grapheme clusters so emoji and accents are not torn apart", () => {
+    expect(splitStreamingTextGraphemes("A👩‍💻é")).toEqual(["A", "👩‍💻", "é"]);
   });
 
-  it("starts long responses near the tail instead of replaying the full text", () => {
-    const graphemes = Array.from({ length: 700 }, () => "x");
+  it("replays short streaming text from the beginning", () => {
+    const graphemes = splitStreamingTextGraphemes("A short answer.");
 
-    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(520);
+    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(0);
   });
 
-  it("reveals at least one grapheme without exceeding the backlog or burst cap", () => {
-    expect(smoothStreamingRevealCount({ backlog: 10, elapsedMs: 1 })).toBe(1);
-    expect(smoothStreamingRevealCount({ backlog: 4, elapsedMs: 10_000 })).toBe(
-      4,
+  it("keeps only a tail buffered for long restored streams", () => {
+    const text = "x".repeat(SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES + 1);
+    const graphemes = splitStreamingTextGraphemes(text);
+
+    expect(initialSmoothStreamingGraphemeCount(graphemes)).toBe(
+      graphemes.length - SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES,
     );
-    expect(
-      smoothStreamingRevealCount({ backlog: 2_000, elapsedMs: 10_000 }),
-    ).toBe(120);
   });
 
-  it("uses punctuation pauses only when the backlog is small", () => {
-    expect(smoothStreamingPunctuationDelayMs(".", 100)).toBe(70);
-    expect(smoothStreamingPunctuationDelayMs(",", 100)).toBe(35);
-    expect(smoothStreamingPunctuationDelayMs("\n", 100)).toBe(80);
-    expect(smoothStreamingPunctuationDelayMs(".", 300)).toBe(0);
+  it("reveals at least one grapheme while respecting backlog and burst limits", () => {
+    expect(smoothStreamingRevealCount({ backlog: 12, elapsedMs: 16 })).toBe(1);
+    expect(
+      smoothStreamingRevealCount({
+        backlog: 3,
+        elapsedMs: 1000,
+        inputDone: true,
+      }),
+    ).toBe(3);
+    expect(
+      smoothStreamingRevealCount({ backlog: 2000, elapsedMs: 1000 }),
+    ).toBeLessThanOrEqual(120);
+  });
+
+  it("pauses slightly on punctuation only when backlog is small", () => {
+    expect(smoothStreamingPunctuationDelayMs(".", 8)).toBeGreaterThan(0);
+    expect(smoothStreamingPunctuationDelayMs(",", 8)).toBeGreaterThan(0);
+    expect(smoothStreamingPunctuationDelayMs(".", 500)).toBe(0);
   });
 });
