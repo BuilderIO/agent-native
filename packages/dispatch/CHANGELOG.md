@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.28
+
+### Patch Changes
+
+- d987847: Keep Dispatch route loaders from pulling server-only framework modules into the browser bundle.
+
 ## 0.8.27
 
 ### Patch Changes
