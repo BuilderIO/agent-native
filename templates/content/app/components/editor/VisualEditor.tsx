@@ -43,10 +43,7 @@ import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import { DragHandle } from "./extensions/DragHandle";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
-import {
-  parseNfmForEditor,
-  serializeEditorToNfm,
-} from "@shared/notion-markdown";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   isReconcileLeadClient,
   AGENT_CLIENT_ID,
@@ -1341,7 +1338,7 @@ export function VisualEditor({
     // prop AND the Y.Doc, firing an initial (non-remote) update that could
     // autosave a stale value over newer SQL. Only seed `content` when there is
     // no ydoc (tests / non-collaborative embedders).
-    content: ydoc ? undefined : parseNfmForEditor(content),
+    content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
         class: "notion-editor",
@@ -1455,8 +1452,7 @@ export function VisualEditor({
       if (transaction && isChangeOrigin(transaction)) return;
       lastTypedAtRef.current = Date.now();
       try {
-        const md = (editor.storage as any).markdown.getMarkdown();
-        const normalized = serializeEditorToNfm(md);
+        const normalized = docToNfm(editor.getJSON() as any);
         // Don't save empty content when Collaboration hasn't seeded yet —
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
@@ -1486,9 +1482,7 @@ export function VisualEditor({
     // brand-new doc at once don't both seed and duplicate the content.
     if (!isLeadClient) return;
     const fragment = ydoc.getXmlFragment("default");
-    const currentMd = serializeEditorToNfm(
-      (editor.storage as any).markdown.getMarkdown(),
-    );
+    const currentMd = docToNfm(editor.getJSON() as any);
     if (
       shouldSeedCollaborativeContent({
         content,
@@ -1497,7 +1491,7 @@ export function VisualEditor({
       })
     ) {
       isSettingContent.current = true;
-      editor.commands.setContent(parseNfmForEditor(content));
+      editor.commands.setContent(nfmToDoc(content));
       isSettingContent.current = false;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
     }
@@ -1527,11 +1521,9 @@ export function VisualEditor({
 
     const run = (deferred = false) => {
       if (cancelled || !editor || editor.isDestroyed) return;
-      const nextEditorContent = parseNfmForEditor(content);
-      const currentMd = serializeEditorToNfm(
-        (editor.storage as any).markdown.getMarkdown(),
-      );
-      const normalizedNext = serializeEditorToNfm(nextEditorContent);
+      const nextEditorContent = nfmToDoc(content);
+      const currentMd = docToNfm(editor.getJSON() as any);
+      const normalizedNext = canonicalizeNfm(content);
 
       // Already in sync, or our own echo: advance the applied watermark so a
       // later write is correctly recognized as newer, then stop. (After a peer's
