@@ -23,16 +23,22 @@ Use it when you want a polished landing page concept, product UI direction, bran
    is ready to hand to another tool or teammate.
 
 For Codex, Claude Code, and other local agent clients, the hosted Design app can
-be installed as an app-backed skill plus MCP connector:
+be installed through the open Skills CLI:
 
 ```bash
-npx @agent-native/core@latest skills add design-exploration
+npx skills add BuilderIO/agent-native --skill design-exploration
 ```
 
-That gives the agent instructions to create a design shell, present 2-5 visual
-directions (3 is the sweet spot) in the inline Design MCP app, wait for your
-pick, and iterate from the selected prototype. See [Using it from your coding
-agent](#coding-agent) for the full flow.
+For local MCP clients, also connect the hosted Design app once:
+
+```bash
+npx @agent-native/core@latest connect https://design.agent-native.com
+```
+
+That gives the agent instructions and MCP tools to create a design shell,
+present 2-5 visual directions (3 is the sweet spot) in the inline Design MCP
+app, wait for your pick, and iterate from the selected prototype. See
+[Using it from your coding agent](#coding-agent) for the full flow.
 
 ## Useful Prompts
 
@@ -55,13 +61,25 @@ agent](#coding-agent) for the full flow.
 
 Generate and pick design directions without leaving Codex, Claude Code, Claude, or ChatGPT.
 
-1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+1. **Install once.** This adds the public Design skill instructions:
 
    ```bash
-   npx @agent-native/core@latest skills add design-exploration   # aliases: design, ux-exploration
+   npx skills add BuilderIO/agent-native --skill design-exploration
    ```
 
-   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   For local MCP clients such as Codex or Claude Code, also connect the hosted
+   Design app once:
+
+   ```bash
+   npx @agent-native/core@latest connect https://design.agent-native.com
+   ```
+
+   Or use the Agent Native convenience installer when you want one command to
+   install the skill and register the MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add design-exploration
+   ```
 
 2. **Ask for directions.** In your agent's chat: "Create three landing-page directions for a technical analytics product." The agent generates 2-5 directions (3 is the sweet spot) you can compare side by side.
 3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the variant grid renders right in the chat — pick a direction and it auto-persists as `index.html`, then keep refining. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Design →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "I picked direction B".

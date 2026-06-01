@@ -47,13 +47,25 @@ Use it when your team needs reusable visual direction and searchable source asse
 
 Generate and pick brand media without leaving Codex, Claude Code, Claude, or ChatGPT.
 
-1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+1. **Install once.** This adds the public Assets skill instructions:
 
    ```bash
-   npx @agent-native/core@latest skills add assets   # aliases: images, image-generation
+   npx skills add BuilderIO/agent-native --skill assets
    ```
 
-   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   For local MCP clients such as Codex or Claude Code, also connect the hosted
+   Assets app once:
+
+   ```bash
+   npx @agent-native/core@latest connect https://assets.agent-native.com
+   ```
+
+   Or use the Agent Native convenience installer when you want one command to
+   install the skill and register the MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add assets
+   ```
 
 2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
 3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
@@ -142,7 +154,10 @@ The Assets app skill has app id `assets` and hosted MCP URL
 `https://assets.agent-native.com/_agent-native/mcp`.
 
 ```bash
-# Easiest hosted install: exported skill instructions plus MCP connector.
+# Public Skills CLI install: exported skill instructions.
+npx skills add BuilderIO/agent-native --skill assets
+
+# Convenience install: exported skill instructions plus MCP connector.
 npx @agent-native/core@latest skills add assets
 
 # Image-generation alias for demos and tutorials.
@@ -157,7 +172,7 @@ agent-native app-skill launch --manifest templates/assets/agent-native.app-skill
 # Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install the exported Assets skill with the open skills CLI.
+# Install a local exported Assets bundle with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y
 
 # Install from the generated Claude Code marketplace adapter.

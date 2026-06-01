@@ -81,13 +81,17 @@ Hosted is the default install path. Local launch is explicit for customization,
 offline work, or privacy-sensitive use.
 
 ```bash
-# One-command hosted install for the exported Assets skill plus MCP connector.
+# Public Skills CLI installs the exported instructions.
+npx skills add BuilderIO/agent-native --skill assets
+npx skills add BuilderIO/agent-native --skill design-exploration
+
+# Local MCP clients also need the hosted connector once.
+npx @agent-native/core@latest connect https://assets.agent-native.com
+npx @agent-native/core@latest connect https://design.agent-native.com
+
+# Convenience installers do both steps for local clients.
 npx @agent-native/core@latest skills add assets
-
-# Same install, using the image-generation alias for demos and tutorials.
 npx @agent-native/core@latest skills add images
-
-# One-command hosted install for Design exploration plus MCP connector.
 npx @agent-native/core@latest skills add design-exploration
 
 # Register a hosted MCP connector for local agent clients.
@@ -114,14 +118,7 @@ settings flow.
 
 The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
 for `npx skills add ...`, but the raw `skills` CLI installs instructions only.
-For first-party hosted apps, keep the default docs on
-`npx @agent-native/core@latest skills add assets` and
-`npx @agent-native/core@latest skills add design-exploration`; each installs
-the exported instructions and runs the MCP registration step together.
-
-`npx skills add BuilderIO/agent-native-skills --skill assets` is only valid
-after `BuilderIO/agent-native-skills` exists as a real public GitHub repo, or
-after an equivalent well-known/full-URL source is published. `skills.sh` is a
+`BuilderIO/agent-native` is a real GitHub repository source; `skills.sh` is a
 discovery and leaderboard directory, not an npm-style package namespace.
 
 The Claude Code marketplace adapter writes
