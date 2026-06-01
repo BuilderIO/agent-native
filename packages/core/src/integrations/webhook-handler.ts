@@ -21,8 +21,7 @@ import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
-import type { AgentEngine } from "../agent/engine/types.js";
-import type { EngineMessage } from "../agent/engine/types.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildAssistantMessage,

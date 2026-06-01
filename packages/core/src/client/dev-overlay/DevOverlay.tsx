@@ -12,12 +12,7 @@
  * unless invoked.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   IconChevronDown,
   IconChevronRight,

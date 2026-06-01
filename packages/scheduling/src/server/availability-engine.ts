@@ -6,7 +6,7 @@
  * world: it fetches the schedule, merges busy times from the selected
  * calendars + existing bookings, and applies booking limits.
  */
-import { inArray, eq, gte, lt, and } from "drizzle-orm";
+import { eq, gte, lt, and } from "drizzle-orm";
 import type {
   EventType,
   Schedule,
@@ -19,8 +19,6 @@ import { bucketKeysForSlot } from "../core/limits.js";
 import { getScheduleById } from "./schedules-repo.js";
 import { getSchedulingContext } from "./context.js";
 import { getCalendarProvider } from "./providers/registry.js";
-import { TZDate } from "@date-fns/tz";
-import { format, startOfWeek, startOfMonth, startOfYear } from "date-fns";
 
 export interface GetSlotsInput {
   eventType: EventType;
@@ -151,7 +149,7 @@ export async function aggregateBusy(input: {
         end: input.rangeEnd,
       });
       busy.push(...result);
-    } catch (err) {
+    } catch {
       // Silently degrade — booking UI shows "couldn't verify availability" banner
       // Consumer logs via their own error handler
     }

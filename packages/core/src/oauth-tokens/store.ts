@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 

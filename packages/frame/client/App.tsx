@@ -317,14 +317,14 @@ export function App() {
         );
         return;
       }
-      // Relay submitChat from the iframe — MultiTabAssistantChat rejects
-      // cross-origin messages, so re-dispatch same-origin so it accepts it.
-      // Only relay from known app dev-server origins to prevent arbitrary
-      // cross-origin pages from injecting agent messages.
       if (event.data.type === "agentNative.presentationMode") {
         setIsPresentationMode(event.data.data?.active === true);
         return;
       }
+      // Relay submitChat from the iframe — MultiTabAssistantChat rejects
+      // cross-origin messages, so re-dispatch same-origin so it accepts it.
+      // Only relay from known app dev-server origins to prevent arbitrary
+      // cross-origin pages from injecting agent messages.
       if (event.data.type === "agentNative.submitChat") {
         const host = window.location.hostname || "localhost";
         const gatewayOrigin = (() => {

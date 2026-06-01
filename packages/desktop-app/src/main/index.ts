@@ -1933,7 +1933,7 @@ function reconcileInterruptedCodeAgentRun(
     updatedAt: now,
     status: approvalInterrupted ? "needs-approval" : "paused",
     phase: approvalInterrupted ? "approval-required" : "stopped",
-    needsApproval: approvalInterrupted ? true : false,
+    needsApproval: approvalInterrupted,
     progress: approvalInterrupted
       ? {
           label: "Approval required",
@@ -2074,36 +2074,6 @@ function firstStringValue(...values: unknown[]): string | undefined {
       const trimmed = value.trim();
       if (trimmed) return trimmed;
     }
-  }
-  return undefined;
-}
-
-function textFromUnknown(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (!isObject(item)) return "";
-        return firstStringValue(item.text, item.content, item.message) ?? "";
-      })
-      .map((part) => part.trim())
-      .filter(Boolean);
-    return parts.length > 0 ? parts.join("\n") : undefined;
-  }
-  if (isObject(value)) {
-    return firstStringValue(value.text, value.content, value.message);
-  }
-  return undefined;
-}
-
-function firstTextValue(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    const text = textFromUnknown(value);
-    if (text) return text;
   }
   return undefined;
 }

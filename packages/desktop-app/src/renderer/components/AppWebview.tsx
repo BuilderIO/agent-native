@@ -6,7 +6,6 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  IconAlertCircle,
   IconRefresh,
   IconCopy,
   IconCheck,

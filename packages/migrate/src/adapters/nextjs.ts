@@ -12,7 +12,6 @@ import type {
   SourceAdapter,
 } from "../types.js";
 
-const SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx", "md", "mdx"];
 const CODE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
 
 export const nextjsSourceAdapter: SourceAdapter = {

@@ -2682,8 +2682,6 @@ When editing code, follow the agent-native architecture:
 - Use shadcn/ui components and Tabler Icons for all UI work
 ${FRAMEWORK_CORE_COMPACT}`;
 
-const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
-
 /**
  * Pre-load the agent's context: AGENTS.md (workspace/template/runtime
  * instructions), the skills index, shared LEARNINGS.md (team notes), a shared
@@ -2909,9 +2907,6 @@ async function buildSchemaBlock(
     return "";
   }
 }
-
-/** @deprecated Kept for backward compat — dev prompt is now part of DEV_FRAMEWORK_PROMPT */
-const DEFAULT_DEV_PROMPT = "";
 
 /**
  * Generates a system prompt section describing registered template actions.
@@ -4009,7 +4004,6 @@ export function createAgentChatPlugin(
               : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
-      const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
 
       // Mount MCP remote server — same action registry as A2A + agent chat
       const { mountMCP } = await import("../mcp/server.js");
