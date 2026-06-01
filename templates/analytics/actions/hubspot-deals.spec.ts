@@ -40,25 +40,51 @@ describe("hubspot-deals action", () => {
             hs_lastmodifieddate: "2026-05-01T00:00:00Z",
           },
         },
+        {
+          id: "deal-hidden",
+          properties: {
+            dealname: "Hidden renewal",
+            dealstage: "stage-hidden",
+            amount: "100000",
+            pipeline: "pipeline-hidden",
+            hubspot_owner_id: "owner-2",
+            createdate: "2026-01-01T00:00:00Z",
+            hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+          },
+        },
       ],
-      total: 1,
+      total: 2,
       nextAfter: null,
       properties: ["dealname", "dealstage", "amount", "pipeline"],
     });
+    const visiblePipeline = {
+      id: "pipeline-1",
+      label: "Enterprise",
+      stages: [
+        {
+          id: "stage-1",
+          label: "Negotiation",
+          displayOrder: 1,
+          metadata: { probability: "0.7" },
+        },
+      ],
+    };
     getDealPipelines.mockResolvedValue([
+      visiblePipeline,
       {
-        id: "pipeline-1",
-        label: "Enterprise",
+        id: "pipeline-hidden",
+        label: "Hidden",
         stages: [
           {
-            id: "stage-1",
-            label: "Negotiation",
+            id: "stage-hidden",
+            label: "Hidden stage",
             displayOrder: 1,
-            metadata: { probability: "0.7" },
+            metadata: { probability: "0.1" },
           },
         ],
       },
     ]);
+    getVisiblePipelines.mockReturnValueOnce([visiblePipeline]);
     getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
 
     const result = (await hubspotDeals.run({
@@ -74,8 +100,10 @@ describe("hubspot-deals action", () => {
       limit: 10,
       after: undefined,
     });
-    expect(result.total).toBe(1);
     expect(result.count).toBe(1);
+    expect(result.total).toBe(1);
+    expect(result.deals).toHaveLength(1);
+    expect(result.deals[0].id).toBe("deal-1");
     expect(result.deals[0].properties.stage_name).toBe("Negotiation");
     expect(result.deals[0].properties.pipeline_name).toBe("Enterprise");
     expect(result.deals[0].properties.owner_name).toBe("Alice Seller");

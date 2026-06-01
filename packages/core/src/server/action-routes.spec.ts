@@ -176,14 +176,54 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler({
       _method: "GET",
       req: {
-        url: "http://app.test/_agent-native/actions/list-assets?candidateRunIds[]=run-1&candidateRunIds[]=run-2&tag=hero&tag=logo",
+        url: "http://app.test/_agent-native/actions/list-assets?candidateRunIds[]=run-1&candidateRunIds[]=run-2&libraryIds[]=lib-1&tag=hero&tag=logo&search=logos",
       },
     });
 
     expect(result).toEqual({
       params: {
         candidateRunIds: ["run-1", "run-2"],
+        libraryIds: ["lib-1"],
         tag: ["hero", "logo"],
+        search: "logos",
+      },
+    });
+  });
+
+  it("parses bracketed GET params as arrays through the getQuery fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-assets": {
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async (params) => ({ params })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      _query: {
+        "candidateRunIds[]": ["run-1", "run-2"],
+        "libraryIds[]": "lib-1",
+        tag: ["hero", "logo"],
+        search: "logos",
+      },
+    });
+
+    expect(result).toEqual({
+      params: {
+        candidateRunIds: ["run-1", "run-2"],
+        libraryIds: ["lib-1"],
+        tag: ["hero", "logo"],
+        search: "logos",
       },
     });
   });

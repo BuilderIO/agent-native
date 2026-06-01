@@ -36,20 +36,41 @@ export function parseActionSearchParams(
 ): Record<string, any> {
   const params: Record<string, any> = {};
   for (const [rawKey, value] of searchParams.entries()) {
-    const isArrayKey = rawKey.endsWith("[]");
-    // The core client serializes arrays as `key[]=value` so even a single
-    // value can validate against z.array() action schemas.
-    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
-    const current = params[key];
-    if (current === undefined) {
-      params[key] = isArrayKey ? [value] : value;
-    } else if (Array.isArray(current)) {
-      current.push(value);
-    } else {
-      params[key] = [current, value];
+    appendActionParam(params, rawKey, value);
+  }
+  return params;
+}
+
+function parseActionQueryObject(
+  query: Record<string, unknown>,
+): Record<string, any> {
+  const params: Record<string, any> = {};
+  for (const [rawKey, rawValue] of Object.entries(query)) {
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    for (const value of values) {
+      if (value != null) appendActionParam(params, rawKey, String(value));
     }
   }
   return params;
+}
+
+function appendActionParam(
+  params: Record<string, any>,
+  rawKey: string,
+  value: any,
+) {
+  const isArrayKey = rawKey.endsWith("[]");
+  // The core client serializes arrays as `key[]=value` so even a single
+  // value can validate against z.array() action schemas.
+  const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+  const current = params[key];
+  if (current === undefined) {
+    params[key] = isArrayKey ? [value] : value;
+  } else if (Array.isArray(current)) {
+    current.push(value);
+  } else {
+    params[key] = [current, value];
+  }
 }
 
 /**
@@ -225,7 +246,9 @@ export function mountActionRoutes(
                   const url = new URL(webReq.url);
                   params = parseActionSearchParams(url.searchParams);
                 } else {
-                  params = getQuery(event) as Record<string, any>;
+                  params = parseActionQueryObject(
+                    getQuery(event) as Record<string, any>,
+                  );
                 }
               } else {
                 const webReq = (event as any).req;

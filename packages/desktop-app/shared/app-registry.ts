@@ -34,9 +34,9 @@ export function isDefaultDesktopTemplateDevTarget(
   if (!template) return false;
 
   const devUrl = appConfig.devUrl?.trim();
-  if (!devUrl) return true;
-
   const devPort = appConfig.devPort || template.devPort;
+  if (!devUrl) return devPort === template.devPort;
+
   const normalizedDevUrl = normalizeLocalDevUrl(devUrl);
   return [`http://localhost:${devPort}`, `http://127.0.0.1:${devPort}`].some(
     (defaultUrl) => normalizedDevUrl === normalizeLocalDevUrl(defaultUrl),

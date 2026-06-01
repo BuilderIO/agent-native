@@ -135,17 +135,37 @@ assert.match(
   /appConfig\.devUrl\?\.trim\(\)/,
   "desktop dev-mode URL resolution must honor custom devUrl values",
 );
-const frameBranchIndex = appWebview.indexOf(
-  "if (getTemplate(appConfig.id)) return getAppUrl(app);",
+assert.match(
+  desktopRegistry,
+  /if \(!devUrl\) return devPort === template\.devPort;/,
+  "desktop default-template detection must treat custom devPort values as non-default targets",
 );
-const customDevUrlBranchIndex = appWebview.indexOf(
+const templateBranchIndex = appWebview.indexOf(
+  "const template = getTemplate(appConfig.id);",
+);
+const customTemplateDevUrlIndex = appWebview.indexOf(
+  "const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)",
+);
+const framedTemplateReturnIndex = appWebview.indexOf(
+  "return getFramedAppUrl(app, customTemplateDevUrl);",
+);
+const nonTemplateDevUrlIndex = appWebview.indexOf(
   "if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();",
 );
 assert.ok(
-  frameBranchIndex !== -1 &&
-    customDevUrlBranchIndex !== -1 &&
-    frameBranchIndex < customDevUrlBranchIndex,
-  "desktop first-party template dev URLs must load through the frame before custom devUrl fallback",
+  templateBranchIndex !== -1 &&
+    customTemplateDevUrlIndex !== -1 &&
+    framedTemplateReturnIndex !== -1 &&
+    nonTemplateDevUrlIndex !== -1 &&
+    templateBranchIndex < customTemplateDevUrlIndex &&
+    customTemplateDevUrlIndex < framedTemplateReturnIndex &&
+    framedTemplateReturnIndex < nonTemplateDevUrlIndex,
+  "desktop template dev targets must use the frame and pass custom targets into the app iframe",
+);
+assert.match(
+  appWebview,
+  /frameUrl\.searchParams\.set\("devUrl", trimmedDevUrl\)/,
+  "desktop template frame URL must preserve custom devUrl/devPort targets for the app iframe",
 );
 assert.doesNotMatch(
   appWebview,

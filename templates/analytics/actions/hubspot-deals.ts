@@ -160,9 +160,7 @@ export default defineAction({
       ? dealResult
       : dealResult.records.map(recordToDeal);
     const deals = rawDeals
-      .filter(
-        (d) => trimmedQuery || visibleIds.has(String(d.properties.pipeline)),
-      )
+      .filter((d) => visibleIds.has(String(d.properties.pipeline)))
       .map((deal) => enrichDeal(deal, lookups, owners))
       .filter((deal) => {
         if (!ownerFilter) return true;
@@ -176,7 +174,7 @@ export default defineAction({
       deals,
       stageLabels: lookups.stageLabels,
       pipelineLabels: lookups.pipelineLabels,
-      total: Array.isArray(dealResult) ? deals.length : dealResult.total,
+      total: deals.length,
       count: deals.length,
       query: trimmedQuery || null,
       nextAfter: Array.isArray(dealResult) ? null : dealResult.nextAfter,

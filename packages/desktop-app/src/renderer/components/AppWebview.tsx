@@ -79,10 +79,21 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    // First-party templates must load through the frame so the Chat | CLI |
-    // Workspace panel lives outside the hot-reloaded app iframe.
-    if (getTemplate(appConfig.id)) return getAppUrl(app);
-    // User-edited dev URLs still win for custom/non-default dev targets.
+    const template = getTemplate(appConfig.id);
+    if (template) {
+      const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)
+        ? (appConfig.devUrl?.trim() ??
+          (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : ""))
+        : "";
+
+      // First-party templates must load through the frame so the Chat | CLI |
+      // Workspace panel lives outside the hot-reloaded app iframe. Custom
+      // template targets still use the frame as the top-level page; the frame
+      // loads the custom URL inside its app iframe.
+      return getFramedAppUrl(app, customTemplateDevUrl);
+    }
+
+    // Non-template dev URLs can still load directly.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
     if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
     if (appConfig.url) return appConfig.url;
@@ -101,6 +112,13 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
 
   // Fallback for custom apps with no production URL.
   return getAppUrl(app);
+}
+
+function getFramedAppUrl(app: AppDefinition, devUrl?: string): string {
+  const frameUrl = new URL(getAppUrl(app));
+  const trimmedDevUrl = devUrl?.trim();
+  if (trimmedDevUrl) frameUrl.searchParams.set("devUrl", trimmedDevUrl);
+  return frameUrl.toString();
 }
 
 function rendererEnvValue(name: string): string | undefined {

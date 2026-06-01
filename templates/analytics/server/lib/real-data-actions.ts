@@ -11,6 +11,7 @@ const INJECTED_CONTEXT_BLOCKS = [
 ];
 
 export const DATA_QUERY_ACTIONS = new Set([
+  "account-deep-dive",
   "amplitude-events",
   "apollo-search",
   "bigquery",
@@ -170,9 +171,10 @@ export function isSafeNoDataAnalyticsResponse(text: string): boolean {
 }
 
 export function hasDataQueryAttempt(
-  toolResults: Array<{ name?: string }> | undefined,
+  toolResults: Array<{ name?: string; isError?: boolean }> | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
     const name = String(result.name ?? "");
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });
