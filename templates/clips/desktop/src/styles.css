@@ -2414,7 +2414,7 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   align-items: center;
   /* Transparent background — the Tauri window is `transparent: true`,
-     so the shadow + circle below paint through. */
+     so the circular camera surface below paints through. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
