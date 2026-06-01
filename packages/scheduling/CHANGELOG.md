@@ -1,5 +1,11 @@
 # @agent-native/scheduling
 
+## 0.1.8
+
+### Patch Changes
+
+- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
+
 ## 0.1.7
 
 ### Patch Changes

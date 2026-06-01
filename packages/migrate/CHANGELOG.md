@@ -1,5 +1,11 @@
 # @agent-native/migrate
 
+## 0.0.6
+
+### Patch Changes
+
+- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
+
 ## 0.0.5
 
 ### Patch Changes
