@@ -36,7 +36,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
-  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 import {
@@ -398,13 +398,11 @@ function injectHeadScript(html, script) {
 }
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
-const DEFAULT_SPECULATION_RULES_HEADER = ${JSON.stringify(DEFAULT_SPECULATION_RULES_HEADER)};
+const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
     [...new Set(immutableAssetPaths)].sort(),
   )});
-const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
-const BETTER_AUTH_SESSION_COOKIE_RE = /\\.session_(?:token|data)$/;
 const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
     AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   )};
@@ -434,47 +432,8 @@ function injectDefaultSocialImageMeta(html) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function requestHasAuthenticatedCookie(cookieHeader) {
-  if (!cookieHeader) return false;
-  return cookieHeader
-    .split(";")
-    .map((cookie) => (cookie.trim().split("=", 1)[0] || "").trim())
-    .filter(Boolean)
-    .some(isAuthenticatedCookieName);
-}
-
-function isAuthenticatedCookieName(name) {
-  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
-  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
-  return (
-    bareName === "an_embed_session" ||
-    bareName === "an_session" ||
-    bareName === "an_session_workspace" ||
-    bareName.startsWith("an_session_") ||
-    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
-  );
-}
-
-function requestHasAuthSignal(request) {
-  const headers = request.headers;
-  const url = new URL(request.url);
-  return Boolean(
-    headers.get("authorization") ||
-    requestHasAuthenticatedCookie(headers.get("cookie")) ||
-    url.searchParams.has("__an_embed_token") ||
-    url.searchParams.has("_session")
-  );
-}
-
-function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
   if (status < 200 || status >= 400) return false;
-  if (hasAuthSignal) {
-    // The generated worker does not have the Node/H3 request-context leak guard
-    // that can tell whether SSR code actually read user/org state. Keep
-    // auth-looking worker requests private until templates move those reads
-    // behind client-side actions/API.
-    return false;
-  }
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) {
@@ -493,21 +452,22 @@ function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal
   // user/org-specific data is loaded client-side through actions/API routes
   // after hydration. Keep .data on the same SWR policy as HTML so normal route
   // data fetches fill CDN cache instead of bypassing it and slamming origin.
-  // Do not re-add a blanket auth-signal bypass here for Node/H3 SSR; that path
-  // uses an auth-context access guard instead. Worker output keeps the
-  // conservative hasAuthSignal guard above because it lacks that instrumentation.
+  // Do not re-add a blanket auth-signal bypass here; logged-in browsers still
+  // need CDN-cached public route data. Worker SSR does not populate
+  // getRequestUserEmail()/accessFilter() context for private loaders, and
+  // Node/H3 has an auth-context access guard for older loaders that still do.
   // Also do not preserve route-level private/no-store for React Router .data:
   // if a route needs per-user data, it belongs behind a client-side action/API
   // call rather than in the shared SSR payload.
   return true;
 }
 
-function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
+function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
-function applyDefaultSpeculationRulesHeader(headers, status) {
+function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
   if (status < 200 || status >= 400) return;
   if (headers.has("speculation-rules")) return;
 
@@ -518,7 +478,7 @@ function applyDefaultSpeculationRulesHeader(headers, status) {
   // header. Those browser prefetches carry Sec-Purpose: prefetch and
   // Cloudflare can return 503 before the request reaches origin. Publish an
   // explicit no-op ruleset by default; apps can still provide their own header.
-  headers.set("speculation-rules", DEFAULT_SPECULATION_RULES_HEADER);
+  headers.set("speculation-rules", '"' + prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath) + '"');
 }
 function isImmutableAssetRequest(request) {
   const pathname = stripAppBasePath(new URL(request.url).pathname);
@@ -540,11 +500,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
+async function rewriteMountedResponse(response, basePath, pathname) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
-  applyDefaultSpeculationRulesHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -661,7 +621,6 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
-    const hasAuthSignal = requestHasAuthSignal(request);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -672,11 +631,10 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
-        p,
-        hasAuthSignal
+        p
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p);
   }));
 
   _handler = app.fetch.bind(app);

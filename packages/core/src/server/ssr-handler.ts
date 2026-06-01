@@ -31,7 +31,7 @@ import {
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
-  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 
@@ -284,7 +284,11 @@ function applyDefaultSsrCacheHeader(
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
-function applyDefaultSpeculationRulesHeader(headers: Headers, status: number) {
+function applyDefaultSpeculationRulesHeader(
+  headers: Headers,
+  status: number,
+  basePath: string,
+) {
   if (status < 200 || status >= 400) return;
   if (headers.has("speculation-rules")) return;
 
@@ -298,7 +302,8 @@ function applyDefaultSpeculationRulesHeader(headers: Headers, status: number) {
   // by default so Cloudflare does not inject its edge prefetch rules. Preserve
   // an app-provided Speculation-Rules header above if a template deliberately
   // owns this behavior.
-  headers.set("speculation-rules", DEFAULT_SPECULATION_RULES_HEADER);
+  const rulesPath = prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath);
+  headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -333,7 +338,7 @@ async function rewriteMountedResponse(
     pathname,
     hasAuthContextAccess(requestContext),
   );
-  applyDefaultSpeculationRulesHeader(headers, response.status);
+  applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {

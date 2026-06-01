@@ -127,6 +127,22 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("prefixes the default Speculation-Rules header under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs"));
+
+    expect(response.headers.get("speculation-rules")).toBe(
+      '"/docs/_agent-native/speculation-rules.json"',
+    );
+  });
+
   it("overwrites explicit no-store cache policies on SSR HTML responses", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
