@@ -522,6 +522,9 @@ describe("workspace deploy", () => {
     expect(headers).toContain(
       `cdn-cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
     );
+    expect(headers).toContain(
+      `netlify-cdn-cache-control: ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
+    );
     expect(headers).not.toContain("/dispatch/assets/app.js\n");
     expect(fs.existsSync(path.join(tmpDir, "dist", "_routes.json"))).toBe(
       false,
@@ -729,6 +732,7 @@ describe("workspace deploy", () => {
       headers: {
         "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
         "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
       },
       continue: true,
     });
@@ -737,6 +741,7 @@ describe("workspace deploy", () => {
       headers: {
         "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
         "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
       },
       continue: true,
     });
