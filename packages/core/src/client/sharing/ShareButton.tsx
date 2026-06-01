@@ -282,10 +282,6 @@ export function ShareButton(props: ShareButtonProps) {
   // While the query is loading and we don't know the visibility yet,
   // render a skeleton placeholder in the icon slot instead of guessing.
   const loaded = sharesQuery.data !== undefined;
-  const policy: SharesPolicy = sharesQuery.data?.policy ?? {
-    allowPublic: true,
-    requireOrgMemberForUserShares: false,
-  };
   const serverVisibility =
     (sharesQuery.data?.visibility as Visibility | null) ?? "private";
   const currentVisibility = pendingVisibility ?? serverVisibility;

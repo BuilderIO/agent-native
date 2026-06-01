@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import {
   IconArrowLeft,
   IconBrandGithub,
+  IconBrandFigma,
   IconUpload,
   IconFolder,
   IconX,
@@ -16,9 +17,13 @@ import {
   sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
+  useActionMutation,
 } from "@agent-native/core/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useSetPageTitle,
@@ -38,6 +43,35 @@ interface UploadedFile {
   textContent?: string;
 }
 
+interface FigImportResult {
+  ok: boolean;
+  suggestedTitle: string;
+  data: {
+    colors?: Record<string, string>;
+    typography?: {
+      headingFont?: string;
+      bodyFont?: string;
+      headingWeight?: string;
+      bodyWeight?: string;
+      headingSizes?: { h1?: string; h2?: string; h3?: string };
+    };
+    spacing?: Record<string, string>;
+    borders?: Record<string, string>;
+    defaults?: Record<string, string>;
+    customCSS?: string;
+    notes?: string;
+  };
+  customInstructions: string;
+  preview: {
+    gradients: string[];
+    palette: { hex: string; name?: string; count: number }[];
+    namedColors: Record<string, string>;
+    thumbnailDataUrl: string | null;
+    nodeCount: number;
+    imageCount: number;
+  };
+}
+
 export default function DesignSystemSetup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -49,7 +83,7 @@ export default function DesignSystemSetup() {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
-  const [figFiles, setFigFiles] = useState<UploadedFile[]>([]);
+  const [figFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -58,7 +92,6 @@ export default function DesignSystemSetup() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const figInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
@@ -75,6 +108,87 @@ export default function DesignSystemSetup() {
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
+
+  // --- Figma .fig import (deep brand extraction → design system) ----------
+  const queryClient = useQueryClient();
+  const createSystemMutation = useActionMutation("create-design-system");
+  const realFigInputRef = useRef<HTMLInputElement>(null);
+  const [figParsing, setFigParsing] = useState(false);
+  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
+  const [figError, setFigError] = useState<string | null>(null);
+  const [figTitle, setFigTitle] = useState("");
+  const [figCreating, setFigCreating] = useState(false);
+
+  const handleFigImport = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".fig")) {
+        setFigError(
+          "Please choose a .fig file (in Figma: File → Save local copy).",
+        );
+        return;
+      }
+      setFigError(null);
+      setFigResult(null);
+      setFigParsing(true);
+      try {
+        const body = new FormData();
+        body.append("file", file);
+        const res = await fetch("/api/import-figma-system", {
+          method: "POST",
+          body,
+        });
+        const json = await res.json();
+        if (!res.ok || json?.error) {
+          throw new Error(json?.error || `Upload failed (${res.status})`);
+        }
+        setFigResult(json as FigImportResult);
+        setFigTitle(
+          (json as FigImportResult).suggestedTitle || "Imported brand",
+        );
+      } catch (err) {
+        setFigError(
+          err instanceof Error
+            ? err.message
+            : "Could not parse that Figma file.",
+        );
+      } finally {
+        setFigParsing(false);
+      }
+    },
+    [],
+  );
+
+  const handleCreateFromFig = useCallback(async () => {
+    if (!figResult) return;
+    const title =
+      figTitle.trim() || figResult.suggestedTitle || "Imported brand";
+    setFigCreating(true);
+    try {
+      const created = (await createSystemMutation.mutateAsync({
+        title,
+        data: JSON.stringify(figResult.data),
+        customInstructions: figResult.customInstructions || "",
+      } as any)) as { id?: string } | undefined;
+      await queryClient.invalidateQueries({
+        queryKey: ["action", "list-design-systems"],
+      });
+      toast.success("Design system created from Figma");
+      navigate(
+        created?.id
+          ? `/design-systems?designSystemId=${encodeURIComponent(created.id)}`
+          : "/design-systems",
+      );
+    } catch (err) {
+      setFigCreating(false);
+      toast.error("Could not create the design system", {
+        description:
+          err instanceof Error ? err.message : "Something went wrong",
+      });
+    }
+  }, [figResult, figTitle, createSystemMutation, queryClient, navigate]);
 
   useEffect(() => {
     if (!sourceId || appliedSourceIdRef.current === sourceId) return;
@@ -201,21 +315,6 @@ export default function DesignSystemSetup() {
       e.target.value = "";
     },
     [readTextFiles],
-  );
-
-  const handleFigUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setFigFiles((prev) => [...prev, ...newAssets]);
-      e.target.value = "";
-    },
-    [],
   );
 
   const handleDocUpload = useCallback(
@@ -472,6 +571,74 @@ export default function DesignSystemSetup() {
           )}
 
           <div className="space-y-8">
+            {/* Start from a Figma file — deep brand extraction → ready system */}
+            <Section
+              title="Start from a Figma file"
+              description="Upload a .fig and we'll deeply extract the brand — colors, type scale, signature gradients, and a brand-character brief — into a ready-to-use design system."
+            >
+              {!figResult ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => realFigInputRef.current?.click()}
+                    disabled={figParsing}
+                    className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {figParsing ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Spinner className="size-6 text-[#609FF8]" />
+                        <p className="text-sm text-foreground/80">
+                          Parsing your Figma file…
+                        </p>
+                        <p className="text-xs text-muted-foreground/70">
+                          Decoding the document and extracting brand tokens
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#609FF8]/10">
+                          <IconBrandFigma className="h-6 w-6 text-[#609FF8]" />
+                        </div>
+                        <p className="text-sm font-medium text-foreground/90">
+                          Upload a .fig file
+                        </p>
+                        <p className="text-xs text-muted-foreground/70">
+                          In Figma: File → Save local copy
+                        </p>
+                      </div>
+                    )}
+                  </button>
+                  <input
+                    ref={realFigInputRef}
+                    type="file"
+                    accept=".fig"
+                    onChange={handleFigImport}
+                    className="hidden"
+                  />
+                  {figError && (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+                    >
+                      {figError}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <FigImportPreview
+                  result={figResult}
+                  title={figTitle}
+                  onTitleChange={setFigTitle}
+                  creating={figCreating}
+                  onCreate={handleCreateFromFig}
+                  onReset={() => {
+                    setFigResult(null);
+                    setFigError(null);
+                  }}
+                />
+              )}
+            </Section>
+
             {/* Company / Brand */}
             <Section
               title="Company / Brand"
@@ -671,37 +838,8 @@ export default function DesignSystemSetup() {
               title="Design files"
               description="Figma files, documents, screenshots, brand assets"
             >
-              {/* Figma */}
-              <div className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <IconUpload className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    Figma files
-                  </span>
-                </div>
-                <button
-                  onClick={() => figInputRef.current?.click()}
-                  className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
-                >
-                  <p className="text-xs text-muted-foreground/70">
-                    Upload .fig files
-                  </p>
-                </button>
-                <input
-                  ref={figInputRef}
-                  type="file"
-                  accept=".fig"
-                  multiple
-                  onChange={handleFigUpload}
-                  className="hidden"
-                />
-                <FileList
-                  files={figFiles}
-                  onRemove={(id) =>
-                    setFigFiles((p) => p.filter((f) => f.id !== id))
-                  }
-                />
-              </div>
+              {/* Figma .fig import lives in the "Start from a Figma file"
+                  section at the top — it deeply parses the file in-process. */}
 
               {/* Documents */}
               <div className="mb-4">
@@ -952,6 +1090,172 @@ function FileList({
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FigImportPreview({
+  result,
+  title,
+  onTitleChange,
+  creating,
+  onCreate,
+  onReset,
+}: {
+  result: FigImportResult;
+  title: string;
+  onTitleChange: (v: string) => void;
+  creating: boolean;
+  onCreate: () => void;
+  onReset: () => void;
+}) {
+  const colors = result.data.colors ?? {};
+  const colorEntries = (
+    [
+      ["Accent", "accent"],
+      ["Primary", "primary"],
+      ["Secondary", "secondary"],
+      ["Background", "background"],
+      ["Surface", "surface"],
+      ["Text", "text"],
+      ["Muted", "textMuted"],
+    ] as const
+  ).filter(([, k]) => colors[k]);
+  const typo = result.data.typography ?? {};
+  const gradients = result.preview.gradients ?? [];
+
+  return (
+    <div className="space-y-5 rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start gap-4">
+        {result.preview.thumbnailDataUrl ? (
+          <img
+            src={result.preview.thumbnailDataUrl}
+            alt="Figma file thumbnail"
+            className="h-20 w-28 shrink-0 rounded-md border border-border object-cover"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Design system name
+          </label>
+          <Input
+            value={title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            className="mt-1 bg-accent/50"
+            placeholder="Brand name"
+          />
+          <p className="mt-2 text-xs text-muted-foreground/70">
+            Extracted from {result.preview.nodeCount.toLocaleString()} nodes ·{" "}
+            {gradients.length} gradient{gradients.length === 1 ? "" : "s"} ·{" "}
+            {result.preview.imageCount} image
+            {result.preview.imageCount === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+
+      {colorEntries.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+            Colors
+          </h4>
+          <div className="flex flex-wrap gap-3">
+            {colorEntries.map(([label, k]) => (
+              <div key={k} className="flex items-center gap-2">
+                <div
+                  className="h-8 w-8 rounded-md border border-border"
+                  style={{ backgroundColor: colors[k] }}
+                />
+                <div className="text-xs">
+                  <div className="text-foreground/80">{label}</div>
+                  <div className="font-mono text-[11px] text-muted-foreground">
+                    {colors[k]}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {gradients.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+            Signature gradients
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {gradients.slice(0, 4).map((g, i) => (
+              <div
+                key={i}
+                className="h-10 w-28 rounded-md border border-border"
+                style={{ backgroundImage: g }}
+                title={g}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(typo.headingFont || typo.bodyFont) && (
+        <div>
+          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+            Typography
+          </h4>
+          <div className="text-sm text-foreground/80">
+            {typo.headingFont && (
+              <span>
+                <span className="text-muted-foreground">Headings:</span>{" "}
+                {typo.headingFont}
+                {typo.headingWeight ? ` ${typo.headingWeight}` : ""}
+              </span>
+            )}
+            {typo.bodyFont && (
+              <span className="ml-4">
+                <span className="text-muted-foreground">Body:</span>{" "}
+                {typo.bodyFont}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {result.customInstructions && (
+        <div>
+          <h4 className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+            Brand brief
+          </h4>
+          <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
+            {result.customInstructions}
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground/60">
+            This guides every design generated with this system — refine it
+            anytime after creating.
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 border-t border-border pt-4">
+        <Button
+          onClick={onCreate}
+          disabled={creating || !title.trim()}
+          className="cursor-pointer"
+        >
+          {creating ? (
+            <>
+              <Spinner className="size-4" /> Creating…
+            </>
+          ) : (
+            "Create design system"
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={onReset}
+          disabled={creating}
+          className="cursor-pointer"
+        >
+          Choose a different file
+        </Button>
+      </div>
     </div>
   );
 }

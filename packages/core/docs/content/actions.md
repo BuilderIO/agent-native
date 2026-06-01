@@ -154,29 +154,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Stdio/code developer clients can see the full connected action surface. Chat-style app hosts, including OAuth MCP Apps callers and generic authenticated remote HTTP/static-token callers, get a compact catalog containing app-facing builtins (`open_app`, `list_apps`, `ask_app`, and app-only embed helpers); action-specific MCP App resources stay out of that catalog unless an action explicitly sets `mcpApp.compactCatalog: true`. `publicAgent.expose` is still the opt-in for safe read/ingest tools outside that compact app catalog. See [MCP Protocol](/docs/mcp-protocol).
 
-For UI-capable MCP hosts, actions can also attach an optional MCP Apps resource.
-Use the shared full-app embed helper when the action needs an inline experience.
-MCP Apps should embed the real React route; do not hand-write a separate plain
-HTML product UI.
-
-The pattern is the same focused link we already return for external agents:
-the action exposes the operation, `link` points at the route with the right URL
-or deep-link params, and `embedApp()` uses that same target as the inline app.
-This works for draft emails, filtered inboxes, calendar event drafts, full
-dashboards, saved analyses, extension routes, decks, design editors, and any
-other state the app can load from a route.
-
-Keep MCP Apps URL-first. Prefer a durable app route such as
-`/dashboards/:id`, `/compose?draft=...`, or `/chart?payload=...` over passing
-large opaque state through the bridge. When an action's `link` and `mcpApp`
-should point at the same route, use `embedRoute()` to create both from one pure
-path builder. The host bridge is for host-owned capabilities: model context
-updates, host-mediated links, host context, and display-mode requests.
-
-When a whole app surface is too much, embed a narrow route that renders a real
-shared React component instead. For example, Analytics can render `/chart` with
-a compact `SqlPanel` URL payload so the MCP host shows one live chart while the
-implementation still reuses the dashboard chart component.
+For UI-capable MCP hosts, an action can also declare an optional MCP Apps resource via the `mcpApp` field (and a matching `link`) so capable hosts render the result inline. The pattern mirrors the focused link we already return for external agents: the action exposes the operation, `link` points at the route with the right URL or deep-link params, and the embed helper uses that same target as the inline app. When an action's `link` and `mcpApp` should point at the same route, use `embedRoute()` to build both from one pure path builder.
 
 ```ts
 import { embedRoute } from "@agent-native/core";
@@ -196,37 +174,7 @@ export default defineAction({
 });
 ```
 
-This advertises the MCP Apps extension (`io.modelcontextprotocol/ui`), exposes the HTML via MCP resources/templates, and includes standard MCP Apps plus ChatGPT Apps SDK widget metadata for compatible hosts. Keep `link` as the fallback for CLI and non-UI MCP clients; see [External Agents](/docs/external-agents#mcp-apps).
-
-The helper launches the action's `link` target through `/_agent-native/embed/start` with a short-lived browser session, so routes such as full dashboards, filtered inboxes, drafts, and extension pages can reuse the app's React components directly.
-Same-app `open_app({ embed: true })` mints that embed-start ticket during the
-original tool call, and custom actions can return `embedStartUrl` for the same
-fast path. The MCP layer keeps ticket-bearing embed-start URLs in hidden
-metadata and removes them from model-visible `structuredContent` and open-link
-metadata; otherwise the resource falls back to the app-only
-`create_embed_session` helper.
-Standard hosts navigate the MCP App frame directly to that signed route.
-Claude web uses a single-frame transplant path that hydrates the signed app
-HTML inside Claude's MCP App iframe because Claude does not reliably allow
-app-owned child iframes or external frame navigation. ChatGPT web uses a
-controlled route iframe for stable `window.openai` host APIs and bounded height
-control.
-
-Embedded routes can use the exported client helpers for the MCP App host
-bridge. Direct route embeds and Claude's transplanted route post standard
-`ui/*` JSON-RPC messages to the host, while the ChatGPT controlled-frame path
-and explicit diagnostic iframe path proxy `agentNative.mcpHost.*` messages
-through the launch wrapper.
-When a submitted app prompt should continue the host chat, call
-`sendToAgentChat()` from the embedded route; it sends hidden model context and
-then posts a visible user message through the host bridge where supported. Keep
-internal route/app-state instructions in the hidden context; the visible prompt
-should be the user's actual request.
-Design those routes with their own scrolling, because the MCP resource reports
-a bounded inline height rather than asking the host to size itself to the full
-app document. `embedApp({ height })` defaults to a `560px` shell, clamps to
-`320-900px`, and subtracts `44px` for wrapper chrome before sizing the embedded
-route viewport.
+Keep `link` as the fallback for CLI and non-UI MCP clients; it is also the embed's launch target. The embed bridge — the signed embed-start session, transplant vs. controlled-frame rendering, the `ui/*` host bridge, CSP, and height clamping — is owned by [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Standard actions {#standard-actions}
 

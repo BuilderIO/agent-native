@@ -104,9 +104,6 @@ function EngineCard({
   onSelect: (model: string) => void;
 }) {
   const caps = engine.capabilities;
-  const missingEnv = engine.requiredEnvVars.filter(
-    (v) => !import.meta.env?.[v],
-  );
 
   return (
     <button

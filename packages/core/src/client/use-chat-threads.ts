@@ -334,6 +334,9 @@ export function useChatThreads(
           if (local.updatedAt > server.updatedAt) {
             next.updatedAt = local.updatedAt;
           }
+          if (userRenamedThreadIdsRef.current.has(server.id) && local.title) {
+            next.title = local.title;
+          }
           if (pendingPinnedAtRef.current.has(server.id)) {
             next.pinnedAt = pendingPinnedAtRef.current.get(server.id) ?? null;
           }
@@ -435,8 +438,15 @@ export function useChatThreads(
       setIsLoading(true);
       const loadedThreads = await fetchThreads();
       const savedId = activeThreadIdRef.current;
+      if (loadedThreads === undefined) {
+        // Thread-list fetch failed. Do not reclassify a saved id as a new
+        // optimistic tab; AssistantChat should still get a chance to restore
+        // the specific saved thread via /threads/:id.
+        setIsLoading(false);
+        return;
+      }
       const loadedHasSavedId = Boolean(
-        savedId && (loadedThreads ?? []).some((t) => t.id === savedId),
+        savedId && loadedThreads.some((t) => t.id === savedId),
       );
 
       if (
@@ -529,6 +539,7 @@ export function useChatThreads(
       const pinnedAt = pinned ? now : null;
       pendingPinnedAtRef.current.set(threadId, pinnedAt);
       const rollback = () => {
+        if (pendingPinnedAtRef.current.get(threadId) !== pinnedAt) return;
         pendingPinnedAtRef.current.delete(threadId);
         setThreads((prev) =>
           prev.map((t) =>
@@ -559,7 +570,9 @@ export function useChatThreads(
           await fetchThreads();
           return false;
         }
-        pendingPinnedAtRef.current.delete(threadId);
+        if (pendingPinnedAtRef.current.get(threadId) === pinnedAt) {
+          pendingPinnedAtRef.current.delete(threadId);
+        }
         emitThreadsUpdated();
         return true;
       } catch {
@@ -581,6 +594,7 @@ export function useChatThreads(
       const archivedAt = Date.now();
       pendingArchivedAtRef.current.set(threadId, archivedAt);
       const rollback = () => {
+        if (pendingArchivedAtRef.current.get(threadId) !== archivedAt) return;
         pendingArchivedAtRef.current.delete(threadId);
         setThreads((prev) =>
           prev.map((t) =>
@@ -617,7 +631,9 @@ export function useChatThreads(
           await fetchThreads();
           return false;
         }
-        pendingArchivedAtRef.current.delete(threadId);
+        if (pendingArchivedAtRef.current.get(threadId) === archivedAt) {
+          pendingArchivedAtRef.current.delete(threadId);
+        }
         if (threadId === activeThreadIdRef.current) {
           setActiveThreadId(null);
         }
@@ -640,6 +656,20 @@ export function useChatThreads(
       const previousTitle = threadsRef.current.find(
         (t) => t.id === threadId,
       )?.title;
+      const rollback = () => {
+        const currentTitle = threadsRef.current.find(
+          (t) => t.id === threadId,
+        )?.title;
+        if (currentTitle !== nextTitle) return;
+        clearUserRenamedThread(threadId);
+        if (previousTitle !== undefined) {
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === threadId ? { ...t, title: previousTitle } : t,
+            ),
+          );
+        }
+      };
       markUserRenamedThread(threadId);
       setThreads((prev) =>
         prev.map((t) => (t.id === threadId ? { ...t, title: nextTitle } : t)),
@@ -655,28 +685,14 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
-          clearUserRenamedThread(threadId);
-          if (previousTitle !== undefined) {
-            setThreads((prev) =>
-              prev.map((t) =>
-                t.id === threadId ? { ...t, title: previousTitle } : t,
-              ),
-            );
-          }
+          rollback();
           await fetchThreads();
           return false;
         }
         emitThreadsUpdated();
         return true;
       } catch {
-        clearUserRenamedThread(threadId);
-        if (previousTitle !== undefined) {
-          setThreads((prev) =>
-            prev.map((t) =>
-              t.id === threadId ? { ...t, title: previousTitle } : t,
-            ),
-          );
-        }
+        rollback();
         await fetchThreads();
         return false;
       }
@@ -703,21 +719,21 @@ export function useChatThreads(
       } catch {}
       clearUserRenamedThread(id);
       optimisticThreadScopesRef.current.delete(id);
-      setThreads((prev) => {
-        const next = prev.filter((t) => t.id !== id);
-        if (id === activeThreadId) {
-          // Switch to the next available thread, or create new if empty
-          if (next.length > 0) {
-            setActiveThreadId(next[0].id);
-          } else {
-            // Create a new thread
-            createThread();
-          }
+      setThreads((prev) => prev.filter((t) => t.id !== id));
+      if (id === activeThreadIdRef.current) {
+        // Switch to the next available thread, or create a new one if the
+        // list is now empty. Computed outside the setThreads updater so the
+        // updater stays pure (StrictMode double-invokes updaters, which would
+        // otherwise create duplicate optimistic threads on the empty branch).
+        const remaining = threadsRef.current.filter((t) => t.id !== id);
+        if (remaining.length > 0) {
+          setActiveThreadId(remaining[0].id);
+        } else {
+          createThread();
         }
-        return next;
-      });
+      }
     },
-    [apiUrl, activeThreadId, createThread],
+    [apiUrl, clearUserRenamedThread, createThread],
   );
 
   // Ref to look up the latest scope of a known thread inside
@@ -838,7 +854,7 @@ export function useChatThreads(
       sourceId: string,
       sourceSnapshot?: ChatThreadSnapshot | null,
     ): Promise<string | null> => {
-      const id = crypto.randomUUID();
+      const id = createLocalThreadId();
       const fallbackForkFromSnapshot = async (
         source: ForkSnapshotWithScope,
       ): Promise<ChatThreadSummary | null> => {

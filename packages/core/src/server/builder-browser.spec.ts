@@ -531,6 +531,60 @@ describe("Builder callback CSRF state", () => {
         "https://agent-workspace.builder.io/_agent-native/builder/connect",
       );
     });
+
+    it("uses the app's localhost origin for cli-auth when reached via a tunnel Builder rejects (local dev)", () => {
+      // Reproduces the ngrok/tunnel dev case: the preview host is trusted by us
+      // but not by Builder's /cli-auth allow-list, and no public gateway env is
+      // set. Without the fallback the app hands Builder the rejected origin and
+      // Builder redirects to its own dead http://localhost:10110/auth.
+      delete process.env.NODE_ENV;
+      process.env.PORT = "8080";
+      for (const key of [
+        "APP_URL",
+        "VITE_APP_URL",
+        "BETTER_AUTH_URL",
+        "VITE_BETTER_AUTH_URL",
+        "WORKSPACE_GATEWAY_URL",
+        "VITE_WORKSPACE_GATEWAY_URL",
+      ]) {
+        delete process.env[key];
+      }
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "alice.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "http://localhost:8080",
+      );
+    });
+
+    it("does not use the localhost cli-auth fallback in production", () => {
+      process.env.NODE_ENV = "production";
+      process.env.PORT = "8080";
+      for (const key of [
+        "APP_URL",
+        "VITE_APP_URL",
+        "BETTER_AUTH_URL",
+        "VITE_BETTER_AUTH_URL",
+        "WORKSPACE_GATEWAY_URL",
+        "VITE_WORKSPACE_GATEWAY_URL",
+      ]) {
+        delete process.env[key];
+      }
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "alice.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      // Unchanged production behavior: with no gateway configured it returns the
+      // preview origin (never a localhost callback).
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://alice.builderio.xyz",
+      );
+    });
   });
 
   describe("Builder branch project configuration", () => {

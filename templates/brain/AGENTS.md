@@ -35,6 +35,11 @@ Read the relevant skill before deeper work:
 
 - `brain` for core ingestion, distillation, retrieval, and review flows.
 - `ask-across-everything` for cross-source answers.
+- `brain/RUNBOOK.md` (the `brain-runbook` skill) for internal architecture,
+  ops, and rollout detail: search layers, Slack backfill, distillation worker,
+  connection resolution, scheduled sync, demo/eval internals, and generic
+  ingest. (This material moved out of `AGENTS.md`; read it only when operating
+  or debugging Brain internals.)
 - `adding-a-feature` for Brain feature changes.
 - `actions`, `real-time-sync`, `security`, `frontend-design`, and `shadcn-ui`
   for framework work.

@@ -257,12 +257,23 @@ export async function cancelStaleRunsForOwner(
   return 0;
 }
 
+// Throttle the stale-run sweep so the 3s RunsTray poll doesn't issue an
+// UPDATE (and, when it cancels something, a poll-bump that triggers another
+// listRuns) on every single read. A 30s cadence is plenty given "stale" means
+// a run has been alive for many minutes.
+const _lastStaleSweep = new Map<string, number>();
+const STALE_SWEEP_INTERVAL_MS = 30_000;
+
 export async function listRuns(
   owner: string,
   options: ListRunsOptions = {},
 ): Promise<AgentRun[]> {
   await ensureTable();
-  await cancelStaleRunsForOwner(owner);
+  const lastSweep = _lastStaleSweep.get(owner) ?? 0;
+  if (Date.now() - lastSweep > STALE_SWEEP_INTERVAL_MS) {
+    _lastStaleSweep.set(owner, Date.now());
+    await cancelStaleRunsForOwner(owner);
+  }
   const client = getDbExec();
   const limit = normalizeLimit(options.limit);
   let where = `owner = ?`;

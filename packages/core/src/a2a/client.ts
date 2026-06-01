@@ -1,4 +1,5 @@
 import * as jose from "jose";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type {
   AgentCard,
   JsonRpcRequest,
@@ -113,7 +114,11 @@ export class A2AClient {
 
     for (const endpoint of this.endpointCandidates) {
       try {
-        const res = await fetch(endpoint, { method: "OPTIONS" });
+        const res = await ssrfSafeFetch(
+          endpoint,
+          { method: "OPTIONS" },
+          { maxRedirects: 3 },
+        );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
           return;
@@ -174,7 +179,11 @@ export class A2AClient {
   }
 
   async getAgentCard(): Promise<AgentCard> {
-    const res = await fetch(`${this.baseUrl}/.well-known/agent-card.json`);
+    const res = await ssrfSafeFetch(
+      `${this.baseUrl}/.well-known/agent-card.json`,
+      {},
+      { maxRedirects: 3 },
+    );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
     }
@@ -267,7 +276,7 @@ export class A2AClient {
       try {
         current = await this.getTask(submitted.id);
         opts?.onUpdate?.(current);
-      } catch (err) {
+      } catch {
         // Transient fetch failure — keep polling until the deadline.
         continue;
       }
@@ -374,12 +383,16 @@ export class A2AClient {
         ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
         : undefined;
     try {
-      return await fetch(url, {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify(body),
-        signal: controller?.signal,
-      });
+      return await ssrfSafeFetch(
+        url,
+        {
+          method: "POST",
+          headers: this.headers(),
+          body: JSON.stringify(body),
+          signal: controller?.signal,
+        },
+        { maxRedirects: 3 },
+      );
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -467,6 +480,8 @@ export async function callAgent(
     async?: boolean;
     /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
+    /** Poll interval for async calls. Primarily useful for tests/retries. */
+    pollIntervalMs?: number;
   },
 ): Promise<string> {
   let apiKey = opts?.apiKey;
@@ -512,6 +527,7 @@ export async function callAgent(
         contextId: opts?.contextId,
         metadata,
         timeoutMs: opts?.timeoutMs,
+        pollIntervalMs: opts?.pollIntervalMs,
       });
     } catch (err) {
       if (err instanceof A2ATaskTimeoutError) {

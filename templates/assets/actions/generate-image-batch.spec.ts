@@ -110,4 +110,63 @@ describe("generate-image-batch", () => {
       updatedAt: "2026-05-28T00:00:00.000Z",
     });
   });
+
+  it("forwards non-dismissible picker slots to single-image generation", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      slots: [
+        {
+          slotId: "picker-candidate-1",
+          prompt: "First",
+          dismissible: false,
+        },
+      ],
+    });
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "picker-candidate-1",
+        dismissible: false,
+        activateSessionAsset: false,
+      }),
+    );
+  });
+
+  it("does not report dismissed slots as successful images", async () => {
+    generateImageRunMock
+      .mockResolvedValueOnce({
+        runId: "run-1",
+        dismissed: true,
+        Artifacts: [],
+      })
+      .mockResolvedValueOnce({
+        id: "asset-2",
+        runId: "run-2",
+        previewUrl: "/api/assets/asset-2/content",
+      });
+
+    const result = await action.run({
+      libraryId: "lib-1",
+      slots: [
+        { slotId: "slot-1", prompt: "First" },
+        { slotId: "slot-2", prompt: "Second" },
+      ],
+    });
+
+    expect(result.images).toEqual([
+      {
+        slotId: "slot-1",
+        ok: false,
+        dismissed: true,
+        runId: "run-1",
+        error: "Candidate was dismissed before it completed.",
+      },
+      expect.objectContaining({
+        slotId: "slot-2",
+        ok: true,
+        id: "asset-2",
+        runId: "run-2",
+      }),
+    ]);
+  });
 });

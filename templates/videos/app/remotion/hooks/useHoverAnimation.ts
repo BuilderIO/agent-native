@@ -1,5 +1,5 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import type { AnimationTrack, AnimatedProp } from "@/types";
+import type { AnimationTrack } from "@/types";
 import { getPropValueKeyframed } from "../trackAnimation";
 
 /**
@@ -47,13 +47,6 @@ export function useHoverAnimation(
   const { fps } = useVideoConfig();
 
   const { cursorSize = 32 } = options;
-
-  // Read cursor position from track keyframes
-  const xProp = cursorTrack?.animatedProps?.find((p) => p.property === "x");
-  const yProp = cursorTrack?.animatedProps?.find((p) => p.property === "y");
-  const clickingProp = cursorTrack?.animatedProps?.find(
-    (p) => p.property === "isClicking",
-  );
 
   const cursorX = getPropValueKeyframed(frame, fps, cursorTrack, "x", 0);
   const cursorY = getPropValueKeyframed(frame, fps, cursorTrack, "y", 0);

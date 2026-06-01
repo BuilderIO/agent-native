@@ -1,10 +1,3 @@
-/**
- * Get style presets for all categories.
- *
- * Usage:
- *   pnpm action get-style-settings
- */
-
 import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -32,7 +25,6 @@ export default defineAction({
       .from(schema.dictationStyles)
       .where(eq(schema.dictationStyles.ownerEmail, ownerEmail));
 
-    // Merge with defaults — user rows override
     const byCategory = new Map(rows.map((r) => [r.category, r]));
     const styles = DEFAULT_STYLES.map((d) => {
       const existing = byCategory.get(d.category);

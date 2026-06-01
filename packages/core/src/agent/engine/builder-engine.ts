@@ -392,6 +392,10 @@ async function* readJsonlLines(
       if (line) yield line;
     }
   }
+  // Flush any bytes the streaming decoder buffered for an incomplete multibyte
+  // sequence at the end of the stream; otherwise a trailing multibyte char in
+  // the final chunk is silently dropped from the last line.
+  buffer += decoder.decode();
   const tail = buffer.trim();
   if (tail) yield tail;
 }

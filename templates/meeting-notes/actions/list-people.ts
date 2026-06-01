@@ -12,6 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getActiveOrganizationId } from "../server/lib/meetings.js";
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
     "List people (contacts) built from meeting attendees. Supports search and sorting by meeting count or name.",
@@ -39,9 +43,9 @@ export default defineAction({
     const conditions: any[] = [eq(schema.people.organizationId, orgId)];
 
     if (args.search) {
-      const pat = `%${args.search.toLowerCase()}%`;
+      const pat = `%${escapeLike(args.search.toLowerCase())}%`;
       conditions.push(
-        sql`(LOWER(${schema.people.name}) LIKE ${pat} OR LOWER(${schema.people.email}) LIKE ${pat})`,
+        sql`(LOWER(${schema.people.name}) LIKE ${pat} ESCAPE '\\' OR LOWER(${schema.people.email}) LIKE ${pat} ESCAPE '\\')`,
       );
     }
 

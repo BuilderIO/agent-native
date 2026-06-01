@@ -134,7 +134,7 @@ emit("calendar.booking.created", {
 
 ## Condition Evaluator
 
-When an automation has a `condition`, the dispatcher calls Haiku (claude-haiku-4-5) to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task.
+When an automation has a `condition`, the dispatcher calls the configured fast/classification model to classify whether the event payload satisfies the condition. This is a yes/no classification, not a generation task. The exact model ID lives in `condition-evaluator.ts`.
 
 - Empty or missing condition = unconditional (always fires).
 - Results are memoized (SHA-256 of condition + payload) with a 5-minute TTL and 500-entry LRU cache.

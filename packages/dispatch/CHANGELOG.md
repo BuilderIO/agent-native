@@ -1,5 +1,55 @@
 # @agent-native/dispatch
 
+## 0.8.27
+
+### Patch Changes
+
+- a56d93d: Remove compiler-verified dead code (unused imports, unused non-exported types,
+  and side-effect-free unused locals) across the framework. No behavior or public
+  API changes — only declarations the TypeScript compiler proves are unreferenced.
+- a56d93d: Fix Messaging enable/disable and webhook setup fetches to use `agentNativePath()`, so they work under a base-path (workspace) mount instead of 404ing at the gateway root.
+- a56d93d: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
+  SSRF-safe URL fetch paths.
+
+## 0.8.26
+
+### Patch Changes
+
+- 6e6fce7: Internal cleanup sweep: remove unused imports/variables and tidy code (no behavior change).
+
+## 0.8.25
+
+### Patch Changes
+
+- 853ab71: Escape application-state and resource prefix queries so literal `%` and `_` characters do not over-match keys. Also make core store initialization retry after transient failures instead of caching rejected promises, and keep run SSE polling moving past corrupt persisted events.
+
+  Search and rate-limit LIKE filters now treat user text literally, including chat-thread/debug searches and inbound-email sender matching.
+
+## 0.8.24
+
+### Patch Changes
+
+- d4013f0: Remove compiler-verified dead code (unused imports, unused non-exported types,
+  and side-effect-free unused locals) across the framework. No behavior or public
+  API changes — only declarations the TypeScript compiler proves are unreferenced.
+- d4013f0: Fix Messaging enable/disable and webhook setup fetches to use `agentNativePath()`, so they work under a base-path (workspace) mount instead of 404ing at the gateway root.
+- d4013f0: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
+  SSRF-safe URL fetch paths.
+
+## 0.8.23
+
+### Patch Changes
+
+- c3852e0: Stop inbound email from impersonating real users. The inbound email adapter now
+  derives a `senderVerified` flag from the provider's DKIM/SPF
+  (`Authentication-Results`) results, and dispatch only grants a sender's real
+  identity — their API keys, org secrets, personal instructions, and ownable data
+  — when the message is DKIM/SPF-verified for the From domain AND that address is a
+  real org member. Unverified or spoofed `From:` headers fall back to a synthetic,
+  credential-less owner. Linked identities (`/link`) are unchanged. The legacy
+  "trust the From header" behavior can be restored with
+  `DISPATCH_TRUST_UNVERIFIED_EMAIL_SENDER=1` (off by default).
+
 ## 0.8.22
 
 ### Patch Changes

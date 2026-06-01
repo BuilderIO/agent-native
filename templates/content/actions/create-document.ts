@@ -155,10 +155,7 @@ export default defineAction({
         ),
       );
 
-    // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(`Created document "${title}" (${id})`);
 
     return {
       id: doc.id,

@@ -7,21 +7,9 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
-} from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { assertWorkspaceAccess, nanoid } from "../server/lib/calls.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -50,27 +38,7 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const db = getDb();
-    const caller = getCurrentOwnerEmail();
-
-    const [member] = await db
-      .select()
-      .from(schema.workspaceMembers)
-      .where(
-        and(
-          eq(schema.workspaceMembers.workspaceId, args.workspaceId),
-          eq(schema.workspaceMembers.email, caller),
-        ),
-      );
-    if (!member) {
-      const [ws] = await db
-        .select()
-        .from(schema.workspaces)
-        .where(eq(schema.workspaces.id, args.workspaceId));
-      if (!ws) throw new Error(`Workspace not found: ${args.workspaceId}`);
-      if (ws.ownerEmail !== caller) {
-        throw new Error("You do not have access to this workspace.");
-      }
-    }
+    await assertWorkspaceAccess(args.workspaceId, "creator-lite");
 
     const id = nanoid();
     const now = new Date().toISOString();
@@ -98,11 +66,3 @@ export default defineAction({
     };
   },
 });
-
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void resolveDefaultWorkspaceId;
-void readAppState;
-void accessFilter;
-void assertAccess;

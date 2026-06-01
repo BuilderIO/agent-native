@@ -12,7 +12,7 @@ for (const type of ["asset-library", "image-library"] as const) {
     sharesTable: schema.assetLibraryShares,
     displayName: "Asset Library",
     titleColumn: "title",
-    getResourcePath: (library) => `/library/${library.id}`,
+    getResourcePath: (library) => `/brand-kits/${library.id}`,
     getDb,
   });
 }

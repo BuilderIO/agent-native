@@ -5,7 +5,7 @@
  * Composes on the existing useCollaborativeDoc() hook for transport/sync.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Y from "yjs";
 import {
   useCollaborativeDoc,

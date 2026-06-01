@@ -11,7 +11,7 @@ description: >-
 
 ## Rule
 
-Every AI feature in Clips goes through the agent chat unless it is the narrow media-pipeline exception below. The UI and server should not add broad shadow agents or inline chat workflows. **Exception:** transcription. Transcription takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority for transcription: **Builder** (via `BUILDER_PRIVATE_KEY`, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr) → **OpenAI** `whisper-1` via `OPENAI_API_KEY`. Additionally, `save-browser-transcript` captures a Web Speech API transcript instantly during recording with no key required — higher-quality backends refine it afterward.
+Every AI feature in Clips goes through the agent chat unless it is the narrow media-pipeline exception below. The UI and server should not add broad shadow agents or inline chat workflows. **Exception:** transcription. Transcription takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority for transcription: **native** first (browser Web Speech API / desktop macOS SFSpeech, saved via `save-browser-transcript`, no key required) → **cloud fallback** when native text is missing: **Builder.io managed** Gemini (via `BUILDER_PRIVATE_KEY` or a connected Builder account, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr). Clips never routes recording/meeting audio to OpenAI for transcription.
 
 ## Why
 
@@ -28,7 +28,7 @@ The agent is already the user's primary interface — it has full project contex
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
 | Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
 | Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
-| **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → Builder / Groq / OpenAI (priority order); `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
+| **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
 
 ## The delegation pattern
 
@@ -93,42 +93,32 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 
 **Provider priority:**
 
-1. `BUILDER_PRIVATE_KEY` → Builder proxy (`transcribeWithBuilder()`). **Highest priority.** No separate API key needed — uses the Builder.io account connection. Returns segments with speaker labels and word-level timing.
-2. `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Typically 10-30x faster than OpenAI's hosted Whisper, ~$0.04/hour of audio.
-3. `OPENAI_API_KEY` → `https://api.openai.com/v1/audio/transcriptions`, model `whisper-1`. Fallback. Fine, just slower.
+1. **Native (highest priority).** The browser's Web Speech API and desktop macOS SFSpeech capture run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, it preserves the ready native transcript and only falls back to a cloud provider if native text is missing.
+2. **Cloud fallback — Builder.io managed (Gemini).** When a Builder account is connected (`BUILDER_PRIVATE_KEY` or per-user OAuth, no separate API key needed), `request-transcript` calls `transcribeWithBuilder()`, which routes audio to Builder.io's managed Gemini transcription. Returns text plus timestamped segments.
+3. **Cloud fallback — Groq Whisper.** `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Fast (~$0.04/hour of audio) Whisper-compatible speech-to-text used when Builder is unavailable.
 
-**Native transcription:** The browser's Web Speech API and desktop macOS Speech capture run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, it preserves the ready native transcript and only uses cloud providers if native text is missing.
+Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
-If no provider is available (no Builder connection, no Groq key, no OpenAI key) and no native transcript exists, the action writes `status="failed"` so the UI can show a friendly prompt.
+If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
 
 ### Secret registration
 
-Both keys are declared in `server/register-secrets.ts` so they appear in the agent sidebar settings UI:
+Builder transcription needs no app-specific key (the connected Builder.io account or `BUILDER_PRIVATE_KEY` carries the grant). The only transcription API key declared in `server/register-secrets.ts` is the optional Groq key, so it appears in the agent sidebar settings UI:
 
 ```ts
 registerRequiredSecret({
   key: "GROQ_API_KEY",
   label: "Groq API Key (recommended)",
   description:
-    "Fast Whisper transcription via whisper-large-v3-turbo — ~10x faster than OpenAI, ~$0.04/hour.",
+    "Fast speech-to-text fallback via Groq. Builder Gemini Flash-Lite is preferred when connected; Groq is used only when Builder/native transcription is unavailable.",
   docsUrl: "https://console.groq.com/keys",
-  scope: "user",
-  kind: "api-key",
-  required: false,
-});
-
-registerRequiredSecret({
-  key: "OPENAI_API_KEY",
-  label: "OpenAI API Key",
-  description: "Fallback Whisper transcription (whisper-1).",
-  docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",
   required: false,
 });
 ```
 
-Neither is marked `required: true` — videos still upload and play without cloud transcription; they just won't have cloud-generated captions/summaries when native transcription is unavailable. The onboarding checklist surfaces both so the user can pick one.
+It is not marked `required: true` — videos still upload and play without a Groq key, since native transcription (and Builder when connected) already cover the common case. The onboarding checklist surfaces it so the user can add the Groq fallback if they want it.
 
 ## Live transcription during recording
 
@@ -138,7 +128,7 @@ A future pass could add server-side streaming transcription (Deepgram Nova-3 / A
 
 ## Don't
 
-- Don't `import OpenAI from "openai"` anywhere except `actions/request-transcript.ts` (and it uses `fetch` directly, not the SDK).
+- Don't route Clips recording/meeting audio to OpenAI for transcription. The cloud fallback is Builder.io managed Gemini → Groq Whisper only; don't add an OpenAI transcription path or `import OpenAI from "openai"`.
 - Don't `import Anthropic from "@anthropic-ai/sdk"` — the agent is already Claude.
 - Don't build a "Clips AI" dialog that duplicates the agent chat. Use the agent chat.
 - Don't render a robot, sparkle, or wand icon for AI affordances — all three are overplayed. Prefer plain text (or a neutral verb icon like `IconBolt`) for AI buttons.
@@ -150,4 +140,4 @@ A future pass could add server-side streaming transcription (Deepgram Nova-3 / A
 - `delegate-to-agent` — the framework-wide rule this skill is grounded in.
 - `video-editing` — filler-word removal writes proposed cuts into `editor-draft` for user review.
 - `recording` — transcription kicks off automatically when upload completes.
-- `onboarding` — how the OpenAI key gets collected on first run.
+- `onboarding` — how the optional Groq fallback key gets collected on first run.

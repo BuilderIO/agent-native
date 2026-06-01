@@ -12,18 +12,11 @@ import { z } from "zod";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertWorkspaceAccess,
   getCurrentOwnerEmail,
   nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -47,6 +40,35 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    await assertWorkspaceAccess(args.workspaceId, "creator-lite");
+    if (args.spaceId) {
+      const [space] = await db
+        .select({ workspaceId: schema.spaces.workspaceId })
+        .from(schema.spaces)
+        .where(eq(schema.spaces.id, args.spaceId))
+        .limit(1);
+      if (!space || space.workspaceId !== args.workspaceId) {
+        throw new Error("Space does not belong to this workspace.");
+      }
+    }
+    if (args.parentId) {
+      const [parent] = await db
+        .select({
+          workspaceId: schema.folders.workspaceId,
+          ownerEmail: schema.folders.ownerEmail,
+        })
+        .from(schema.folders)
+        .where(eq(schema.folders.id, args.parentId))
+        .limit(1);
+      if (
+        !parent ||
+        parent.workspaceId !== args.workspaceId ||
+        parent.ownerEmail !== ownerEmail
+      ) {
+        throw new Error("Parent folder does not belong to this workspace.");
+      }
+    }
+
     const id = nanoid();
     const now = new Date().toISOString();
 
@@ -96,11 +118,3 @@ export default defineAction({
     };
   },
 });
-
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void resolveDefaultWorkspaceId;
-void readAppState;
-void accessFilter;
-void assertAccess;

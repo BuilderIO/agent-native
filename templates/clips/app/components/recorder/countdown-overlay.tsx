@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 
@@ -18,10 +18,17 @@ export function CountdownOverlay({
 }: CountdownOverlayProps) {
   const [remaining, setRemaining] = useState(seconds);
   const [paused, setPaused] = useState(false);
+  // Ensure onComplete fires exactly once for the lifetime of the countdown,
+  // even if its identity changes while `remaining` is already 0 (which would
+  // otherwise re-run this effect and call it again).
+  const hasCompletedRef = useRef(false);
 
   useEffect(() => {
     if (remaining <= 0) {
-      onComplete();
+      if (!hasCompletedRef.current) {
+        hasCompletedRef.current = true;
+        onComplete();
+      }
       return;
     }
     if (paused) return;

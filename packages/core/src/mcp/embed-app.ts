@@ -17,6 +17,9 @@ export interface EmbedAppOptions {
   openLabel?: string;
   embedByDefault?: boolean;
   startToolName?: string;
+  connectDomains?: string[];
+  resourceDomains?: string[];
+  baseUriDomains?: string[];
   frameDomains?: string[];
   height?: number;
 }
@@ -94,7 +97,8 @@ export function embedApp(
       <div class="message">Preparing app</div>
     </section>
   </main>
-  <script type="module">
+  <script>
+    (async () => {
     const body = document.body;
     const stage = document.querySelector("[data-stage]");
     const titleEl = document.querySelector("[data-title-label]");
@@ -108,9 +112,18 @@ export function embedApp(
     const frameReadyMessageDelays = [0, 200, 500, 1500, 3000, 7000, 15000, 30000];
     const frameReadyTimeoutMs = 45000;
     const frameLoadTimeoutMs = 45000;
+    const defaultOpenAiBridgeWaitMs = 200;
+    const chatGptOpenAiBridgeWaitMs = 5000;
+    const openAiBridgePollMs = 50;
+    const nativeBridgeInitializeTimeoutMs = 5000;
+    const nativeBridgeRequestTimeoutMs = 30000;
+    const wrapperRequestTimeoutMs = 5000;
     let app = null;
     let openAiBridge = null;
+    let wrapperRequestId = 0;
+    const wrapperRequests = new Map();
     let toolInput = {};
+    let toolResultData = {};
     let openUrl = "";
     let openStartUrl = "";
     let startedFor = "";
@@ -194,6 +207,28 @@ export function embedApp(
       return parseJson(text, {});
     }
 
+    function metadataRecord(value) {
+      const meta = value && typeof value === "object" && !Array.isArray(value)
+        ? value._meta
+        : null;
+      return meta && typeof meta === "object" && !Array.isArray(meta)
+        ? meta
+        : null;
+    }
+
+    function toolResultMeta(params) {
+      if (!params || typeof params !== "object") return {};
+      const direct = metadataRecord(params);
+      if (direct) return direct;
+      if (params.result && typeof params.result === "object") {
+        return toolResultMeta(params.result);
+      }
+      if (params.toolResult && typeof params.toolResult === "object") {
+        return toolResultMeta(params.toolResult);
+      }
+      return {};
+    }
+
     function openLinkRecordFrom(value) {
       return value && typeof value === "object" && !Array.isArray(value)
         ? value
@@ -222,7 +257,8 @@ export function embedApp(
     }
 
     function openLinkFrom(params, data) {
-      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const meta = toolResultMeta(params);
+      const openLink = meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       const structuredOpenLinkUrl = openLinkWebUrlFrom(record.openLink);
@@ -238,13 +274,13 @@ export function embedApp(
     }
 
     function embedStartUrlFrom(params, data) {
-      const embedStart =
-        params && params._meta && params._meta["agent-native/embedStart"];
+      const meta = toolResultMeta(params);
+      const embedStart = meta["agent-native/embedStart"];
       const embedStartRecord =
         embedStart && typeof embedStart === "object" && !Array.isArray(embedStart)
           ? embedStart
           : {};
-      const openLink = params && params._meta && params._meta["agent-native/openLink"];
+      const openLink = meta["agent-native/openLink"];
       const metaUrl = openLinkWebUrlFrom(openLink);
       const record = data && typeof data === "object" ? data : {};
       return firstEmbedStartUrl([
@@ -284,6 +320,59 @@ export function embedApp(
     function sendToAppFrame(message) {
       if (!appFrame || !appFrame.contentWindow) return;
       try { appFrame.contentWindow.postMessage(message, "*"); } catch {}
+    }
+
+    function nextWrapperRequestId() {
+      wrapperRequestId += 1;
+      return "mcp-wrapper-" + Date.now() + "-" + wrapperRequestId;
+    }
+
+    function respondToWrapperRequest(requestId, result) {
+      if (!requestId) return;
+      sendToAppFrame({
+        type: "agentNative.mcpHost.response",
+        data: {
+          requestId,
+          ok: !!(result && result.ok),
+          result: result || {}
+        }
+      });
+    }
+
+    function wrapperRpcRequest(method, params, timeoutMs) {
+      return new Promise((resolve) => {
+        const id = nextWrapperRequestId();
+        const timer = window.setTimeout(() => {
+          wrapperRequests.delete(id);
+          resolve({ ok: false, error: "MCP host bridge request timed out." });
+        }, timeoutMs || wrapperRequestTimeoutMs);
+        wrapperRequests.set(id, { resolve, timer });
+        try {
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params: params || {} },
+            "*"
+          );
+        } catch (err) {
+          wrapperRequests.delete(id);
+          clearTimeout(timer);
+          resolve({ ok: false, error: err && err.message ? err.message : String(err) });
+        }
+      });
+    }
+
+    function settleWrapperRpcResponse(message) {
+      const id = typeof (message && message.id) === "string" ? message.id : "";
+      if (!id) return false;
+      const pending = wrapperRequests.get(id);
+      if (!pending) return false;
+      wrapperRequests.delete(id);
+      clearTimeout(pending.timer);
+      if (message.error) {
+        pending.resolve({ ok: false, error: message.error });
+      } else {
+        pending.resolve({ ok: true, result: message.result });
+      }
+      return true;
     }
 
     function sendHostContext() {
@@ -366,8 +455,23 @@ export function embedApp(
       };
     }
 
+    function installReactRefreshPreambleFallback() {
+      window.__vite_plugin_react_preamble_installed__ = true;
+      if (typeof window.$RefreshReg$ !== "function") {
+        window.$RefreshReg$ = function() {};
+      }
+      if (typeof window.$RefreshSig$ !== "function") {
+        window.$RefreshSig$ = function() {
+          return function(type) {
+            return type;
+          };
+        };
+      }
+    }
+
     function installExternalEmbedRuntime(config) {
       window.__AGENT_NATIVE_EXTERNAL_EMBED = config;
+      installReactRefreshPreambleFallback();
       try {
         if (config.target) {
           window.history.replaceState(window.history.state, "", config.target);
@@ -515,22 +619,159 @@ export function embedApp(
       next.remove();
     }
 
-    function rootRelativeSpecifiersToAbsolute(code, appOrigin) {
-      return String(code).replace(/(["'])\\/(?!\\/)/g, "$1" + appOrigin + "/");
+    function isEmbedRuntimeModulePath(pathname) {
+      if (typeof pathname !== "string" || !pathname) return false;
+      return /(?:^|\\/)(?:@(?:id|vite|fs|react-refresh)|app|node_modules|packages|src)(?:\\/|$)/.test(pathname) ||
+        /(?:^|\\/)__x00__virtual:/.test(pathname) ||
+        pathname.includes("virtual:react-router");
     }
 
-    function moduleCodeToClassicAsync(code, appOrigin) {
-      return rootRelativeSpecifiersToAbsolute(code, appOrigin)
+    function appendEmbedParamsToAppUrl(url, config) {
+      if (isEmbedRuntimeModulePath(url.pathname)) return url;
+      if (config.token) url.searchParams.set(config.embedTokenParam, config.token);
+      if (config.chatBridgeActive) url.searchParams.set(config.chatBridgeParam, "1");
+      return url;
+    }
+
+    function rootRelativeSpecifierToAppUrl(specifier, config) {
+      if (typeof specifier !== "string" || !specifier.startsWith("/") || specifier.startsWith("//")) {
+        return specifier;
+      }
+      try {
+        const url = new URL(specifier, config.origin);
+        return appendEmbedParamsToAppUrl(url, config).toString();
+      } catch (_err) {
+        return specifier;
+      }
+    }
+
+    function rootRelativeSpecifiersToAbsolute(code, config) {
+      return String(code).replace(/(["'])\\/(?!\\/)([^"']*)/g, (_match, quote, rest) => {
+        return quote + rootRelativeSpecifierToAppUrl("/" + rest, config);
+      });
+    }
+
+    function relativeSpecifierToAppUrl(specifier, config, baseUrl) {
+      if (typeof specifier !== "string" || !/^\\.\\.?\\//.test(specifier)) {
+        return specifier;
+      }
+      try {
+        const url = new URL(specifier, baseUrl || config.baseHref);
+        if (url.origin === config.origin) {
+          appendEmbedParamsToAppUrl(url, config);
+        }
+        return url.toString();
+      } catch (_err) {
+        return specifier;
+      }
+    }
+
+    function relativeModuleSpecifiersToAbsolute(code, config, baseUrl) {
+      return String(code)
+        .replace(/(\\bimport\\s+(?:[^"']+?\\s+from\\s+)?)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bimport\\s*\\(\\s*)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        })
+        .replace(/(\\bexport\\s+[^"']*?\\s+from\\s+)(["'])(\\.\\.?\\/[^"']*)\\2/g, (_match, prefix, quote, specifier) => {
+          return prefix + quote + relativeSpecifierToAppUrl(specifier, config, baseUrl) + quote;
+        });
+    }
+
+    function stripDevOnlyModuleImports(code) {
+      return String(code).replace(
+        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/inject-hmr-runtime|__x00__virtual:react-router\\/inject-hmr-runtime)[^"']*["']\\s*;?/g,
+        ""
+      );
+    }
+
+    function namedImportBindings(specifierList) {
+      return String(specifierList)
+        .split(",")
+        .map((part) => {
+          const trimmed = part.trim();
+          if (!trimmed) return "";
+          return trimmed.replace(
+            /^([A-Za-z_$][\\w$]*)\\s+as\\s+([A-Za-z_$][\\w$]*)$/,
+            "$1: $2"
+          );
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+
+    function moduleCodeToClassicAsync(code, config, baseUrl) {
+      return relativeModuleSpecifiersToAbsolute(
+        rootRelativeSpecifiersToAbsolute(stripDevOnlyModuleImports(code), config),
+        config,
+        baseUrl
+      )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const $2 = await import($3); const $1 = $2.default;"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s*,\\s*\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, defaultName, specifiers, source) =>
+            "const { default: " +
+            defaultName +
+            (namedImportBindings(specifiers) ? ", " + namedImportBindings(specifiers) : "") +
+            " } = await import(" +
+            source +
+            ");"
+        )
+        .replace(
+          /\\bimport\\s+\\{([\\s\\S]*?)\\}\\s*from\\s+(["'][^"']+["'])\\s*;?/g,
+          (_match, specifiers, source) =>
+            "const { " + namedImportBindings(specifiers) + " } = await import(" + source + ");"
+        )
         .replace(
           /\\bimport\\s+\\*\\s+as\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
           "const $1 = await import($2);"
+        )
+        .replace(
+          /\\bimport\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+(["'][^"']+["'])\\s*;?/g,
+          "const { default: $1 } = await import($2);"
         )
         .replace(/\\bimport\\s+(["'][^"']+["'])\\s*;?/g, "await import($1);")
         .replace(/\\bimport\\((["'][^"']+["'])\\)\\s*;?/g, "await import($1);");
     }
 
-    function runModuleScriptAsClassic(script, appOrigin) {
-      const code = moduleCodeToClassicAsync(script.textContent || "", appOrigin);
+    function scriptSourceUrl(script, config) {
+      const raw = script.getAttribute("src") || "";
+      if (!raw) return "";
+      try {
+        const url = new URL(raw, config.baseHref);
+        if (url.origin === config.origin) {
+          appendEmbedParamsToAppUrl(url, config);
+        }
+        return url.toString();
+      } catch (_err) {
+        return raw;
+      }
+    }
+
+    async function moduleScriptCode(script, config) {
+      const src = scriptSourceUrl(script, config);
+      if (!src) return script.textContent || "";
+      const response = await fetch(src, {
+        credentials: "omit",
+        headers: { Accept: "text/javascript, application/javascript, */*" }
+      });
+      if (!response.ok) {
+        throw new Error("Module script returned HTTP " + response.status + ".");
+      }
+      return await response.text();
+    }
+
+    async function runModuleScriptAsClassic(script, config) {
+      const sourceUrl = scriptSourceUrl(script, config) || config.baseHref;
+      const code = moduleCodeToClassicAsync(
+        await moduleScriptCode(script, config),
+        config,
+        sourceUrl
+      );
       const runner = document.createElement("script");
       runner.textContent =
         "(async()=>{" +
@@ -540,7 +781,7 @@ export function embedApp(
       runner.remove();
     }
 
-    function mountTransplantedHtml(html, appUrl) {
+    async function mountTransplantedHtml(html, appUrl) {
       const config = embedConfigForAppUrl(appUrl);
       installExternalEmbedRuntime(config);
       const parsed = new DOMParser().parseFromString(
@@ -558,8 +799,42 @@ export function embedApp(
         if (isRunnableClassicScript(script)) runClassicScript(script);
       }
       for (const script of scripts) {
-        if (isModuleScript(script)) runModuleScriptAsClassic(script, appUrl.origin);
+        if (isModuleScript(script)) await runModuleScriptAsClassic(script, config);
       }
+    }
+
+    function absoluteUrl(value, base) {
+      try {
+        return new URL(value, base).toString();
+      } catch {
+        return "";
+      }
+    }
+
+    async function resolveTransplantAppDocumentSource(src) {
+      if (!isEmbedStartUrl(src)) {
+        return { url: new URL(src), response: null };
+      }
+      const response = await fetch(src, {
+        credentials: "omit",
+        redirect: "follow",
+        headers: {
+          Accept: "application/json",
+          "X-Agent-Native-Embed-Transplant": "1"
+        }
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (response.ok && /\\bapplication\\/json\\b/i.test(contentType)) {
+        const data = await response.json();
+        const location = typeof data.location === "string" ? data.location : "";
+        const url = absoluteUrl(location, src);
+        if (url) return { url: new URL(withChatBridgeParam(url)), response: null };
+        throw new Error("Embedded app did not return a launch URL.");
+      }
+      return {
+        url: new URL(response.url || src),
+        response
+      };
     }
 
     async function transplantAppDocument(src) {
@@ -568,20 +843,25 @@ export function embedApp(
       appFrame = null;
       lastFrameSrc = src;
       setMessage("Loading app");
-      const response = await fetch(src, {
+      const source = await resolveTransplantAppDocumentSource(src);
+      const response = source.response || await fetch(source.url.href, {
         credentials: "omit",
         redirect: "follow",
         headers: { Accept: "text/html" }
       });
       if (!response.ok) {
+        if (response.status === 401 && isEmbedStartUrl(src)) {
+          refreshExpiredEmbedSession();
+          return;
+        }
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
-      const appUrl = new URL(response.url || src);
+      const appUrl = source.url || new URL(response.url || src);
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
-      mountTransplantedHtml(html, appUrl);
+      await mountTransplantedHtml(html, appUrl);
       notifyHostHeightRepeatedly();
     }
 
@@ -589,6 +869,28 @@ export function embedApp(
       if (toolInput.embed === false || toolInput.embed === "false") return false;
       if (embedByDefault) return true;
       return toolInput.embed === true || toolInput.embed === "true";
+    }
+
+    function renderModeSource() {
+      const input = objectValue(toolInput);
+      const result = objectValue(toolResultData);
+      return {
+        mode: typeof input.embedMode === "string"
+          ? input.embedMode
+          : typeof input.renderMode === "string"
+            ? input.renderMode
+            : typeof result.embedMode === "string"
+              ? result.embedMode
+              : typeof result.renderMode === "string"
+                ? result.renderMode
+                : "",
+        frame: typeof input.frame === "string"
+          ? input.frame
+          : typeof result.frame === "string"
+            ? result.frame
+            : "",
+        nested: input.nested === true || result.nested === true
+      };
     }
 
     function supportedDisplayMode(mode) {
@@ -741,26 +1043,22 @@ export function embedApp(
     }
 
     function shouldSelfNavigateToApp() {
-      const mode = typeof toolInput.embedMode === "string"
-        ? toolInput.embedMode
-        : typeof toolInput.renderMode === "string"
-          ? toolInput.renderMode
-          : "";
+      const render = renderModeSource();
+      const mode = render.mode;
+      if (isClaudeMcpContentHost()) return true;
       if (mode === "iframe" || mode === "nested") return false;
-      if (toolInput.nested === true || toolInput.frame === "iframe") return false;
+      if (render.nested || render.frame === "iframe") return false;
       return true;
     }
 
     function shouldTransplantAppDocument() {
-      const mode = typeof toolInput.embedMode === "string"
-        ? toolInput.embedMode
-        : typeof toolInput.renderMode === "string"
-          ? toolInput.renderMode
-          : "";
+      const render = renderModeSource();
+      const mode = render.mode;
       return (
+        isClaudeMcpContentHost() ||
+        isChatGptSandboxHost() ||
         mode === "transplant" ||
-        toolInput.frame === "transplant" ||
-        isClaudeMcpContentHost()
+        render.frame === "transplant"
       );
     }
 
@@ -776,7 +1074,7 @@ export function embedApp(
       try {
         const host = window.location.hostname || "";
         const appParam = new URL(window.location.href).searchParams.get("app");
-        return /(^|\\.)oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
+        return /^[^.]+\\.web-sandbox\\.oaiusercontent\\.com$/i.test(host) || appParam === "chatgpt";
       } catch {
         return false;
       }
@@ -872,20 +1170,34 @@ export function embedApp(
     }
 
     async function sendHostChat(chat) {
+      const requestId = typeof (chat && chat.requestId) === "string" ? chat.requestId : "";
       if (!chat || chat.submit === false) return;
       const message = typeof chat.message === "string" ? chat.message : "";
       if (!message.trim()) return;
       const context = typeof chat.context === "string" ? chat.context.trim() : "";
+      const content = Array.isArray(chat.content) && chat.content.length
+        ? chat.content
+        : [{ type: "text", text: message }];
+      const structuredContent =
+        chat && chat.structuredContent !== undefined
+          ? chat.structuredContent
+          : undefined;
       try {
+        const contextContent = context
+          ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+          : content.filter((part) => part && part.type !== "text");
+        const modelContext = {
+          content: contextContent,
+          ...(structuredContent !== undefined ? { structuredContent } : {})
+        };
         if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
           openAiBridge.setWidgetState({
             ...objectValue(openAiBridge.widgetState),
-            agentNativeChatContext: context || null
+            agentNativeChatContext: context || null,
+            agentNativeModelContext: modelContext
           });
         } else if (app && typeof app.updateModelContext === "function") {
-          await app.updateModelContext({
-            content: context ? [{ type: "text", text: context }] : []
-          });
+          await app.updateModelContext(modelContext);
         }
       } catch (err) {
         console.warn("[agent-native] MCP host rejected model context update", err);
@@ -896,20 +1208,44 @@ export function embedApp(
             prompt: message,
             scrollToBottom: true
           });
+          respondToWrapperRequest(requestId, { ok: true });
           return;
         }
-        if (!app || typeof app.sendMessage !== "function") return;
-        const result = await app.sendMessage({
-          role: "user",
-          content: [{ type: "text", text: message }]
-        });
+        let result = null;
+        if (app && typeof app.sendMessage === "function") {
+          result = await app.sendMessage({
+            role: "user",
+            content
+          });
+        } else {
+          result = await wrapperRpcRequest("ui/message", {
+            role: "user",
+            content
+          });
+        }
         if (result && result.isError) {
           console.warn("[agent-native] MCP host rejected chat message", result);
+          respondToWrapperRequest(requestId, { ok: false, result });
+          return;
         }
+        if (result && result.ok === false) {
+          console.warn("[agent-native] MCP host chat bridge failed", result);
+          respondToWrapperRequest(requestId, { ok: false, result });
+          return;
+        }
+        respondToWrapperRequest(requestId, { ok: true, result });
       } catch (err) {
         console.warn("[agent-native] MCP host chat bridge failed", err);
+        respondToWrapperRequest(requestId, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (!message || message.jsonrpc !== "2.0") return;
+      settleWrapperRpcResponse(message);
+    });
 
     window.addEventListener("message", (event) => {
       if (!appFrame || event.source !== appFrame.contentWindow) return;
@@ -975,7 +1311,7 @@ export function embedApp(
         const selfNavigate = shouldSelfNavigateToApp();
         const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
-          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
+          if (shouldTransplantAppDocument()) {
             await transplantAppDocument(embedUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(embedUrl);
@@ -997,7 +1333,7 @@ export function embedApp(
         }
         const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
-          if (isClaudeMcpContentHost() && shouldTransplantAppDocument()) {
+          if (shouldTransplantAppDocument()) {
             await transplantAppDocument(startUrl);
           } else if (shouldRenderControlledAppFrame()) {
             renderFrame(startUrl);
@@ -1044,7 +1380,8 @@ export function embedApp(
     }
 
     function updateTitle(data) {
-      const label = data.label || data.app || data.view || body.dataset.appTitle || "App";
+      const record = objectValue(data);
+      const label = record.label || record.app || record.view || body.dataset.appTitle || "App";
       titleEl.textContent = String(label);
     }
 
@@ -1052,6 +1389,17 @@ export function embedApp(
       return window.openai && typeof window.openai === "object"
         ? window.openai
         : null;
+    }
+
+    function isChatGptHostHint() {
+      try {
+        if (new URLSearchParams(window.location.search).get("app") === "chatgpt") return true;
+      } catch (_err) {}
+      try {
+        return /chatgpt/i.test(String(navigator.userAgent || ""));
+      } catch (_err) {
+        return false;
+      }
     }
 
     function openAiToolResultParams(bridge) {
@@ -1075,6 +1423,7 @@ export function embedApp(
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
       const data = parseToolResult(params);
+      toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
       updateTitle(data);
@@ -1095,16 +1444,30 @@ export function embedApp(
       if (existing) return Promise.resolve(existing);
       return new Promise((resolve) => {
         let settled = false;
+        let pollTimer = 0;
         const finish = (bridge) => {
           if (settled) return;
           settled = true;
           window.removeEventListener("openai:set_globals", onGlobals);
           clearTimeout(timer);
+          clearTimeout(pollTimer);
           resolve(bridge || readOpenAiBridge());
         };
+        const poll = () => {
+          const bridge = readOpenAiBridge();
+          if (bridge) {
+            finish(bridge);
+            return;
+          }
+          pollTimer = window.setTimeout(poll, openAiBridgePollMs);
+        };
         const onGlobals = () => finish(readOpenAiBridge());
-        const timer = setTimeout(() => finish(null), 200);
+        const timer = window.setTimeout(
+          () => finish(null),
+          isChatGptHostHint() ? chatGptOpenAiBridgeWaitMs : defaultOpenAiBridgeWaitMs
+        );
         window.addEventListener("openai:set_globals", onGlobals, { passive: true });
+        pollTimer = window.setTimeout(poll, openAiBridgePollMs);
       });
     }
 
@@ -1113,18 +1476,166 @@ export function embedApp(
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
     }, { passive: true });
 
-    async function startMcpAppsBridge() {
-      const { App } = await import("${MCP_APP_IMPORT}");
-      app = new App(
-        { name: "Agent Native Embed", version: "1.0.0" },
-        {},
-        { autoResize: false }
-      );
+    function createNativeMcpAppsBridge() {
+      let rpcId = 0;
+      let connected = false;
+      let hostContext = {};
+      const pendingRequests = new Map();
+
+      function rpcNotify(method, params) {
+        window.parent.postMessage({ jsonrpc: "2.0", method, params: params || {} }, "*");
+      }
+
+      function rpcRequest(method, params, timeoutMs) {
+        return new Promise((resolve, reject) => {
+          const id = ++rpcId;
+          const timer = window.setTimeout(() => {
+            pendingRequests.delete(id);
+            reject(new Error("MCP Apps bridge request timed out: " + method));
+          }, timeoutMs || nativeBridgeRequestTimeoutMs);
+          pendingRequests.set(id, { resolve, reject, timer });
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params: params || {} },
+            "*"
+          );
+        });
+      }
+
+      function settleRpcResponse(message) {
+        const pending = pendingRequests.get(message.id);
+        if (!pending) return true;
+        pendingRequests.delete(message.id);
+        clearTimeout(pending.timer);
+        if (message.error) {
+          const error = new Error(message.error.message || "MCP Apps bridge request failed.");
+          error.data = message.error.data;
+          pending.reject(error);
+          return true;
+        }
+        pending.resolve(message.result);
+        return true;
+      }
+
+      function notificationParams(message) {
+        return message && typeof message.params === "object" && message.params
+          ? message.params
+          : {};
+      }
+
+      function toolInputNotificationParams(params) {
+        if (params && typeof params.arguments === "object" && params.arguments) {
+          return params;
+        }
+        if (params && typeof params.input === "object" && params.input) {
+          return { arguments: params.input };
+        }
+        return { arguments: objectValue(params) };
+      }
+
+      const nativeApp = {
+        ontoolinput: null,
+        ontoolresult: null,
+        onhostcontextchanged: null,
+        getHostContext() {
+          return hostContext.context || hostContext;
+        },
+        getHostCapabilities() {
+          return hostContext.capabilities || { tools: true, messaging: true };
+        },
+        getHostVersion() {
+          return hostContext.protocolVersion || "mcp-apps-postmessage";
+        },
+        async connect() {
+          if (connected) return hostContext;
+          connected = true;
+          window.addEventListener("message", onMessage, { passive: true });
+          const result = await rpcRequest(
+            "ui/initialize",
+            {
+              appInfo: { name: "Agent Native Embed", version: "1.0.0" },
+              appCapabilities: {},
+              protocolVersion: "2026-01-26"
+            },
+            nativeBridgeInitializeTimeoutMs
+          );
+          hostContext = objectValue(result);
+          rpcNotify("ui/notifications/initialized", {});
+          if (typeof nativeApp.onhostcontextchanged === "function") {
+            nativeApp.onhostcontextchanged(hostContext);
+          }
+          return hostContext;
+        },
+        async callServerTool(request) {
+          const record = objectValue(request);
+          return await rpcRequest("tools/call", {
+            name: record.name,
+            arguments: objectValue(record.arguments)
+          });
+        },
+        async updateModelContext(params) {
+          return await rpcRequest("ui/update-model-context", objectValue(params));
+        },
+        async openLink(params) {
+          const url = typeof (params && params.url) === "string" ? params.url : "";
+          if (!url) return { isError: true };
+          window.open(url, "_blank", "noopener,noreferrer");
+          return { ok: true };
+        },
+        async requestDisplayMode(params) {
+          return await rpcRequest("ui/request-display-mode", objectValue(params));
+        },
+        sendSizeChanged(params) {
+          rpcNotify("ui/notifications/size-changed", objectValue(params));
+        },
+        async sendMessage(params) {
+          return await rpcRequest("ui/message", objectValue(params));
+        }
+      };
+
+      function onMessage(event) {
+        if (event.source !== window.parent) return;
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (typeof message.id === "number" || typeof message.id === "string") {
+          settleRpcResponse(message);
+          return;
+        }
+        if (typeof message.method !== "string") return;
+        const params = notificationParams(message);
+        if (message.method === "ui/notifications/tool-input") {
+          if (typeof nativeApp.ontoolinput === "function") {
+            nativeApp.ontoolinput(toolInputNotificationParams(params));
+          }
+          return;
+        }
+        if (message.method === "ui/notifications/tool-result") {
+          if (typeof nativeApp.ontoolresult === "function") {
+            nativeApp.ontoolresult(params);
+          }
+          return;
+        }
+        if (
+          message.method === "ui/notifications/host-context" ||
+          message.method === "ui/notifications/context"
+        ) {
+          hostContext = objectValue(params);
+          if (typeof nativeApp.onhostcontextchanged === "function") {
+            nativeApp.onhostcontextchanged(hostContext);
+          }
+        }
+      }
+
+      return nativeApp;
+    }
+
+    async function startNativeMcpAppsBridge() {
+      app = createNativeMcpAppsBridge();
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};
       };
       app.ontoolresult = (params) => {
         const data = parseToolResult(params);
+        toolResultData = objectValue(data);
         openUrl = openLinkFrom(params, data);
         openStartUrl = embedStartUrlFrom(params, data);
         updateTitle(data);
@@ -1142,10 +1653,51 @@ export function embedApp(
       sendHostContext();
     }
 
-    const initialOpenAiBridge = await waitForOpenAiBridge();
-    if (!syncOpenAiBridge(initialOpenAiBridge)) {
-      await startMcpAppsBridge();
+    async function startMcpAppsBridge() {
+      const { App } = await import("${MCP_APP_IMPORT}");
+      app = new App(
+        { name: "Agent Native Embed", version: "1.0.0" },
+        {},
+        { autoResize: false }
+      );
+      app.ontoolinput = (params) => {
+        toolInput = params.arguments || {};
+      };
+      app.ontoolresult = (params) => {
+        const data = parseToolResult(params);
+        toolResultData = objectValue(data);
+        openUrl = openLinkFrom(params, data);
+        openStartUrl = embedStartUrlFrom(params, data);
+        updateTitle(data);
+        updateOpenButton();
+        void launchEmbed();
+      };
+      app.onhostcontextchanged = () => {
+        updateDisplayButton();
+        notifyHostHeight();
+        sendHostContext();
+      };
+      await app.connect();
+      updateDisplayButton();
+      notifyHostHeight();
+      sendHostContext();
     }
+
+    try {
+      const initialOpenAiBridge = await waitForOpenAiBridge();
+      if (!syncOpenAiBridge(initialOpenAiBridge)) {
+        try {
+          await startNativeMcpAppsBridge();
+        } catch (nativeErr) {
+          console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
+          await startMcpAppsBridge();
+        }
+      }
+    } catch (err) {
+      console.error("[agent-native] MCP app shell failed", err);
+      setMessage(err && err.message ? err.message : "Could not initialize app.");
+    }
+    })();
   </script>
 </body>
 </html>`,
@@ -1153,14 +1705,19 @@ export function embedApp(
       connectDomains: [
         "https://esm.sh",
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.connectDomains ?? []),
         ...(options.frameDomains ?? []),
       ],
       resourceDomains: [
         "https://esm.sh",
         MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.resourceDomains ?? []),
         ...(options.frameDomains ?? []),
       ],
-      baseUriDomains: [MCP_APP_REQUEST_ORIGIN_CSP_SOURCE],
+      baseUriDomains: [
+        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+        ...(options.baseUriDomains ?? []),
+      ],
       frameDomains,
     },
     prefersBorder: false,

@@ -1,6 +1,5 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
-import React from "react";
 import { IconFile, IconFolder } from "@tabler/icons-react";
 
 const FileReferenceComponent = ({ node }: { node: any }) => {

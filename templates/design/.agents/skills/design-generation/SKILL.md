@@ -10,6 +10,58 @@ Every generated design uses:
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
 - **CSS Custom Properties** — for theming and tweaks panel integration
 
+## Aesthetic Quality Bar — avoid generic "AI slop"
+
+The single biggest lever on quality is refusing the defaults the model reaches
+for. Before generating, commit to a specific, opinionated direction. Banned by
+default (use only if the user explicitly asks):
+
+- **Fonts:** Inter, Roboto, Arial, system-ui, or other safe defaults. Always
+  pick a distinctive Google Font pairing (see the table below).
+- **The purple/indigo gradient on white** and other one-click hero clichés.
+- **Default shadcn/Tailwind grays** as the whole palette; flat indigo/blue
+  accents; the recurring "fingerprint" combo (teal accent + blinking status dot
+  + left accent bars + three-column hero).
+- **Predictable, evenly-weighted layouts** with no focal point.
+
+Do not converge even within your own "creative" picks — vary deliberately across
+generations so two designs never share the same fingerprint.
+
+## Prompt the design in four layers
+
+Decide each layer explicitly before writing HTML. This is what makes variations
+genuinely distinct instead of three near-identical layouts:
+
+1. **Context** — audience, domain, and the one job this screen must do.
+2. **Structure** — a named layout topology: bento grid, sidebar app shell,
+   editorial column, split-screen, masonry, dashboard tiles.
+3. **Aesthetic** — a named visual movement: editorial serif, neo-brutalist,
+   glassmorphic, Swiss/International, warm organic, technical/mono, etc. Each
+   variant gets a *different* aesthetic + font pairing.
+4. **Tech stack** — Tailwind v4 + Alpine, mobile-first, light/dark via tokens.
+
+Push each dimension to extremes rather than safe middles: weight extremes
+(100–200 vs 800–900), 3×+ type-scale jumps, one dominant color + a single sharp
+accent, layered gradient/pattern backgrounds (not flat fills), and one
+orchestrated staggered page-load reveal (via `animation-delay`).
+
+Pick a preset by `projectType`:
+- **Brand / marketing** (landing pages, decks): expressive, atmospheric,
+  animated, full-bleed.
+- **Product / app** (dashboards, tools): dense, restrained, token-driven, fast.
+
+## Measurable rules (bake these in)
+
+- 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
+- Body text ≥ 16px, labels ≥ 12px.
+- Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
+- WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
+- Mobile-first breakpoints; never ship a layout that breaks under 640px.
+- No arbitrary one-off Tailwind values where a scale step exists.
+- **Token grounding is non-negotiable:** every color/font/radius references a
+  `:root` CSS variable. Never hardcode `text-white` / `bg-black` / hex literals
+  in the markup — that's what keeps brand + multi-screen consistency automatic.
+
 ## Generation Workflow — the canonical 4-phase flow
 
 This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
@@ -21,6 +73,11 @@ pnpm action create-design --title "Project Name" --projectType prototype
 pnpm action navigate --view editor --designId <returned-id>
 ```
 
+The `navigate` step is only for first-party/local app agents that can write
+application state. External MCP hosts should surface the `create-design`
+returned "Open design" link, then use `present-design-variants` to open the
+visual picker.
+
 Then, for any non-trivial first prompt, write `application-state/show-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
 
 ```bash
@@ -29,9 +86,11 @@ Then, for any non-trivial first prompt, write `application-state/show-questions`
 #  uses the framework's `db-exec` to upsert into application_state.)
 ```
 
-### Phase 2 — Generate three side-by-side variations
+### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
-For new designs, default to **three** variations. Write candidates to `application-state/design-variants`:
+For new designs, default to **three** variations (`present-design-variants`
+accepts 2-5; three is the sweet spot). In normal app-agent flows, write
+candidates to `application-state/design-variants`:
 
 ```json
 {
@@ -48,6 +107,23 @@ For new designs, default to **three** variations. Write candidates to `applicati
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
 
 The framework persists the chosen content as `index.html` automatically when the user clicks "Use this one" — do NOT call `generate-design` while the picker is open.
+
+When the caller is an external MCP host (ChatGPT, Claude, Claude Code, Codex,
+Dispatch), call `present-design-variants` instead of writing
+`application-state` directly. Pass the existing `designId`, a concise prompt
+caption, and 2-5 complete HTML variants (three by default). The action opens
+the same editor variant picker as the first-party app and keeps the workflow
+visible inside MCP Apps. After that, wait for the user's pick before refining.
+
+For inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) the pick
+rides the chat bridge automatically — no copy/paste. But if the Design app opens
+as a browser link instead of inline (CLI hosts like Codex / Claude Code, where
+the deep link carries `handoff=chat`), the user picks a direction there and the
+editor shows a copyable handoff summary (auto-copied to the clipboard) — ask
+them to paste it back into chat so you can continue from the chosen direction.
+The user can also simply name the pick in words (e.g. "use variant A" / "the
+editorial one") instead of pasting — honor either. The
+`present-design-variants` result's `fallbackInstructions` describe this.
 
 ### Phase 3 — Save with `generate-design` (when not using variants)
 
@@ -113,6 +189,16 @@ Every `index.html` must include:
       text-wrap: balance;
     }
     p { text-wrap: pretty; }
+
+    /* Respect users who ask for less motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
   </style>
 </head>
 <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
@@ -319,7 +405,9 @@ Every `index.html` must include:
 
 ## Font Recommendations
 
-Good distinctive font pairings (heading / body):
+Good distinctive font pairings (heading / body). **Rotate through these** — don't
+reach for Space Grotesk (or any single pairing) every time; matching the pairing
+to the chosen Aesthetic layer is what keeps designs from sharing a fingerprint:
 
 | Heading | Body | Mood |
 | --- | --- | --- |
@@ -332,12 +420,84 @@ Good distinctive font pairings (heading / body):
 | Clash Display | General Sans | Bold statement |
 | Archivo | Nunito Sans | Friendly SaaS |
 
+## Multi-screen prototypes & navigation
+
+A prototype with more than one screen is **multiple files** in the same design
+(e.g. `index.html`, `dashboard.html`, `checkout.html`). The editor shows them
+all in the artboard/overview and as screen tabs.
+
+The preview renders each file in a sandboxed `srcdoc` iframe. A real
+`<a href="/pricing">` or `<a href="page.html">` resolves against the *app* URL
+and navigates the iframe to the Design app itself ("Design not found"), nuking
+the prototype. **Never link screens with real URLs.** Use one of:
+
+1. **In-screen flows (preferred):** keep the flow in one file with Alpine state
+   and `x-show`. Links become buttons:
+   ```html
+   <div x-data="{ screen: 'home' }">
+     <button @click="screen = 'pricing'" class="cursor-pointer">See pricing</button>
+     <section x-show="screen === 'home'">…</section>
+     <section x-show="screen === 'pricing'" x-cloak>…</section>
+   </div>
+   ```
+2. **Cross-file screen links:** to jump to another file in the design, use
+   `data-screen` (or a bare filename href). The editor intercepts the click and
+   switches to that screen instead of navigating:
+   ```html
+   <a data-screen="checkout.html" class="cursor-pointer">Checkout</a>
+   ```
+   The target should match the other file's name (`checkout.html` →
+   `checkout.html`; the `.html` is optional in the match).
+3. **In-page scroll:** `href="#features"` is fine and scrolls within the screen.
+
+External links (`https://…`) are allowed — the editor opens them in a new tab.
+Never use `target="_top"` or relative paths expecting a real page load.
+
+## Making edits — minimal, scoped "smart" diffs
+
+When refining an existing design, change the **smallest** amount possible. Full
+regeneration is slow, expensive, and regresses unrelated parts.
+
+1. **Read before you edit.** Pull the current file with `get-design-snapshot`
+   (or `get-design`) so you edit the live content, not a stale memory of it.
+2. **Prefer `edit-design` for small changes.** It applies one or more
+   search/replace blocks to a file's HTML — surgical, cheap, and it preserves
+   everything you didn't touch (Alpine state, scroll, other screens):
+   ```bash
+   pnpm action edit-design --designId "<id>" --filename index.html \
+     --edits '[{"search":"<h1 class=\"text-4xl\">Hello</h1>","replace":"<h1 class=\"text-5xl\">Hello there</h1>"}]'
+   ```
+   Each `search` must match the file **exactly and uniquely** — include enough
+   surrounding context to be unambiguous. Wrapping an element in a new div is
+   just a search/replace whose `replace` adds the wrapper around the original.
+3. **Reserve `generate-design` for** net-new files or large structural rewrites.
+   Never resend files you aren't changing.
+4. **Treat `:root` as the global spec.** For theme-wide restyles, edit the
+   tokens in `:root` rather than touching every element.
+5. **Don't add unrequested features** during a refinement pass.
+
+## Tailwind v4 + motion gotchas
+
+- **Gradients:** Tailwind v4 renamed the utilities. Use `bg-linear-to-r`,
+  `bg-radial`, `bg-conic` — the v3 `bg-gradient-to-*` classes silently do
+  nothing on the v4 browser CDN.
+- **Respect reduced motion.** Wrap non-essential animation so it's disabled for
+  users who ask for it (already included in the mandatory `<style>` below).
+- Use Tailwind scale steps, not arbitrary `[…px]` values, unless truly needed.
+
 ## What NOT to Do
 
+- Never use safe/generic fonts (Inter, Roboto, Arial, system-ui) or the
+  purple-on-white gradient, default shadcn grays, or the teal-accent +
+  blinking-dot + three-column-hero cliché — see the Aesthetic Quality Bar.
+- Never link prototype screens with real/relative URLs — use Alpine state,
+  `data-screen`, or `#` anchors (see Multi-screen prototypes & navigation).
+- Never hardcode colors — always reference CSS custom properties (no raw
+  `text-white` / `bg-black` / hex literals in markup).
+- Never use the v3 `bg-gradient-to-*` classes — use v4 `bg-linear-to-*`.
 - Never use `<script>` blocks with raw DOM manipulation — use Alpine.js directives
 - Never inline `onclick="..."` handlers — use `@click`
 - Never use `!important` except in `[x-cloak]`
-- Never hardcode colors — always use CSS custom properties
 - Never use position: fixed for modals — wrap in a portal-like pattern with Alpine.js
 - Never forget `cursor-pointer` on interactive elements
 - Never use `<img>` with placeholder URLs — use colored divs or gradients

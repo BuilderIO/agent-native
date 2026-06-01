@@ -64,7 +64,7 @@ Actions mounted by the framework automatically run with request context. Custom 
 import { defineEventHandler } from "h3";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { getDb } from "@agent-native/core/db";
-import { accessFilter } from "@agent-native/core/access";
+import { accessFilter } from "@agent-native/core/sharing";
 import * as schema from "../../db/schema";
 
 export default defineEventHandler(async (event) => {

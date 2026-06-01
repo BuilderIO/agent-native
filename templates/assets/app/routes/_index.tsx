@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   PromptComposer,
@@ -14,16 +14,12 @@ import { toast } from "sonner";
 import {
   IconAlertCircle,
   IconArrowUpRight,
-  IconCheck,
-  IconCloudUpload,
+  IconChevronDown,
   IconExternalLink,
-  IconKey,
   IconLoader2,
-  IconMovie,
   IconPhoto,
   IconPhotoPlus,
 } from "@tabler/icons-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -49,7 +45,6 @@ import {
   SelectItem,
   SelectSeparator,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryCard } from "@/components/library/LibraryCard";
@@ -61,7 +56,6 @@ import {
   getSkippedDuplicateCount,
   type AssetUploadResult,
 } from "@/lib/upload-results";
-import { cn } from "@/lib/utils";
 import {
   getLibraryCustomInstructions,
   loadLastLibraryId,
@@ -90,6 +84,8 @@ const CUSTOM_RATIOS_KEY = "assets.customAspectRatios";
 const MAX_TEXT_CONTEXT_FILE_CHARS = 12_000;
 const MAX_TEXT_CONTEXT_TOTAL_CHARS = 24_000;
 const MAX_TEXT_CONTEXT_READ_BYTES_PER_CHAR = 4;
+const COMPOSER_SELECT_TRIGGER_CLASS =
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 data-[placeholder]:text-muted-foreground [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -130,7 +126,7 @@ export default function CreatePage() {
         onOpenChange={setCreateOpen}
         onCreated={(library) => {
           rememberLastLibraryId(library.id);
-          navigate(`/library/${library.id}`);
+          navigate(`/brand-kits/${library.id}`);
         }}
       />
     </PageShell>
@@ -174,195 +170,153 @@ function GenerationSetupNotice({ config }: { config: ImageGenerationConfig }) {
     trackingSource: "assets_create_setup_notice",
     trackingFlow: "image_generation",
     onConnected: async () => {
+      if (config.builderEnabled !== false) {
+        queryClient.setQueriesData<ImageGenerationConfig>(
+          { queryKey: ["action", "get-image-generation-config"] },
+          (previous) =>
+            previous
+              ? {
+                  ...previous,
+                  builderConnected: true,
+                  objectStorageConfigured: true,
+                  configured: true,
+                  lastIssue: null,
+                }
+              : previous,
+        );
+      }
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-image-generation-config"],
+        refetchType: "active",
       });
     },
   });
-  const issueMessage =
-    typeof config.lastIssue?.message === "string"
+  const builderConnected =
+    config.builderEnabled !== false &&
+    (!!config.builderConnected || flow.configured);
+  const issueMessage = builderConnected
+    ? null
+    : typeof config.lastIssue?.message === "string"
       ? config.lastIssue.message
       : null;
   const imageReady =
+    builderConnected ||
     config.configured === true ||
     !!config.openaiConfigured ||
     !!config.geminiConfigured;
-  const videoReady = !!config.geminiConfigured;
-  const storageReady = !!config.objectStorageConfigured;
+  const storageReady = builderConnected || !!config.objectStorageConfigured;
   const needsSetup = !imageReady || !storageReady || !!issueMessage;
   if (!needsSetup) return null;
+
+  const builderAvailable = config.builderEnabled !== false;
   const settingsHref = appPath("/settings#asset-generation-setup");
+  const manualHint =
+    !imageReady && !storageReady
+      ? "Add an OpenAI or Gemini key and S3-compatible storage."
+      : !imageReady
+        ? "Add an OpenAI or Gemini key for image generation."
+        : "Add S3-compatible storage for originals, thumbnails, and exports.";
+  const title = builderAvailable
+    ? "Connect generation models"
+    : "Finish asset setup";
+  const description = builderAvailable
+    ? "Connect to enable image generation, video generation, LLMs, and asset storage. Free credits and no keys needed"
+    : "This deployment uses manual provider setup. Add the missing pieces in Settings.";
+  const showContent = !!issueMessage || !!flow.error || builderAvailable;
 
   return (
-    <Card className="overflow-hidden border-border/80 bg-card/80 text-left shadow-sm">
-      <CardHeader className="gap-4 p-4 pb-3 sm:flex-row sm:items-start sm:justify-between sm:p-5 sm:pb-4">
-        <div className="flex min-w-0 gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground shadow-sm">
-            <IconPhoto className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base leading-tight">
-                Connect generation and storage
-              </CardTitle>
-              <Badge
-                variant="secondary"
-                className="border border-border/70 bg-secondary/80 text-[11px]"
-              >
-                Setup required
-              </Badge>
+    <Card className="border-border/80 bg-card/70 text-left shadow-sm">
+      <CardHeader className="p-4 sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground">
+              <IconPhoto className="size-4" />
             </div>
-            <CardDescription className="max-w-2xl text-sm leading-6">
-              Use Builder.io for managed media and storage in one step, or bring
-              your own OpenAI/Gemini keys and S3-compatible storage.
-            </CardDescription>
+            <div className="min-w-0">
+              <CardTitle className="text-base leading-tight">{title}</CardTitle>
+              <CardDescription className="mt-1 max-w-xl text-sm leading-6">
+                {description}
+              </CardDescription>
+            </div>
           </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
-        <div className="grid gap-2 sm:grid-cols-3">
-          <SetupStatusPill
-            icon={<IconKey className="size-4" />}
-            title="Image generation"
-            detail={
-              imageReady
-                ? "Builder or BYOK is ready"
-                : "Builder, OpenAI, or Gemini"
-            }
-            ready={imageReady}
-          />
-          <SetupStatusPill
-            icon={<IconCloudUpload className="size-4" />}
-            title="Object storage"
-            detail={
-              storageReady ? "Storage is ready" : "Builder or S3-compatible"
-            }
-            ready={storageReady}
-          />
-          <SetupStatusPill
-            icon={<IconMovie className="size-4" />}
-            title="Video generation"
-            detail={videoReady ? "Gemini is ready" : "Gemini API key"}
-            ready={videoReady}
-            required={false}
-          />
-        </div>
-
-        {issueMessage || flow.error ? (
-          <div
-            role="alert"
-            className="mt-3 flex gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-          >
-            <IconAlertCircle className="mt-0.5 size-3.5 shrink-0" />
-            <p className="line-clamp-3 leading-relaxed">
-              {flow.error ?? issueMessage}
-            </p>
-          </div>
-        ) : null}
-
-        <div className="mt-4 flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="max-w-md text-xs leading-5 text-muted-foreground">
-            {config.builderEnabled !== false
-              ? "Builder.io is the fastest path for image generation and asset storage. Manual setup keeps provider keys in your own stack."
-              : "Manual setup connects your own provider keys and object storage."}
-          </p>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-            {config.builderEnabled !== false ? (
-              <Button
-                type="button"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => flow.start()}
-                disabled={flow.connecting}
-              >
-                {flow.connecting ? (
-                  <>
-                    <IconLoader2 className="size-3.5 animate-spin" />
-                    Waiting...
-                  </>
-                ) : (
-                  <>
-                    Connect Builder.io
-                    <IconExternalLink className="size-3.5" />
-                  </>
-                )}
-              </Button>
-            ) : null}
+          {builderAvailable ? (
+            <Button
+              type="button"
+              size="sm"
+              className="w-full shrink-0 sm:w-auto"
+              onClick={() => flow.start()}
+              disabled={flow.connecting}
+            >
+              {flow.connecting ? (
+                <>
+                  <IconLoader2 className="size-3.5 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  Connect Builder
+                  <IconExternalLink className="size-3.5" />
+                </>
+              )}
+            </Button>
+          ) : (
             <Button
               asChild
-              variant={config.builderEnabled !== false ? "outline" : "default"}
+              type="button"
               size="sm"
               className="w-full sm:w-auto"
             >
               <a href={settingsHref}>
-                Manual setup
+                Open setup
                 <IconArrowUpRight className="size-3.5" />
               </a>
             </Button>
-          </div>
+          )}
         </div>
-      </CardContent>
+      </CardHeader>
+
+      {showContent ? (
+        <CardContent className="px-4 pb-4 pt-0 sm:px-5 sm:pb-5 sm:pt-0">
+          {issueMessage || flow.error ? (
+            <div
+              role="alert"
+              className="mb-3 flex gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <IconAlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <p className="line-clamp-3 leading-relaxed">
+                {flow.error ?? issueMessage}
+              </p>
+            </div>
+          ) : null}
+
+          {builderAvailable ? (
+            <details className="group/details border-t border-border/70 pt-3">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <IconChevronDown className="size-3.5 transition-transform group-open/details:rotate-180" />
+                Use manual setup instead
+              </summary>
+              <div className="mt-3 flex flex-col gap-3 rounded-md border border-border/70 bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {manualHint}
+                </p>
+                <Button
+                  asChild
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full shrink-0 sm:w-auto"
+                >
+                  <a href={settingsHref}>
+                    Open setup
+                    <IconArrowUpRight className="size-3.5" />
+                  </a>
+                </Button>
+              </div>
+            </details>
+          ) : null}
+        </CardContent>
+      ) : null}
     </Card>
-  );
-}
-
-function SetupStatusPill({
-  icon,
-  title,
-  detail,
-  ready,
-  required = true,
-}: {
-  icon: ReactNode;
-  title: string;
-  detail: string;
-  ready: boolean;
-  required?: boolean;
-}) {
-  const statusLabel = ready ? "Ready" : required ? "Needed" : "Optional";
-
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-md border border-border/80 bg-background/70 p-3",
-        ready && "border-emerald-500/20 bg-emerald-500/5",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground",
-            ready &&
-              "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-          )}
-        >
-          {ready ? <IconCheck className="size-4" /> : icon}
-        </div>
-        <Badge
-          variant="outline"
-          className={cn(
-            "h-5 shrink-0 px-1.5 text-[10px] font-medium",
-            ready &&
-              "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-            !ready &&
-              required &&
-              "border-border bg-secondary text-secondary-foreground",
-            !ready && !required && "text-muted-foreground",
-          )}
-        >
-          {statusLabel}
-        </Badge>
-      </div>
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-foreground">
-          {title}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {detail}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -512,6 +466,13 @@ function HomeGeneratePanel({
     chooseLibrary(value);
   };
 
+  const handleMediaTypeChange = (value: "image" | "video") => {
+    setMediaType(value);
+    if (value === "video" && aspectRatio !== "16:9" && aspectRatio !== "9:16") {
+      setAspectRatio("16:9");
+    }
+  };
+
   const createPresetLibrary = (presetId: string) => {
     setCreatingPresetId(presetId);
     createFromPreset.mutate(
@@ -590,21 +551,22 @@ function HomeGeneratePanel({
 
     if (unsupportedFiles.length > 0) {
       toast.error(
-        "Attach image files as references, or text files as prompt context.",
+        "Attach image files as content references, or text files as prompt context.",
       );
       return;
     }
 
     if (imageFiles.length > 0 && !selectedLibrary) {
-      toast.error("Pick a library to attach reference images.");
+      toast.error("Pick a library to attach content images.");
       return;
     }
 
     let uploadedAssets: { id: string; title: string }[] = [];
     if (imageFiles.length > 0 && selectedLibrary) {
       const uploadChunks = chunkAssetUploads(imageFiles);
+      const attachedAssetIds = new Set<string>();
       const uploadingToast = toast.loading(
-        `Uploading ${imageFiles.length} reference${imageFiles.length === 1 ? "" : "s"}...`,
+        `Uploading ${imageFiles.length} content image${imageFiles.length === 1 ? "" : "s"}...`,
         {
           description:
             uploadChunks.length > 1
@@ -618,7 +580,8 @@ function HomeGeneratePanel({
         for (const chunk of uploadChunks) {
           const form = new FormData();
           form.append("libraryId", selectedLibrary.id);
-          form.append("category", "style-only");
+          form.append("category", "other");
+          form.append("intent", "subject");
           for (const file of chunk) form.append("files", file);
           const res = await fetch(`${appBasePath()}/api/assets/upload`, {
             method: "POST",
@@ -631,17 +594,32 @@ function HomeGeneratePanel({
           const data = (await res.json()) as AssetUploadResult;
           skippedCount += getSkippedDuplicateCount(data);
           failedCount += getFailedUploadCount(data);
-          uploadedAssets.push(
-            ...(data.assets ?? []).map((a: any) => ({
-              id: a.id,
-              title: a.title || "Reference image",
+          const attachedAssets = [
+            ...(data.assets ?? []).map((asset) => ({
+              id: asset.id,
+              title: asset.title || "Content image",
             })),
-          );
+            ...(data.skippedDuplicates ?? [])
+              .filter(
+                (duplicate) =>
+                  duplicate.reason === "existing-asset" &&
+                  Boolean(duplicate.assetId),
+              )
+              .map((duplicate) => ({
+                id: duplicate.assetId!,
+                title: duplicate.title || "Content image",
+              })),
+          ];
+          for (const asset of attachedAssets) {
+            if (attachedAssetIds.has(asset.id)) continue;
+            attachedAssetIds.add(asset.id);
+            uploadedAssets.push(asset);
+          }
         }
         const uploadedCount = uploadedAssets.length;
         if (failedCount > 0) {
           toast.warning(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
             }; ${failedCount} failed.`,
             {
@@ -654,7 +632,7 @@ function HomeGeneratePanel({
           );
         } else if (uploadedCount > 0 && skippedCount > 0) {
           toast.success(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
             }; skipped ${skippedCount} duplicate${
               skippedCount === 1 ? "" : "s"
@@ -663,14 +641,14 @@ function HomeGeneratePanel({
           );
         } else if (uploadedCount > 0) {
           toast.success(
-            `Added ${uploadedCount} reference${
+            `Attached ${uploadedCount} content image${
               uploadedCount === 1 ? "" : "s"
-            } to ${selectedLibrary.title}`,
+            } for this request`,
             { id: uploadingToast, description: null },
           );
         } else if (skippedCount > 0) {
           toast.warning(
-            `Skipped ${skippedCount} duplicate reference${
+            `Skipped ${skippedCount} duplicate content image${
               skippedCount === 1 ? "" : "s"
             }.`,
             {
@@ -679,13 +657,13 @@ function HomeGeneratePanel({
             },
           );
         } else {
-          toast.warning("No new references were added.", {
+          toast.warning("No new content images were attached.", {
             id: uploadingToast,
             description: null,
           });
         }
       } catch (err: any) {
-        toast.error(err?.message || "Couldn't upload references.", {
+        toast.error(err?.message || "Couldn't upload content images.", {
           id: uploadingToast,
           description: null,
         });
@@ -707,30 +685,40 @@ function HomeGeneratePanel({
       }
     }
 
-    const messageLines = [
+    const chatMessage =
+      trimmed ||
+      (uploadedAssets.length > 0
+        ? "Generate from the attached content images."
+        : "Generate from the attached context.");
+    const requestLines = [
       requestedMediaType === "video"
-        ? "Generate 1 video candidate."
-        : `Generate ${count} image candidate${count === 1 ? "" : "s"}.`,
-      `Prompt: ${trimmed}`,
+        ? "Requested output: 1 video candidate"
+        : `Requested output: ${count} image candidate${count === 1 ? "" : "s"}`,
+      `User prompt: ${trimmed || "(no text prompt provided)"}`,
       `Aspect ratio: ${aspectRatio}`,
       selectedLibrary
         ? `Use library: ${selectedLibrary.title} (${selectedLibrary.id})`
         : "No library selected; match-library if you find a strong fit, otherwise generate generic.",
     ];
     if (uploadedAssets.length > 0) {
-      messageLines.push(
-        `Just uploaded ${uploadedAssets.length} new reference${
+      requestLines.push(
+        `Attached ${uploadedAssets.length} content image${
           uploadedAssets.length === 1 ? "" : "s"
-        } to the library - prioritize them: ${uploadedAssets
+        } for this request - use as source/content context, not reusable style inspiration: ${uploadedAssets
           .map((a) => a.id)
           .join(", ")}`,
+        uploadedAssets.length === 1
+          ? `If the user wants the attached image preserved or restyled, pass subjectAssetId: ${uploadedAssets[0].id}.`
+          : "Pass these IDs explicitly as referenceAssetIds or subjectAssetId values when the content needs to influence generation.",
       );
     }
 
-    const contextLines = ["## Assets create composer"];
+    const contextLines = ["## Assets create composer", ...requestLines];
     if (selectedLibrary) {
       const customInstructions = getLibraryCustomInstructions(selectedLibrary);
       contextLines.push(
+        "",
+        "## Selected library",
         `Library: ${selectedLibrary.title} (${selectedLibrary.id})`,
         `Description: ${selectedLibrary.description || ""}`,
         `References: ${selectedLibrary.referenceCount ?? 0}`,
@@ -746,22 +734,20 @@ function HomeGeneratePanel({
     if (uploadedAssets.length > 0) {
       contextLines.push(
         "",
-        "## Newly uploaded references (this turn)",
+        "## Attached content images (this turn)",
         ...uploadedAssets.map((a) => `- ${a.id} - ${a.title}`),
         "",
-        "These were just added to the library. Treat them as the highest-weight style references for this generation.",
+        "These are content-only source images for this request. Use them for subject, product, composition, or source-image context; do not treat them as style-guide inspiration or reusable style anchors.",
       );
     }
     if (textContextSnippets.length > 0) {
       contextLines.push(
         "",
-        "## Attached text context (this turn)",
-        ...textContextSnippets,
-      );
-      messageLines.push(
         `Use ${textContextSnippets.length} attached text context file${
           textContextSnippets.length === 1 ? "" : "s"
         } from the request context.`,
+        "## Attached text context (this turn)",
+        ...textContextSnippets,
       );
     }
     contextLines.push(
@@ -772,7 +758,7 @@ function HomeGeneratePanel({
     );
 
     sendToAgentChat({
-      message: messageLines.join("\n"),
+      message: chatMessage,
       context: contextLines.join("\n"),
       submit: true,
       newTab: true,
@@ -780,7 +766,7 @@ function HomeGeneratePanel({
 
     if (selectedLibrary) {
       rememberLastLibraryId(selectedLibrary.id);
-      navigate(`/library/${selectedLibrary.id}`);
+      navigate(`/brand-kits/${selectedLibrary.id}`);
     }
   };
 
@@ -800,11 +786,12 @@ function HomeGeneratePanel({
             ) : null}
 
             <PromptComposer
+              className="[&_[data-agent-composer-slot=toolbar-spacer]]:hidden"
               placeholder={
                 selectedLibrary
                   ? mediaType === "video"
-                    ? "Describe the video - attach image references or text context with +"
-                    : "Describe the asset - attach references or text context with +"
+                    ? "Describe the video - attach content images or text context with +"
+                    : "Describe the asset - attach content images or text context with +"
                   : mediaType === "video"
                     ? "Describe the video you want to generate"
                     : "Describe the asset you want to generate"
@@ -814,144 +801,22 @@ function HomeGeneratePanel({
               showModelSelector={false}
               voiceEnabled={false}
               draftScope="assets-create"
+              toolbarSlot={
+                <AssetComposerToolbar
+                  mediaType={mediaType}
+                  onMediaTypeChange={handleMediaTypeChange}
+                  selectValue={selectValue}
+                  selectedLibraryLabel={selectedLibrary?.title ?? "Generic"}
+                  libraries={sortedLibraries}
+                  onLibraryChange={handleLibraryChange}
+                  aspectRatio={aspectRatio}
+                  onAspectChange={handleAspectChange}
+                  customRatios={customRatios}
+                  count={count}
+                  onCountChange={setCount}
+                />
+              }
             />
-
-            <div className="mt-5 rounded-lg border border-border/80 bg-card/50 p-3 text-sm">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(12rem,1.6fr)_minmax(0,1fr)_minmax(0,0.85fr)]">
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Type
-                  </span>
-                  <Select
-                    value={mediaType}
-                    onValueChange={(value) => {
-                      const next = value as "image" | "video";
-                      setMediaType(next);
-                      if (
-                        next === "video" &&
-                        aspectRatio !== "16:9" &&
-                        aspectRatio !== "9:16"
-                      ) {
-                        setAspectRatio("16:9");
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="image">Image</SelectItem>
-                        <SelectItem value="video">Video</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Library
-                  </span>
-                  <Select
-                    value={selectValue}
-                    onValueChange={handleLibraryChange}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue placeholder="Choose a library" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {sortedLibraries.map((library) => (
-                          <SelectItem key={library.id} value={library.id}>
-                            {library.title}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="generic">
-                          No library - generic
-                        </SelectItem>
-                      </SelectGroup>
-                      <SelectSeparator />
-                      <SelectGroup>
-                        <SelectItem value="__new__">
-                          <span className="flex items-center gap-2">
-                            <IconPhotoPlus className="size-3.5" />
-                            New library...
-                          </span>
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Aspect
-                  </span>
-                  <Select
-                    value={aspectRatio}
-                    onValueChange={handleAspectChange}
-                  >
-                    <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {ASPECT_RATIOS.filter(
-                          (ratio) =>
-                            mediaType === "image" ||
-                            ratio.value === "16:9" ||
-                            ratio.value === "9:16",
-                        ).map((ratio) => (
-                          <SelectItem key={ratio.value} value={ratio.value}>
-                            {ratio.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      {customRatios.length > 0 ? (
-                        <>
-                          <SelectSeparator />
-                          <SelectGroup>
-                            {customRatios.map((ratio) => (
-                              <SelectItem key={ratio} value={ratio}>
-                                {ratio} - saved
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </>
-                      ) : null}
-                      <SelectSeparator />
-                      <SelectGroup>
-                        <SelectItem value="__custom__">
-                          Custom size...
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {mediaType === "image" && (
-                  <div className="grid gap-1.5">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Count
-                    </span>
-                    <Select
-                      value={String(count)}
-                      onValueChange={(value) => setCount(Number(value))}
-                    >
-                      <SelectTrigger className="h-9 w-full text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {[1, 2, 3, 4].map((n) => (
-                            <SelectItem key={n} value={String(n)}>
-                              {n} variants
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           <div className="flex flex-wrap justify-center gap-2">
@@ -981,12 +846,12 @@ function HomeGeneratePanel({
                 <IconPhotoPlus size={16} className="text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">
                   {popularLibraries.length
-                    ? "Popular libraries"
+                    ? "Popular brand kits"
                     : "Default styles"}
                 </h2>
               </div>
               <Button asChild variant="outline" size="sm">
-                <Link to="/libraries">
+                <Link to="/brand-kits">
                   View all
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </Link>
@@ -999,7 +864,7 @@ function HomeGeneratePanel({
                   <LibraryCard
                     key={library.id}
                     library={library}
-                    to={`/library/${library.id}`}
+                    to={`/brand-kits/${library.id}`}
                     selected={selectedLibrary?.id === library.id}
                     compact
                   />
@@ -1104,5 +969,145 @@ function HomeGeneratePanel({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function AssetComposerToolbar({
+  mediaType,
+  onMediaTypeChange,
+  selectValue,
+  selectedLibraryLabel,
+  libraries,
+  onLibraryChange,
+  aspectRatio,
+  onAspectChange,
+  customRatios,
+  count,
+  onCountChange,
+}: {
+  mediaType: "image" | "video";
+  onMediaTypeChange: (value: "image" | "video") => void;
+  selectValue: string;
+  selectedLibraryLabel: string;
+  libraries: ImageLibrarySummary[];
+  onLibraryChange: (value: string) => void;
+  aspectRatio: string;
+  onAspectChange: (value: string) => void;
+  customRatios: string[];
+  count: number;
+  onCountChange: (value: number) => void;
+}) {
+  const aspectOptions = ASPECT_RATIOS.filter(
+    (ratio) =>
+      mediaType === "image" || ratio.value === "16:9" || ratio.value === "9:16",
+  );
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <Select
+        value={mediaType}
+        onValueChange={(value) => onMediaTypeChange(value as "image" | "video")}
+      >
+        <SelectTrigger
+          aria-label="Asset type"
+          className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[5.5rem] shrink-0`}
+        >
+          <span className="truncate capitalize">{mediaType}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="image">Image</SelectItem>
+            <SelectItem value="video">Video</SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
+        <Select value={selectValue} onValueChange={onLibraryChange}>
+          <SelectTrigger
+            aria-label="Library"
+            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
+          >
+            <span className="truncate">{selectedLibraryLabel}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {libraries.map((library) => (
+                <SelectItem key={library.id} value={library.id}>
+                  {library.title}
+                </SelectItem>
+              ))}
+              <SelectItem value="generic">No library - generic</SelectItem>
+            </SelectGroup>
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectItem value="__new__">
+                <span className="flex items-center gap-2">
+                  <IconPhotoPlus className="size-3.5" />
+                  New library...
+                </span>
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={aspectRatio} onValueChange={onAspectChange}>
+          <SelectTrigger
+            aria-label="Aspect ratio"
+            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[5rem] shrink-0`}
+          >
+            <span className="truncate">{aspectRatio}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {aspectOptions.map((ratio) => (
+                <SelectItem key={ratio.value} value={ratio.value}>
+                  {ratio.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            {customRatios.length > 0 ? (
+              <>
+                <SelectSeparator />
+                <SelectGroup>
+                  {customRatios.map((ratio) => (
+                    <SelectItem key={ratio} value={ratio}>
+                      {ratio} - saved
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </>
+            ) : null}
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectItem value="__custom__">Custom size...</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        {mediaType === "image" ? (
+          <Select
+            value={String(count)}
+            onValueChange={(value) => onCountChange(Number(value))}
+          >
+            <SelectTrigger
+              aria-label="Variant count"
+              className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
+            >
+              <span>{count}x</span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {[1, 2, 3, 4].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}x
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
+    </div>
   );
 }

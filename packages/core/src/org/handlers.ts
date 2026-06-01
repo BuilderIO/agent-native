@@ -43,6 +43,7 @@ import { getDbExec } from "../db/client.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { getAppProductionUrl } from "../server/app-url.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
@@ -996,14 +997,18 @@ export const syncA2ASecretHandler = defineEventHandler(
           const token = await signA2AToken(ctx.email, orgDomain, signSecret);
 
           const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
-          const res = await fetch(target, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+          const res = await ssrfSafeFetch(
+            target,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ secret, orgDomain }),
             },
-            body: JSON.stringify({ secret, orgDomain }),
-          });
+            { maxRedirects: 3 },
+          );
 
           if (!res.ok) {
             const text = await res.text().catch(() => "");

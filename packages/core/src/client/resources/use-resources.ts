@@ -141,7 +141,6 @@ export function withMcpServersFolder(
     (n) => !(n.type === "folder" && n.name === "mcp-servers"),
   );
 
-  const now = Date.now();
   const children: TreeNode[] = servers.map((s) => {
     const virtualId = `mcp:${s.scope}:${s.id}`;
     const path = `mcp-servers/${s.name}.json`;
@@ -169,6 +168,7 @@ export function withMcpServersFolder(
     };
   });
 
+  const now = Date.now();
   for (const { capability, scope } of builtins) {
     const scopeEnabled = capability.enabled[scope];
     const virtualId = mcpBuiltinVirtualId(scope, capability.id);
@@ -215,9 +215,6 @@ export function withMcpServersFolder(
   }
   foldersFirst.push(folder);
   foldersFirst.sort((a, b) => a.name.localeCompare(b.name));
-  // Assign a synthetic `updatedAt`-less ordering — use current time so the
-  // folder appears stable across renders; we rely on alpha sort.
-  void now;
   return [...foldersFirst, ...files];
 }
 

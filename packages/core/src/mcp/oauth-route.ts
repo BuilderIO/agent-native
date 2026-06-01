@@ -354,7 +354,7 @@ function base64UrlDecode(value: string): Buffer {
 }
 
 function consentSigningKey(): string {
-  return process.env.A2A_SECRET || getAuthSecret();
+  return process.env.A2A_SECRET?.trim() || getAuthSecret();
 }
 
 function consentPayload(params: {
@@ -745,6 +745,7 @@ async function handleRefreshTokenGrant(
     return oauthError("server_error", "Unable to derive issuer", 500);
   const accessToken = await signMcpOAuthAccessToken({
     ownerEmail: row.ownerEmail,
+    orgId: row.orgId,
     orgDomain: row.orgDomain,
     clientId: row.clientId,
     scope: row.scope,

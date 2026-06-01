@@ -1,4 +1,7 @@
-import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+import {
+  isBlockedToolUrl,
+  ssrfSafeToolFetch,
+} from "@agent-native/core/tools/url-safety";
 import type {
   FormIntegration,
   FormField,
@@ -250,11 +253,16 @@ export async function fireIntegrations(
       const payload = buildPayload(submission);
 
       try {
-        const res = await fetch(integration.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const res = await ssrfSafeToolFetch(
+          integration.url,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10_000),
+          },
+          { maxRedirects: 3 },
+        );
         if (!res.ok) {
           console.warn(
             `[integrations] ${integration.type} "${integration.name}" returned ${res.status}`,

@@ -1033,7 +1033,7 @@ function AutomationsSection() {
   );
 }
 
-// ─── Tracking Section ────────────────────────────────────────────────────────
+// ─── Drafting Section ────────────────────────────────────────────────────────
 
 function DraftingSection() {
   const { data: settings, isLoading } = useSettings();

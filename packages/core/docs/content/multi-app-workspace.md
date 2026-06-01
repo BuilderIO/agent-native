@@ -138,43 +138,7 @@ Because the shared package is a `workspace:*` dependency, pnpm symlinks it into 
 
 Use `packages/shared` for code-level defaults that should ship with the repo: plugins, shared actions, shared React code, filesystem `AGENTS.md`, and filesystem skills. Use Dispatch workspace resources for runtime-editable global context that admins want to manage without a code change.
 
-Dispatch resources support two scopes:
-
-- **All apps** — global resources for every app in the workspace. Dispatch stores them once at workspace scope and every app agent inherits them at runtime; no copy or sync step is required.
-- **Selected apps** — resources granted per app for app-specific context or tools. Use these sparingly; most company, brand, persona, positioning, messaging, and guardrail context should be All apps.
-
-Canonical paths control behavior:
-
-| Runtime resource        | Path                                    | How agents use it                               |
-| ----------------------- | --------------------------------------- | ----------------------------------------------- |
-| Guardrail instructions  | `AGENTS.md` or `instructions/<slug>.md` | Loaded every turn in every app that receives it |
-| Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
-| Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
-| Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
-| Shared HTTP MCP servers | `mcp-servers/<slug>.json`               | Loaded into granted apps' MCP tool registry     |
-
-This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
-
-For a starter workspace, create these Dispatch resources and scope them to **All apps**:
-
-```text
-context/company.md              # company overview, ICP, products, canonical links
-context/brand.md                # brand voice, visual identity, spelling, terms to avoid
-context/messaging.md            # value props, product pillars, proof points, objections
-instructions/guardrails.md      # rules that must be loaded every turn
-skills/company-voice/SKILL.md   # copywriting and review workflow for brand voice
-```
-
-Example `skills/company-voice/SKILL.md`:
-
-```markdown
----
-name: company-voice
-description: Rewrite or review customer-facing copy using the workspace brand and messaging resources.
----
-
-Before writing, read `context/brand.md` and `context/messaging.md`. Keep claims grounded in those resources, preserve required terminology, and flag missing proof instead of inventing it.
-```
+Dispatch resources are scoped **All apps** (every app inherits them at runtime, no copy or sync step) or **Selected apps** (granted per app for app-specific context). The path — `AGENTS.md`/`instructions/<slug>.md`, `skills/<slug>/SKILL.md`, `context/<slug>.md`, `agents/<slug>.md`, `mcp-servers/<slug>.json` — determines how the agent uses each resource. See [Workspace](/docs/workspace#global-resources) for the full resource-model table and the recommended starter pack (`context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, `skills/company-voice/SKILL.md`).
 
 ## Authentication and RBAC {#auth-and-rbac}
 
@@ -293,7 +257,7 @@ The shared package itself is never deployed standalone. It's a `workspace:*` dep
 The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
 
 - **Cross-domain SSO.** The unified `agent-native deploy` flow solves the common case (one origin, many apps at `/mail`, `/calendar`, …). If you need `mail.company.com` and `calendar.company.com` on _different_ domains to share a session, that requires a shared cookie domain or a central auth app with OAuth redirects — both supported by the underlying stack but neither scaffolded out of the box.
-- **Encrypted credential vault.** Shared credentials live in the `settings` table as plain text today. Rotate responsibly.
+- **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). The non-vault fallback path — shared credentials written directly to the framework `settings` table — stores them as plain text today, so rotate responsibly when you rely on it.
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
 

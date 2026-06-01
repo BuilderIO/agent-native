@@ -341,7 +341,7 @@ export function MessagingSetupPanel() {
     try {
       const action = enabled ? "disable" : "enable";
       const res = await fetch(
-        `/_agent-native/integrations/${platform.id}/${action}`,
+        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
         {
           method: "POST",
         },
@@ -371,7 +371,7 @@ export function MessagingSetupPanel() {
     setSetupPlatform(platform.id);
     try {
       const res = await fetch(
-        `/_agent-native/integrations/${platform.id}/setup`,
+        agentNativePath(`/_agent-native/integrations/${platform.id}/setup`),
         {
           method: "POST",
         },
@@ -422,7 +422,6 @@ export function MessagingSetupPanel() {
                   label: key,
                   required: true,
                 }));
-          const canEnable = configured;
 
           return (
             <section
@@ -543,7 +542,7 @@ export function MessagingSetupPanel() {
                             <StatusPill tone="success" label="Saved" />
                           ) : (
                             <StatusPill
-                              tone={envKey.required ? "neutral" : "neutral"}
+                              tone="neutral"
                               label={envKey.required ? "Missing" : "Not set"}
                             />
                           )}

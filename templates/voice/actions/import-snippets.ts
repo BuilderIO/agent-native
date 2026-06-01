@@ -1,10 +1,3 @@
-/**
- * Bulk import snippets from a JSON array.
- *
- * Usage:
- *   pnpm action import-snippets --snippets='[{"trigger":"@@sig","expansion":"Best regards"}]'
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -50,7 +43,6 @@ export default defineAction({
     await db.insert(schema.dictationSnippets).values(values);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Imported ${values.length} snippets`);
 
     return { imported: values.length, ids: values.map((v) => v.id) };
   },

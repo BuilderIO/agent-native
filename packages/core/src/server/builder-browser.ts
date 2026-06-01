@@ -674,7 +674,25 @@ export function getBuilderCliAuthCallbackOriginForEvent(
 ): string {
   const previewOrigin = getBuilderBrowserOriginForEvent(event);
   if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
-  return firstBuilderCliAuthCallbackOriginFromEnv() ?? previewOrigin;
+  const envOrigin = firstBuilderCliAuthCallbackOriginFromEnv();
+  if (envOrigin) return envOrigin;
+  // The app is being reached via a tunnel (e.g. ngrok) whose origin Builder's
+  // /cli-auth does not trust, and no public gateway is configured. Handing
+  // Builder the rejected tunnel origin makes it fall back to its own *dead*
+  // http://localhost:10110/auth default (ERR_CONNECTION_REFUSED). In local dev
+  // the app is also reachable at http://localhost:<PORT> — an origin Builder
+  // accepts and a same-machine browser can reach — so use that for the callback
+  // instead of a broken redirect. (Production origins are *.agent-native.com,
+  // which pass the allow-list above and never reach here.)
+  return localBuilderCliAuthCallbackOrigin() ?? previewOrigin;
+}
+
+/** App's own localhost origin for the Builder connect callback, in local dev. */
+function localBuilderCliAuthCallbackOrigin(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const port = process.env.PORT?.trim();
+  if (!port || !/^\d{1,5}$/.test(port)) return null;
+  return `http://localhost:${port}`;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {

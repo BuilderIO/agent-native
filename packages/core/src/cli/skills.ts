@@ -24,17 +24,22 @@ const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
+  agent-native skills add design-exploration
   agent-native skills add assets --client claude-code
+  agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
 
 The add command installs skill instructions with the open skills CLI, then
-registers the app-backed MCP connector. Use app-skill pack for marketplace
-bundles and custom adapter output.`;
+registers the app-backed MCP connector. Pass --mcp-url to register that
+connector against a custom origin (an ngrok tunnel, a local dev server, or a
+self-hosted deployment) instead of the built-in hosted default — a bare origin
+gets the standard /_agent-native/mcp path appended. Use app-skill pack for
+marketplace bundles and custom adapter output.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -54,18 +59,24 @@ or generated image/video assets that another app can reference by ID and URL.
 
 - Use \`open-asset-picker\` when a person should browse, search, generate, and
   select an asset in UI. Pass \`mediaType: "image"\` by default, or
-  \`mediaType: "video"\` for video libraries.
+  \`mediaType: "video"\` for video libraries. When the user asks to create a
+  specific image and choose the best option, pass \`prompt\`,
+  \`autoGenerate: true\`, and \`count: 3\` so the picker opens with candidates
+  to preview and select.
 - Use unattended actions when the agent already knows what to do:
   \`search-assets\`, \`list-assets\`, \`generate-image\`,
   \`generate-image-batch\`, \`generate-video\`,
   \`refresh-generation-run\`, and \`export-asset\`.
 - Use browser/deep-link fallback when the host cannot render MCP Apps inline.
-  Surface the returned picker link instead of inventing a separate UI.
+  Surface the returned picker link. If it opens in a normal browser tab, have
+  the user select an asset there and paste back the copied handoff summary.
 
 ## Image And Video Workflows
 
 1. Pick or match the library with \`list-libraries\` or \`match-library\`.
-2. For images, call \`generate-image\` or \`generate-image-batch\`.
+2. For images, call \`generate-image\` or \`generate-image-batch\`. Image
+   actions are synchronous: one batch call should return the finished image
+   candidates, so do not poll or regenerate unless a returned slot failed.
 3. For videos, call \`generate-video\` and poll \`refresh-generation-run\`
    until the run completes.
 4. Preserve returned \`assetId\`, \`runId\`, \`previewUrl\`, \`downloadUrl\`,
@@ -81,8 +92,66 @@ or generated image/video assets that another app can reference by ID and URL.
   generation, picker UI, search/list/export, and asset context.
 `;
 
+const DESIGN_EXPLORATION_SKILL_MD = `---
+name: design-exploration
+description: >-
+  Use Design for UI/UX exploration, side-by-side design directions,
+  interactive prototype previews, user selection, iteration, and design-to-code
+  handoff through the hosted Design MCP app.
+metadata:
+  visibility: exported
+---
+
+# Design Exploration
+
+Use the Design app when a workflow needs visual UI exploration, prototype
+iteration, or a human-in-the-loop choice among design directions.
+
+## Choose The Path
+
+- Use \`create-design\` first to create a project shell. Do not report the
+  design as ready until it has renderable HTML.
+- For open-ended UX exploration, generate distinct, complete HTML directions
+  (2-5, three by default) and call \`present-design-variants\`. The inline
+  Design MCP app shows the options, lets the user pick one, and persists the
+  selected variant.
+- If the Design app opens as a browser link instead of inline (CLI hosts like
+  Codex / Claude Code, where the deep link carries \`handoff=chat\`), the user
+  picks a direction there and the editor shows a copyable summary — ask them to
+  paste it back into chat so you can continue from the chosen direction. The
+  \`present-design-variants\` result's \`fallbackInstructions\` describe this.
+- For direct refinements to an already chosen direction, call
+  \`get-design-snapshot\`, edit from the current tuned HTML, then call
+  \`generate-design\`.
+- Use \`export-coding-handoff\` when the user wants to implement the chosen
+  design in a codebase.
+
+## Exploration Defaults
+
+1. Default to three variants unless the user asks for a different count
+   (\`present-design-variants\` accepts 2-5; three is the sweet spot).
+2. Make variants structurally and stylistically distinct, not just color swaps.
+3. Each variant must be a complete standalone HTML document that renders
+   without a build step.
+4. For product UI redesigns, prefer cleaner hierarchy, progressive disclosure,
+   and realistic controls over decorative mockups.
+5. After \`present-design-variants\`, wait for the user's pick before
+   generating the next version. If they say "I like #2 but...", snapshot the
+   chosen design and refine that direction with \`generate-design\`.
+
+## Cross-App Use
+
+- Hosted default: connect \`https://design.agent-native.com/_agent-native/mcp\`.
+  Do not put shared secrets in skill files.
+- Dispatch can expose Design alongside other apps. Use Design for UI/UX design
+  tasks, Assets for image/media selection, Slides for decks, and so on.
+- Keep the loop visual: surface the inline MCP App or the returned "Open
+  design" link instead of pasting large HTML blobs into chat.
+`;
+
 const BUILT_IN_APP_SKILLS = {
   assets: {
+    skillName: "assets",
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "assets",
@@ -127,9 +196,53 @@ const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: ASSETS_SKILL_MD,
   },
+  design: {
+    skillName: "design-exploration",
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "design",
+      displayName: "Design",
+      description:
+        "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+      hosted: {
+        url: "https://design.agent-native.com",
+        mcpUrl: "https://design.agent-native.com/_agent-native/mcp",
+      },
+      mcp: { serverName: "agent-native-design" },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate with the Design MCP connector in the host app. No shared secrets are stored in skill files.",
+      },
+      surfaces: [
+        {
+          id: "design-exploration",
+          action: "present-design-variants",
+          path: "/design",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/design-exploration",
+          visibility: "exported",
+          exportAs: "design-exploration",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: DESIGN_EXPLORATION_SKILL_MD,
+  },
 } satisfies Record<
   string,
-  { manifest: AppSkillManifest; skillMarkdown: string }
+  { manifest: AppSkillManifest; skillMarkdown: string; skillName: string }
 >;
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
@@ -143,10 +256,22 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "image-generation": "assets",
   "agent-native-assets": "assets",
   "agent-native-images": "assets",
+  design: "design",
+  "ui-design": "design",
+  "ux-design": "design",
+  "design-exploration": "design",
+  "ux-exploration": "design",
+  "agent-native-design": "design",
+  "agent-native-design-exploration": "design",
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   assets: ["images", "image-generation", "agent-native-images"],
+  design: [
+    "design-exploration",
+    "ux-exploration",
+    "agent-native-design-exploration",
+  ],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
 type SkillsCommand = "list" | "add" | "help";
@@ -161,6 +286,12 @@ export interface ParsedSkillsArgs {
   printJson: boolean;
   instructions: boolean;
   mcp: boolean;
+  /**
+   * Optional MCP URL override. When set, the skill's hosted MCP connector is
+   * registered against this URL instead of the built-in hosted default — e.g.
+   * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
+   */
+  mcpUrl?: string;
 }
 
 export interface SkillsAddResult {
@@ -184,10 +315,18 @@ interface SkillInstallTarget {
   cleanup?: () => void;
 }
 
+interface RunCommandOptions {
+  stdio?: "inherit" | "stderr";
+}
+
 interface RunSkillsOptions {
   baseDir?: string;
   log?: (message: string) => void;
-  runCommand?: (cmd: string, args: string[]) => Promise<number>;
+  runCommand?: (
+    cmd: string,
+    args: string[],
+    options?: RunCommandOptions,
+  ) => Promise<number>;
 }
 
 function normalizeKnownSkillTarget(
@@ -247,6 +386,7 @@ export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
     let value: string | undefined;
     if ((value = eat("--client")) !== undefined) out.client = value;
     else if ((value = eat("--scope")) !== undefined) out.scope = value;
+    else if ((value = eat("--mcp-url")) !== undefined) out.mcpUrl = value;
     else if (arg === "--yes" || arg === "-y") out.yes = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg === "--json") out.printJson = true;
@@ -276,9 +416,9 @@ function loadSkillTarget(target: string): SkillInstallTarget {
         file: `<built-in:${builtIn.manifest.id}>`,
         dir: process.cwd(),
       },
-      skillNames: ["assets"],
+      skillNames: [builtIn.skillName],
       materializeInstructions(outDir) {
-        const skillDir = path.join(outDir, "skills", "assets");
+        const skillDir = path.join(outDir, "skills", builtIn.skillName);
         fs.mkdirSync(skillDir, { recursive: true });
         fs.writeFileSync(
           path.join(skillDir, "SKILL.md"),
@@ -328,17 +468,80 @@ function skillsAgentsForClients(clients: ClientId[]): string[] {
   return [...agents];
 }
 
-function commandString(cmd: string, args: string[]): string {
-  return [cmd, ...args].join(" ");
+function shellArg(value: string): string {
+  if (/^[A-Za-z0-9_/:=.,@+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-async function runCommand(cmd: string, args: string[]): Promise<number> {
+function commandString(cmd: string, args: string[]): string {
+  return [cmd, ...args].map(shellArg).join(" ");
+}
+
+function preserveMcpUrlAppPathOverride(
+  target: SkillInstallTarget,
+  input: string | undefined,
+): SkillInstallTarget {
+  if (!input) return target;
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return target;
+  }
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  const appPath = trimmedPath.endsWith("/_agent-native/mcp")
+    ? trimmedPath.slice(0, -"/_agent-native/mcp".length).replace(/\/+$/, "")
+    : trimmedPath;
+  if (!appPath) return target;
+  const url = `${parsed.origin}${appPath}`;
+  return {
+    ...target,
+    loaded: {
+      ...target.loaded,
+      manifest: {
+        ...target.loaded.manifest,
+        hosted: { url, mcpUrl: `${url}/_agent-native/mcp` },
+      },
+    },
+  };
+}
+
+function dryRunInstallCommand(
+  parsed: ParsedSkillsArgs,
+  target: string,
+): string {
+  const args = [
+    "skills",
+    "add",
+    target,
+    "--client",
+    parsed.client,
+    "--scope",
+    parsed.scope,
+  ];
+  if (parsed.mcpUrl) args.push("--mcp-url", parsed.mcpUrl);
+  if (parsed.instructions && !parsed.mcp) args.push("--instructions-only");
+  if (!parsed.instructions && parsed.mcp) args.push("--mcp-only");
+  if (parsed.yes || isKnownSkill(target)) args.push("--yes");
+  return commandString("agent-native", args);
+}
+
+async function runCommand(
+  cmd: string,
+  args: string[],
+  options: RunCommandOptions = {},
+): Promise<number> {
   return new Promise((resolve, reject) => {
+    const pipeToStderr = options.stdio === "stderr";
     const child = spawn(cmd, args, {
-      stdio: "inherit",
+      stdio: pipeToStderr ? ["inherit", "pipe", "pipe"] : "inherit",
       shell: process.platform === "win32",
       env: process.env,
     });
+    if (pipeToStderr) {
+      child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
+      child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    }
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       if (signal) {
@@ -348,6 +551,44 @@ async function runCommand(cmd: string, args: string[]): Promise<number> {
       resolve(code ?? 0);
     });
   });
+}
+
+/**
+ * Resolve a `--mcp-url` override into the `{ url, mcpUrl }` pair the manifest
+ * expects. Accepts a bare origin (`https://x.ngrok-free.dev`) — appending the
+ * standard `/_agent-native/mcp` path — or a full MCP URL already ending in it.
+ */
+function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error(`--mcp-url must be a valid URL (got "${input}").`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("--mcp-url must use http:// or https://.");
+  }
+  const origin = parsed.origin;
+  const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+  const mcpUrl = trimmedPath.endsWith("/_agent-native/mcp")
+    ? `${origin}${trimmedPath}`
+    : `${origin}/_agent-native/mcp`;
+  return { url: origin, mcpUrl };
+}
+
+/** Return a copy of the install target with its hosted MCP URL overridden. */
+function withMcpUrlOverride(
+  target: SkillInstallTarget,
+  input: string,
+): SkillInstallTarget {
+  const { url, mcpUrl } = resolveMcpUrlOverride(input);
+  return {
+    ...target,
+    loaded: {
+      ...target.loaded,
+      manifest: { ...target.loaded.manifest, hosted: { url, mcpUrl } },
+    },
+  };
 }
 
 export async function addAgentNativeSkill(
@@ -361,9 +602,29 @@ export async function addAgentNativeSkill(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
     );
   }
-  const installTarget = loadSkillTarget(target);
+  let installTarget = loadSkillTarget(target);
+  if (parsed.mcpUrl) {
+    installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
+  }
   const clients = resolveClients(parsed.client);
+  installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = skillsAgentsForClients(clients);
+  if (parsed.dryRun) {
+    try {
+      return {
+        id: installTarget.id,
+        displayName: installTarget.displayName,
+        skillNames: installTarget.skillNames,
+        skillsAgents,
+        mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
+        mcpClients: clients,
+        dryRun: true,
+        commands: [dryRunInstallCommand(parsed, target)],
+      };
+    } finally {
+      installTarget.cleanup?.();
+    }
+  }
   const commands: string[] = [];
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
@@ -384,11 +645,14 @@ export async function addAgentNativeSkill(
         "--copy",
         ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
         ...skillsAgents.flatMap((agent) => ["-a", agent]),
+        ...(parsed.scope === "user" ? ["-g"] : []),
         ...(parsed.yes || knownTarget ? ["-y"] : []),
       ];
       commands.push(commandString("npx", args));
       if (!parsed.dryRun) {
-        const code = await (options.runCommand ?? runCommand)("npx", args);
+        const code = await (options.runCommand ?? runCommand)("npx", args, {
+          stdio: parsed.printJson ? "stderr" : "inherit",
+        });
         if (code !== 0) throw new Error(`npx skills add exited with ${code}.`);
       }
     }
@@ -444,8 +708,9 @@ export async function runSkills(
   options: RunSkillsOptions = {},
 ): Promise<void> {
   const parsed = parseSkillsArgs(argv);
-  const log = (message: string) =>
-    (parsed.printJson ? process.stderr : process.stdout).write(`${message}\n`);
+  const log = parsed.printJson
+    ? undefined
+    : (message: string) => process.stdout.write(`${message}\n`);
 
   if (parsed.command === "help") {
     process.stdout.write(`${HELP}\n`);

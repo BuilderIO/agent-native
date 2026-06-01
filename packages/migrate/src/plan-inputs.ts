@@ -83,28 +83,54 @@ export interface PlanMigrationOptions {
   planInputs?: MigrationPlanInputs | null;
 }
 
-const AEM_MODES: AemMigrationMode[] = [
+const AEM_MODES = [
   "crawl",
   "api",
   "package",
   "code",
   "enterprise",
-];
+] as const satisfies readonly AemMigrationMode[];
 
-const ROUTE_OWNERS: MigrationRouteOwner[] = [
+const AEM_CONTENT_FRAGMENT_POLICIES = [
+  "builder-data-model",
+  "headless",
+  "agent-native-sql",
+  "manual",
+] as const satisfies readonly AemContentFragmentPolicy[];
+
+const AEM_EXPERIENCE_FRAGMENT_POLICIES = [
+  "builder-symbol",
+  "builder-section",
+  "react-component",
+  "manual",
+] as const satisfies readonly AemExperienceFragmentPolicy[];
+
+const AEM_COMPONENT_POLICIES = [
+  "react-component",
+  "builder-registered-component",
+  "manual",
+] as const satisfies readonly AemComponentPolicy[];
+
+const ROUTE_OWNERS = [
   "builder-page",
   "builder-section",
   "agent-native-route",
   "headless",
   "manual",
-];
+] as const satisfies readonly MigrationRouteOwner[];
 
-const JQUERY_POLICIES: JQueryMigrationPolicy[] = [
+const BUILDER_COMPONENT_REGISTRATION_POLICIES = [
+  "register",
+  "manual",
+  "skip",
+] as const;
+
+const JQUERY_POLICIES = [
   "rewrite",
   "temporary-wrapper",
   "drop-authoring-only",
   "manual",
-];
+] as const satisfies readonly JQueryMigrationPolicy[];
 
 export function parseMigrationPlanInputsText(
   text: string,
@@ -142,23 +168,18 @@ export function normalizeMigrationPlanInputs(
   const aem = {
     modes: arrayOfEnum(aemValue.modes, AEM_MODES),
     evidence: arrayOfStrings(aemValue.evidence),
-    contentFragmentPolicy: enumValue(aemValue.contentFragmentPolicy, [
-      "builder-data-model",
-      "headless",
-      "agent-native-sql",
-      "manual",
-    ] satisfies AemContentFragmentPolicy[]),
-    experienceFragmentPolicy: enumValue(aemValue.experienceFragmentPolicy, [
-      "builder-symbol",
-      "builder-section",
-      "react-component",
-      "manual",
-    ] satisfies AemExperienceFragmentPolicy[]),
-    componentPolicy: enumValue(aemValue.componentPolicy, [
-      "react-component",
-      "builder-registered-component",
-      "manual",
-    ] satisfies AemComponentPolicy[]),
+    contentFragmentPolicy: enumValue(
+      aemValue.contentFragmentPolicy,
+      AEM_CONTENT_FRAGMENT_POLICIES,
+    ),
+    experienceFragmentPolicy: enumValue(
+      aemValue.experienceFragmentPolicy,
+      AEM_EXPERIENCE_FRAGMENT_POLICIES,
+    ),
+    componentPolicy: enumValue(
+      aemValue.componentPolicy,
+      AEM_COMPONENT_POLICIES,
+    ),
   };
   if (
     aem.modes.length ||
@@ -177,11 +198,10 @@ export function normalizeMigrationPlanInputs(
         ? builderValue.enabled
         : undefined,
     routeOwnership,
-    componentRegistration: enumValue(builderValue.componentRegistration, [
-      "register",
-      "manual",
-      "skip",
-    ]),
+    componentRegistration: enumValue(
+      builderValue.componentRegistration,
+      BUILDER_COMPONENT_REGISTRATION_POLICIES,
+    ),
     notes: cleanString(builderValue.notes),
   };
   if (

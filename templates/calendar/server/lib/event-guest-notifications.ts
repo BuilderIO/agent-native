@@ -1,5 +1,4 @@
 import {
-  emailLink,
   emailStrong,
   isEmailConfigured,
   renderEmail,

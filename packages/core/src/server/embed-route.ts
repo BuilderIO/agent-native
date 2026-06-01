@@ -54,10 +54,14 @@ function redirectWithStagedCookies(
 ): Response {
   setEmbedStartResponseHeaders(event);
   const headers = embedStartResponseHeaders(event, { Location: location });
-  const staged = event.res?.headers?.getSetCookie?.() ?? [];
-  for (const cookie of staged) headers.append("set-cookie", cookie);
+  appendStagedCookies(event, headers);
   headers.set("Referrer-Policy", "no-referrer");
   return new Response("", { status, headers });
+}
+
+function appendStagedCookies(event: H3Event, headers: Headers): void {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
 }
 
 function setEmbedStartResponseHeaders(event: H3Event): void {
@@ -177,6 +181,31 @@ function firstQueryValue(value: unknown): string {
       : "";
 }
 
+function wantsTransplantLocationResponse(event: H3Event): boolean {
+  if (getHeader(event, "x-agent-native-embed-transplant") === "1") {
+    return true;
+  }
+  const accept = getHeader(event, "accept") ?? "";
+  return /\bapplication\/json\b/i.test(accept);
+}
+
+function transplantLocationResponse(
+  event: H3Event,
+  location: string,
+): Response {
+  setEmbedStartResponseHeaders(event);
+  const headers = embedStartResponseHeaders(event, {
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json; charset=utf-8",
+  });
+  appendStagedCookies(event, headers);
+  headers.set("Referrer-Policy", "no-referrer");
+  return new Response(JSON.stringify({ location }), {
+    status: 200,
+    headers,
+  });
+}
+
 export interface EmbedStartRouteOptions {
   getExistingSession?: (event: H3Event) => Promise<AuthSession | null>;
 }
@@ -245,6 +274,9 @@ export function createEmbedStartRouteHandler(
         appendEmbedParams(target, token, chatBridgeActive),
       ),
     );
+    if (wantsTransplantLocationResponse(event)) {
+      return transplantLocationResponse(event, location);
+    }
     return redirectWithStagedCookies(event, location);
   });
 }

@@ -27,3 +27,11 @@ onlyBuiltDependencies:
   - ffmpeg-static
   - lightningcss
   - node-pty
+  - "@firebase/util"
+  - "@google/genai"
+  - "@parcel/watcher"
+  - core-js
+  - electron-winstaller
+  - protobufjs
+  - sharp
+  - workerd

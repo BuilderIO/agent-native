@@ -10,68 +10,186 @@ export interface UseNearBottomAutoscrollOptions {
 export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   followKey,
   streaming = false,
-  threshold = 40,
+  threshold = 4,
   enabled = true,
 }: UseNearBottomAutoscrollOptions) {
   const scrollRef = useRef<TElement | null>(null);
   const isNearBottomRef = useRef(true);
+  const followGenerationRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
+  const lastTouchYRef = useRef<number | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
-  const updateNearBottom = useCallback(() => {
+  const isAtBottom = useCallback(
+    (el: HTMLElement) =>
+      el.scrollHeight - el.scrollTop - el.clientHeight <= threshold,
+    [threshold],
+  );
+
+  const setFollowingBottom = useCallback(
+    (following: boolean, forceGeneration = false, el?: HTMLElement) => {
+      if (forceGeneration || isNearBottomRef.current !== following) {
+        followGenerationRef.current += 1;
+      }
+      isNearBottomRef.current = following;
+      const canScroll = !el || el.scrollHeight > el.clientHeight + threshold;
+      setShowScrollToBottom(!following && canScroll);
+    },
+    [threshold],
+  );
+
+  const detachFromBottom = useCallback(() => {
+    setFollowingBottom(false, true, scrollRef.current ?? undefined);
+  }, [setFollowingBottom]);
+
+  const updateBottomState = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    isNearBottomRef.current = nearBottom;
-    setShowScrollToBottom(!nearBottom);
-  }, [threshold]);
+    if (isAtBottom(el)) setFollowingBottom(true, false, el);
+    else if (!isNearBottomRef.current) {
+      setShowScrollToBottom(el.scrollHeight > el.clientHeight + threshold);
+    }
+  }, [isAtBottom, setFollowingBottom, threshold]);
+
+  const scrollToBottomIfFollowing = useCallback(
+    (generation: number) => {
+      if (
+        followGenerationRef.current !== generation ||
+        !isNearBottomRef.current
+      ) {
+        return;
+      }
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      lastScrollTopRef.current = el.scrollTop;
+      setFollowingBottom(true, false, el);
+    },
+    [setFollowingBottom],
+  );
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    isNearBottomRef.current = true;
-    setShowScrollToBottom(false);
-  }, []);
+    setFollowingBottom(true, true, el);
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    lastScrollTopRef.current = el.scrollTop;
+  }, [setFollowingBottom]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !enabled) return;
-    const onScroll = () => updateNearBottom();
+    lastScrollTopRef.current = el.scrollTop;
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) detachFromBottom();
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const nextTouchY = event.touches[0]?.clientY;
+      if (nextTouchY == null) return;
+      const lastTouchY = lastTouchYRef.current;
+      if (lastTouchY != null && nextTouchY > lastTouchY) {
+        detachFromBottom();
+      }
+      lastTouchYRef.current = nextTouchY;
+    };
+
+    const onTouchEnd = () => {
+      lastTouchYRef.current = null;
+    };
+
+    const onScroll = () => {
+      const previousScrollTop = lastScrollTopRef.current;
+      const nextScrollTop = el.scrollTop;
+      lastScrollTopRef.current = nextScrollTop;
+      if (nextScrollTop < previousScrollTop) {
+        detachFromBottom();
+        return;
+      }
+      updateBottomState();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "PageUp" ||
+        event.key === "Home" ||
+        (event.key === " " && event.shiftKey)
+      ) {
+        detachFromBottom();
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     el.addEventListener("scroll", onScroll, { passive: true });
-    updateNearBottom();
+    el.addEventListener("keydown", onKeyDown);
+    updateBottomState();
 
     // Re-check near-bottom whenever the scroll container's content grows
     // (e.g. new messages appended, images loaded, tool-call details expanded).
     // Without this the "near bottom" flag can get stuck as `false` even though
     // the user never scrolled away — the container just grew taller.
-    const ro = new ResizeObserver(() => {
-      if (isNearBottomRef.current) scrollToBottom();
-      else updateNearBottom();
-    });
-    ro.observe(el);
-    // Also watch direct children so inline content changes are caught.
-    for (const child of Array.from(el.children)) ro.observe(child);
+    let ro: ResizeObserver | null = null;
+    let mo: MutationObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      const observeResizeTargets = () => {
+        ro?.disconnect();
+        ro = new ResizeObserver(() => {
+          if (isNearBottomRef.current) {
+            scrollToBottomIfFollowing(followGenerationRef.current);
+          } else {
+            updateBottomState();
+          }
+        });
+        ro.observe(el);
+        // Also watch direct children so inline content changes are caught.
+        for (const child of Array.from(el.children)) ro.observe(child);
+      };
+      observeResizeTargets();
+      if (typeof MutationObserver !== "undefined") {
+        mo = new MutationObserver(() => {
+          observeResizeTargets();
+          if (isNearBottomRef.current) {
+            scrollToBottomIfFollowing(followGenerationRef.current);
+          }
+        });
+        mo.observe(el, { childList: true });
+      }
+    }
 
     return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
       el.removeEventListener("scroll", onScroll);
-      ro.disconnect();
+      el.removeEventListener("keydown", onKeyDown);
+      ro?.disconnect();
+      mo?.disconnect();
     };
-  }, [enabled, updateNearBottom, scrollToBottom]);
+  }, [detachFromBottom, enabled, scrollToBottomIfFollowing, updateBottomState]);
 
   const scrollToBottomAfterPaint = useCallback(() => {
-    scrollToBottom();
+    const generation = followGenerationRef.current;
+    scrollToBottomIfFollowing(generation);
     requestAnimationFrame(() => {
-      scrollToBottom();
-      requestAnimationFrame(scrollToBottom);
+      scrollToBottomIfFollowing(generation);
+      requestAnimationFrame(() => scrollToBottomIfFollowing(generation));
     });
-    window.setTimeout(scrollToBottom, 80);
-  }, [scrollToBottom]);
+    window.setTimeout(() => scrollToBottomIfFollowing(generation), 80);
+  }, [scrollToBottomIfFollowing]);
 
   const markNearBottom = useCallback(() => {
-    isNearBottomRef.current = true;
-    setShowScrollToBottom(false);
-  }, []);
+    setFollowingBottom(true, true, scrollRef.current ?? undefined);
+  }, [setFollowingBottom]);
 
   useEffect(() => {
     if (!enabled || !isNearBottomRef.current) return;
@@ -81,10 +199,10 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   useEffect(() => {
     if (!enabled || !streaming) return;
     const id = window.setInterval(() => {
-      if (isNearBottomRef.current) scrollToBottom();
+      scrollToBottomIfFollowing(followGenerationRef.current);
     }, 100);
     return () => window.clearInterval(id);
-  }, [enabled, scrollToBottom, streaming]);
+  }, [enabled, scrollToBottomIfFollowing, streaming]);
 
   return {
     scrollRef,

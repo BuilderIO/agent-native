@@ -8,7 +8,6 @@ export function ComposeImageBlock({
   updateAttributes,
   deleteNode,
   selected,
-  extension,
 }: NodeViewProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);

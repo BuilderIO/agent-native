@@ -1,5 +1,5 @@
 import { agentNativePath } from "../api-path.js";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IconLoader2, IconCheck, IconX, IconClock } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
 import type { AgentRun, ProgressStatus } from "../../progress/types.js";

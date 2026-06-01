@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import { useSprints, useSprintIssues } from "@/hooks/use-boards";
 import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";

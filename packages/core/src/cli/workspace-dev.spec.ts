@@ -149,6 +149,48 @@ describe("workspace dev startup", () => {
     }
   });
 
+  it("allows long non-HTML action responses through the gateway", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: {
+        ...testEnv(),
+        WORKSPACE_PROXY_READY_TIMEOUT_MS: "1000",
+        WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS: "50",
+        WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS: "300",
+      },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps[0];
+    app.ready = true;
+    const slowActionServer = http.createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      }, 100);
+    });
+    await new Promise<void>((resolve, reject) => {
+      slowActionServer.once("error", reject);
+      slowActionServer.listen(app.port, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const res = await fetch(`${url}/dispatch/api/action`, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(1_000),
+      });
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ ok: true });
+    } finally {
+      await new Promise<void>((resolve) =>
+        slowActionServer.close(() => resolve()),
+      );
+    }
+  });
+
   it("prewarms non-default apps in the background after the gateway is ready", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter", "todo"]);
     const fake = fakeSpawn();

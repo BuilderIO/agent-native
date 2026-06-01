@@ -22,8 +22,9 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
 }));
 
+const getOrgDomainMock = vi.fn(async () => "builder.io");
 vi.mock("../org/context.js", () => ({
-  getOrgDomain: vi.fn(async () => "builder.io"),
+  getOrgDomain: (...args: any[]) => getOrgDomainMock(...args),
 }));
 
 const clients = new Map<string, any>();
@@ -327,8 +328,88 @@ describe("MCP OAuth route", () => {
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
+      orgId: "org_123",
       orgDomain: "builder.io",
       scopes: ["mcp:read", "mcp:apps"],
+      clientId: client.client_id,
+    });
+  });
+
+  it("preserves org_id in OAuth access tokens even when the org has no domain", async () => {
+    getOrgDomainMock.mockResolvedValueOnce(undefined);
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+
+    const token = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          code,
+          code_verifier: verifier,
+        },
+      }),
+      "/token",
+    );
+    const body = await token.json();
+
+    await expect(
+      verifyMcpOAuthAccessToken(
+        body.access_token,
+        "https://mail.agent-native.com/_agent-native/mcp",
+      ),
+    ).resolves.toMatchObject({
+      userEmail: "steve@example.com",
+      orgId: "org_123",
+      orgDomain: undefined,
       clientId: client.client_id,
     });
   });
@@ -501,6 +582,17 @@ describe("MCP OAuth route", () => {
     expect(second.status).toBe(200);
     const body = await second.json();
     expect(body.refresh_token).not.toBe(first.refresh_token);
+    await expect(
+      verifyMcpOAuthAccessToken(
+        body.access_token,
+        "https://mail.agent-native.com/_agent-native/mcp",
+      ),
+    ).resolves.toMatchObject({
+      userEmail: "steve@example.com",
+      orgId: "org_123",
+      orgDomain: "builder.io",
+      clientId: client.client_id,
+    });
     expect(refreshRows.get(first.refresh_token)?.revokedAt).toBeTruthy();
   });
 

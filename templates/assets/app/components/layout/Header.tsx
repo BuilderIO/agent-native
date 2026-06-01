@@ -1,12 +1,11 @@
 import { useLocation } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { AgentToggleButton, useActionQuery } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "Create",
-  "/picker": "Picker",
-  "/libraries": "Libraries",
+  "/library": "Library",
+  "/brand-kits": "Brand Kits",
   "/extensions": "Extensions",
   "/settings": "Settings",
 };
@@ -28,7 +27,7 @@ function StaticTitle({ pathname }: { pathname: string }) {
 
 function ResolvedTitle() {
   const location = useLocation();
-  const libraryMatch = location.pathname.match(/^\/library\/([^/]+)/);
+  const libraryMatch = location.pathname.match(/^\/brand-kits\/([^/]+)/);
   if (libraryMatch) {
     return <LibraryTitle id={libraryMatch[1]} />;
   }

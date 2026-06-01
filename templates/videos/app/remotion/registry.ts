@@ -1,36 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * COMPOSITION REGISTRY
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * This file is the single source of truth for all composition defaults.
- *
- * ⚠️ KEYFRAME SYNC PATTERN:
- *
- * When adding keyframes to a composition track in this registry:
- *
- * 1. If the composition was already loaded in localStorage BEFORE you added
- *    keyframes, users won't see them automatically (localStorage wins).
- *
- * 2. Fix: Users should run this in browser console:
- *    ```
- *    resetTracks('composition-id');  // Then refresh page
- *    ```
- *
- * 3. The merge logic now preserves registry keyframes when localStorage has
- *    empty arrays, so this should auto-fix on next reload.
- *
- * 4. Validation warnings will appear in console if keyframes are missing.
- *
- * 📝 BEST PRACTICE:
- *
- * - Always define keyframes in the registry from the start
- * - If adding keyframes later, announce to users they may need to reset
- * - Use resetCurrent() in console for quick testing during development
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import type React from "react";
 import {
   BlankComposition,
@@ -55,24 +22,14 @@ export type CompositionEntry = {
   defaultProps: Record<string, any>;
   tracks: AnimationTrack[];
   storage?: "registry" | "database";
-  /**
-   * Version number for this composition's data structure.
-   * Increment this when you make changes to tracks/props that should
-   * invalidate localStorage cache (e.g., adding keyframes, changing structure).
-   * If localStorage version < registry version, localStorage will be auto-reset.
-   * Defaults to 1 if not specified.
-   */
+  /** Increment when registry defaults should replace stale local overrides. */
   version?: number;
 };
 
 export const compositions: CompositionEntry[] = [];
 
-// Re-export track helpers
 export { createCameraTrack, createCursorTrack, createStandardTracks };
 
-/**
- * Convert a title to a URL-friendly slug
- */
 function titleToSlug(title: string): string {
   if (!title || !title.trim()) return "temp";
 

@@ -658,8 +658,24 @@ function FileDropZone({
   );
 }
 
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function normalizeBrowserTabId(browserTabId?: string): string | undefined {
+  if (typeof browserTabId !== "string") return undefined;
+  const trimmed = browserTabId.trim();
+  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
 export interface UseGuidedQuestionFlowOptions {
   stateKey?: string;
+  /**
+   * The current browser tab id. Agent actions that write the guided-questions
+   * payload scope the application-state key per tab (`<key>:<tabId>`), so the
+   * client must read the scoped key first and fall back to the bare key. Without
+   * this, the question card never renders when the agent run carries a tab id
+   * (which it almost always does — see `sessionBrowserTabId`).
+   */
+  browserTabId?: string;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
   submitMessage?: string;
@@ -673,6 +689,7 @@ export interface UseGuidedQuestionFlowOptions {
 
 export function useGuidedQuestionFlow({
   stateKey = "show-questions",
+  browserTabId,
   queryKey = ["show-questions"],
   refetchInterval = 2_000,
   submitMessage = "Here are my answers — go ahead.",
@@ -682,28 +699,50 @@ export function useGuidedQuestionFlow({
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
   const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
-  const endpoint = agentNativePath(
-    `/_agent-native/application-state/${stateKey}`,
+  const normalizedBrowserTabId = useMemo(
+    () => normalizeBrowserTabId(browserTabId),
+    [browserTabId],
+  );
+  const endpointFor = useCallback(
+    (key: string) => agentNativePath(`/_agent-native/application-state/${key}`),
+    [],
+  );
+  const scopedKey = normalizedBrowserTabId
+    ? `${stateKey}:${normalizedBrowserTabId}`
+    : stateKey;
+  // Match the queryKey to the scope so two tabs polling different scoped keys
+  // don't share a cache entry.
+  const resolvedQueryKey = useMemo(
+    () => [...queryKey, normalizedBrowserTabId ?? "global"],
+    [queryKey, normalizedBrowserTabId],
   );
 
   const { data } = useQuery({
-    queryKey,
+    queryKey: resolvedQueryKey,
     queryFn: async () => {
-      const res = await fetch(endpoint);
-      if (!res.ok) return null;
-      const text = await res.text();
-      if (!text) return null;
-      try {
-        const parsed = JSON.parse(text);
-        if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-          return { ...parsed, _ts: Date.now() } as GuidedQuestionPayload & {
-            _ts: number;
-          };
+      const read = async (key: string) => {
+        const res = await fetch(endpointFor(key));
+        if (!res.ok) return null;
+        const text = await res.text();
+        if (!text) return null;
+        try {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+            return { ...parsed, _ts: Date.now() } as GuidedQuestionPayload & {
+              _ts: number;
+            };
+          }
+        } catch {
+          return null;
         }
-      } catch {
         return null;
-      }
-      return null;
+      };
+      // Agent writes are tab-scoped; read the scoped key first, then fall back
+      // to the bare key (e.g. a deterministic write that omits the tab id).
+      return (
+        (normalizedBrowserTabId ? await read(scopedKey) : null) ??
+        (await read(stateKey))
+      );
     },
     refetchInterval,
     structuralSharing: false,
@@ -719,12 +758,17 @@ export function useGuidedQuestionFlow({
 
   const clear = useCallback(() => {
     setPayload(null);
-    queryClient.setQueryData(queryKey, null);
-    fetch(endpoint, {
-      method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
-    }).catch(() => {});
-  }, [endpoint, queryClient, queryKey]);
+    queryClient.setQueryData(resolvedQueryKey, null);
+    const del = (key: string) =>
+      fetch(endpointFor(key), {
+        method: "DELETE",
+        headers: { "X-Agent-Native-CSRF": "1" },
+      }).catch(() => {});
+    // Clear whichever key actually held the payload (scoped or bare) so the
+    // card doesn't reappear on the next poll.
+    del(scopedKey);
+    if (scopedKey !== stateKey) del(stateKey);
+  }, [endpointFor, queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {

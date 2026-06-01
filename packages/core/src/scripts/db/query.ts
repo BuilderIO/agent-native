@@ -15,7 +15,10 @@
 import path from "path";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoSchemaQualifiedTables,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
@@ -203,6 +206,7 @@ Options:
     );
   }
   assertNoSensitiveFrameworkTables(stripped, "read");
+  assertNoSchemaQualifiedTables(stripped, "read");
 
   // Resolve database URL: --db flag → DATABASE_URL env → default file path
   let url: string;
@@ -253,13 +257,7 @@ Options:
           }
         }
       });
-      const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-      printTable(
-        rows.length > 0 ? rows : keys.length > 0 ? rows : [],
-        pgSqlText,
-        parsed.format,
-      );
+      printTable(rows, pgSqlText, parsed.format);
     } finally {
       await pgSql.end();
     }

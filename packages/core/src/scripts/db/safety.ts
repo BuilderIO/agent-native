@@ -80,6 +80,49 @@ export function assertNoSensitiveFrameworkTables(
   );
 }
 
+// Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
+// `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
+// db-query / db-exec, because those views only shadow UNQUALIFIED table names.
+// A qualified reference resolves straight to the real base table, defeating the
+// owner_email / org_id scoping and exposing (or letting writes touch) every
+// tenant's rows. db-patch already rejects dotted identifiers via
+// isValidIdentifier; db-query / db-exec must reject them too.
+//
+// Two complementary detectors run on the comment/string-stripped SQL:
+//   1. The schemas that actually HOLD base tables and so defeat scoping when
+//      named explicitly: `public` (Neon Postgres prod), `main` (SQLite desktop),
+//      and the Postgres system catalogs. This fires in ANY position, so it also
+//      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
+//      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our
+//      scoping views) live there, so `temp.notes` resolves to the *scoped* view,
+//      not a bypass, and `temp` is a common table alias we must not reject.
+//      The schema may be bare or double-quoted (`"public"."notes"`).
+//   2. Any dotted reference in table position (FROM/JOIN/INTO/UPDATE, incl.
+//      ONLY/LATERAL), which also catches non-standard schema names. Column /
+//      alias references like `f.id` sit in select/where/on position, not table
+//      position, so they do not match — no false positives on ordinary joins.
+const DANGEROUS_SCHEMA_QUALIFIER_RE =
+  /(?:\b|")(?:main|public|pg_catalog|pg_toast|information_schema)"?\s*\.\s*(?:"|`|\[|[A-Za-z_])/i;
+const TABLE_POSITION_QUALIFIED_RE =
+  /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+|LATERAL\s+)?(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)/i;
+
+export function assertNoSchemaQualifiedTables(
+  sql: string,
+  operation: "read" | "write",
+): void {
+  const cleanSql = stripSqlNonIdentifiers(sql);
+  if (
+    !DANGEROUS_SCHEMA_QUALIFIER_RE.test(cleanSql) &&
+    !TABLE_POSITION_QUALIFIED_RE.test(cleanSql)
+  ) {
+    return;
+  }
+  const verb = operation === "read" ? "queried" : "written";
+  fail(
+    `Schema-qualified table references (e.g. "public.<table>" or "main.<table>") cannot be ${verb} through raw DB tools — a qualified name bypasses the per-user data scoping that isolates each tenant's rows. Use the bare table name; the current user's scoping is applied automatically.`,
+  );
+}
+
 const ACCESS_CONTROL_TABLE_TOKENS = new Set([
   "acl",
   "access",

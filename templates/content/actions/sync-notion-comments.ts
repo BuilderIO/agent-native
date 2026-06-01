@@ -45,7 +45,7 @@ export default defineAction({
     let pulled = 0;
 
     for (const nc of notionComments) {
-      const text = nc.rich_text.map((r: any) => r.plain_text).join("");
+      const text = nc.rich_text.map((r) => r.plain_text).join("");
       if (!text) continue;
 
       const existing = await db
@@ -112,8 +112,6 @@ export default defineAction({
       }
     }
 
-    const msg = `Synced comments: ${pulled} pulled from Notion, ${pushed} pushed to Notion`;
-    console.log(msg);
     return { pulled, pushed };
   },
 });

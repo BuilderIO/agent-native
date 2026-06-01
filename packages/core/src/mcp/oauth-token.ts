@@ -9,15 +9,19 @@ export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
+  org_id?: string;
   org_domain?: string;
   scope: string;
   client_id: string;
   resource: string;
+  jti?: string;
   typ: "agent-native-mcp-oauth";
 }
 
 function signingSecret(): Uint8Array {
-  return new TextEncoder().encode(process.env.A2A_SECRET || getAuthSecret());
+  return new TextEncoder().encode(
+    process.env.A2A_SECRET?.trim() || getAuthSecret(),
+  );
 }
 
 export function normalizeOAuthScope(input: unknown): string | null {
@@ -51,15 +55,19 @@ export function hasMcpOAuthScope(
 
 export async function signMcpOAuthAccessToken(params: {
   ownerEmail: string;
+  orgId?: string | null;
   orgDomain?: string | null;
   clientId: string;
   scope: string;
   resource: string;
   issuer: string;
+  jti?: string;
+  expiresIn?: string | number;
 }): Promise<string> {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
     sub: params.ownerEmail,
+    ...(params.orgId ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
     scope: params.scope,
     client_id: params.clientId,
@@ -68,9 +76,9 @@ export async function signMcpOAuthAccessToken(params: {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(params.issuer)
     .setAudience(params.resource)
-    .setJti(randomUUID())
+    .setJti(params.jti ?? randomUUID())
     .setIssuedAt()
-    .setExpirationTime(MCP_OAUTH_ACCESS_TOKEN_TTL)
+    .setExpirationTime(params.expiresIn ?? MCP_OAUTH_ACCESS_TOKEN_TTL)
     .sign(signingSecret());
 }
 
@@ -79,9 +87,11 @@ export async function verifyMcpOAuthAccessToken(
   resource: string | undefined,
 ): Promise<{
   userEmail: string;
+  orgId?: string;
   orgDomain?: string;
   scopes: string[];
   clientId: string;
+  jti?: string;
 } | null> {
   if (!resource) return null;
   try {
@@ -101,10 +111,12 @@ export async function verifyMcpOAuthAccessToken(
     }
     return {
       userEmail: payload.sub,
+      orgId: typeof payload.org_id === "string" ? payload.org_id : undefined,
       orgDomain:
         typeof payload.org_domain === "string" ? payload.org_domain : undefined,
       scopes,
       clientId: payload.client_id,
+      jti: typeof payload.jti === "string" ? payload.jti : undefined,
     };
   } catch {
     return null;

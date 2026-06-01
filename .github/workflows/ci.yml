@@ -185,6 +185,24 @@ jobs:
           # dep that templates don't declare).
           pnpm --filter ./apps/calendar build
 
+  guards:
+    name: Security guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run security guards
+        run: pnpm guards
+
   guard-no-drizzle-push:
     name: Guard — no drizzle-kit push in build paths
     runs-on: ubuntu-latest

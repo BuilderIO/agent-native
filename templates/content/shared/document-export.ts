@@ -139,6 +139,10 @@ function listItemsToHtml(lines: string[], ordered: boolean): string {
   return ordered ? `<ol>\n${items}\n</ol>` : `<ul>\n${items}\n</ul>`;
 }
 
+function isEmptyBlockLine(trimmed: string): boolean {
+  return /^<empty-block\b[^>]*\/>$/.test(trimmed);
+}
+
 function markdownToHtml(markdown: string): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const blocks: string[] = [];
@@ -149,6 +153,12 @@ function markdownToHtml(markdown: string): string {
     const trimmed = line.trim();
 
     if (!trimmed) {
+      index++;
+      continue;
+    }
+
+    if (isEmptyBlockLine(trimmed)) {
+      blocks.push("<p>&nbsp;</p>");
       index++;
       continue;
     }
@@ -222,6 +232,7 @@ function markdownToHtml(markdown: string): string {
     while (
       index < lines.length &&
       lines[index].trim() &&
+      !isEmptyBlockLine(lines[index].trim()) &&
       !/^(#{1,6})\s+/.test(lines[index].trim()) &&
       !/^```/.test(lines[index].trim()) &&
       !/^>\s?/.test(lines[index].trim()) &&

@@ -123,8 +123,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setPlaying(false);
         onPlayingChange?.(false);
       };
-      const onFrame = (e: { detail: { frame: number } }) => {
-        const frame = e.detail.frame;
+      const onFrame = (event: Event) => {
+        const frame = (event as CustomEvent<{ frame: number }>).detail?.frame;
         const { start, end } = rangeRef.current;
 
         // Safety check: ensure all values are finite
@@ -169,28 +169,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onPlayingChange?.(false);
         onFrameUpdate?.(rangeRef.current.start);
       };
+      const playerEventTarget = player as unknown as EventTarget;
 
       player.addEventListener("play", onPlay);
       player.addEventListener("pause", onPause);
-      player.addEventListener("frameupdate", onFrame as any);
+      playerEventTarget.addEventListener("frameupdate", onFrame);
       player.addEventListener("ended", onEnded);
 
       return () => {
         player.removeEventListener("play", onPlay);
         player.removeEventListener("pause", onPause);
-        player.removeEventListener("frameupdate", onFrame as any);
+        playerEventTarget.removeEventListener("frameupdate", onFrame);
         player.removeEventListener("ended", onEnded);
       };
     }, [composition.id, onFrameUpdate, onPlayingChange]);
 
-    // Seek to initialFrame when player is ready
     useEffect(() => {
-      console.log(
-        "VideoPlayer - seeking to initialFrame:",
-        initialFrame,
-        "playerRef ready:",
-        !!playerRef.current,
-      );
       if (playerRef.current && initialFrame > 0) {
         playerRef.current.seekTo(initialFrame);
         setCurrentFrame(initialFrame);
