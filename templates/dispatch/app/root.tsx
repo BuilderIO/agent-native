@@ -15,13 +15,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useDbSync } from "@agent-native/core";
 import {
   ClientOnly,
   CommandMenu,
   configureTracking,
   DefaultSpinner,
   getThemeInitScript,
+  useDbSync,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";

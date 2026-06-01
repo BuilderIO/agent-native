@@ -1,7 +1,18 @@
-import {
-  getBuiltinAgents,
-  loadWorkspaceAppsManifest,
-} from "@agent-native/core/server/agent-discovery";
+interface WorkspaceAppManifestEntry {
+  id?: string;
+  path?: unknown;
+  url?: unknown;
+}
+
+interface BuiltinAgentEntry {
+  id: string;
+  url?: string | null;
+}
+
+interface ResolveCatchAllTargetOptions {
+  workspaceApps?: WorkspaceAppManifestEntry[] | null;
+  builtinAgents?: BuiltinAgentEntry[] | null;
+}
 
 /**
  * Resolve where `/dispatch/<appId>` should bounce to when it doesn't match
@@ -15,7 +26,7 @@ import {
  *      present.
  *    - Otherwise the `app.path` mounted under the workspace gateway is
  *      used. Path is normalized to a leading slash if missing
- *      (e.g. manifest entry `path: "my-forms"` → `/my-forms`), so an app
+ *      (e.g. manifest entry `path: "my-forms"` -> `/my-forms`), so an app
  *      whose mounted path differs from its id ends up at the right place
  *      instead of being silently rewritten to `/${appId}`.
  *    - Bare entry with no path / url falls back to `/${appId}`.
@@ -50,8 +61,11 @@ function validatedAbsoluteUrl(value: unknown): string | undefined {
   }
 }
 
-export function resolveCatchAllTarget(appId: string): string | null {
-  const apps = loadWorkspaceAppsManifest();
+export function resolveCatchAllTarget(
+  appId: string,
+  options: ResolveCatchAllTargetOptions = {},
+): string | null {
+  const apps = options.workspaceApps;
   if (apps) {
     const app = apps.find((entry) => entry?.id === appId);
     if (app) {
@@ -81,7 +95,7 @@ export function resolveCatchAllTarget(appId: string): string | null {
       //   `\/evil.example`   — same idea, leading-backslash variant.
       //
       // The manifest parser only checks `startsWith("/")` for the first
-      // case, and even that allows `//evil…`. Defend in depth here by
+      // case, and even that allows `//evil...`. Defend in depth here by
       // collapsing any run of leading slashes-or-backslashes to one
       // forward slash. Same phishing vector that `validatedAbsoluteUrl`
       // closes for `app.url`.
@@ -92,8 +106,20 @@ export function resolveCatchAllTarget(appId: string): string | null {
       return `/${appId}`;
     }
   }
-  const builtin = getBuiltinAgents("dispatch").find(
+  const builtin = (options.builtinAgents ?? []).find(
     (agent) => agent.id === appId,
   );
   return builtin?.url ?? null;
+}
+
+export async function resolveServerCatchAllTarget(
+  appId: string,
+): Promise<string | null> {
+  if (!import.meta.env.SSR) return null;
+  const { getBuiltinAgents, loadWorkspaceAppsManifest } =
+    await import("@agent-native/core/server/agent-discovery");
+  return resolveCatchAllTarget(appId, {
+    workspaceApps: loadWorkspaceAppsManifest(),
+    builtinAgents: getBuiltinAgents("dispatch"),
+  });
 }

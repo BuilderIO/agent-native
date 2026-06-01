@@ -14,7 +14,7 @@ export default function DocsSidebar() {
               {section.items.map((item) => (
                 <li key={item.to}>
                   <NavLink
-                    prefetch="render"
+                    data-an-prefetch="render"
                     to={item.to}
                     end
                     className={({ isActive }) =>

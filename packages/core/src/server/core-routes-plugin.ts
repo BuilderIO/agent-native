@@ -135,6 +135,10 @@ import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
+import {
+  DEFAULT_SSR_CACHE_CONTROL,
+  EMPTY_SPECULATION_RULES,
+} from "../shared/cache-control.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -756,6 +760,23 @@ export function createCoreRoutesPlugin(
           })),
         );
       }
+
+      getH3App(nitroApp).use(
+        `${P}/speculation-rules.json`,
+        defineEventHandler((event) => {
+          // `createH3SSRHandler` points the Speculation-Rules response header
+          // here to prevent Cloudflare Speed Brain from injecting its own
+          // edge prefetch rules. Keep this route public and side-effect free:
+          // browsers may request it while parsing any SSR HTML document.
+          setResponseHeader(
+            event,
+            "content-type",
+            "application/speculationrules+json; charset=utf-8",
+          );
+          setResponseHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+          return EMPTY_SPECULATION_RULES;
+        }),
+      );
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 

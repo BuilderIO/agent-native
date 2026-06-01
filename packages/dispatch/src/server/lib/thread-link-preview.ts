@@ -1,5 +1,4 @@
 import type { ChatThread } from "@agent-native/core/server";
-import { getRequestContext, getThread } from "@agent-native/core/server";
 
 export interface ThreadLinkPreview {
   title: string;
@@ -148,8 +147,11 @@ function previewDescription(thread: ChatThread): string {
 export async function loadThreadLinkPreview(
   threadId: string | null | undefined,
 ): Promise<ThreadLinkPreview | null> {
+  if (!import.meta.env.SSR) return null;
   const id = threadId?.trim();
   if (!id) return null;
+  const { getRequestContext, getThread } =
+    await import("@agent-native/core/server");
   const viewerEmail = getRequestContext()?.userEmail?.trim();
   if (!viewerEmail) return null;
   const thread = await getThread(id).catch(() => null);

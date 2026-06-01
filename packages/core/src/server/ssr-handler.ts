@@ -19,16 +19,26 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  hasAuthContextAccess,
+  runWithRequestContext,
+  type RequestContext,
+} from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
+import {
+  DEFAULT_SPECULATION_RULES_PATH,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 
-export { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
+export {
+  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
@@ -217,39 +227,83 @@ function shouldUseDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
+  authContextAccessed: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
-  if (hasAuthSignal) return false;
+  if (authContextAccessed) {
+    // Do not bypass cache just because a browser carries an auth-looking
+    // cookie: public docs/pages can receive stale workspace cookies and should
+    // still warm the CDN. But if SSR code actually reads user/org context,
+    // that route is rendering private data and must not be public-cached.
+    // Move those reads to client-side actions/API to regain CDN caching.
+    return false;
+  }
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) {
-    return !headers.has("cache-control");
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
   }
 
   if (!pathname.endsWith(".data")) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   // React Router gives loader `.data` responses `cache-control: no-cache` by
-  // default. For public loader responses, replace that default with the same
-  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
-  // explicit route cache policies and any authenticated request untouched.
-  const cacheControl = headers.get("cache-control");
-  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+  // default. In Agent-Native, SSR output is intentionally public app shell:
+  // user/org-specific reads happen after hydration through actions and API
+  // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
+  // route data fetches warm the CDN instead of hammering origin.
+  // Do not re-add a blanket cookie/auth-signal bypass here: logged-in browsers
+  // still need CDN-cached public route data. The auth-context leak guard above
+  // is the narrow protection for old SSR loaders that still read user/org data.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
 }
 
 function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
+  authContextAccessed: boolean,
 ) {
   if (
-    !shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)
+    !shouldUseDefaultSsrCacheHeader(
+      headers,
+      status,
+      pathname,
+      authContextAccessed,
+    )
   ) {
     return;
   }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+}
+
+function applyDefaultSpeculationRulesHeader(
+  headers: Headers,
+  status: number,
+  basePath: string,
+) {
+  if (status < 200 || status >= 400) return;
+  if (headers.has("speculation-rules")) return;
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/html")) return;
+
+  // Cloudflare Speed Brain injects its own Speculation-Rules header when the
+  // origin omits one. Those browser prefetches carry `Sec-Purpose: prefetch`,
+  // and Cloudflare refuses cache-ineligible dynamic pages with a 503 before
+  // the request can reach Netlify/origin. We publish an explicit no-op ruleset
+  // by default so Cloudflare does not inject its edge prefetch rules. Preserve
+  // an app-provided Speculation-Rules header above if a template deliberately
+  // owns this behavior.
+  const rulesPath = prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath);
+  headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -274,11 +328,17 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
-  hasAuthSignal: boolean,
+  requestContext?: RequestContext,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    hasAuthContextAccess(requestContext),
+  );
+  applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -359,14 +419,14 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
-          hasAuthSignal,
+          ctx,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
-        hasAuthSignal,
+        ctx,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
