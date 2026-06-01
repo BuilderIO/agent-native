@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.32.6
+
+### Patch Changes
+
+- 69a857a: Preserve array values in action GET query parameters across client and server runtimes.
+- 69a857a: Respect `submit: false` in `sendToAgentChat()` so agent chat bridge messages prefill the composer instead of submitting immediately.
+- 69a857a: Normalize bracketed GET action query parameters through Nitro's getQuery fallback so array schemas receive arrays consistently.
+- 69a857a: Persist stale run error diagnostics when reaping interrupted agent runs.
+- 69a857a: Keep the embedded CLI scoped to dev-frame surfaces and route desktop template dev apps through the frame so hot reloads do not refresh terminal state.
+
 ## 0.32.5
 
 ### Patch Changes
