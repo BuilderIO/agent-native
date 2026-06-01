@@ -204,14 +204,24 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const cutoff = Date.now() - maxStaleMs;
+  const completedAt = Date.now();
+  const cutoff = completedAt - maxStaleMs;
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE id = ?
             AND status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), runId, cutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      runId,
+      cutoff,
+    ],
   });
   const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {

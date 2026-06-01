@@ -25,7 +25,10 @@ For account or deal deep dives:
    objections, next steps, decision process, sentiment, or a "deep dive".
 3. Use `transcriptLimit` around 3-5 for a first pass. Increase only when the
    user asks for broader coverage or the returned calls are not enough.
-4. Ground qualitative findings in the transcript excerpts and state how many
+4. Use the compact transcript excerpts returned by `includeTranscripts=true`.
+   Do not fetch raw individual transcripts unless the user asks for exhaustive
+   quoting, debugging, or export.
+5. Ground qualitative findings in the transcript excerpts and state how many
    calls were inspected.
 
 Example:
@@ -36,3 +39,7 @@ gong-calls(company: "The Knot", days: 180, limit: 8, includeTranscripts: true, t
 
 If transcript loading fails for a call, report that gap instead of inferring the
 conversation content from title, date, or participants.
+
+When a single transcript is needed, `gong-calls(transcript: "...")` returns
+compact extracted text by default. Set `rawTranscript=true` only for
+debugging/export, and never pass raw transcript payloads into `save-analysis`.

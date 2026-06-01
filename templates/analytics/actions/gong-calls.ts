@@ -15,7 +15,7 @@ import {
 
 const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
 const MAX_GONG_TRANSCRIPT_LIMIT = 8;
-const DEFAULT_TRANSCRIPT_MAX_CHARS = 12_000;
+const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 40_000;
 
 interface TranscriptExtraction {
@@ -232,6 +232,12 @@ export default defineAction({
       .optional()
       .describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
+    rawTranscript: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only for debugging/export. By default transcript lookups return compact extracted text, not the large raw Gong payload.",
+      ),
     company: z
       .string()
       .optional()
@@ -271,7 +277,7 @@ export default defineAction({
       .max(MAX_TRANSCRIPT_MAX_CHARS)
       .optional()
       .describe(
-        "Maximum transcript characters to return per call (default 12000, max 40000).",
+        "Maximum transcript characters to return per call (default 8000, max 40000). Use the default for analysis; raise it only when the user asks for more quoted detail.",
       ),
   }),
   http: { method: "GET" },
@@ -281,12 +287,17 @@ export default defineAction({
       return { users, total: users.length };
     } else if (args.transcript) {
       const transcript = await getCallTranscript(args.transcript);
-      return {
+      const transcriptText = extractTranscriptText(
         transcript,
-        transcriptText: extractTranscriptText(
-          transcript,
-          args.transcriptMaxChars,
-        ),
+        args.transcriptMaxChars,
+      );
+      return {
+        callId: args.transcript,
+        transcriptText,
+        ...(args.rawTranscript ? { transcript } : {}),
+        guidance: args.rawTranscript
+          ? "Returned compact transcript text and the raw Gong transcript payload. Avoid passing the raw payload into save-analysis; preserve call IDs and short excerpts instead."
+          : "Returned compact transcript text only. Use callId plus short excerpts in analysis evidence; set rawTranscript=true only for debugging or export.",
       };
     } else if (args.company) {
       const days = args.days ?? 90;

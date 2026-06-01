@@ -46,7 +46,7 @@ vi.mock("../server/capture-error.js", () => ({
   captureError: mockCaptureError,
 }));
 
-const { markRunAborted, reapIfStale, cleanupOldRuns } =
+const { STALE_RUN_ERROR_EVENT, markRunAborted, reapIfStale, cleanupOldRuns } =
   await import("./run-store.js");
 
 describe("run store", () => {
@@ -120,15 +120,26 @@ describe("run store", () => {
     expect(ctx?.extra?.runId).toBe("run-retry-fail");
   });
 
-  it("appends a terminal event for runs reaped by reapIfStale", async () => {
+  it("persists stale error diagnostics and appends a terminal event for runs reaped by reapIfStale", async () => {
     await reapIfStale("run-stale");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs[\s\S]*SET status = 'errored'[\s\S]*WHERE id = \?/i.test(
+        call.sql,
+      ),
+    );
+    expect(update?.sql).toContain("error_code = ?");
+    expect(update?.sql).toContain("error_detail = ?");
+    expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+    expect(update?.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
+    expect(update?.args[3]).toBe("run-stale");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
     );
     expect(insert?.args[0]).toBe("run-stale");
     const eventJson = insert?.args[2] as string;
-    expect(eventJson).toContain('"errorCode":"stale_run"');
+    expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
   });
 
   it("cleanupOldRuns SELECTs both heartbeat-stale AND age-stale rows for terminal-event append", async () => {

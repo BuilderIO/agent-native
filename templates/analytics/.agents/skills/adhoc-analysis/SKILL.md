@@ -7,7 +7,7 @@ description: >-
 
 # Ad-Hoc Analysis
 
-Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources, produce a written report with findings, and save a reusable artifact so anyone on the team can re-run the analysis with up-to-date data at any time.
+Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources and produce a written report with findings. Saving a reusable artifact is optional: answer in chat first unless the user explicitly asks to save the analysis, create a reusable artifact, or re-run/update an existing saved analysis.
 
 ## When to Use
 
@@ -15,10 +15,15 @@ Use the ad-hoc analysis workflow when:
 
 - The user asks a complex question that requires data from multiple sources
 - The investigation involves cross-referencing (e.g., CRM deals matched against call recordings)
-- The results are worth saving for future reference or periodic refresh
 - The user explicitly asks for an "analysis" or "deep dive"
 
-For simple one-off questions (e.g., "how many signups last week?"), just query the data and answer in chat — no need to save an analysis.
+Save a reusable analysis only when:
+
+- The user explicitly asks to save, create, publish, or re-run a saved analysis
+- The user is already viewing or re-running an existing saved analysis
+- The output needs a durable artifact because it includes generated chart images or a reusable refresh workflow
+
+For one-off questions and exploratory deep dives, query the data and answer in chat. Do not call `save-analysis` just because the user said "analysis" or "deep dive".
 
 If the user asks for an analysis output that needs a bespoke interactive
 surface, custom visualization, multi-step workflow, or UI that cannot be
@@ -59,7 +64,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- For named deal/account deep dives, use `hubspot-deals` with `query` and `gong-calls` with `includeTranscripts=true`; do not answer from an all-deals dump or Gong metadata alone
+- For named deal/account deep dives, use `hubspot-deals` with `query` and `gong-calls` with `includeTranscripts=true`; do not answer from an all-deals dump or Gong metadata alone. Avoid fetching individual raw transcripts unless the user asks for exhaustive quoting or export.
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
   `limit` to narrow results before cross-referencing
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
@@ -134,9 +139,9 @@ Time range: Jan 1 – Mar 31, 2026
 Filters: S1+ pipeline, closed-lost only
 ```
 
-### Step 6: Save the Analysis
+### Step 6: Save the Analysis (only when requested)
 
-Call `save-analysis` with all required fields:
+Call `save-analysis` with all required fields only when the user asked for a saved/re-runnable analysis or this turn is updating an existing saved analysis:
 
 ```
 save-analysis
@@ -157,7 +162,7 @@ save-analysis
   --resultData '{"deals": [...], "metrics": {...}}'
 ```
 
-`resultData` is required. Fill it with structured evidence copied or summarized from the real data-source action results you used: raw rows, row samples, aggregate metrics, match decisions, and explicit provider errors for any gaps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
+`resultData` is required. Fill it with compact structured evidence from the real data-source action results you used: row samples, aggregate metrics, match decisions, call/message IDs, short transcript/message excerpts, coded themes, sentiment labels, and explicit provider errors for any gaps. Do not include full Gong transcripts, full tool outputs, or raw provider payload dumps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
 
 **Critical: Write good instructions.** The `instructions` field is what gets sent to the agent on re-run. Be specific:
 
@@ -211,7 +216,7 @@ API endpoints (for UI consumption):
 1. **Use descriptive IDs** — `closed-lost-q1-2026` not `analysis-1`
 2. **Include methodology** — mention data sources, time ranges, and filters in the report
 3. **Write self-contained instructions** — another agent (or the same agent in a new session) should be able to re-run from the instructions alone
-4. **Include structured data** — pass `resultData` with raw metrics/rows so the UI can render richer views in the future
+4. **Include structured data** — pass compact `resultData` with metrics, rows, IDs, short excerpts, and coded themes so the UI can render richer views in the future
 5. **Keep reports scannable** — lead with key findings, put details below
 6. **Note data gaps** — if a source was unavailable or matching was imperfect, say so
 7. **Suggest next steps** — end with actionable recommendations when appropriate

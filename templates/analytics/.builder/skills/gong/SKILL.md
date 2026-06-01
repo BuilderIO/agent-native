@@ -45,8 +45,11 @@ directly from the agent.
 # Recent calls with a customer, including call-content evidence
 pnpm action gong-calls --company="Example Inc" --days=180 --includeTranscripts=true --transcriptLimit=5
 
-# Get call transcript
+# Get compact transcript text
 pnpm action gong-calls --transcript=<callId>
+
+# Get the raw transcript payload only for debugging/export
+pnpm action gong-calls --transcript=<callId> --rawTranscript=true
 
 # List Gong users
 pnpm action gong-calls --users
@@ -60,6 +63,7 @@ pnpm action gong-calls --users
   - `POST /v2/calls/extensive` — detailed call data with party info
   - `POST /v2/calls/transcript` — get transcripts
 - **Search pattern**: List calls via `GET /v2/calls?fromDateTime=...`, then filter client-side by company name, domain, person, or email against call title and parties. No server-side company name search.
-- **Transcripts**: Have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
+- **Transcripts**: `gong-calls --transcript=<callId>` returns compact extracted text by default. Set `rawTranscript=true` only for debugging/export; do not pass raw transcript payloads into `save-analysis`.
+- Raw Gong transcript payloads have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
 - For deal/customer deep dives, set `includeTranscripts=true`; call metadata alone is not enough for objections, risks, sentiment, or next-step claims.
 - Region/hostname is configurable with `GONG_API_BASE`; omit it for the global endpoint.

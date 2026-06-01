@@ -89,4 +89,58 @@ describe("gong-calls action", () => {
     expect(result.transcripts[0].text).toContain("Budget is the blocker.");
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
+
+  it("returns compact transcript text without the raw Gong payload by default", async () => {
+    getCallTranscript.mockResolvedValue({
+      callTranscripts: [
+        {
+          callId: "call-1",
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "A".repeat(9_000) }],
+            },
+          ],
+        },
+      ],
+      rawProviderField: "large payload",
+    });
+
+    const result = (await gongCalls.run({
+      transcript: "call-1",
+    })) as Record<string, any>;
+
+    expect(getCallTranscript).toHaveBeenCalledWith("call-1");
+    expect(result.callId).toBe("call-1");
+    expect(result.transcript).toBeUndefined();
+    expect(result.transcriptText.text.length).toBeLessThanOrEqual(8_000);
+    expect(result.transcriptText.truncated).toBe(true);
+    expect(result.guidance).toContain("compact transcript text only");
+  });
+
+  it("can include the raw transcript payload when explicitly requested", async () => {
+    const transcriptPayload = {
+      callTranscripts: [
+        {
+          callId: "call-1",
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: [{ start: 0, text: "Legal is reviewing." }],
+            },
+          ],
+        },
+      ],
+    };
+    getCallTranscript.mockResolvedValue(transcriptPayload);
+
+    const result = (await gongCalls.run({
+      transcript: "call-1",
+      rawTranscript: true,
+    })) as Record<string, any>;
+
+    expect(result.transcript).toBe(transcriptPayload);
+    expect(result.transcriptText.text).toContain("Legal is reviewing.");
+    expect(result.guidance).toContain("raw Gong transcript payload");
+  });
 });
