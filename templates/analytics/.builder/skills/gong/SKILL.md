@@ -21,12 +21,12 @@ description: >
 
 ### Exported Functions
 
-| Function                    | Description                               |
-| --------------------------- | ----------------------------------------- |
-| `getCalls(filters?)`        | List calls (cursor-paginated)             |
-| `getCall(callId)`           | Get single call detail                    |
-| `getCallTranscript(callId)` | Get call transcript                       |
-| `getUsers()`                | List Gong users                           |
+| Function                    | Description                                              |
+| --------------------------- | -------------------------------------------------------- |
+| `getCalls(filters?)`        | List calls (cursor-paginated)                            |
+| `getCall(callId)`           | Get single call detail                                   |
+| `getCallTranscript(callId)` | Get call transcript                                      |
+| `getUsers()`                | List Gong users                                          |
 | `searchCalls(query, days)`  | List + client-side filter by company/domain/person/email |
 
 ### UI API Routes

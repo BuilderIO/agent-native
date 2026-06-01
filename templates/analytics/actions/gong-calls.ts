@@ -139,7 +139,7 @@ export function extractTranscriptText(
     chars += line.length + 1;
   }
 
-  function collect(value: unknown) {
+  function collect(value: unknown, inherited?: Record<string, unknown>) {
     if (truncated || value == null) return;
 
     if (typeof value === "string") {
@@ -148,16 +148,17 @@ export function extractTranscriptText(
     }
 
     if (Array.isArray(value)) {
-      for (const item of value) collect(item);
+      for (const item of value) collect(item, inherited);
       return;
     }
 
     const record = asRecord(value);
     if (!record) return;
+    const contextualRecord = inherited ? { ...inherited, ...record } : record;
 
     const text = sentenceText(record);
     if (text) {
-      addLine(text, record);
+      addLine(text, contextualRecord);
       return;
     }
 
@@ -167,7 +168,7 @@ export function extractTranscriptText(
       "sentences",
       "segments",
     ]) {
-      collect(record[key]);
+      collect(record[key], contextualRecord);
     }
   }
 

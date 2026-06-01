@@ -33,6 +33,7 @@ you built it as an extension.
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
 Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
 - What data sources are relevant? (map each fact to the one source that owns it)
@@ -46,16 +47,17 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 **Common data source combinations:**
 
-| Analysis type | Data sources |
-|---|---|
-| Deal/account deep dive | HubSpot deals/records + Gong transcript excerpts |
-| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions |
-| Customer health check | HubSpot deals + Pylon support tickets + BigQuery usage events |
-| Content performance | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups |
-| Engineering velocity | GitHub PRs + Jira tickets + BigQuery deploy events |
-| Churn investigation | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage |
+| Analysis type           | Data sources                                                    |
+| ----------------------- | --------------------------------------------------------------- |
+| Deal/account deep dive  | HubSpot deals/records + Gong transcript excerpts                |
+| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions                     |
+| Customer health check   | HubSpot deals + Pylon support tickets + BigQuery usage events   |
+| Content performance     | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups       |
+| Engineering velocity    | GitHub PRs + Jira tickets + BigQuery deploy events              |
+| Churn investigation     | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage |
 
 **Tips for data gathering:**
+
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
 - For named deal/account deep dives, use `hubspot-deals` with `query` and `gong-calls` with `includeTranscripts=true`; do not answer from an all-deals dump or Gong metadata alone
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
@@ -66,6 +68,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 ### Step 3: Analyze and Synthesize
 
 Don't just dump raw data. Synthesize findings:
+
 - Identify patterns, trends, and outliers
 - Calculate key metrics (totals, averages, rates, distributions)
 - Rank or categorize items when useful
@@ -108,18 +111,20 @@ Structure the report clearly:
 
 ## Summary Metrics
 
-| Metric | Value |
-|---|---|
-| Total deals analyzed | 54 |
-| Average deal size | $42,300 |
-| Win rate | 23% |
+| Metric               | Value   |
+| -------------------- | ------- |
+| Total deals analyzed | 54      |
+| Average deal size    | $42,300 |
+| Win rate             | 23%     |
 
 ## Detailed Analysis
 
 ### Category 1
+
 [Detailed breakdown with tables, lists, etc.]
 
 ### Category 2
+
 [More detail...]
 
 ## Methodology
@@ -155,6 +160,7 @@ save-analysis
 `resultData` is required. Fill it with structured evidence copied or summarized from the real data-source action results you used: raw rows, row samples, aggregate metrics, match decisions, and explicit provider errors for any gaps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
 
 **Critical: Write good instructions.** The `instructions` field is what gets sent to the agent on re-run. Be specific:
+
 - Which actions to call with which parameters
 - What filters to apply
 - How to match records across sources
@@ -173,6 +179,7 @@ navigate --view=analyses --analysisId=closed-lost-q1-2026
 ## Re-Running an Analysis
 
 When a user clicks "Re-run" on a saved analysis, the agent receives:
+
 - The original question
 - The saved instructions (step-by-step)
 - The analysis ID to update
@@ -181,19 +188,20 @@ Follow the instructions to gather fresh data, then call `save-analysis` with the
 
 ## Actions Reference
 
-| Action | Purpose |
-|---|---|
-| `save-analysis` | Save or update an analysis (id, name, instructions, results) |
-| `get-analysis` | Retrieve a saved analysis by ID |
-| `list-analyses` | List all saved analyses (id, name, description, timestamps) |
-| `delete-analysis` | Delete a saved analysis |
-| `navigate` | Navigate to analyses view: `--view=analyses [--analysisId=<id>]` |
+| Action            | Purpose                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| `save-analysis`   | Save or update an analysis (id, name, instructions, results)     |
+| `get-analysis`    | Retrieve a saved analysis by ID                                  |
+| `list-analyses`   | List all saved analyses (id, name, description, timestamps)      |
+| `delete-analysis` | Delete a saved analysis                                          |
+| `navigate`        | Navigate to analyses view: `--view=analyses [--analysisId=<id>]` |
 
 ## Storage
 
 Analyses are stored in the SQL settings table with key prefix `adhoc-analysis-{id}`. They respect org/user scoping — org-scoped analyses are visible to all org members.
 
 API endpoints (for UI consumption):
+
 - `GET /api/analyses` — list all
 - `GET /api/analyses/{id}` — get one
 - `DELETE /api/analyses/{id}` — delete one
