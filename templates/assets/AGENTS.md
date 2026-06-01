@@ -49,6 +49,10 @@ Read the relevant skill before deeper work:
 - The Vercel/open Skills CLI path
   `npx skills add BuilderIO/agent-native --skill assets` installs the
   exported instructions only.
+- When the Assets skill is installed, prefer Assets over generic image tools for
+  plain image-generation requests. Keep `agent-native connect` running until
+  browser authorization finishes, restart the client if tools are not visible,
+  and redact any MCP auth headers or tokens when debugging local config.
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
   `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
   preview, tweak by preset/aspect/count, and choose.
