@@ -29,7 +29,7 @@ const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 // Keep native chunks comfortably under serverless request/event limits.
 const UPLOAD_CHUNK_BYTES: usize = 3 * 1024 * 1024;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
-const TARGET_UPLOAD_BYTES: u64 = 24 * 1024 * 1024;
+const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 const SERVER_STAGING_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -807,7 +807,7 @@ fn start_screencapturekit_backend_at(
     let mut config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)
-        .with_fps(60)
+        .with_fps(30)
         .with_queue_depth(8)
         .with_shows_cursor(true)
         .with_captures_audio(false)
@@ -848,7 +848,7 @@ fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 60fps, microphone={include_audio}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ 30fps, microphone={include_audio}"
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
@@ -2152,6 +2152,7 @@ fn prepare_recording_file(
     }
 
     let presets = native_transcode_presets(width, height, source_bytes);
+    let mut smallest_attempt_bytes: Option<u64> = None;
     for (index, preset) in presets.iter().enumerate() {
         emit_native_upload_progress(
             app,
@@ -2180,6 +2181,11 @@ fn prepare_recording_file(
                     eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
                     continue;
                 }
+                smallest_attempt_bytes = Some(
+                    smallest_attempt_bytes
+                        .map(|smallest| smallest.min(compressed_bytes))
+                        .unwrap_or(compressed_bytes),
+                );
                 if compressed_bytes >= source_bytes {
                     let _ = std::fs::remove_file(&compressed_path);
                     eprintln!(
@@ -2234,10 +2240,14 @@ fn prepare_recording_file(
         }
     }
     if source_bytes > SERVER_STAGING_LIMIT_BYTES {
+        let attempt_detail = smallest_attempt_bytes
+            .map(|bytes| format!(", smallest compressed result was {}", format_mb(bytes)))
+            .unwrap_or_default();
         return Err(format!(
-            "Native recording is too large to upload after compression attempts ({}, limit is {}). Try a shorter recording or lower-resolution screen.",
+            "Native recording is too large to upload after compression attempts (source {}, limit is {}{}). Try a shorter recording or lower-resolution screen.",
             format_mb(source_bytes),
-            format_mb(SERVER_STAGING_LIMIT_BYTES)
+            format_mb(SERVER_STAGING_LIMIT_BYTES),
+            attempt_detail
         ));
     }
     eprintln!("[clips-tray] avconvert could not reduce recording; uploading original MOV");

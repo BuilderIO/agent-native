@@ -33,7 +33,7 @@
  *
  * Threshold: skip compression under 24 MB so the small-clip happy path pays no
  * extra cost. The binding constraint is Builder's ~32 MB Cloud Run edge cap
- * (see above), so we target ~22 MB and hard-stop at 30 MB — a blob that clears
+ * (see above), so we target ~18 MB and hard-stop at 30 MB — a blob that clears
  * the client check is then comfortably under both Builder's ~32 MB edge and the
  * server's SQL-staging cap.
  */
