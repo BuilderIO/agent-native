@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.26
+
+### Patch Changes
+
+- 6e6fce7: Internal cleanup sweep: remove unused imports/variables and tidy code (no behavior change).
+
 ## 0.8.25
 
 ### Patch Changes
