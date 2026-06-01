@@ -58,3 +58,7 @@ Read the relevant skill before deeper work:
   preview, tweak by preset/aspect/count, and choose.
 - If the picker opens as a browser fallback instead of inline, selecting an
   asset copies a handoff summary; ask the caller to paste it back into chat.
+- Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts for MCP
+  Apps. Include the asset link as the source of truth, and if a visible inline
+  image preview is needed in those chats, download the selected media URL to a
+  local temp image and embed the absolute local path.

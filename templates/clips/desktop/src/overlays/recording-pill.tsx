@@ -266,7 +266,7 @@ export function RecordingPill() {
   return (
     <div className="flex h-full w-full items-stretch justify-stretch">
       <div
-        className="relative flex h-full w-full flex-col rounded-2xl bg-zinc-900/95 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md"
+        className="relative flex h-full w-full flex-col rounded-2xl bg-zinc-900/95 text-white ring-1 ring-white/10 backdrop-blur-md"
         data-tauri-drag-region
       >
         {/* Collapsed header — always visible, including a one-click stop. */}

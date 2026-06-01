@@ -355,8 +355,17 @@ function selectedAssetContext(payload: ReturnType<typeof assetPayload>) {
 }
 
 function selectedAssetClipboardText(payload: ReturnType<typeof assetPayload>) {
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const previewTip =
+    payload.mediaType === "image" && url
+      ? [
+          `Markdown preview: ![Selected asset](${url})`,
+          "If this remote preview does not render in Codex or Claude Code, download the image locally and embed the absolute local file path.",
+        ]
+      : [];
   return [
     selectedAssetFollowUpMessage(payload),
+    ...previewTip,
     "",
     JSON.stringify(selectedAssetContext(payload), null, 2),
   ].join("\n");

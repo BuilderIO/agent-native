@@ -249,7 +249,16 @@ only when it truly needs to stay visible in chat-host discovery.
 
 That makes the same app surface available to every compatible host rather than building per-client shims. The current official MCP Apps client list includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support still varies by plan, release channel, and client version, so check the [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). ChatGPT custom MCP apps are available through developer mode for Business and Enterprise/Edu workspaces on ChatGPT web; see OpenAI's [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) notes.
 
-Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app. Human-selection tools can add a paste-back step to that fallback: for example, the Assets picker opens from the fallback link, lets the user choose media in the browser, then copies a handoff summary that the user pastes back into the chat.
+Claude Code, Codex, and other CLI/code-editor clients still receive the same
+resources and metadata when they support MCP Apps, but treat them as link-out
+hosts unless you have verified inline iframe rendering in that exact surface.
+The deep link remains the reliable fallback when a host chooses not to render an
+iframe. In practice, every agent-native app should be authored with both: MCP
+Apps for inline review/edit in capable hosts, and `link` for universal
+round-tripping back to the full app. Human-selection tools can add a paste-back
+step to that fallback: for example, the Assets picker opens from the fallback
+link, lets the user choose media in the browser, then copies a handoff summary
+that the user pastes back into the chat.
 
 Claude and ChatGPT can cache tool and resource metadata for an existing custom
 connector. After changing MCP App metadata, verify with a fresh tool call; if

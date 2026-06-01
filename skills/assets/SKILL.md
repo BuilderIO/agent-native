@@ -69,12 +69,19 @@ select an image or video. For generate-and-choose requests, pass:
 
 Inline MCP hosts render the picker in chat. CLI and code-editor hosts return an
 "Open in Assets ->" link; after the user picks, continue from the pasted handoff
-summary or from a plain-language pick like "use image A".
+summary or from a plain-language pick like "use image A". Codex, Claude Code,
+and Claude Desktop Code should be treated as link-out hosts: do not promise
+inline MCP App rendering there.
 
 Prefer the `open-asset-picker` tool for browser fallback links. If a CLI host has
 the skill instructions but has not exposed the MCP tool namespace yet, use the
 Assets browser fallback URL shape rather than switching to a generic generator:
 `https://assets.agent-native.com/library?mediaType=image&prompt=...&autoGenerate=1&count=3`.
+When reporting the final selected image in Codex or Claude Code, include the
+asset link and, if an inline preview is important, download the selected
+`previewUrl`/`downloadUrl` to a local temp image and embed that absolute local
+path. Remote CDN markdown images can fail to render in code-editor chat
+surfaces.
 
 ## Use Direct Actions
 

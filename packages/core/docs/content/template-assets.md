@@ -138,6 +138,13 @@ copies a handoff summary and shows a copyable context block; paste that summary
 back into the chat so the external agent can use the selected media URL and
 asset metadata.
 
+Codex, Claude Code, and Claude Desktop Code should be treated as link-out hosts
+for this flow. They may not render MCP Apps inline, and remote CDN markdown
+images may not display reliably in the chat transcript. Agents should keep the
+asset link as the source of truth; when a visible inline preview is needed in a
+code-editor chat, download the selected `previewUrl`/`downloadUrl` to a local
+image file and embed that absolute local path.
+
 For generate-and-choose flows, call `open-asset-picker` with `prompt`,
 `autoGenerate: true`, and `count: 3` (customizable from 1-6). The picker opens
 with candidate images and lets the user adjust count, aspect ratio, or a

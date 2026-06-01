@@ -43,7 +43,7 @@ const schema = z.object({
 type OpenAssetPickerArgs = z.infer<typeof schema>;
 
 const FALLBACK_INSTRUCTIONS =
-  'If the picker opens in a normal browser tab instead of inline, the user has two ways to choose: (1) click an asset — the picker auto-copies a short handoff summary they paste back into chat, or (2) just tell you which one in words (e.g. "use the second image"). Either way, continue with the chosen asset.';
+  'If the picker opens in a normal browser tab instead of inline, the user has two ways to choose: (1) click an asset — the picker auto-copies a short handoff summary they paste back into chat, or (2) just tell you which one in words (e.g. "use the second image"). Either way, continue with the chosen asset. In Codex, Claude Code, and other code-editor chats, do not expect MCP Apps to render inline; provide the asset link, and if the final answer needs an inline image preview, download the selected image URL locally and embed the absolute local file path because remote CDN markdown previews may not render there.';
 
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
@@ -114,10 +114,10 @@ export default defineAction({
           : "Select an image asset",
       message:
         args.mediaType === "video"
-          ? 'Assets video picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").'
+          ? 'Assets video picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image"). Codex and Claude Code use this link-out flow rather than inline MCP Apps.'
           : args.autoGenerate && args.prompt
-            ? 'Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").'
-            : 'Assets image picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image").',
+            ? 'Assets image picker is ready. It will generate candidates in the picker when image generation is configured, or show setup guidance if generation needs configuration. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image"). Codex and Claude Code use this link-out flow rather than inline MCP Apps.'
+            : 'Assets image picker is ready. If it opens in a browser tab, the user can click an asset (the page auto-copies a summary to paste back) or just tell you which one (e.g. "use the second image"). Codex and Claude Code use this link-out flow rather than inline MCP Apps.',
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       query: args.query ?? null,
       prompt: args.prompt ?? null,

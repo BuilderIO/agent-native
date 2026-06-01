@@ -75,10 +75,17 @@ of using a generic image generator.
 - Use browser/deep-link fallback when the host cannot render MCP Apps inline.
   Surface the returned picker link. If it opens in a normal browser tab, have
   the user select an asset there and paste back the copied handoff summary.
+  Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts; do not
+  promise inline MCP App rendering there.
   If the skill instructions are available but the MCP tool namespace has not
   appeared yet, use the Assets browser fallback URL shape instead of switching
   to a generic generator:
   \`https://assets.agent-native.com/library?mediaType=image&prompt=...&autoGenerate=1&count=3\`.
+  When reporting the final selected image in Codex or Claude Code, include the
+  asset link and, if an inline preview is important, download the selected
+  \`previewUrl\`/\`downloadUrl\` to a local temp image and embed that absolute
+  local path. Remote CDN markdown images can fail to render in code-editor chat
+  surfaces.
 
 ## Image And Video Workflows
 
