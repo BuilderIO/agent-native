@@ -97,28 +97,33 @@ export function Toolbar() {
     };
   }, []);
 
+  function scheduleCloseFallback(action: string) {
+    fallbackTimer.current = setTimeout(() => {
+      console.warn(
+        `[clips-toolbar] recorder did not close toolbar within 3s after ${action} — self-closing`,
+      );
+      getCurrentWindow()
+        .close()
+        .catch(() => {});
+    }, 3_000);
+  }
+
   function stop() {
     if (pendingAction || !enabled) return;
     setPendingAction("stop");
     console.log("[clips-toolbar] stop clicked — emitting clips:recorder-stop");
-    emit("clips:recorder-stop").catch((err) => {
-      console.error("[clips-toolbar] emit clips:recorder-stop failed:", err);
-      setPendingAction(null);
-    });
+    emit("clips:recorder-stop")
+      .then(() => scheduleCloseFallback("stop"))
+      .catch((err) => {
+        console.error("[clips-toolbar] emit clips:recorder-stop failed:", err);
+        setPendingAction(null);
+      });
     // Defensive fallback: the recorder normally closes us via
     // `hide_overlays` within a second or two. If for any reason the
     // popover listener never fires (popover window closed, listener
     // torn down mid-emit, etc.), self-close after 3s so the user isn't
     // left with a zombie pill floating over their screen. The recorder
     // closing us first is a no-op on the already-closed window.
-    fallbackTimer.current = setTimeout(() => {
-      console.warn(
-        "[clips-toolbar] recorder did not close toolbar within 3s — self-closing",
-      );
-      getCurrentWindow()
-        .close()
-        .catch(() => {});
-    }, 3_000);
   }
   function togglePause() {
     if (!enabled || pendingAction) return;
@@ -132,10 +137,15 @@ export function Toolbar() {
     console.log(
       "[clips-toolbar] restart clicked — emitting clips:recorder-restart",
     );
-    emit("clips:recorder-restart").catch((err) => {
-      console.error("[clips-toolbar] emit clips:recorder-restart failed:", err);
-      setPendingAction(null);
-    });
+    emit("clips:recorder-restart")
+      .then(() => scheduleCloseFallback("restart"))
+      .catch((err) => {
+        console.error(
+          "[clips-toolbar] emit clips:recorder-restart failed:",
+          err,
+        );
+        setPendingAction(null);
+      });
   }
   function cancel() {
     if (pendingAction || !enabled) return;
@@ -143,10 +153,15 @@ export function Toolbar() {
     console.log(
       "[clips-toolbar] cancel clicked — emitting clips:recorder-cancel",
     );
-    emit("clips:recorder-cancel").catch((err) => {
-      console.error("[clips-toolbar] emit clips:recorder-cancel failed:", err);
-      setPendingAction(null);
-    });
+    emit("clips:recorder-cancel")
+      .then(() => scheduleCloseFallback("cancel"))
+      .catch((err) => {
+        console.error(
+          "[clips-toolbar] emit clips:recorder-cancel failed:",
+          err,
+        );
+        setPendingAction(null);
+      });
   }
 
   // Same explicit-drag pattern the bubble uses — `data-tauri-drag-region`
@@ -164,6 +179,13 @@ export function Toolbar() {
       });
   };
 
+  const pendingActionLabel =
+    pendingAction === "restart"
+      ? "Restarting..."
+      : pendingAction === "cancel"
+        ? "Cancelling..."
+        : "Stopping...";
+
   return (
     <div
       className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
@@ -178,7 +200,7 @@ export function Toolbar() {
         }
         title={
           pendingAction === "stop"
-            ? "Stopping..."
+            ? pendingActionLabel
             : enabled
               ? "Stop recording"
               : "Recording not started yet"
@@ -199,7 +221,7 @@ export function Toolbar() {
         aria-label={paused ? "Resume" : "Pause"}
         title={
           pendingAction
-            ? "Stopping..."
+            ? pendingActionLabel
             : enabled
               ? paused
                 ? "Resume"
@@ -222,7 +244,7 @@ export function Toolbar() {
           aria-label="Restart recording"
           title={
             pendingAction === "restart"
-              ? "Restarting..."
+              ? pendingActionLabel
               : enabled
                 ? "Restart"
                 : "Recording not started yet"
@@ -242,7 +264,7 @@ export function Toolbar() {
           aria-label="Cancel recording"
           title={
             pendingAction === "cancel"
-              ? "Cancelling..."
+              ? pendingActionLabel
               : enabled
                 ? "Cancel"
                 : "Recording not started yet"
