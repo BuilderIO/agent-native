@@ -55,23 +55,19 @@ export async function wasVariantSlotDismissed(
 export async function upsertVariantSlot(input: VariantSlotInput) {
   await withVariantStateLock(async () => {
     const previous = await readVariantStateUnlocked();
-    const inputBatchId = input.batchId ?? input.runId;
-    const state: AssetVariantState =
-      previous !== null &&
-      previous.libraryId === input.libraryId &&
-      (previous.batchId ?? previous.runId) === inputBatchId
-        ? previous
-        : {
-            runId: input.runId,
-            batchId: input.batchId ?? null,
-            libraryId: input.libraryId,
-            collectionId: input.collectionId,
-            presetId: input.presetId ?? null,
-            sessionId: input.sessionId ?? null,
-            prompt: input.prompt,
-            slots: [],
-            updatedAt: nowIso(),
-          };
+    const state = isSameVariantScope(previous, input)
+      ? previous
+      : {
+          runId: input.runId,
+          batchId: input.batchId ?? null,
+          libraryId: input.libraryId,
+          collectionId: input.collectionId,
+          presetId: input.presetId ?? null,
+          sessionId: input.sessionId ?? null,
+          prompt: input.prompt,
+          slots: [],
+          updatedAt: nowIso(),
+        };
 
     state.runId = input.runId;
     state.batchId = input.batchId ?? null;
@@ -101,6 +97,27 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     state.updatedAt = now;
     await writeVariantStateUnlocked(state);
   });
+}
+
+function isSameVariantScope(
+  previous: AssetVariantState | null,
+  input: VariantSlotInput,
+): previous is AssetVariantState {
+  if (!previous) return false;
+
+  // The batch/run id is the generation boundary: batch slots may have distinct
+  // prompts, while a later run with the same prompt/options must start fresh.
+  return (
+    previous.libraryId === input.libraryId &&
+    variantScopeId(previous) === variantScopeId(input) &&
+    (previous.collectionId ?? null) === (input.collectionId ?? null) &&
+    (previous.presetId ?? null) === (input.presetId ?? null) &&
+    (previous.sessionId ?? null) === (input.sessionId ?? null)
+  );
+}
+
+function variantScopeId(input: { batchId?: string | null; runId: string }) {
+  return input.batchId ?? input.runId;
 }
 
 async function readVariantStateUnlocked(): Promise<AssetVariantState | null> {

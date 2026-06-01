@@ -160,4 +160,57 @@ describe("variant slot state", () => {
       expect.objectContaining({ slotId: "slot-1", status: "pending" }),
     ]);
   });
+
+  it("keeps distinct prompts together within one generation batch", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Hero image",
+      slotId: "slot-1",
+      status: "pending",
+    });
+
+    await upsertVariantSlot({
+      runId: "run-2",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Icon set",
+      slotId: "slot-2",
+      status: "pending",
+    });
+
+    expect((appState as any).slots.map((slot: any) => slot.slotId)).toEqual([
+      "slot-1",
+      "slot-2",
+    ]);
+  });
+
+  it("starts fresh when generation options change within a scope", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      presetId: "preset-square",
+      prompt: "Same prompt",
+      slotId: "slot-1",
+      status: "ready",
+      assetId: "asset-1",
+    });
+
+    await upsertVariantSlot({
+      runId: "run-2",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      presetId: "preset-wide",
+      prompt: "Same prompt",
+      slotId: "slot-2",
+      status: "pending",
+    });
+
+    expect((appState as any).presetId).toBe("preset-wide");
+    expect((appState as any).slots).toEqual([
+      expect.objectContaining({ slotId: "slot-2", status: "pending" }),
+    ]);
+  });
 });
