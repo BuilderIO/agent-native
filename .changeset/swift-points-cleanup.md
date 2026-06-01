@@ -1,5 +1,4 @@
 ---
-"@agent-native/code-agents-ui": patch
 "@agent-native/migrate": patch
 "@agent-native/scheduling": patch
 ---

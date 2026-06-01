@@ -563,15 +563,9 @@ export function computeSalesMetrics(
   const wonStageIds = new Set<string>();
   const lostStageIds = new Set<string>();
 
-  // Per-pipeline POV info: pipelineId -> { povStageOrder, povStageId }
-  const pipelinePov = new Map<string, { order: number; id: string }>();
-  // Map stageId -> pipelineId
-  const stageToPipeline = new Map<string, string>();
-
   for (const pipeline of pipelines) {
     for (const stage of pipeline.stages) {
       stageMap.set(stage.id, stage);
-      stageToPipeline.set(stage.id, pipeline.id);
       const label = stage.label.toLowerCase();
       const prob = parseFloat(stage.metadata?.probability ?? "");
       if (prob === 1 || label.includes("closed won") || label === "won") {
@@ -579,17 +573,6 @@ export function computeSalesMetrics(
       }
       if (prob === 0 || label.includes("closed lost") || label === "lost") {
         lostStageIds.add(stage.id);
-      }
-      // Identify POV/PoC stage per pipeline
-      if (
-        label.includes("proof of value") ||
-        label.includes("pov") ||
-        label === "poc"
-      ) {
-        pipelinePov.set(pipeline.id, {
-          order: stage.displayOrder,
-          id: stage.id,
-        });
       }
     }
   }
