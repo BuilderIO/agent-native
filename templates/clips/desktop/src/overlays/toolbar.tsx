@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -8,6 +10,16 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+
+const OVERLAY_SHADOW_GUTTER = 18;
+const TOOLBAR_CONTENT_WIDTH = 72;
+const TOOLBAR_COLLAPSED_HEIGHT = 150;
+const TOOLBAR_EXPANDED_HEIGHT = 234;
+const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_COLLAPSED_WINDOW_HEIGHT =
+  TOOLBAR_COLLAPSED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_EXPANDED_WINDOW_HEIGHT =
+  TOOLBAR_EXPANDED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
 
 /**
  * Floating recording toolbar — vertical pill anchored to the LEFT edge of
@@ -43,6 +55,7 @@ export function Toolbar() {
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandedRef = useRef(false);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -106,6 +119,19 @@ export function Toolbar() {
         .close()
         .catch(() => {});
     }, 3_000);
+  }
+
+  function resizeToolbarWindow(expanded: boolean) {
+    if (expandedRef.current === expanded) return;
+    expandedRef.current = expanded;
+    const height = expanded
+      ? TOOLBAR_EXPANDED_WINDOW_HEIGHT
+      : TOOLBAR_COLLAPSED_WINDOW_HEIGHT;
+    getCurrentWindow()
+      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, height))
+      .catch((err) => {
+        console.warn("[clips-toolbar] resize failed", err);
+      });
   }
 
   function stop() {
@@ -178,6 +204,10 @@ export function Toolbar() {
         console.warn("[clips-toolbar] startDragging failed", err);
       });
   };
+  const handleToolbarBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    resizeToolbarWindow(false);
+  };
 
   const pendingActionLabel =
     pendingAction === "restart"
@@ -190,6 +220,10 @@ export function Toolbar() {
     <div
       className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
       onMouseDown={handleToolbarMouseDown}
+      onMouseEnter={() => resizeToolbarWindow(true)}
+      onMouseLeave={() => resizeToolbarWindow(false)}
+      onFocusCapture={() => resizeToolbarWindow(true)}
+      onBlurCapture={handleToolbarBlur}
     >
       <button
         className="toolbar-v-stop"

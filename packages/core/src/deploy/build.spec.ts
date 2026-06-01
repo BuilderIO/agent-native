@@ -658,7 +658,7 @@ describe("findInstalledFfmpegStaticPackage", () => {
 
   it("only bundles host ffmpeg-static binaries for matching Linux serverless targets", () => {
     expect(shouldBundleFfmpegStaticForServerless("linux", "x64")).toBe(true);
-    expect(shouldBundleFfmpegStaticForServerless("linux", "arm64")).toBe(false);
+    expect(shouldBundleFfmpegStaticForServerless("linux", "arm64")).toBe(true);
     expect(shouldBundleFfmpegStaticForServerless("darwin", "x64")).toBe(false);
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64")).toBe(false);
   });
