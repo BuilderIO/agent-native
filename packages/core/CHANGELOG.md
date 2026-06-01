@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.7
+
+### Patch Changes
+
+- bacf30d: Expose Builder account plan metadata from the connect flow status.
+
 ## 0.32.6
 
 ### Patch Changes
