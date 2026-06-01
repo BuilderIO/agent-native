@@ -61,7 +61,7 @@ This overwrites the Notion page's content with the local document's markdown, co
 
 Documents are stored as **Notion-Flavored Markdown (NFM)** — the exact format
 Notion's `/pages/{id}/markdown` API emits and accepts. The storage form is
-Notion's *canonical* form, so a synced document is byte-identical on both sides.
+Notion's _canonical_ form, so a synced document is byte-identical on both sides.
 
 - `shared/nfm.ts` is the single deterministic converter: `nfmToDoc` (NFM →
   ProseMirror JSON) and `docToNfm` (ProseMirror JSON → NFM), plus
@@ -73,6 +73,11 @@ Notion's *canonical* form, so a synced document is byte-identical on both sides.
   `app/components/editor/nfm-editor.roundtrip.test.ts` (real TipTap schema).
   Because our canonical form equals Notion's emission, pull→edit→push→pull
   never drifts.
+- Pulls also materialize accessible Notion child pages referenced by `<page>`
+  atoms. Each child becomes a local `documents` row with `parent_id` set to the
+  pulled parent and a `document_sync_links` row pointing at the child Notion
+  page, so the sidebar tree and page blocks can open the same local subpage.
+  Inaccessible child pages remain preserved as NFM page references.
 - **Do not** route Notion content through `shared/notion-markdown.ts` (the old
   tiptap-markdown bridge). It is retained only for clipboard copy/paste.
 
@@ -90,16 +95,16 @@ attribute (Tab indents a block, matching Notion).
 
 The `document_sync_links` table tracks sync relationships:
 
-| Column                     | Description                                            |
-| -------------------------- | ----------------------------------------------------- |
-| `document_id`              | Local document ID                                     |
-| `provider`                 | Always "notion"                                        |
-| `remote_page_id`           | Notion page ID                                         |
-| `state`                    | "linked", "syncing", "error", "conflict"              |
-| `last_synced_at`           | Timestamp of last successful sync                     |
+| Column                     | Description                                                                                                                      |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `document_id`              | Local document ID                                                                                                                |
+| `provider`                 | Always "notion"                                                                                                                  |
+| `remote_page_id`           | Notion page ID                                                                                                                   |
+| `state`                    | "linked", "syncing", "error", "conflict"                                                                                         |
+| `last_synced_at`           | Timestamp of last successful sync                                                                                                |
 | `last_synced_content_hash` | SHA-256 of the canonical content identical on both sides — the authoritative "did it change" signal (immune to timestamp jitter) |
-| `has_conflict`             | Whether both sides changed since last sync (0 or 1)   |
-| `last_error`               | Error message if sync failed                          |
+| `has_conflict`             | Whether both sides changed since last sync (0 or 1)                                                                              |
+| `last_error`               | Error message if sync failed                                                                                                     |
 
 Conflict detection is **content-hash based**: a side has "changed" only when its
 canonical content hash differs from `last_synced_content_hash`. A no-op sync
@@ -108,13 +113,13 @@ the two copies from drifting.
 
 ## Common Tasks
 
-| User says                          | What to do                                            |
-| ---------------------------------- | ----------------------------------------------------- |
-| "Is Notion connected?"             | `connect-notion-status`                               |
-| "Link this doc to Notion"          | `link-notion-page --documentId ... --notionPageId ...`|
-| "Pull from Notion"                 | `pull-notion-page --documentId ...`                   |
-| "Push to Notion"                   | `push-notion-page --documentId ...`                   |
-| "Show Notion-linked documents"     | `list-notion-links`                                   |
+| User says                      | What to do                                             |
+| ------------------------------ | ------------------------------------------------------ |
+| "Is Notion connected?"         | `connect-notion-status`                                |
+| "Link this doc to Notion"      | `link-notion-page --documentId ... --notionPageId ...` |
+| "Pull from Notion"             | `pull-notion-page --documentId ...`                    |
+| "Push to Notion"               | `push-notion-page --documentId ...`                    |
+| "Show Notion-linked documents" | `list-notion-links`                                    |
 
 ## Important Notes
 
