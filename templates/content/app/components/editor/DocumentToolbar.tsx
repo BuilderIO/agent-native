@@ -195,9 +195,6 @@ export function DocumentToolbar({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [resolvingDirection, setResolvingDirection] = useState<
-    "pull" | "push" | null
-  >(null);
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
   const [creatingParentPageId, setCreatingParentPageId] = useState<
     string | null
@@ -353,37 +350,6 @@ export function DocumentToolbar({
       toast.error(error instanceof Error ? error.message : "Unlink failed.");
     }
   }, [unlinkDocument]);
-
-  const handleResolve = useCallback(
-    (direction: "pull" | "push") => {
-      setResolvingDirection(direction);
-      resolveConflict.mutate(
-        { direction },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["action"] });
-            queryClient.invalidateQueries({
-              queryKey: ["document-sync", documentId],
-            });
-            toast.success(
-              direction === "pull"
-                ? "Resolved — pulled from Notion."
-                : "Resolved — pushed local version.",
-            );
-            setResolvingDirection(null);
-            setOpen(false);
-          },
-          onError: (error) => {
-            setResolvingDirection(null);
-            toast.error(
-              error instanceof Error ? error.message : "Resolve failed.",
-            );
-          },
-        },
-      );
-    },
-    [resolveConflict, queryClient, documentId],
-  );
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {

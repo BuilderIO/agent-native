@@ -4,7 +4,6 @@ import type {
   A2AHandler,
   A2AHandlerContext,
   A2AHandlerResult,
-  JsonRpcRequest,
   JsonRpcResponse,
   Message,
   Artifact,
@@ -48,6 +47,11 @@ function resolveSelfBaseUrl(event: any | undefined): string {
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
+  if (isA2AProductionRuntime()) {
+    throw new Error(
+      "A2A self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in production.",
+    );
+  }
 
   try {
     const headers = event?.node?.req?.headers ?? event?.headers;

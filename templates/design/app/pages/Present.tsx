@@ -85,7 +85,7 @@ export default function Present() {
     <div className="h-screen w-screen bg-black overflow-hidden">
       <iframe
         srcDoc={activeFile.content}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts"
         className="w-full h-full border-0"
         title={`${design.title} — ${activeFile.filename}`}
       />

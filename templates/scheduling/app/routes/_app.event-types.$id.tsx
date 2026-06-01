@@ -1,5 +1,5 @@
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { getEventTypeById } from "@agent-native/scheduling/server";
 

@@ -144,7 +144,7 @@ export async function aggregateBusy(input: {
     try {
       const result = await provider.getBusy({
         credentialId: cred.id,
-        calendarExternalIds: selected.map((s: any) => s.externalId),
+        calendarExternalIds: selected.map((s) => s.externalId),
         start: input.rangeStart,
         end: input.rangeEnd,
       });

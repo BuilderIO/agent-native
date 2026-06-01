@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { parseISO, startOfDay, set, addMinutes, addDays } from "date-fns";
+import { parseISO, startOfDay, set, addMinutes } from "date-fns";
 import type { CalendarEvent } from "@shared/api";
 
 const SNAP_MINUTES = 15;

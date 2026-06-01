@@ -26,7 +26,6 @@ import {
 } from "../agent/engine/index.js";
 import type {
   AgentEngine,
-  EngineContentPart,
   EngineEvent,
   EngineMessage,
   EngineStreamOptions,

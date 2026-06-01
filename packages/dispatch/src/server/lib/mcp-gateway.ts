@@ -154,12 +154,6 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   }
 }
 
-function appOrigin(app: DispatchMcpAccessibleApp): string {
-  const origin = safeAppOrigin(app);
-  if (!origin) throw new Error(`Invalid app URL for "${app.id}": ${app.url}`);
-  return origin;
-}
-
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }

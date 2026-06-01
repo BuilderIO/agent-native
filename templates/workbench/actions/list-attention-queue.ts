@@ -248,7 +248,7 @@ export default defineAction({
     // ── Run cards ───────────────────────────────────────────────────────
     if (!mutedTypes.has("run-needs-input")) {
       try {
-        const runCards = await loadRunNeedsInputCards(ownerEmail, queueState);
+        const runCards = await loadRunNeedsInputCards(ownerEmail);
         for (const card of runCards) {
           pushIfActive(cards, card, queueState);
         }
@@ -594,7 +594,6 @@ async function buildMyPrCiFailureCard(input: {
  */
 async function loadRunNeedsInputCards(
   ownerEmail: string,
-  queueState: QueueStateMap,
 ): Promise<QueueCard[]> {
   const exec = getDbExec();
   // Limit the SELECT join scan with a recency window so we don't pay full

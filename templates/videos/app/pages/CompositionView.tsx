@@ -14,6 +14,7 @@ import {
   appBasePath,
   useDevMode,
   ShareButton,
+  useSession,
 } from "@agent-native/core/client";
 import type { CollabUser } from "@agent-native/core/client";
 import { useComposition } from "@/contexts/CompositionContext";
@@ -42,15 +43,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { AnimationTrack } from "@/types";
-import { debug } from "@/utils/debug";
-
-type SavedTrack = Pick<
-  AnimationTrack,
-  "id" | "label" | "startFrame" | "endFrame" | "easing"
-> & {
-  animatedProps?: AnimationTrack["animatedProps"];
-};
 
 type CompositionViewProps = {
   onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;
@@ -69,12 +61,25 @@ export default function CompositionView({
   agentActive = false,
   agentPresent = false,
 }: CompositionViewProps) {
+  // Get frame from URL parameter (?frame=150)
   const [searchParams] = useSearchParams();
   const frameFromUrl = searchParams.get("frame");
   const initialFrame = frameFromUrl ? parseInt(frameFromUrl, 10) : 0;
 
-  const { isDevMode } = useDevMode();
+  // Debug log
+  useEffect(() => {
+    console.log(
+      "CompositionView - initialFrame from URL:",
+      initialFrame,
+      "frameFromUrl:",
+      frameFromUrl,
+    );
+  }, [initialFrame, frameFromUrl]);
 
+  const { isDevMode } = useDevMode();
+  useSession();
+
+  // Get state from contexts
   const {
     isNew,
     effectiveComposition: composition,
@@ -93,8 +98,10 @@ export default function CompositionView({
 
   const { setCurrentFrame, registerSeek } = usePlayback();
 
+  // Detect if there are unsaved changes in localStorage
   const hasUnsavedChanges = useUnsavedChanges();
 
+  // Tweaks panel
   const [tweaksVisible, setTweaksVisible] = useState(false);
   const [tweakValues, setTweakValues] = useState<
     Record<string, string | number | boolean>
@@ -113,6 +120,7 @@ export default function CompositionView({
     [],
   );
 
+  // Dialog states for save confirmation and status alerts
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [showSaveError, setShowSaveError] = useState(false);
@@ -121,15 +129,18 @@ export default function CompositionView({
   const canSave =
     !!composition && (isDevMode || composition.storage === "database");
 
+  // All hooks must be called before any early returns (React rules of hooks)
   const playerRef = useRef<VideoPlayerHandle>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [currentFrameLocal, setCurrentFrameLocal] = useState(initialFrame);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
+  // ── View window (shared between Timeline and VideoPlayer) ─────────────────
   const [viewStart, setViewStart] = useState(0);
   const [viewEnd, setViewEnd] = useState(composition?.durationInFrames ?? 240);
 
+  // Reset to full view when composition (or its duration) changes
   useEffect(() => {
     if (!composition) return;
     setViewStart(0);
@@ -153,15 +164,19 @@ export default function CompositionView({
     [setCurrentFrame],
   );
 
+  // Register the seek function with parent component
   useEffect(() => {
     registerSeek(() => handleTimelineSeek);
   }, [registerSeek, handleTimelineSeek]);
 
+  // IconDeviceFloppy as default handler - uses both composition and timeline contexts
+  // Core save logic (reusable for both manual and auto-save)
   const performSave = useCallback(
     async (silent = false) => {
       if (!composition) return;
 
       try {
+        // Deduplicate tracks by id (keep first occurrence) to prevent duplicate keys
         const seenIds = new Set<string>();
         const dedupedTracks = tracks.filter((track) => {
           if (seenIds.has(track.id)) return false;
@@ -169,8 +184,9 @@ export default function CompositionView({
           return true;
         });
 
-        const formattedTracks: SavedTrack[] = dedupedTracks.map((track) => {
-          const formatted: SavedTrack = {
+        // Format the tracks for the registry
+        const formattedTracks = dedupedTracks.map((track) => {
+          const formatted: any = {
             id: track.id,
             label: track.label,
             startFrame: track.startFrame,
@@ -185,6 +201,7 @@ export default function CompositionView({
           return formatted;
         });
 
+        // Prepare the update payload
         const update = {
           compositionId: composition.id,
           tracks: formattedTracks,
@@ -195,7 +212,7 @@ export default function CompositionView({
           height: composition.height,
         };
 
-        debug.verbose("Saving composition defaults", update);
+        console.log("Saving as default:", update);
 
         const saveToDatabase = async (signal: AbortSignal) => {
           const response = await fetch(
@@ -253,8 +270,9 @@ export default function CompositionView({
 
         for (let attempt = 0; attempt < maxRetries; attempt++) {
           try {
+            // Add timeout to fetch request
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             try {
               if (composition.storage === "database") {
                 await saveToDatabase(controller.signal);
@@ -265,6 +283,7 @@ export default function CompositionView({
               clearTimeout(timeoutId);
             }
 
+            // Success!
             saveSucceeded = true;
             lastError = null;
             break;
@@ -274,53 +293,57 @@ export default function CompositionView({
                 ? fetchError
                 : new Error(String(fetchError));
 
+            // If this is the last attempt, don't retry
             if (attempt === maxRetries - 1) {
               break;
             }
 
+            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
             const delay = 500 * Math.pow(2, attempt);
-            debug.verbose("Retrying composition save", {
-              attempt: attempt + 1,
-              maxRetries,
-              delay,
-            });
+            console.log(
+              `[Save] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
+            );
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
         }
 
+        // Handle the result
         if (saveSucceeded) {
+          // Clear localStorage since registry now has these values
           localStorage.removeItem(`videos-tracks:${composition.id}`);
           localStorage.removeItem(`videos-props:${composition.id}`);
           localStorage.removeItem(`videos-comp-settings:${composition.id}`);
           localStorage.removeItem(`videos-tracks-version:${composition.id}`);
 
-          debug.verbose("Saved composition defaults", {
-            compositionId: composition.id,
-          });
+          console.log(`[Save] Saved "${composition.title}" defaults`);
 
           if (!silent) {
             setShowSaveSuccess(true);
           } else {
+            // Reload to pick up fresh registry data
             window.location.reload();
           }
         } else if (lastError) {
+          // Network error or server not available after all retries
           const errorMessage = lastError.message;
-          debug.error("Failed to save after retries", errorMessage);
+          console.error("[Save] Failed to save after retries:", errorMessage);
 
           if (!silent) {
             setSaveErrorMessage(errorMessage);
             setShowSaveError(true);
           }
 
-          throw lastError;
+          throw lastError; // Re-throw to be caught by outer catch
         }
       } catch (error) {
-        debug.error("Failed to save composition", error);
+        console.error("[Save] Failed to save:", error);
+        // Error already handled above, just log it
       }
     },
     [composition, tracks, currentProps],
   );
 
+  // Manual save handler (shows confirmation)
   const handleSaveAsDefault = useCallback(() => {
     if (!composition) return;
     setShowSaveConfirm(true);
@@ -328,15 +351,16 @@ export default function CompositionView({
 
   const confirmSave = useCallback(async () => {
     setShowSaveConfirm(false);
-    await performSave(false);
+    await performSave(false); // Not silent - show dialogs
   }, [performSave]);
 
+  // Listen for auto-save events from AI generation
   useEffect(() => {
     const handleAutoSave = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.compositionId === composition?.id) {
-        debug.verbose("Auto-save triggered", { compositionId: composition.id });
-        await performSave(true);
+        console.log("[Auto-save] Triggered for:", composition?.id);
+        await performSave(true); // Silent mode - no alerts
       }
     };
 
@@ -344,8 +368,10 @@ export default function CompositionView({
     return () => window.removeEventListener("videos.auto-save", handleAutoSave);
   }, [composition?.id, performSave]);
 
+  // Spacebar to play/pause (doesn't trigger when typing in input fields)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input/textarea
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -365,10 +391,14 @@ export default function CompositionView({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // ── Early returns after all hooks ──────────────────────────────────────────
+
+  // If this is a new composition, render the new composition view
   if (isNew) {
     return <NewComposition isGenerating={isGenerating} />;
   }
 
+  // If no composition selected yet, return null
   if (!composition) return null;
 
   // Merge live track state into the props passed to the Remotion player.
@@ -383,6 +413,7 @@ export default function CompositionView({
   return (
     <div className="flex flex-col items-center p-2 sm:p-4 lg:p-6 min-w-0 bg-background">
       <div className="w-full max-w-5xl flex flex-col gap-0">
+        {/* Composition info */}
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-sm sm:text-base font-semibold text-foreground/90">
@@ -406,6 +437,7 @@ export default function CompositionView({
           </div>
         </div>
 
+        {/* Camera toolbar with composition details */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
           <div className="overflow-x-auto -mx-2 px-2 sm:mx-0 sm:px-0">
             <CameraToolbar
@@ -419,6 +451,7 @@ export default function CompositionView({
             />
           </div>
 
+          {/* Composition details */}
           <div className="flex items-center gap-1.5 sm:ml-auto flex-shrink-0 flex-wrap">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -604,6 +637,7 @@ export default function CompositionView({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Save error dialog */}
       <AlertDialog open={showSaveError} onOpenChange={setShowSaveError}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -621,6 +655,15 @@ export default function CompositionView({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* TODO: Fix Pinpoint React is not defined error
+      <Pinpoint
+        author={session?.email || "anonymous"}
+        colorScheme="dark"
+        compactPopup
+      />
+      */}
+
+      {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -28,6 +28,14 @@ import {
 
 const IS_DEV = window.location.protocol !== "file:";
 
+type WebviewTitleUpdatedEvent = Event & { title?: string };
+type WebviewLoadFailedEvent = Event & {
+  errorCode?: number;
+  errorDescription?: string;
+  isMainFrame?: boolean;
+};
+type WebviewConsoleMessageEvent = Event & { message?: string };
+
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
@@ -343,12 +351,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         emitCurrentTitleSoon();
       };
       const onTitleUpdated = (e: Event) => {
-        const title = String((e as { title?: string }).title ?? "").trim();
+        const title = String(
+          (e as WebviewTitleUpdatedEvent).title ?? "",
+        ).trim();
         emitCurrentTitle(title);
       };
       const onNavigation = () => emitCurrentTitleSoon();
       const onFailed = (e: Event) => {
-        const details = e as any;
+        const details = e as WebviewLoadFailedEvent;
         const errorCode = details.errorCode;
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
@@ -366,7 +376,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setIsLoading(false);
       };
       const onConsoleMessage = (e: Event) => {
-        const message = String((e as any).message || "");
+        const message = String((e as WebviewConsoleMessageEvent).message || "");
         if (message.includes("Outdated Optimize Dep")) {
           recoverOutdatedOptimizeDep();
         }

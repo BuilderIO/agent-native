@@ -6,6 +6,7 @@ import {
   DESKTOP_DEFAULT_APPS,
   TEMPLATE_APPS,
   type AppConfig,
+  type FrameSettings,
 } from "@shared/app-registry";
 import type {
   CodeAgentProviderCredentialKey,
@@ -80,15 +81,7 @@ const INITIAL_CODE_AGENT_PROVIDER_ENV = new Map(
   CODE_AGENT_PROVIDER_KEYS.map((key) => [key, process.env[key]]),
 );
 
-/** Settings for the local dev frame */
-export interface FrameSettings {
-  /** Whether the frame is enabled */
-  enabled: boolean;
-  /** Load frame from localhost (dev) or production URL (prod) */
-  mode: "dev" | "prod";
-  /** Production URL for the frame (if deployed) */
-  prodUrl?: string;
-}
+export type { FrameSettings };
 
 export interface RemoteConnectorSettings {
   enabled: boolean;
@@ -613,10 +606,10 @@ export function loadApps(): AppConfig[] {
 
     for (let i = 0; i < apps.length; i++) {
       const app = apps[i];
-      // Migrate legacy useCliHarness field → mode
-      if ((app as any).useCliHarness !== undefined) {
-        app.mode = (app as any).useCliHarness ? "dev" : "prod";
-        delete (app as any).useCliHarness;
+      const legacyApp = app as AppConfig & { useCliHarness?: unknown };
+      if (legacyApp.useCliHarness !== undefined) {
+        app.mode = legacyApp.useCliHarness ? "dev" : "prod";
+        delete legacyApp.useCliHarness;
         migrated = true;
       }
       if (app.mode === undefined) {

@@ -39,6 +39,14 @@ export function cleanExpired(map: Map<number, AwarenessEntry>): void {
   }
 }
 
+// Drop the per-document map from the registry once it has no entries left,
+// so the outer map does not grow unbounded with every docId ever touched.
+function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
+  if (map.size === 0) {
+    _awarenessMap.delete(docId);
+  }
+}
+
 /**
  * POST /_agent-native/collab/:docId/awareness
  *
@@ -100,6 +108,7 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
 
   const map = getDocAwareness(docId);
   cleanExpired(map);
+  pruneIfEmpty(docId, map);
 
   const users: Array<{ clientId: number; lastSeen: number }> = [];
   for (const [, entry] of map) {

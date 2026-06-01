@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { H3Event } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";

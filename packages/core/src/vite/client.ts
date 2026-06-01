@@ -403,6 +403,11 @@ function getCoreSourceAliases(
       "adapters/cli/index.ts",
     ),
     "@agent-native/core/usage": path.join(coreSrc, "usage/store.ts"),
+    "@agent-native/core/brand-kit": path.join(coreSrc, "brand-kit/index.ts"),
+    "@agent-native/core/server/design-token-utils": path.join(
+      coreSrc,
+      "server/design-token-utils.ts",
+    ),
     // Shared stylesheet — alias to src so CSS edits (composer/theme rules)
     // take effect live in dev instead of silently loading the stale built
     // copy at dist/styles/. From src/styles/ the `@source "../client/**"`

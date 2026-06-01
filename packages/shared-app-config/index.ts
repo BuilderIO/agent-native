@@ -16,7 +16,7 @@ export type { TemplateMeta } from "./templates.js";
 export interface AppDefinition {
   id: string;
   name: string;
-  /** Lucide icon component name */
+  /** Icon alias key resolved by app shells */
   icon: string;
   description: string;
   /** Dev server port (used in development mode) */

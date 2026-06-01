@@ -136,7 +136,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       : { right: EDGE_GAP, bottom: EDGE_GAP },
   );
   const [reservedRight, setReservedRight] = createSignal(0);
-  const [dragging, setDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({
     x: 0,
     y: 0,
@@ -196,7 +195,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
 
   function handleMouseDown(e: MouseEvent) {
     if (props.expanded) return;
-    setDragging(true);
     setDidDrag(false);
     setDragStart({
       x: e.clientX,
@@ -227,7 +225,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     };
 
     const handleUp = () => {
-      setDragging(false);
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
@@ -236,7 +233,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     window.addEventListener("mouseup", handleUp);
   }
 
-  function handleClick(e: Event) {
+  function handleClick() {
     if (props.expanded) return;
     if (didDrag()) return;
     props.onToggleExpand();

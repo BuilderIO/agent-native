@@ -2,7 +2,6 @@ import { desc, sql } from "drizzle-orm";
 import { orgMembers } from "@agent-native/core/org";
 import { getDb } from "../db/index.js";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { readAppState } from "@agent-native/core/application-state";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();

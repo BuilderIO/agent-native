@@ -42,6 +42,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getSetting } from "@agent-native/core/settings";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
   getRequestUserEmail,
@@ -185,7 +186,9 @@ async function loadRecordingMediaBlob({
   }
 
   let resolvedVideoUrl = videoUrl;
-  if (resolvedVideoUrl.startsWith("/")) {
+  const isAppRelativeUrl =
+    resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
+  if (isAppRelativeUrl) {
     const port = process.env.NITRO_PORT || process.env.PORT || "3000";
     const origin =
       process.env.PUBLIC_URL ??
@@ -193,7 +196,13 @@ async function loadRecordingMediaBlob({
       `http://localhost:${port}`;
     resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
   }
-  const vidRes = await fetch(resolvedVideoUrl);
+  const vidRes = isAppRelativeUrl
+    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+    : await ssrfSafeFetch(
+        resolvedVideoUrl,
+        { signal: AbortSignal.timeout(30_000) },
+        { maxRedirects: 3 },
+      );
   if (!vidRes.ok) {
     throw new Error(
       `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,

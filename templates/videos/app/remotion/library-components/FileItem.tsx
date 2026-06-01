@@ -1,5 +1,21 @@
-import React from "react";
-import { AbsoluteFill, useVideoConfig } from "remotion";
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * FILE ITEM ATOM
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * A file list item with icon, name, and optional metadata.
+ * Demonstrates hover brightness animation.
+ *
+ * Features:
+ * - File icon support
+ * - Optional line count badge
+ * - Optional file path
+ * - Hover brightness effect
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
 import { AnimatedElement } from "@/remotion/components/AnimatedElement";

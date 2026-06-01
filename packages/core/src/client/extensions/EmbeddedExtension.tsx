@@ -78,10 +78,12 @@ export function EmbeddedExtension({
     role: "viewer",
     isAuthor: false,
   });
-  // Honor only the first binding announcement per render — see ExtensionViewer:
-  // without this, sandboxed user content could postMessage a forged binding to
-  // escalate its own role.
-  const bindingReceivedRef = useRef(false);
+  // (audit H4) Latch the render binding once per iframe instance. The shell
+  // posts the server-resolved binding BEFORE user content runs; any later
+  // agent-native-extension-binding message is attacker-controllable (it
+  // originates inside the same sandboxed realm as user code) and must be
+  // ignored so a viewer cannot self-escalate to owner.
+  const bindingLatchedRef = useRef(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -118,12 +120,13 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
-  // On (re)load, drop back to deny-by-default and re-arm the one-shot binding
-  // guard so the fresh render can announce its role exactly once.
+  // Reset role + binding latch to deny-by-default whenever the iframe is
+  // recreated (its key changes). The new render's first binding announcement
+  // re-establishes the role.
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
-    bindingReceivedRef.current = false;
-  }, [iframeSrc]);
+    bindingLatchedRef.current = false;
+  }, [extensionId, extension?.updatedAt]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -151,8 +154,11 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
-        if (bindingReceivedRef.current) return;
-        bindingReceivedRef.current = true;
+        // Only the FIRST announcement (sent by the shell before user content
+        // runs) is trusted. Ignore re-announcements — a malicious extension
+        // body could otherwise postMessage a forged owner binding to escalate.
+        if (bindingLatchedRef.current) return;
+        bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||

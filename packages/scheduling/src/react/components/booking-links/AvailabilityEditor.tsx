@@ -7,10 +7,9 @@
  * (not included yet; scheduling's existing per-page implementation
  * remains canonical for v0.1).
  *
- * Shadcn primitives expected in the consumer: input, label, switch.
+ * Shadcn primitives expected in the consumer: input, switch.
  */
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
 export type DayKey =

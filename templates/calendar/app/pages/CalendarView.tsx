@@ -278,9 +278,7 @@ export default function CalendarView() {
     setViewMode,
     peopleSearchOpen,
     setPeopleSearchOpen,
-    addCalendarOpen,
     setAddCalendarOpen,
-    addCalendarDefaultTab,
     setAddCalendarDefaultTab,
     eventDetailSidebar,
     setEventDetailSidebar,
@@ -319,7 +317,6 @@ export default function CalendarView() {
     () => overlayPeople.map((p) => p.email),
     [overlayPeople],
   );
-  const isGoogleConnected = googleStatus.data?.connected ?? false;
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();

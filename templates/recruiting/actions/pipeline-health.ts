@@ -6,7 +6,7 @@ import {
 import * as gh from "../server/lib/greenhouse-api.js";
 import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { z } from "zod";
-import type { GreenhouseApplication, GreenhouseCandidate } from "@shared/types";
+import type { GreenhouseApplication } from "@shared/types";
 
 async function pipelineHealth(args: { stuckDays?: number }) {
   const stuckThresholdDays = args.stuckDays || 5;

@@ -14,9 +14,7 @@ import {
 } from "./framework-request-handler.js";
 import {
   createProductionAgentHandler,
-  runAgentLoop,
   actionsToEngineTools,
-  getActiveRunForThread,
   getActiveRunForThreadAsync,
   abortRun,
   subscribeToRun,
@@ -48,7 +46,6 @@ import type {
   AgentChatReference,
   ActionTool,
   MentionProvider,
-  MentionProviderItem,
 } from "../agent/types.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { ActionHttpConfig } from "../action.js";
@@ -88,7 +85,6 @@ import {
   getHeader,
   type H3Event,
 } from "h3";
-import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
@@ -3813,9 +3809,7 @@ export function createAgentChatPlugin(
             appId: options?.appId,
           });
 
-          // Use the same handler (dev or prod) that the interactive chat uses
           const devActive = isDevMode();
-          const handler = devActive && devHandler ? devHandler : prodHandler;
 
           // Build the same system prompt the interactive agent uses
           const owner = userEmail;

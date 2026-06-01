@@ -647,11 +647,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     role: "viewer",
     isAuthor: false,
   });
-  // Only the FIRST binding announcement per render is honored. The shell sends
-  // it once (server-side, before user content runs); without this guard, the
-  // sandboxed extension body could postMessage a second forged binding with
-  // role:"owner" and escalate its own privileges.
-  const bindingReceivedRef = useRef(false);
+  // (audit H4) Latch the render binding once per iframe instance; later
+  // announcements are attacker-controllable and must be ignored.
+  const bindingLatchedRef = useRef(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -691,13 +689,12 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       if (!message) return;
 
       if (message.type === "agent-native-extension-binding") {
-        // (audit H4) The iframe announced its render binding. Trust the role
-        // value because the iframe's binding is generated server-side in
-        // extensions/routes.ts (resolveAccess), not by user-authored content.
-        // Honor only the first announcement per render: ignore any repeat so
-        // sandboxed user content can't postMessage a forged role escalation.
-        if (bindingReceivedRef.current) return;
-        bindingReceivedRef.current = true;
+        // (audit H4) Trust only the FIRST announcement: the shell sends the
+        // server-resolved binding BEFORE user-authored content runs. Later
+        // announcements share the iframe realm with user code and could forge
+        // an owner role, so they are ignored.
+        if (bindingLatchedRef.current) return;
+        bindingLatchedRef.current = true;
         const binding = message.binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||
@@ -962,8 +959,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     // Reset role to deny-by-default on every reload — the new render's
     // binding announcement re-establishes the role before any helper call.
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
-    // Allow the fresh render to announce its binding exactly once again.
-    bindingReceivedRef.current = false;
+    bindingLatchedRef.current = false;
   }, [extensionId, extension?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {

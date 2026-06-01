@@ -1,4 +1,20 @@
-import React from "react";
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * FOLDER ITEM ATOM
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * A collapsible folder item with chevron icon.
+ * Demonstrates hover brightness and expand/collapse animation.
+ *
+ * Features:
+ * - Chevron icon (rotates when expanded)
+ * - Folder icon
+ * - Folder name
+ * - Hover brightness effect
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
@@ -84,7 +100,6 @@ export const FolderItem = createInteractiveComposition<FolderItemProps>({
     registerForCursor(folder);
 
     const fontSize = 13;
-    const iconSize = 14;
     const gap = 6;
 
     return (

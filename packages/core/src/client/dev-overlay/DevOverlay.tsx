@@ -44,7 +44,6 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 
-const PANEL_OPEN_KEY = `${DEV_OVERLAY_STORAGE_PREFIX}open`;
 const COLLAPSED_KEY_PREFIX = `${DEV_OVERLAY_STORAGE_PREFIX}collapsed-`;
 
 export interface DevOverlayProps {

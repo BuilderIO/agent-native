@@ -556,8 +556,6 @@ export function Timeline({
     [viewStart, viewDuration],
   );
 
-  const totalSeconds = durationInFrames / fps;
-
   // Helper to check if a keyframe is selected
   const isKeyframeSelected = useCallback(
     (trackId: string, frame: number): boolean => {
@@ -732,8 +730,6 @@ export function Timeline({
     },
     [durationInFrames, viewDuration, onUpdateTrack],
   );
-
-  const selectedTrack = tracks.find((t) => t.id === selectedTrackId);
 
   // Playhead is only shown when the current frame falls within the view window
   const playheadVisible = currentFrame >= viewStart && currentFrame <= viewEnd;
@@ -1442,7 +1438,6 @@ export function Timeline({
                                     }
                                   } else {
                                     // Calculate delta for all keyframes
-                                    const deltaX = 0; // We're at final position
                                     const frameChange =
                                       finalFrame -
                                       keyframeDragRef.current.originalFrame;

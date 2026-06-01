@@ -58,9 +58,9 @@ export default function AssetDetailPage() {
     asset.metadata?.isStarterAsset === true ||
     String(asset.libraryId || "").startsWith("starter:");
   const libraryBackPath = isStarterAsset
-    ? "/picker"
-    : `/library/${asset.libraryId}`;
-  const libraryBackLabel = isStarterAsset ? "Picker" : "Library";
+    ? "/library"
+    : `/brand-kits/${asset.libraryId}`;
+  const libraryBackLabel = isStarterAsset ? "Library" : "Brand Kit";
 
   function refine() {
     sendToAgentChat({
@@ -244,7 +244,7 @@ export default function AssetDetailPage() {
                           { id: asset.id },
                           {
                             onSuccess: () =>
-                              navigate(`/library/${asset.libraryId}`),
+                              navigate(`/brand-kits/${asset.libraryId}`),
                           },
                         )
                       }

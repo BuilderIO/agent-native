@@ -1,10 +1,8 @@
 import {
-  defineEventHandler,
   getQuery,
   getRouterParam,
   setResponseHeader,
   setResponseStatus,
-  getMethod,
   readMultipartFormData,
 } from "h3";
 import {
@@ -12,7 +10,6 @@ import {
   resourceGetByPath,
   resourcePut,
   resourceDelete,
-  resourceDeleteByPath,
   resourceList,
   resourceListAccessible,
   resourceMove,
@@ -20,7 +17,6 @@ import {
   ensurePersonalDefaults,
   SHARED_OWNER,
   WORKSPACE_OWNER,
-  type Resource,
   type ResourceMeta,
 } from "./store.js";
 import {

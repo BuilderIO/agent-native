@@ -356,8 +356,10 @@ export function useDbSync(
           versionRef,
           interval,
         );
+        if (stopped) return;
         applyEvents(data.events ?? [], data.version);
       } catch (err) {
+        if (stopped) return;
         if (isAuthFailure(err)) {
           authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
           closeEvents();
@@ -573,8 +575,10 @@ export function useScreenRefreshKey(
           versionRef,
           interval,
         );
+        if (stopped) return;
         applyEvents(data.events ?? [], data.version);
       } catch (err) {
+        if (stopped) return;
         if (isAuthFailure(err)) {
           authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
           closeEvents();

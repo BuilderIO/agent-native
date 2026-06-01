@@ -10,8 +10,8 @@ describe("open-asset-picker", () => {
       app: "assets",
       view: "picker",
       mediaType: "image",
-      path: "/picker?mediaType=image",
-      url: "/picker?mediaType=image",
+      path: "/library?mediaType=image",
+      url: "/library?mediaType=image",
       embed: true,
       count: 3,
       autoGenerate: false,
@@ -22,7 +22,7 @@ describe("open-asset-picker", () => {
     expect(action.http).toEqual({ method: "GET" });
     expect(action.readOnly).toBe(true);
     expect(action.mcpApp?.compactCatalog).toBe(true);
-    expect(action.mcpApp?.resource.title).toBe("Assets picker");
+    expect(action.mcpApp?.resource.title).toBe("Assets Library picker");
   });
 
   it("passes video media type, query, and fallback deep link", async () => {
@@ -40,8 +40,8 @@ describe("open-asset-picker", () => {
 
     expect(result).toMatchObject({
       mediaType: "video",
-      path: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
-      url: "/picker?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      path: "/library?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
+      url: "/library?mediaType=video&q=launch+clip&libraryId=lib_123&aspectRatio=16%3A9&presetId=preset_hero&count=4&autoGenerate=1",
       message: expect.stringContaining("paste"),
       fallbackInstructions: expect.stringContaining("handoff summary"),
       presetId: "preset_hero",
@@ -51,7 +51,7 @@ describe("open-asset-picker", () => {
     expect(result.url).not.toContain("/asset/");
     expect(link).toEqual({
       url: result.url,
-      label: "Open Assets picker",
+      label: "Open Assets Library picker",
       view: "picker",
     });
   });

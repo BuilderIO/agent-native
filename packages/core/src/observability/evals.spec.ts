@@ -288,6 +288,52 @@ describe("runLlmJudgeEval", () => {
     expect(out!.criteria).toBe("helpfulness");
   });
 
+  it("includes tool calls and results in the judge transcript", async () => {
+    // Persisted run events use AgentChatEvent shapes (tool_start/tool_done),
+    // not "tool-call"/"tool-result". Regression for the transcript builder
+    // silently dropping all tool activity from the judged transcript.
+    runStore.getRunEventsSince.mockResolvedValue([
+      {
+        seq: 1,
+        eventData: JSON.stringify({ type: "text", text: "working on it" }),
+      },
+      {
+        seq: 2,
+        eventData: JSON.stringify({
+          type: "tool_start",
+          tool: "search",
+          input: { q: "hi" },
+        }),
+      },
+      {
+        seq: 3,
+        eventData: JSON.stringify({
+          type: "tool_done",
+          tool: "search",
+          result: "found 3 results",
+        }),
+      },
+    ]);
+    let capturedPrompt = "";
+    const capturingEngine = {
+      name: "fake",
+      label: "Fake",
+      defaultModel: "fake-model",
+      supportedModels: ["fake-model"],
+      capabilities: {} as any,
+      async *stream(opts: any) {
+        capturedPrompt = opts.messages[0].content[0].text;
+        yield {
+          type: "text-delta",
+          text: '{"score": 1, "reasoning": "ok"}',
+        } as any;
+      },
+    } as AgentEngine;
+    await runLlmJudgeEval("run-1", criteria, { engine: capturingEngine });
+    expect(capturedPrompt).toContain("[Tool Call: search]");
+    expect(capturedPrompt).toContain("[Tool Result]: found 3 results");
+  });
+
   it("normalizes a custom score range to [0,1]", async () => {
     // 7 on a 1..10 scale => (7-1)/(10-1) = 0.666...
     const out = await runLlmJudgeEval(

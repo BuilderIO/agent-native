@@ -18,7 +18,7 @@ import {
   IconCheck,
   IconPencil,
 } from "@tabler/icons-react";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { cn, shortcutLabel } from "@/lib/utils";
 import {
   Popover,

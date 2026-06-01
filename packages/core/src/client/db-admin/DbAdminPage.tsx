@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { useCodeMode } from "../use-dev-mode.js";
-import type { DbAdminFilter, DbAdminColumn } from "../../db-admin/types.js";
+import type { DbAdminFilter } from "../../db-admin/types.js";
 import { useOverview } from "./useDbAdmin.js";
 import { TableBrowser } from "./TableBrowser.js";
 import { useDbAdminAgentSync, useNavigateConsumer } from "./useAgentSync.js";

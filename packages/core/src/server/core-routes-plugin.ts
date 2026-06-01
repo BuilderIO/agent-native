@@ -703,8 +703,7 @@ export function createCoreRoutesPlugin(
         if (forced) return { enabled: true, forced: true };
         try {
           const session = await getSession(event);
-          const email = (session as { user?: { email?: string } } | null)?.user
-            ?.email;
+          const email = session?.email;
           if (!email) return { enabled: false, forced: false };
           const { appStateGet } = await import("../application-state/store.js");
           const state = await appStateGet(email, "demo-mode");

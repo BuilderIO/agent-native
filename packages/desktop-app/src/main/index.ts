@@ -12,6 +12,7 @@ import {
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -3729,7 +3730,6 @@ async function appendCodeAgentFollowUp(
   }
 
   try {
-    const goalId = firstStringValue(payload.goalId);
     const runRecord = readCodeAgentRunRecord(runId);
     if (runRecord)
       reconcileInterruptedCodeAgentRun(runId, "follow-up", runRecord);
@@ -5569,7 +5569,7 @@ ipcMain.handle(
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
-ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
+ipcMain.on(IPC.INTER_APP_SEND, (_event: IpcMainEvent, msg: InterAppMessage) => {
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
   });
@@ -6348,15 +6348,18 @@ app.on("web-contents-created", (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) =>
       handleWindowOpenForContents(contents, url),
     );
-    contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
-      installContextMenu(wc);
-      installWebviewReloadGuard(wc);
-      installWebviewOAuthNavigationHandler(wc);
+    contents.on(
+      "did-attach-webview",
+      (_event, webviewContents: WebContents) => {
+        installContextMenu(webviewContents);
+        installWebviewReloadGuard(webviewContents);
+        installWebviewOAuthNavigationHandler(webviewContents);
 
-      wc.setWindowOpenHandler(({ url }: any) => {
-        return handleWindowOpenForContents(wc, url);
-      });
-    });
+        webviewContents.setWindowOpenHandler(({ url }) => {
+          return handleWindowOpenForContents(webviewContents, url);
+        });
+      },
+    );
     return;
   }
 

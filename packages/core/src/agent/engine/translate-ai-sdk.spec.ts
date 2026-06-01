@@ -357,6 +357,8 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
   });
 
   it("unpacks cacheReadTokens from v6 inputTokenDetails", () => {
+    // Usage is emitted from the terminal `finish` (totalUsage), not per-step,
+    // to avoid double-counting tokens. The cache-detail unpacking is identical.
     const events = aiSdkPartToEngineEvents({
       type: "finish",
       finishReason: "stop",
@@ -398,15 +400,35 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
     });
   });
 
-  it("finish-step emits no events (usage is carried by the terminal finish)", () => {
+  it("finish-step emits no usage (usage waits for finish, avoids double-count)", () => {
     const events = aiSdkPartToEngineEvents({
       type: "finish-step",
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       finishReason: "stop",
     });
-    // finish-step must NOT emit usage — doing so would double-count tokens
-    // against finish.totalUsage. It also must not emit a stop.
-    expect(events).toHaveLength(0);
+    expect(events.some((e) => e.type === "stop")).toBe(false);
+    expect(events.some((e) => e.type === "usage")).toBe(false);
+  });
+
+  it("emits usage exactly once when finish-step and finish both arrive", () => {
+    const stepEvents = aiSdkPartToEngineEvents({
+      type: "finish-step",
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      finishReason: "stop",
+    });
+    const finishEvents = aiSdkPartToEngineEvents({
+      type: "finish",
+      finishReason: "stop",
+      totalUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    });
+    const usageEvents = [...stepEvents, ...finishEvents].filter(
+      (e) => e.type === "usage",
+    );
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 20,
+    });
   });
 
   it("converts error part to stop-with-error event", () => {

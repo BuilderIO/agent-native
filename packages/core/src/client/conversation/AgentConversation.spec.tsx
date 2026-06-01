@@ -21,6 +21,7 @@ describe("AgentConversationMessageView", () => {
       root.unmount();
     });
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -89,5 +90,33 @@ describe("AgentConversationMessageView", () => {
       "_blank",
       "noopener,noreferrer",
     );
+  });
+
+  it("does not preserve file links from markdown", () => {
+    const open = vi
+      .spyOn(window, "open")
+      .mockImplementation(() => null as Window | null);
+
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "text-1",
+                type: "text",
+                text: "[Local file](file:///etc/passwd)",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(container.querySelector("a")).toBeNull();
+
+    expect(open).not.toHaveBeenCalled();
   });
 });

@@ -4,38 +4,20 @@
 
 export const API_BASE = "/api";
 
-// --- Design Systems ---
+// --- Design Systems / Brand Kits ---
 
-export interface DesignSystemData {
-  colors: {
-    primary: string;
-    secondary: string;
-    accent: string;
-    background: string;
-    surface: string;
-    text: string;
-    textMuted: string;
-  };
-  typography: {
-    headingFont: string;
-    bodyFont: string;
-    headingWeight: string;
-    bodyWeight: string;
-    headingSizes: { h1: string; h2: string; h3: string };
-  };
+// The shared, template-agnostic token model lives in
+// `@agent-native/core/brand-kit` (a "Brand Kit" = design tokens + brand assets
+// + custom instructions). This template narrows it with the page-oriented
+// `spacing.pagePadding` and `defaults` keys it persists.
+import type {
+  BrandKitData,
+  BrandKitDefaults,
+} from "@agent-native/core/brand-kit";
+
+export interface DesignSystemData extends BrandKitData {
   spacing: { pagePadding: string; elementGap: string };
-  borders: { radius: string; accentWidth: string };
-  defaults: {
-    background: string;
-    labelStyle: "uppercase" | "lowercase" | "capitalize" | "none";
-  };
-  logos: { url: string; name: string; variant: "light" | "dark" | "auto" }[];
-  imageStyle?: {
-    referenceUrls: string[];
-    styleDescription: string;
-  };
-  customCSS?: string;
-  notes?: string;
+  defaults: BrandKitDefaults;
 }
 
 // --- Design Projects ---

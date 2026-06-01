@@ -65,7 +65,7 @@ export default defineAction({
     }
 
     const db = getDb();
-    const call: any = access.resource;
+    const call = access.resource as typeof schema.calls.$inferSelect;
 
     const [transcript] = await db
       .select()

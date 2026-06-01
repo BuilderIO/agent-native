@@ -1,3 +1,16 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ZONE EDITING OVERLAY
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Interactive overlay for visually editing hover detection zones.
+ * Works even when the video is paused, unlike in-composition rendering.
+ *
+ * Press 'D' key to toggle debug mode on/off.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
 import { useEffect, useState, useCallback } from "react";
 
 interface Zone {
@@ -24,6 +37,7 @@ type DragMode =
 
 const STORAGE_KEY_PREFIX = "videos-debug-zones:";
 
+// Default zones for projects-interactive composition
 const DEFAULT_ZONES: Record<string, Zone> = {
   Input: { x: 679, y: 285, width: 718, height: 100 },
   Cog: { x: 679, y: 404, width: 30, height: 30 },
@@ -42,17 +56,6 @@ const ZONE_COLORS: Record<string, string> = {
   Send: "rgba(100, 255, 100, 0.3)",
 };
 
-function loadZones(compositionId: string): Record<string, Zone> {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_PREFIX + compositionId);
-    return stored
-      ? (JSON.parse(stored) as Record<string, Zone>)
-      : DEFAULT_ZONES;
-  } catch {
-    return DEFAULT_ZONES;
-  }
-}
-
 export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
   compositionId,
   compositionWidth,
@@ -60,9 +63,11 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
   enabled = true,
 }) => {
   const [debugMode, setDebugMode] = useState(false);
-  const [zones, setZones] = useState<Record<string, Zone>>(() =>
-    loadZones(compositionId),
-  );
+  const [zones, setZones] = useState<Record<string, Zone>>(() => {
+    // Load from localStorage or use defaults
+    const stored = localStorage.getItem(STORAGE_KEY_PREFIX + compositionId);
+    return stored ? JSON.parse(stored) : DEFAULT_ZONES;
+  });
 
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
@@ -72,6 +77,7 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
   );
   const [originalZone, setOriginalZone] = useState<Zone | null>(null);
 
+  // Save zones to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY_PREFIX + compositionId,
@@ -79,8 +85,10 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
     );
   }, [zones, compositionId]);
 
+  // Keyboard shortcut to toggle debug mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs/textareas
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -90,13 +98,19 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
         return;
       }
       if (e.key === "d" || e.key === "D") {
-        setDebugMode((prev) => !prev);
+        setDebugMode((prev) => {
+          console.log(`🔧 Debug mode: ${!prev ? "ON" : "OFF"}`);
+          if (!prev) {
+            console.log("Zones:", zones);
+          }
+          return !prev;
+        });
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, []);
+  }, [zones]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, zoneKey: string, mode: DragMode) => {
@@ -150,10 +164,17 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
   );
 
   const handleMouseUp = useCallback(() => {
+    if (selectedZone && zones[selectedZone]) {
+      const zone = zones[selectedZone];
+      console.log(
+        `"${selectedZone}": { x: ${Math.round(zone.x)}, y: ${Math.round(zone.y)}, width: ${Math.round(zone.width)}, height: ${Math.round(zone.height)} },`,
+      );
+    }
+
     setDragMode(null);
     setDragStart(null);
     setOriginalZone(null);
-  }, []);
+  }, [selectedZone, zones]);
 
   useEffect(() => {
     if (dragMode) {
@@ -177,6 +198,7 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
         zIndex: 100,
       }}
     >
+      {/* Debug banner */}
       <div
         style={{
           position: "absolute",
@@ -195,10 +217,11 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
           pointerEvents: "none",
         }}
       >
-        DEBUG MODE - Press 'D' to toggle | Drag zones to reposition | Drag
+        🔧 DEBUG MODE - Press 'D' to toggle | Drag zones to reposition | Drag
         corners to resize
       </div>
 
+      {/* Zones */}
       {Object.entries(zones).map(([label, zone]) => {
         const isSelected = selectedZone === label;
         const isHovered = hoveredZone === label;
@@ -218,6 +241,7 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
             onMouseEnter={() => setHoveredZone(label)}
             onMouseLeave={() => setHoveredZone(null)}
           >
+            {/* Main zone area */}
             <div
               onMouseDown={(e) => handleMouseDown(e, label, "move")}
               style={{
@@ -262,6 +286,7 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
               </div>
             </div>
 
+            {/* Resize handles */}
             {(isSelected || isHovered) && (
               <>
                 <div

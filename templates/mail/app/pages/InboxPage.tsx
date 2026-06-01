@@ -9,10 +9,7 @@ import {
   FOCUS_COMPOSE_DRAFT_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
-import {
-  useNavigationState,
-  type NavigationState,
-} from "@/hooks/use-navigation-state";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   useEmails,
   useMarkRead,

@@ -99,6 +99,11 @@ let snapshot: McpAppHostContextSnapshot = {
   capabilities: null,
   version: null,
 };
+const EMPTY_HOST_CONTEXT_SNAPSHOT: McpAppHostContextSnapshot = {
+  context: null,
+  capabilities: null,
+  version: null,
+};
 const listeners = new Set<() => void>();
 const pending = new Map<string, PendingRequest>();
 const jsonRpcPending = new Map<string, PendingJsonRpcRequest>();
@@ -622,7 +627,7 @@ export function useMcpAppHostContext(): McpAppHostContextSnapshot {
       };
     },
     () => snapshot,
-    () => ({ context: null, capabilities: null, version: null }),
+    () => EMPTY_HOST_CONTEXT_SNAPSHOT,
   );
 }
 

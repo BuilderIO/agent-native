@@ -1,18 +1,3 @@
-/**
- * Navigate the UI to a view or a specific page.
- *
- * Writes a navigate command to `application_state` which the UI reads and
- * auto-deletes. This is a one-shot command — it will not persist across
- * navigations.
- *
- * Usage:
- *   pnpm action navigate --view=home
- *   pnpm action navigate --view=snippets
- *   pnpm action navigate --view=dictionary
- *   pnpm action navigate --view=settings
- *   pnpm action navigate --path=/stats
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

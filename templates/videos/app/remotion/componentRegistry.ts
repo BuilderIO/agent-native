@@ -2,21 +2,13 @@ import type React from "react";
 import type { AnimationTrack } from "@/types";
 import {
   Card,
-  type CardProps,
   Button,
-  type ButtonProps,
   CodePanel,
-  type CodePanelProps,
   SecondaryButton,
-  type SecondaryButtonProps,
   PrimaryButton,
-  type PrimaryButtonProps,
   SectionHeader,
-  type SectionHeaderProps,
   FileItem,
-  type FileItemProps,
   FolderItem,
-  type FolderItemProps,
 } from "./library-components";
 import { createCameraTrack, createCursorTrack } from "./trackHelpers";
 
