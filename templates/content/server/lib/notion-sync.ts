@@ -1,8 +1,10 @@
 // @ts-nocheck — Drizzle ORM types from core vs local resolve to different instances
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
+import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import { canonicalizeNfm } from "../../shared/nfm.js";
 import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import {
   createNotionPageWithMarkdown,
@@ -23,6 +25,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/**
+ * Hash of the canonical content. Two documents with the same hash are
+ * byte-identical once canonicalized, so this is the authoritative "did the
+ * content actually change" signal — immune to timestamp jitter and to the
+ * normalization differences that previously made no-op syncs look like edits.
+ */
+function hashContent(content: string | null | undefined): string {
+  return crypto
+    .createHash("sha256")
+    .update(canonicalizeNfm(content ?? ""))
+    .digest("hex");
+}
+
 function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
   if (!link?.warningsJson) return [];
   try {
@@ -41,6 +56,7 @@ function buildStatus(args: {
   link: LinkRow | null;
   remoteUpdatedAt?: string | null;
   documentUpdatedAt?: string | null;
+  documentContent?: string | null;
 }): DocumentSyncStatus {
   const link = args.link;
   const lastPushed = link?.lastPushedLocalUpdatedAt || null;
@@ -52,9 +68,15 @@ function buildStatus(args: {
     link?.lastPulledRemoteUpdatedAt &&
     remoteKnown > link.lastPulledRemoteUpdatedAt,
   );
-  const localChanged = Boolean(
-    localUpdatedAt && lastPushed && localUpdatedAt > lastPushed,
-  );
+  // Prefer content-hash change detection: the local doc differs from the
+  // last-synced state only if its canonical content hash differs. This is the
+  // key fix for the drift — a no-op editor save (identical canonical content)
+  // no longer registers as a local change. Fall back to timestamps for links
+  // synced before the hash column existed.
+  const localChanged =
+    args.documentContent != null && link?.lastSyncedContentHash
+      ? hashContent(args.documentContent) !== link.lastSyncedContentHash
+      : Boolean(localUpdatedAt && lastPushed && localUpdatedAt > lastPushed);
 
   return {
     provider: "notion",
@@ -115,6 +137,7 @@ async function upsertSyncLink(args: {
   lastPulledRemoteUpdatedAt?: string | null;
   lastPushedLocalUpdatedAt?: string | null;
   lastKnownRemoteUpdatedAt?: string | null;
+  lastSyncedContentHash?: string | null;
   lastError?: string | null;
   warnings?: string[];
   hasConflict?: boolean;
@@ -130,6 +153,7 @@ async function upsertSyncLink(args: {
     lastPulledRemoteUpdatedAt: args.lastPulledRemoteUpdatedAt ?? null,
     lastPushedLocalUpdatedAt: args.lastPushedLocalUpdatedAt ?? null,
     lastKnownRemoteUpdatedAt: args.lastKnownRemoteUpdatedAt ?? null,
+    lastSyncedContentHash: args.lastSyncedContentHash ?? null,
     lastError: args.lastError ?? null,
     warningsJson: JSON.stringify(args.warnings || []),
     hasConflict: args.hasConflict ? 1 : 0,
