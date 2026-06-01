@@ -46,7 +46,7 @@ Read the relevant skill before deeper work:
   `npx @agent-native/core@latest skills add images` (or `assets`). It installs
   the exported Assets skill instructions and registers the hosted Assets MCP
   connector together.
-- The open Skills CLI path
+- The Vercel/open Skills CLI path
   `npx skills add BuilderIO/agent-native --skill assets` installs the
   exported instructions only.
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,

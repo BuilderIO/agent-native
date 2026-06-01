@@ -34,12 +34,14 @@ Examples:
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
 
-The add command installs skill instructions with the open skills CLI, then
-registers the app-backed MCP connector. Pass --mcp-url to register that
-connector against a custom origin (an ngrok tunnel, a local dev server, or a
-self-hosted deployment) instead of the built-in hosted default — a bare origin
-gets the standard /_agent-native/mcp path appended. Use app-skill pack for
-marketplace bundles and custom adapter output.`;
+The add command wraps the Vercel Labs/open skills CLI for SKILL.md
+installation, then registers the app-backed MCP connector. Running
+"npx skills add ..." directly installs instructions only; use this Agent Native
+CLI path when you want MCP setup too. Pass --mcp-url to register that connector
+against a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
+deployment) instead of the built-in hosted default — a bare origin gets the
+standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
+bundles and custom adapter output.`;
 
 const ASSETS_SKILL_MD = `---
 name: assets
@@ -90,6 +92,10 @@ or generated image/video assets that another app can reference by ID and URL.
   Assets app-skill manifest, or pass \`--into <path>\` for editable source.
 - Do not call image/video providers directly from another app. Assets owns
   generation, picker UI, search/list/export, and asset context.
+- If an Assets tool call returns \`Session terminated\`, \`needs auth\`, or
+  another connector/session error, do not keep retrying the tool. Tell the user
+  to reconnect or authenticate the Assets MCP connector, then continue after it
+  is available.
 `;
 
 const DESIGN_EXPLORATION_SKILL_MD = `---
@@ -147,6 +153,10 @@ iteration, or a human-in-the-loop choice among design directions.
   tasks, Assets for image/media selection, Slides for decks, and so on.
 - Keep the loop visual: surface the inline MCP App or the returned "Open
   design" link instead of pasting large HTML blobs into chat.
+- If a Design tool call returns \`Session terminated\`, \`needs auth\`, or
+  another connector/session error, do not keep retrying the tool. Tell the user
+  to reconnect or authenticate the Design MCP connector, then continue after it
+  is available.
 `;
 
 const BUILT_IN_APP_SKILLS = {

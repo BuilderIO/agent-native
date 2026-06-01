@@ -120,7 +120,7 @@ npx @agent-native/core@latest skills add assets              # aliases: images, 
 npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
 ```
 
-The open Skills CLI path is also available when you only want portable
+The Vercel/open Skills CLI path is also available when you only want portable
 instructions:
 
 ```bash

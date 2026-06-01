@@ -15,17 +15,29 @@ directions to compare, or a human-in-the-loop pick before implementation.
 
 ## Setup
 
-This skill installs instructions only. The hosted MCP connector must also be
-available in the agent host:
+Recommended install path:
 
 ```bash
-npx @agent-native/core@latest connect https://design.agent-native.com
+npx @agent-native/core@latest skills add design-exploration
+```
+
+That installs these instructions and registers the hosted Design MCP connector
+for the selected agent client. Add `--client claude-code`, `--client codex`, or
+`--client all` when needed.
+
+If this skill was installed with the Vercel/open Skills CLI
+(`npx skills add ...`), only the instructions were installed. That CLI does
+not run postinstall scripts or register MCP connectors, so the hosted MCP
+connector must be added separately:
+
+```bash
+npx @agent-native/core@latest connect https://design.agent-native.com --client claude-code
 ```
 
 For cross-app workspace access, connect Dispatch instead:
 
 ```bash
-npx @agent-native/core@latest connect https://dispatch.agent-native.com
+npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code
 ```
 
 OAuth-capable hosts can add this remote MCP URL directly:
@@ -62,6 +74,10 @@ pasted handoff summary or from a plain-language pick like "use direction B".
 
 ## Guardrails
 
+- If a Design tool call returns `Session terminated`, `needs auth`, or another
+  connector/session error, do not keep retrying the tool. Tell the user to
+  reconnect or authenticate the Design MCP connector, then continue after it is
+  available.
 - Do not call `generate-design` while a variant picker is waiting for a user
   selection.
 - Do not hardcode secrets or auth material in skill files.
