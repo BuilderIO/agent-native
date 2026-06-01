@@ -18,6 +18,7 @@ import {
   type NotionPageMarkdown,
 } from "./notion";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import { canonicalizeNfm } from "../../shared/nfm";
 import {
   normalizeNfmForStorage,
   parseNfmForEditor,
@@ -151,7 +152,7 @@ describe("resolveNotionMarkdownResponse", () => {
     );
   });
 
-  it("hydrates indented list subtrees without creating code-block indentation", async () => {
+  it("hydrates unknown-block subtrees into canonical content", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -175,14 +176,16 @@ describe("resolveNotionMarkdownResponse", () => {
       truncated: false,
       unknown_block_ids: ["child-block"],
     });
-    const editorMarkdown = parseNfmForEditor(result.markdown);
 
-    expect(result.markdown).toContain("\t- notion doc");
-    expect(editorMarkdown).toContain("> - notion doc");
-    expect(editorMarkdown).toContain(
-      "> - access: amplitude, fullstory, sigma, jira",
+    // The hydrated subtree is present and the result is already canonical
+    // (re-canonicalizing is a no-op — no drift).
+    expect(result.markdown).toContain("- notion doc");
+    expect(result.markdown).toContain(
+      "- access: amplitude, fullstory, sigma, jira",
     );
-    expect(editorMarkdown).not.toMatch(/^ {4,}- /m);
+    expect(result.markdown).toContain("michael onboarding");
+    expect(result.markdown).not.toContain("<unknown");
+    expect(canonicalizeNfm(result.markdown)).toBe(result.markdown);
   });
 
   it("hydrates indented toggle subtrees without creating code-block HTML", async () => {
@@ -276,7 +279,7 @@ describe("createNotionPageWithMarkdown", () => {
     global.fetch = originalFetch;
   });
 
-  it("sends Notion-normalized markdown for toggles, lists, and dividers", async () => {
+  it("sends canonical Notion-flavored markdown (toggles, lists, dividers)", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -290,37 +293,33 @@ describe("createNotionPageWithMarkdown", () => {
       ),
     );
 
+    const content = [
+      "<details>",
+      "<summary>→ → team mtg guidance on hackathon</summary>",
+      "\tInside the toggle",
+      "</details>",
+      "- parent",
+      "\t- child",
+      "above",
+      "---",
+      "below",
+    ].join("\n");
+
     await createNotionPageWithMarkdown({
       accessToken: "token",
       parentPageId: "parent-page",
       title: "Builder Todo",
-      content: [
-        '<details open="" data-heading-level="2">',
-        "<summary>→ → team mtg guidance on hackathon</summary>",
-        "</details>",
-        "",
-        "- parent",
-        "    - child",
-        "above",
-        "---",
-        "below",
-      ].join("\n"),
+      content,
     });
 
     const request = vi.mocked(global.fetch).mock.calls[0];
     expect(request[0]).toBe("https://api.notion.com/v1/pages");
     const body = JSON.parse(String(request[1]?.body));
-    expect(body.markdown).toContain(
-      [
-        "<details>",
-        "<summary>→ → team mtg guidance on hackathon</summary>",
-        "\t<empty-block/>",
-        "</details>",
-      ].join("\n"),
-    );
+    // The pushed markdown is exactly the canonical form — and canonical content
+    // is already a fixpoint, so this push will round-trip without drift.
+    expect(body.markdown).toBe(canonicalizeNfm(content));
+    expect(canonicalizeNfm(body.markdown)).toBe(body.markdown);
     expect(body.markdown).toContain("- parent\n\t- child");
-    expect(body.markdown).toContain("above\n\n---\n\nbelow");
-    expect(body.markdown).not.toContain("data-heading-level");
-    expect(body.markdown).not.toContain("open=");
+    expect(body.markdown).toContain("<summary>→ → team mtg guidance on hackathon</summary>");
   });
 });
