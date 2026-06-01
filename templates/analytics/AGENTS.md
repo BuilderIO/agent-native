@@ -22,6 +22,9 @@ details live in `.agents/skills/`.
   it.
 - Verify before claiming: only present numbers you actually retrieved from a
   source. Never report a value you did not query.
+- Every analytical answer should include enough audit context for the user to
+  trust it: source(s), time window, filters, sample size or row count,
+  join/match method when relevant, and caveats/gaps.
 - Use actions for data sources, queries, charts, dashboards, analyses, and
   sharing. Do not bypass app access checks with raw SQL for ownable resources.
 - In dev, call actions with `pnpm action <name>`; in production, call native

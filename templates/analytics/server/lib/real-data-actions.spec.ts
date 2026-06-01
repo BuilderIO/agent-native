@@ -61,7 +61,10 @@ describe("real data action classification", () => {
       hasDataQueryAttempt([
         {
           name: "jira-search",
-          content: JSON.stringify({ error: "Jira API error 403" }),
+          content: JSON.stringify({
+            error: "Jira API error 403",
+            details: { missingFields: ["summary", "status"] },
+          }),
         },
       ]),
     ).toBe(false);

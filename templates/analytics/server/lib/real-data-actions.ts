@@ -183,9 +183,7 @@ function tryParseJsonContent(content: string): unknown {
 function hasEvidencePayload(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
+  if (Array.isArray(value)) return false;
 
   const record = value as Record<string, unknown>;
   const evidenceKeys = [
@@ -204,18 +202,12 @@ function hasEvidencePayload(value: unknown): boolean {
     "tickets",
     "transcripts",
   ];
-  if (
-    evidenceKeys.some((key) => {
-      const candidate = record[key];
+  return Object.entries(record).some(([key, candidate]) => {
+    if (evidenceKeys.includes(key)) {
       return Array.isArray(candidate) ? candidate.length > 0 : !!candidate;
-    })
-  ) {
-    return true;
-  }
-
-  return Object.values(record).some((candidate) =>
-    hasEvidencePayload(candidate),
-  );
+    }
+    return hasEvidencePayload(candidate);
+  });
 }
 
 function isProviderErrorOnlyContent(content: string | undefined): boolean {
