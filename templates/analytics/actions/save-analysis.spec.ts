@@ -18,8 +18,8 @@ vi.mock("@agent-native/core/server", () => ({
       view: string;
       params?: { analysisId?: string };
     }) => {
-    const suffix = params?.analysisId ? `/${params.analysisId}` : "";
-    return `/${app}/${view}${suffix}`;
+      const suffix = params?.analysisId ? `/${params.analysisId}` : "";
+      return `/${app}/${view}${suffix}`;
     },
   ),
 }));
