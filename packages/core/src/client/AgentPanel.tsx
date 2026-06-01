@@ -91,6 +91,7 @@ import {
   SIDEBAR_OPEN_KEY,
   subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
+import { AgentNativeRouteWarmup } from "./route-warmup.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -2495,6 +2496,7 @@ export function AgentSidebar({
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+      <AgentNativeRouteWarmup />
       {/* Mobile backdrop — tapping it closes the sidebar */}
       {isMobile && !presentationMode && (animateMobile || open) && (
         <div

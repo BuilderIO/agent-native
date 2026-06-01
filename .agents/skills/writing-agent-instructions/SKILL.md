@@ -5,6 +5,8 @@ description: >-
   AGENTS.md, skills, and tool/action descriptions. Use when authoring or
   reviewing AGENTS.md, writing a SKILL.md, wording action descriptions, or
   deciding what belongs in instructions vs skills vs memory.
+metadata:
+  internal: true
 ---
 
 # Writing Agent Instructions & Skills

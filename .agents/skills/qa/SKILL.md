@@ -5,6 +5,8 @@ description: >-
   apps end-to-end, finding and fixing bugs, or running a QA sweep. Invoke as
   /qa with optional --apps and --focus args.
 user-invocable: true
+metadata:
+  internal: true
 ---
 
 # QA Testing

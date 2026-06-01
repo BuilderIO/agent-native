@@ -5,6 +5,8 @@ description: >-
   that run inside iframes. Use when a user asks for a dashboard, widget,
   calculator, or any interactive mini-app that calls external APIs. Distinct
   from LLM "tools" (function calls) — see note below.
+metadata:
+  internal: true
 ---
 
 # Extensions

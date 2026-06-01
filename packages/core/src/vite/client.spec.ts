@@ -254,6 +254,39 @@ describe("Vite optimized dependency recovery", () => {
   });
 });
 
+describe("route warmup config", () => {
+  it("enables safe React Router route warmup by default", () => {
+    const config = defineConfig();
+    const routeWarmup = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(routeWarmup).toEqual({
+      strategy: "intent",
+      data: true,
+      modules: true,
+      selector: 'a[data-an-prefetch="render"][href]',
+      maxConcurrent: 4,
+    });
+  });
+
+  it("allows apps to choose a route warmup strategy in one Vite config place", () => {
+    const config = defineConfig({
+      routeWarmup: { strategy: "render", maxConcurrent: 8 },
+      define: { __APP_DEFINE__: JSON.stringify("ok") },
+    });
+    const routeWarmup = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(routeWarmup.strategy).toBe("render");
+    expect(routeWarmup.maxConcurrent).toBe(8);
+    expect(routeWarmup.data).toBe(true);
+    expect(routeWarmup.modules).toBe(true);
+    expect(config.define?.__APP_DEFINE__).toBe(JSON.stringify("ok"));
+  });
+});
+
 describe("Vite MCP embed headers", () => {
   it("adds COEP-compatible headers to embed-token page loads in dev", () => {
     const plugin = findPlugin("agent-native-embed-dev-frame-headers");
