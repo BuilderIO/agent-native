@@ -1,5 +1,11 @@
 # @agent-native/migrate
 
+## 0.0.7
+
+### Patch Changes
+
+- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
 ## 0.0.6
 
 ### Patch Changes

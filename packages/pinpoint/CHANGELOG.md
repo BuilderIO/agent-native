@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.8
+
+### Patch Changes
+
+- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
 ## 0.1.7
 
 ### Patch Changes
