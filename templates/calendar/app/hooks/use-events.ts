@@ -9,6 +9,7 @@ import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
 import { appApiPath } from "@/lib/api-path";
 import {
+  applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
@@ -389,8 +390,44 @@ export function useRsvpEvent() {
       if (!res.ok) throw new Error("Failed to update RSVP");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+    onMutate: async ({ id, status, accountEmail, scope }) => {
+      await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      const previous = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: LIST_EVENTS_QUERY_KEY,
+      });
+      const previousEvent = queryClient.getQueryData<CalendarEvent>([
+        "events",
+        id,
+      ]);
+
+      updateListEventQueries(queryClient, (old) =>
+        applyCalendarEventRsvp(old, id, status, scope, accountEmail),
+      );
+      queryClient.setQueryData<CalendarEvent>(["events", id], (old) => {
+        const updated = applyCalendarEventRsvp(
+          old ? [old] : undefined,
+          id,
+          status,
+          scope,
+          accountEmail,
+        );
+        return updated?.[0];
+      });
+
+      return { previous, previousEvent };
+    },
+    onError: (_err, vars, context) => {
+      if (context?.previous) {
+        for (const [key, data] of context.previous) {
+          queryClient.setQueryData(key, data);
+        }
+      }
+      if (context?.previousEvent) {
+        queryClient.setQueryData(["events", vars.id], context.previousEvent);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
     },
   });
 }
