@@ -5,6 +5,7 @@ import { __routeWarmupInternalsForTests } from "./route-warmup.js";
 
 const {
   getManifestRouteTree,
+  hasReactRouterManifestRoutes,
   parseBuildTimeRouteWarmupConfig,
   renderWarmupLinksForSelector,
   resetRouteWarmupCachesForTests,
@@ -13,6 +14,8 @@ const {
 describe("route warmup runtime helpers", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    delete window.__reactRouterManifest;
+    delete window.__reactRouterContext;
     resetRouteWarmupCachesForTests();
   });
 
@@ -50,6 +53,20 @@ describe("route warmup runtime helpers", () => {
       id: "docs",
       path: "docs",
     });
+  });
+
+  it("requires a React Router manifest before route data warmup can run", () => {
+    expect(hasReactRouterManifestRoutes()).toBe(false);
+
+    window.__reactRouterManifest = { routes: {} };
+    expect(hasReactRouterManifestRoutes()).toBe(false);
+
+    window.__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "/" },
+      },
+    };
+    expect(hasReactRouterManifestRoutes()).toBe(true);
   });
 
   it("finds render warmup links using the configured selector", () => {

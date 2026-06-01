@@ -159,6 +159,11 @@ function dataRouteUrlForHref(href: string): string | null {
   return url.href;
 }
 
+function hasReactRouterManifestRoutes(): boolean {
+  const routes = window.__reactRouterManifest?.routes;
+  return Boolean(routes && Object.keys(routes).length > 0);
+}
+
 function manifestRoutesSignature(
   routes: Record<string, ReactRouterManifestRoute> | undefined,
 ): string {
@@ -363,8 +368,14 @@ export function AgentNativeRouteWarmup({
     if (!isProduction || resolved.strategy === "off") {
       return;
     }
-    const warmModules = resolved.modules;
-    if (!resolved.data && !warmModules) return;
+    // Legacy SPA builds still mount the AgentPanel but do not expose React
+    // Router framework `.data` endpoints or a route asset manifest. Only warm
+    // route data/modules when that manifest is present; otherwise this would
+    // generate noisy `/<path>.data` 404s for apps that cannot serve them.
+    const hasManifestRoutes = hasReactRouterManifestRoutes();
+    const warmData = resolved.data && hasManifestRoutes;
+    const warmModules = resolved.modules && hasManifestRoutes;
+    if (!warmData && !warmModules) return;
 
     const connection = (
       navigator as Navigator & { connection?: { saveData?: boolean } }
@@ -381,7 +392,7 @@ export function AgentNativeRouteWarmup({
     let scheduleTimer: number | undefined;
 
     const pump = () => {
-      if (stopped || !resolved.data) return;
+      if (stopped || !warmData) return;
       while (active < resolved.maxConcurrent && queue.length > 0) {
         const href = queue.shift();
         if (!href) continue;
@@ -398,7 +409,7 @@ export function AgentNativeRouteWarmup({
 
     const warmHref = (href: string) => {
       if (warmModules) warmRouteAssetsForHref(href);
-      if (!resolved.data) return;
+      if (!warmData) return;
       const dataUrl = dataRouteUrlForHref(href);
       if (!dataUrl || warmedDataRoutes.has(dataUrl)) return;
       warmedDataRoutes.add(dataUrl);
@@ -505,6 +516,7 @@ export function AgentNativeRouteWarmup({
 
 export const __routeWarmupInternalsForTests = {
   getManifestRouteTree,
+  hasReactRouterManifestRoutes,
   parseBuildTimeRouteWarmupConfig,
   renderWarmupLinksForSelector,
   resetRouteWarmupCachesForTests,
