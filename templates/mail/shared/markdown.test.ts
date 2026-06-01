@@ -86,4 +86,10 @@ describe("extractMarkdownUrls", () => {
       ),
     ).toEqual(["https://example.com/docs", "https://example.com/a"]);
   });
+
+  it("extracts bare-only urls with trailing punctuation trimmed", () => {
+    expect(
+      extractMarkdownUrls("Book here: https://calendar.example/book)."),
+    ).toEqual(["https://calendar.example/book"]);
+  });
 });

@@ -186,7 +186,7 @@ export function extractMarkdownUrls(markdown: string): string[] {
     add(url);
     return " ";
   });
-  text.replace(
+  text = text.replace(
     /(^|[^\w"'=])(https?:\/\/[^\s<]+)/g,
     (_match, _prefix: string, url: string) => {
       add(url);
