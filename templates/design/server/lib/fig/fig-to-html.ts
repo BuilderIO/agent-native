@@ -180,11 +180,6 @@ export interface FigNode {
 }
 
 /**
- * Names Figma assigns by default — when a layer keeps its placeholder name
- * we treat it as having no meaningful name (matches the figma-plugin's
- * smart-export `isDummyName`).
- */
-/**
  * Split a Figma component master name into a base component name and a
  * variant suffix. Figma uses two conventions:
  *
@@ -1273,8 +1268,6 @@ function emitSvgBody(
   indent: string,
   lines: string[],
 ): void {
-  const w = node.size?.x ?? 0;
-  const h = node.size?.y ?? 0;
   const fillRule =
     node.fillGeometry?.[0]?.windingRule === "ODD" ? "evenodd" : "nonzero";
   const fillPaint = paintToSvgFill(effectiveFillPaints(node, ctx));
@@ -1316,11 +1309,6 @@ function emitSvgBody(
         attrs.push(`stroke-linecap="${node.strokeCap.toLowerCase()}"`);
       lines.push(`${indent}  <path ${attrs.join(" ")} />`);
     }
-  }
-  // Best-effort viewBox so the geometry scales with the element box.
-  if (w > 0 && h > 0) {
-    // The path coordinates are already in the node's local pixel space, so
-    // viewBox = 0 0 w h works without further transforms.
   }
 }
 

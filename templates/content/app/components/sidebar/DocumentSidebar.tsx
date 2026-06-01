@@ -532,7 +532,7 @@ export function DocumentSidebar({
         </div>
       </div>
 
-      {/* IconSearch */}
+      {/* Search */}
       {isSearching && (
         <div className="px-3 py-2 border-b border-border">
           <input
@@ -554,7 +554,7 @@ export function DocumentSidebar({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="min-w-full w-max py-2 pr-2">
-          {/* IconSearch results */}
+          {/* Search results */}
           {filteredDocuments ? (
             <>
               <div>
