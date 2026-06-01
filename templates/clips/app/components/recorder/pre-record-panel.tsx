@@ -25,11 +25,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   NO_CAMERA_DEVICE_ID,
@@ -386,8 +381,8 @@ export function PreRecordPanel({
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">Record a clip</h2>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              {selectedMode?.label ?? "Screen + camera"} is selected. Choose
-              the exact tab, window, or screen after you start.
+              {selectedMode?.label ?? "Screen + camera"} is selected. Choose the
+              exact tab, window, or screen after you start.
             </p>
           </div>
         </div>
