@@ -410,7 +410,6 @@ function serializeSourceInfo(
 }
 
 async function searchKnowledgeResults(
-  query: string,
   terms: string[],
   limit: number,
 ): Promise<UniversalSearchResult[]> {
@@ -484,7 +483,6 @@ async function searchKnowledgeResults(
 }
 
 async function searchCaptureResults(
-  query: string,
   terms: string[],
   limit: number,
 ): Promise<UniversalSearchResult[]> {
@@ -553,7 +551,6 @@ async function searchCaptureResults(
 }
 
 async function searchSourceResults(
-  query: string,
   terms: string[],
   limit: number,
 ): Promise<UniversalSearchResult[]> {
@@ -621,13 +618,13 @@ export async function searchEverythingRows(args: {
   const perTypeLimit = Math.max(limit, 10);
   const searches: Array<Promise<UniversalSearchResult[]>> = [];
   if (!args.type || args.type === "all" || args.type === "knowledge") {
-    searches.push(searchKnowledgeResults(args.query, terms, perTypeLimit));
+    searches.push(searchKnowledgeResults(terms, perTypeLimit));
   }
   if (!args.type || args.type === "all" || args.type === "capture") {
-    searches.push(searchCaptureResults(args.query, terms, perTypeLimit));
+    searches.push(searchCaptureResults(terms, perTypeLimit));
   }
   if (!args.type || args.type === "all" || args.type === "source") {
-    searches.push(searchSourceResults(args.query, terms, perTypeLimit));
+    searches.push(searchSourceResults(terms, perTypeLimit));
   }
   const provider = args.provider?.toLowerCase();
   const status = args.status?.toLowerCase();

@@ -13,18 +13,9 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   assertWorkspaceAccess,
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
   resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { accessFilter } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -114,12 +105,3 @@ export default defineAction({
     return { snippets, count: snippets.length };
   },
 });
-
-// Silence unused-import warnings in environments that tree-shake type-only deps.
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void getCurrentOwnerEmail;
-void assertAccess;
-void writeAppState;

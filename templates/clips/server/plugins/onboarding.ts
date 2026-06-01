@@ -8,8 +8,10 @@
  * route handlers (which read from the same in-memory Map).
  */
 
-import { createOnboardingPlugin } from "@agent-native/core/onboarding";
-import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import {
+  createOnboardingPlugin,
+  registerOnboardingStep,
+} from "@agent-native/core/onboarding";
 import {
   getActiveFileUploadProvider,
   registerFileUploadProvider,

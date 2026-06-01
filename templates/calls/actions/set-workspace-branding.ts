@@ -10,19 +10,8 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
-} from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { getCurrentOwnerEmail } from "../server/lib/calls.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
 async function assertCallerIsAdmin(workspaceId: string, email: string) {
   const db = getDb();
@@ -110,12 +99,3 @@ export default defineAction({
     };
   },
 });
-
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void resolveDefaultWorkspaceId;
-void readAppState;
-void accessFilter;
-void assertAccess;

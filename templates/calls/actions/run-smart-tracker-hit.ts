@@ -10,7 +10,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/calls.js";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -79,6 +79,3 @@ export default defineAction({
     };
   },
 });
-
-// reference to silence unused-import warnings if `and` isn't used yet
-void and;

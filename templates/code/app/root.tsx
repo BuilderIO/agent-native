@@ -14,9 +14,9 @@ import {
   ClientOnly,
   DefaultSpinner,
   appPath,
+  configureTracking,
   getThemeInitScript,
 } from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";

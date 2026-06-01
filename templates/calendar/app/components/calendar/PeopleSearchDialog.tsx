@@ -175,7 +175,7 @@ export function PeopleSearchDialog({
           )}
         </div>
 
-        {/* IconSearch results */}
+        {/* Search results */}
         {results.length > 0 && (
           <div
             ref={listRef}

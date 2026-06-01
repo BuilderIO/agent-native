@@ -16,9 +16,9 @@ export interface SignInPromptDialogProps {
   /**
    * Same-origin path to return the viewer to after sign-in. Defaults to the
    * current URL so anonymous viewers on a public share page land back where
-   * they were. The dialog routes through `/auth-return?to=<returnTo>`, which
-   * is auth-gated — the framework's login HTML fires there, and after sign-in
-   * /auth-return forwards to `returnTo`.
+   * they were. The dialog routes through
+   * `/_agent-native/sign-in?return=<returnTo>` — the framework's login flow
+   * fires there and forwards to `returnTo` once the viewer is signed in.
    */
   returnTo?: string;
 }

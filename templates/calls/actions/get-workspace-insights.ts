@@ -10,21 +10,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveWorkspaceIdForAction,
-} from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { resolveWorkspaceIdForAction } from "../server/lib/calls.js";
+import { accessFilter } from "@agent-native/core/sharing";
 
 function startOfDay(d: Date): Date {
   const out = new Date(d);
@@ -168,13 +157,3 @@ export default defineAction({
     };
   },
 });
-
-void getCurrentOwnerEmail;
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void sql;
-void writeAppState;
-void accessFilter;
-void assertAccess;

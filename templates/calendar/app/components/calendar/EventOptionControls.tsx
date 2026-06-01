@@ -7,17 +7,10 @@ import {
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -439,19 +432,5 @@ export function EventColorSwatches({
         );
       })}
     </div>
-  );
-}
-
-export function FieldLabel({
-  htmlFor,
-  children,
-}: {
-  htmlFor?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Label htmlFor={htmlFor} className="text-xs">
-      {children}
-    </Label>
   );
 }

@@ -11,17 +11,9 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
   parseJson,
   resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -64,10 +56,3 @@ export default defineAction({
     return { workspaceId, views, count: views.length };
   },
 });
-
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void writeAppState;
-void accessFilter;
-void assertAccess;
