@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.32.3
+
+### Patch Changes
+
+- 25d6fd6: Add CDN and Netlify durable cache headers to framework SSR and route data responses.
+- 25d6fd6: Smooth streamed assistant text in chat, Agent-Native Code, and the coding CLI.
+
 ## 0.32.2
 
 ### Patch Changes
