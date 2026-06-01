@@ -109,7 +109,6 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -1309,7 +1308,12 @@ function loginHtmlResponse(loginHtml: string): Response {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      ...DEFAULT_SSR_CACHE_HEADERS,
+      // Login HTML is selected by the absence of a session cookie. Never put it
+      // in a shared CDN cache: the same route may redirect authenticated users
+      // or render the app after sign-in.
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      "CDN-Cache-Control": "no-store",
+      "Netlify-CDN-Cache-Control": "no-store",
       "X-Robots-Tag": "noindex, nofollow",
     },
   });

@@ -4,6 +4,8 @@ description: >-
   Triage feedback docs or pasted feedback into bugs to fix, UX suggestions to
   propose, unclear questions, and skipped noise; verify bugs, check Sentry when
   relevant, and keep UI changes minimal.
+metadata:
+  internal: true
 ---
 
 # Address Feedback

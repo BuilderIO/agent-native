@@ -4,6 +4,8 @@ description: >-
   Framework server plugins and the `/_agent-native/` route namespace. Use when
   adding a custom server plugin, deciding whether to create an `/api/` route vs
   an action, or debugging auto-mounted framework routes.
+metadata:
+  internal: true
 ---
 
 # Server Plugins & Framework Routes

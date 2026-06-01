@@ -4,6 +4,8 @@ description: >-
   Event-triggered and schedule-triggered automations with natural-language
   conditions. Use when creating automations, wiring events, or understanding
   how triggers fire.
+metadata:
+  internal: true
 ---
 
 # Automations

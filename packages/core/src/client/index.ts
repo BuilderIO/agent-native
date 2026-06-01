@@ -166,6 +166,10 @@ export {
   type AgentNativeFrameProps,
 } from "./AgentNativeFrame.js";
 export {
+  AgentNativeRouteWarmup,
+  type AgentNativeRouteWarmupProps,
+} from "./route-warmup.js";
+export {
   AgentNativeExtensionFrame,
   AgentNativeExtensionSlot,
   type AgentNativeExtensionFrameProps,

@@ -57,19 +57,54 @@ pnpm action push-notion-page --documentId abc123
 
 This overwrites the Notion page's content with the local document's markdown, converted to Notion blocks.
 
+## How Sync Works (Architecture)
+
+Documents are stored as **Notion-Flavored Markdown (NFM)** — the exact format
+Notion's `/pages/{id}/markdown` API emits and accepts. The storage form is
+Notion's *canonical* form, so a synced document is byte-identical on both sides.
+
+- `shared/nfm.ts` is the single deterministic converter: `nfmToDoc` (NFM →
+  ProseMirror JSON) and `docToNfm` (ProseMirror JSON → NFM), plus
+  `canonicalizeNfm = docToNfm ∘ nfmToDoc`. It is used by **both** the editor
+  (`setContent(nfmToDoc(x))` / `docToNfm(editor.getJSON())`) and the server
+  (pull canonicalization + content hashing).
+- The converter is a proven **fixpoint**: `docToNfm(nfmToDoc(x)) === x` for all
+  canonical NFM `x`, verified by `shared/nfm.spec.ts` (pure) and
+  `app/components/editor/nfm-editor.roundtrip.test.ts` (real TipTap schema).
+  Because our canonical form equals Notion's emission, pull→edit→push→pull
+  never drifts.
+- **Do not** route Notion content through `shared/notion-markdown.ts` (the old
+  tiptap-markdown bridge). It is retained only for clipboard copy/paste.
+
+Supported losslessly: paragraphs, headings (incl. toggle headings via
+`{toggle="true"}`), bulleted/numbered/to-do lists with tab nesting, real quote
+blocks (multi-line via `<br>`), block colors (`{color="…"}`), inline
+bold/italic/strike/code/underline/color/background and links, inline + block
+equations, code blocks, dividers, `<empty-block/>`, callouts, toggles, columns,
+tables (header row/column, cell/row colors), images/audio/video/file/pdf, page
+and database references, synced blocks (children preserved), mentions, and
+backslash-escaped special characters. Visual indentation is a block `indent`
+attribute (Tab indents a block, matching Notion).
+
 ## Sync State
 
 The `document_sync_links` table tracks sync relationships:
 
-| Column                         | Description                                |
-| ------------------------------ | ------------------------------------------ |
-| `document_id`                  | Local document ID                          |
-| `provider`                     | Always "notion"                            |
-| `remote_page_id`               | Notion page ID                             |
-| `state`                        | "linked", "syncing", "error"               |
-| `last_synced_at`               | Timestamp of last successful sync          |
-| `has_conflict`                 | Whether there's a merge conflict (0 or 1)  |
-| `last_error`                   | Error message if sync failed               |
+| Column                     | Description                                            |
+| -------------------------- | ----------------------------------------------------- |
+| `document_id`              | Local document ID                                     |
+| `provider`                 | Always "notion"                                        |
+| `remote_page_id`           | Notion page ID                                         |
+| `state`                    | "linked", "syncing", "error", "conflict"              |
+| `last_synced_at`           | Timestamp of last successful sync                     |
+| `last_synced_content_hash` | SHA-256 of the canonical content identical on both sides — the authoritative "did it change" signal (immune to timestamp jitter) |
+| `has_conflict`             | Whether both sides changed since last sync (0 or 1)   |
+| `last_error`               | Error message if sync failed                          |
+
+Conflict detection is **content-hash based**: a side has "changed" only when its
+canonical content hash differs from `last_synced_content_hash`. A no-op sync
+(identical canonical content) is never mistaken for an edit — this is what keeps
+the two copies from drifting.
 
 ## Common Tasks
 
@@ -83,7 +118,11 @@ The `document_sync_links` table tracks sync relationships:
 
 ## Important Notes
 
-- Notion sync requires a connected Notion integration (API key configured in settings)
-- Pull overwrites local content; push overwrites Notion content — there is no automatic merge
-- The `has_conflict` flag is set when both sides have changed since last sync
-- Always check `connect-notion-status` before attempting sync operations
+- Notion access is **per-user OAuth only**. Never read `NOTION_API_KEY` from the
+  environment or accept a user-pasted token; require editor access for pull/push.
+- Pull replaces local content with Notion's; push replaces Notion's with local.
+  When both sides changed since the last sync the link enters `conflict` state and
+  the user resolves it (pull-wins or push-wins) — there is no line-level merge.
+- Because storage is canonical NFM, a no-op sync changes nothing: editing the
+  same document in Notion and in the app will not create growing inconsistencies.
+- Always check `connect-notion-status` before attempting sync operations.

@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const LOGIN_HTML_CACHE_CONTROL =
+  "private, no-store, max-age=0, must-revalidate";
 
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -438,14 +436,14 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
       expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        "no-store",
       );
       expect(
         (result as Response).headers.get("Netlify-CDN-Cache-Control"),
-      ).toBe(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
+      ).toBe("no-store");
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -529,7 +527,7 @@ describe("server/auth", () => {
       expect(adminResult).toBeInstanceOf(Response);
       expect((adminResult as Response).status).toBe(200);
       expect((adminResult as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
 
       const adminDataResult = await guard(
@@ -580,7 +578,7 @@ describe("server/auth", () => {
       expect(privateResult).toBeInstanceOf(Response);
       expect((privateResult as Response).status).toBe(200);
       expect((privateResult as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
     });
 
@@ -842,7 +840,7 @@ describe("server/auth", () => {
       }
     });
 
-    it("serves cacheable first-party branded auth when the default guard handles a built-in host", async () => {
+    it("serves uncached first-party branded auth when the default guard handles a built-in host", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -879,7 +877,7 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",

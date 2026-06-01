@@ -3,6 +3,8 @@ name: adding-a-feature
 description: >-
   The four-area checklist every new feature must complete. Use when adding any
   feature, integration, or capability to ensure the agent and UI stay in parity.
+metadata:
+  internal: true
 ---
 
 # Adding a Feature — The Four-Area Checklist
