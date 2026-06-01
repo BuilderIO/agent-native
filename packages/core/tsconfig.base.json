@@ -18,7 +18,7 @@
     "allowSyntheticDefaultImports": true,
 
     "strict": false,
-    "noUnusedLocals": false,
+    "noUnusedLocals": true,
     "noUnusedParameters": false,
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
