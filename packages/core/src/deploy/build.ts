@@ -36,6 +36,10 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
+  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
+import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -44,8 +48,6 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -396,6 +398,7 @@ function injectHeadScript(html, script) {
 }
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+const DEFAULT_SPECULATION_RULES_HEADER = ${JSON.stringify(DEFAULT_SPECULATION_RULES_HEADER)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
     [...new Set(immutableAssetPaths)].sort(),
@@ -463,31 +466,50 @@ function requestHasAuthSignal(request) {
   );
 }
 
-function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
   if (status < 200 || status >= 400) return false;
-  if (hasAuthSignal) return false;
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) {
-    return !headers.has("cache-control");
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
   }
 
   if (!pathname.endsWith(".data")) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   // React Router marks loader .data responses no-cache by default. Agent-Native
-  // default. For public loader responses, replace that default with the same
-  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
-  // explicit route cache policies and any authenticated request untouched.
-  const cacheControl = headers.get("cache-control");
-  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+  // SSR is public app shell, even for browsers carrying auth-looking cookies;
+  // user/org-specific data is loaded client-side through actions/API routes
+  // after hydration. Keep .data on the same SWR policy as HTML so normal route
+  // data fetches fill CDN cache instead of bypassing it and slamming origin.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
 }
 
-function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
+function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
+function applyDefaultSpeculationRulesHeader(headers, status) {
+  if (status < 200 || status >= 400) return;
+  if (headers.has("speculation-rules")) return;
+
+  const contentType = (headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/html")) return;
+
+  // Cloudflare Speed Brain injects Speculation-Rules when origin omits this
+  // header. Those browser prefetches carry Sec-Purpose: prefetch and
+  // Cloudflare can return 503 before the request reaches origin. Publish an
+  // explicit no-op ruleset by default; apps can still provide their own header.
+  headers.set("speculation-rules", DEFAULT_SPECULATION_RULES_HEADER);
+}
 function isImmutableAssetRequest(request) {
   const pathname = stripAppBasePath(new URL(request.url).pathname);
   return IMMUTABLE_ASSET_PATHS.has(pathname);
@@ -508,10 +530,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
+async function rewriteMountedResponse(response, basePath, pathname) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSpeculationRulesHeader(headers, response.status);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -628,7 +651,6 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
-    const hasAuthSignal = requestHasAuthSignal(request);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -639,11 +661,10 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
-        p,
-        hasAuthSignal,
+        p
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p);
   }));
 
   _handler = app.fetch.bind(app);

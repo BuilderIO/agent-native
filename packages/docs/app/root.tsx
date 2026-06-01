@@ -104,6 +104,10 @@ const CANONICAL_ALIASES: Record<string, string> = {
   "/docs/getting-started": "/docs",
 };
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const DATA_ROUTE_PREFETCH_ATTR = "data-an-prefetch";
+const DATA_ROUTE_PREFETCH_SELECTOR = `a[${DATA_ROUTE_PREFETCH_ATTR}="render"][href]`;
+const MAX_CONCURRENT_DATA_PREFETCHES = 4;
+const warmedDataRoutes = new Set<string>();
 
 function CanonicalLink() {
   const location = useLocation();
@@ -230,6 +234,105 @@ function ScrollManager() {
   );
 }
 
+function dataRouteUrlForHref(href: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href, window.location.href);
+  } catch {
+    return null;
+  }
+
+  if (url.origin !== window.location.origin) return null;
+  if (url.pathname === window.location.pathname && url.hash) return null;
+  if (
+    url.pathname.startsWith("/_agent-native/") ||
+    url.pathname.startsWith("/api/")
+  ) {
+    return null;
+  }
+  if (/\.\w+$/.test(url.pathname)) return null;
+
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/") return null;
+  url.pathname = `${pathname}.data`;
+  url.hash = "";
+  return url.href;
+}
+
+function DataRouteWarmup() {
+  useEffect(() => {
+    const connection = (
+      navigator as Navigator & { connection?: { saveData?: boolean } }
+    ).connection;
+    if (connection?.saveData) return;
+
+    const queue: string[] = [];
+    let active = 0;
+    let stopped = false;
+    let scheduleTimer: number | undefined;
+
+    const pump = () => {
+      if (stopped) return;
+      while (active < MAX_CONCURRENT_DATA_PREFETCHES && queue.length > 0) {
+        const href = queue.shift();
+        if (!href) continue;
+        active += 1;
+        window
+          .fetch(href, { credentials: "same-origin", cache: "force-cache" })
+          .catch(() => {})
+          .finally(() => {
+            active -= 1;
+            window.setTimeout(pump, 50);
+          });
+      }
+    };
+
+    const enqueue = () => {
+      for (const link of document.querySelectorAll<HTMLAnchorElement>(
+        DATA_ROUTE_PREFETCH_SELECTOR,
+      )) {
+        const dataUrl = dataRouteUrlForHref(link.href);
+        if (!dataUrl || warmedDataRoutes.has(dataUrl)) continue;
+        warmedDataRoutes.add(dataUrl);
+        queue.push(dataUrl);
+      }
+      pump();
+    };
+
+    const schedule = () => {
+      if (scheduleTimer !== undefined) window.clearTimeout(scheduleTimer);
+      scheduleTimer = window.setTimeout(() => {
+        scheduleTimer = undefined;
+        enqueue();
+      }, 0);
+    };
+
+    // Do not use React Router's native `prefetch="render"` on the public docs
+    // site while it sits behind Cloudflare. Native link prefetches carry
+    // `Sec-Purpose: prefetch`; Cloudflare Speed Brain intercepts those and
+    // returns 503 for cache-ineligible dynamic routes before Netlify/origin can
+    // serve the now-cacheable `.data` response. This normal fetch warmup keeps
+    // render-time route-data warming without tripping Cloudflare's prefetch
+    // refusal path.
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["href", DATA_ROUTE_PREFETCH_ATTR],
+    });
+
+    return () => {
+      stopped = true;
+      if (scheduleTimer !== undefined) window.clearTimeout(scheduleTimer);
+      observer.disconnect();
+    };
+  }, []);
+
+  return null;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -300,6 +403,7 @@ export default function Root() {
   const content = (
     <>
       <ScrollManager />
+      <DataRouteWarmup />
       <Header />
       <Outlet />
       <Footer />
@@ -354,14 +458,14 @@ export function ErrorBoundary() {
         </p>
         <div className="flex items-center gap-3">
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             Go home
           </Link>
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/docs"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
@@ -381,7 +485,7 @@ export function ErrorBoundary() {
         An unexpected error occurred.
       </p>
       <Link
-        prefetch="render"
+        data-an-prefetch="render"
         to="/"
         className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
       >

@@ -14,6 +14,8 @@ import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SPECULATION_RULES_HEADER =
+  '"/_agent-native/speculation-rules.json"';
 
 const tempDirs: string[] = [];
 
@@ -238,6 +240,9 @@ export default (event) =>
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );
+    expect(response.headers.get("speculation-rules")).toBe(
+      DEFAULT_SPECULATION_RULES_HEADER,
+    );
 
     const redirect = await worker.fetch(
       new Request("https://app.test/docs/redirect", { method: "GET" }),
@@ -248,7 +253,7 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
-  it("does not add public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+  it("adds public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -260,10 +265,12 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
-  it("preserves explicit no-store cache policies on Cloudflare worker SSR", async () => {
+  it("overwrites explicit no-store cache policies on Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -272,7 +279,9 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
@@ -289,7 +298,7 @@ export default (event) =>
     );
   });
 
-  it("preserves default no-cache headers for authenticated Cloudflare worker data responses", async () => {
+  it("replaces default no-cache headers for authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -300,10 +309,12 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
-  it("preserves explicit private cache policies on Cloudflare worker data responses", async () => {
+  it("overwrites explicit private cache policies on Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -314,7 +325,9 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
   });
 
   it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {

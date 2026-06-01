@@ -26,9 +26,15 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
+import {
+  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 
-export { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
+export {
+  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
@@ -217,39 +223,60 @@ function shouldUseDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
-  if (hasAuthSignal) return false;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) {
-    return !headers.has("cache-control");
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
   }
 
   if (!pathname.endsWith(".data")) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   // React Router gives loader `.data` responses `cache-control: no-cache` by
-  // default. For public loader responses, replace that default with the same
-  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
-  // explicit route cache policies and any authenticated request untouched.
-  const cacheControl = headers.get("cache-control");
-  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+  // default. In Agent-Native, SSR output is intentionally public app shell:
+  // user/org-specific reads happen after hydration through actions and API
+  // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
+  // route data fetches warm the CDN instead of hammering origin.
+  // Do not re-add a cookie/auth-signal bypass here without changing that
+  // architecture; logged-in browsers still need CDN-cached public route data.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
 }
 
 function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
 ) {
-  if (
-    !shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)
-  ) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) {
     return;
   }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+}
+
+function applyDefaultSpeculationRulesHeader(headers: Headers, status: number) {
+  if (status < 200 || status >= 400) return;
+  if (headers.has("speculation-rules")) return;
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/html")) return;
+
+  // Cloudflare Speed Brain injects its own Speculation-Rules header when the
+  // origin omits one. Those browser prefetches carry `Sec-Purpose: prefetch`,
+  // and Cloudflare refuses cache-ineligible dynamic pages with a 503 before
+  // the request can reach Netlify/origin. We publish an explicit no-op ruleset
+  // by default so Cloudflare does not inject its edge prefetch rules. Preserve
+  // an app-provided Speculation-Rules header above if a template deliberately
+  // owns this behavior.
+  headers.set("speculation-rules", DEFAULT_SPECULATION_RULES_HEADER);
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -274,11 +301,11 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
-  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSpeculationRulesHeader(headers, response.status);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -359,14 +386,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
-          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
-        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

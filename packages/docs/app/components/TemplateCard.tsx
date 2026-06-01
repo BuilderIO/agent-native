@@ -230,7 +230,7 @@ function CliPopoverContent({ template }: { template: Template }) {
       <div className="border-t border-[var(--code-border)] px-3 py-1.5 text-[10px] text-[var(--fg-secondary)]">
         Paste into your terminal.{" "}
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to="/docs/getting-started"
           className="text-[var(--docs-accent)] no-underline hover:underline"
         >
@@ -319,7 +319,7 @@ export function TemplateCard({ template }: { template: Template }) {
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
       <Link
-        prefetch="render"
+        data-an-prefetch="render"
         to={`/templates/${template.slug}`}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
@@ -350,7 +350,7 @@ export function TemplateCard({ template }: { template: Template }) {
       </Link>
       <h3 className="text-base font-semibold">
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to={`/templates/${template.slug}`}
           className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >

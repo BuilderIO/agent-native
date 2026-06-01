@@ -91,7 +91,7 @@ export default function ClipsTemplate() {
       <section className="py-20">
         <div className="mb-4">
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
@@ -662,7 +662,7 @@ export default function ClipsTemplate() {
             Read the docs
           </TemplateDocsLink>
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
