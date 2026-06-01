@@ -3527,6 +3527,7 @@ function TranscriptPanel({
           adapterReloadKey={controller}
           loadHistoryRepository={loadHistoryRepository}
           historyReloadKey={historyReloadKey}
+          externalStreaming={runIsActive}
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
             <CodeAgentChatComposerSlot
