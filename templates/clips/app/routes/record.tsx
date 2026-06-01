@@ -847,6 +847,11 @@ export default function RecordRoute() {
             setError(err.message);
             setUiState("error");
           },
+          // Non-fatal device drops (camera unplugged, mic disconnected) — the
+          // recording keeps going; just let the user know what happened.
+          onWarning: (message) => {
+            toast.warning(message);
+          },
           onState: (state) => {
             // Mirror the engine's compression pass into the UI so the
             // "Saving your recording…" spinner becomes "Compressing…" for

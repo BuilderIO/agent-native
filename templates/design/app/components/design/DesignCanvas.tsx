@@ -102,6 +102,26 @@ const NAV_BRIDGE_SCRIPT = `
     var a = t.closest('a[href], [data-screen]');
     if (!a) return;
     var ds = a.getAttribute && a.getAttribute('data-screen');
+    // In-page anchors ('#...') and empty hrefs must be handled in-document.
+    // A srcdoc document resolves '#'/'' against the PARENT app URL, so the
+    // browser's default action would navigate the iframe to the app itself.
+    if (!ds) {
+      var rawHref = a.getAttribute('href');
+      if (rawHref != null) {
+        var hh = rawHref.trim();
+        if (hh === '' || hh.charAt(0) === '#') {
+          e.preventDefault();
+          var fid = hh.charAt(0) === '#' ? hh.slice(1) : '';
+          var tgt = fid ? document.getElementById(fid) : null;
+          if (tgt && tgt.scrollIntoView) {
+            tgt.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+          return;
+        }
+      }
+    }
     var info = ds
       ? { external: false, href: ds, screen: ds.replace(/^\\.?\\//, '').split(/[?#]/)[0] }
       : classify(a.getAttribute('href'));

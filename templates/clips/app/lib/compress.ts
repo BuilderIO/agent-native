@@ -2,12 +2,21 @@
  * Browser-side video compression for clips that would exceed the upload
  * provider's per-file limit.
  *
- * The motivating bug: Builder.io's `/api/v1/upload` caps each file at 100 MB
- * (`fileUpload({ limits: { fileSize: 100 * 1024 * 1024 } })` plus a
- * `express.raw({ limit: '200mb' })` body limit). When the assembled recording
- * blob exceeds that, the streaming upload to GCS errors mid-write and the
- * client sees `Builder.io upload failed (500): Internal Error` — a confusing
- * dead-end with no remediation. Saee hit this on her second clip.
+ * The motivating bug: Builder.io's `/api/v1/upload` looks like it caps files
+ * at 100 MB (`fileUpload({ limits: { fileSize: 100 * 1024 * 1024 } })` plus a
+ * `express.raw({ limit: '200mb' })` body limit), but the REAL ceiling is far
+ * lower: the upload endpoint runs as a Gen-2 Cloud Function (Cloud Run), whose
+ * inbound HTTP request body is hard-capped at ~32 MB by the Google Front End —
+ * a platform limit the app config can't raise. Bodies above ~32 MB are dropped
+ * at the edge or OOM the 256 MB function while it buffers the whole body in
+ * memory, and the client sees an opaque `Builder.io upload failed (500)`. So a
+ * blob only has to clear ~32 MB — not 100 MB — to fail. Saee hit this on her
+ * second clip. We therefore compress to a target well under 32 MB and hard-stop
+ * client-side with a clear message instead of letting Builder 500.
+ *
+ * (Builder has no resumable / signed-URL upload endpoint today, so true
+ * 100 MB–2 GB videos need either an S3-compatible provider or a new
+ * builder-internal direct-to-GCS flow — tracked as separate work.)
  *
  * Strategy: ride the existing ffmpeg.wasm install (we already lazy-load it
  * for export / GIF / stitch in `ffmpeg-export.ts`). Re-encode video at a
@@ -21,10 +30,11 @@
  *    changes + server-side reassembly).
  *  - Returning 413 instead of 500 from upload (server-side, separate work).
  *
- * Threshold: skip compression under 45 MB so the small-clip happy path pays no
- * extra cost. The server still stages chunks in SQL today, so the effective
- * safe cap is lower than Builder.io's 100 MB provider cap; target ~45 MB and
- * hard-stop at 64 MB to keep the DB read/write path out of timeout territory.
+ * Threshold: skip compression under 24 MB so the small-clip happy path pays no
+ * extra cost. The binding constraint is Builder's ~32 MB Cloud Run edge cap
+ * (see above), so we target ~22 MB and hard-stop at 30 MB — a blob that clears
+ * the client check is then comfortably under both Builder's ~32 MB edge and the
+ * server's SQL-staging cap.
  */
 
 import {
@@ -33,18 +43,20 @@ import {
   resetFfmpegInstance,
 } from "./ffmpeg-export";
 
-/** Start compressing at 45 MB. Below this, the upload fits and we don't pay
- * for ffmpeg.wasm load + transcode. */
-export const COMPRESS_THRESHOLD_BYTES = 45 * 1024 * 1024;
+/** Start compressing at 24 MB. Below this, the upload clears Builder's ~32 MB
+ * Cloud Run edge cap and we don't pay for ffmpeg.wasm load + transcode. */
+export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
 
-/** Clips' effective per-recording staging limit. Builder.io accepts larger
- * files, but the server chunks currently stage through SQL before the final
- * provider upload. Keep this comfortably below the DB timeout cliff. */
-export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+/** Clips' effective per-recording upload limit. Builder's upload endpoint is
+ * fronted by a Gen-2 Cloud Function (Cloud Run) with a hard ~32 MB inbound
+ * request cap that the app config can't raise, so we hard-stop just under it.
+ * Anything larger needs an S3-compatible provider or a resumable Builder flow
+ * (separate work) — failing fast here beats an opaque Builder 500. */
+export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 /** Preferred compressed output size. The hard cap above leaves room for
  * encoder variance and audio tracks that were copied rather than re-encoded. */
-const TARGET_COMPRESSED_BYTES = 45 * 1024 * 1024;
+const TARGET_COMPRESSED_BYTES = 22 * 1024 * 1024;
 
 const ASSUMED_AUDIO_BITRATE_BPS = 96_000;
 const MIN_VIDEO_BITRATE_BPS = 450_000;

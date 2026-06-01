@@ -3,6 +3,7 @@ import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  IconAlertTriangle,
   IconAppWindow,
   IconCalendar,
   IconCheck,
@@ -17,6 +18,10 @@ import {
 } from "@tabler/icons-react";
 import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import {
+  UpcomingMeetingCard,
+  MeetingCardSkeleton,
+} from "@/components/meetings/meeting-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,6 +58,8 @@ interface Meeting {
   actualStart?: string | null;
   actualEnd?: string | null;
   recordingId?: string | null;
+  joinUrl?: string | null;
+  platform?: string | null;
   transcriptStatus?:
     | "pending"
     | "ready"
@@ -65,6 +72,17 @@ interface Meeting {
   userNotesMd?: string | null;
   source?: "calendar" | "adhoc" | "manual";
   participants?: AttendeeStackParticipant[];
+}
+
+interface CalendarFetchError {
+  accountId: string;
+  error: string;
+  needsReauth: boolean;
+}
+
+interface ListMeetingsResponse {
+  meetings?: Meeting[];
+  calendarErrors?: CalendarFetchError[];
 }
 
 interface CalendarAccount {
@@ -128,12 +146,26 @@ async function startCalendarOAuth(): Promise<void> {
     );
   }
   await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      window.removeEventListener("focus", onFocus);
+      resolve();
+    };
     const interval = window.setInterval(() => {
-      if (popup.closed) {
-        window.clearInterval(interval);
-        resolve();
-      }
+      if (popup.closed) finish();
     }, 500);
+    // Some browsers (COOP) never report popup.closed; also resolve when the
+    // user returns to this tab, and give up after 5 minutes regardless so the
+    // connect flow can't hang forever.
+    const onFocus = () => {
+      if (popup.closed) finish();
+    };
+    window.addEventListener("focus", onFocus);
+    const timeout = window.setTimeout(finish, 5 * 60 * 1000);
   });
 }
 
@@ -266,6 +298,64 @@ function RecordedMeetingsList({ meetings }: { meetings: Meeting[] }) {
         </div>
       ))}
     </section>
+  );
+}
+
+function UpcomingMeetingsList({ meetings }: { meetings: Meeting[] }) {
+  if (meetings.length === 0) return null;
+  const groups = groupByDay(meetings);
+  return (
+    <section className="space-y-4">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 px-1">
+        Upcoming
+      </h2>
+      {groups.map(([day, items]) => (
+        <div key={day} className="space-y-2">
+          <DayHeader label={day} />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((m) => (
+              <UpcomingMeetingCard key={m.id} meeting={m} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function UpcomingMeetingsLoading() {
+  return (
+    <section className="space-y-4">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 px-1">
+        Upcoming
+      </h2>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <MeetingCardSkeleton key={i} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CalendarReauthBanner({ onReconnect }: { onReconnect: () => void }) {
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+      <IconAlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1">
+        Google Calendar needs to be reconnected to keep showing your upcoming
+        meetings.
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onReconnect}
+        className="h-8 gap-1.5 cursor-pointer"
+      >
+        <IconExternalLink className="h-3.5 w-3.5" />
+        Reconnect
+      </Button>
+    </div>
   );
 }
 
@@ -552,14 +642,14 @@ function MeetingsHeader({
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Recorded meetings with transcripts and AI notes.
+            Upcoming calendar meetings and your recorded notes.
           </p>
           <div className="relative max-w-sm">
             <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="Search recorded meetings..."
+              placeholder="Search meetings..."
               className="pl-8 pr-8 h-9 text-sm"
             />
             {query && (
@@ -614,14 +704,21 @@ export default function MeetingsIndexRoute() {
   const [query, setQuery] = useState(initialQ);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQ);
 
-  // Debounce 200ms — keep URL in sync for shareability.
+  // Debounce 200ms — keep URL in sync for shareability. Use the functional
+  // updater so we read the latest params (not a stale closure) and never
+  // clobber an unrelated param another effect changed concurrently.
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(query);
-      const next = new URLSearchParams(searchParams);
-      if (query) next.set("q", query);
-      else next.delete("q");
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (query) next.set("q", query);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
     }, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -641,6 +738,15 @@ export default function MeetingsIndexRoute() {
     "list-meetings",
     { view: "past", recordedOnly: true, includeLiveCalendar: false },
     { retry: false },
+  );
+  // Upcoming calendar events, read live from connected calendars. This is the
+  // Granola-style surface that lets the user record/join a meeting that's about
+  // to start. Poll every 30s so a freshly-added calendar event (or one moving
+  // into the "now" window) shows up without a manual refresh.
+  const upcomingQuery = useActionQuery<ListMeetingsResponse | undefined>(
+    "list-meetings",
+    { view: "upcoming", includeLiveCalendar: true, limit: 50 },
+    { retry: false, refetchInterval: 30_000 },
   );
 
   const clearCalendarConnectionWarnings = useCallback(() => {
@@ -704,6 +810,20 @@ export default function MeetingsIndexRoute() {
     if (Array.isArray(data)) return data;
     return data.meetings ?? [];
   }, [meetingsQuery.data]);
+
+  const upcomingMeetings: Meeting[] = useMemo(() => {
+    const data = upcomingQuery.data;
+    if (!data) return [];
+    if (Array.isArray(data)) return data as Meeting[];
+    return data.meetings ?? [];
+  }, [upcomingQuery.data]);
+
+  const calendarErrors: CalendarFetchError[] = useMemo(() => {
+    const data = upcomingQuery.data;
+    if (!data || Array.isArray(data)) return [];
+    return data.calendarErrors ?? [];
+  }, [upcomingQuery.data]);
+
   const calendarAccounts = accounts.data?.accounts ?? [];
   const hasCalendar = calendarAccounts.length > 0;
 
@@ -715,6 +835,14 @@ export default function MeetingsIndexRoute() {
       queryKey: ["action", "list-calendar-accounts"],
     });
   }, [queryClient]);
+
+  const handleReconnectCalendar = useCallback(() => {
+    startCalendarOAuth()
+      .then(() => handleCalendarConnected())
+      .catch((err: Error) =>
+        toast.error(err.message || "Couldn't reconnect calendar"),
+      );
+  }, [handleCalendarConnected]);
 
   const isLoading = accounts.isLoading || meetingsQuery.isLoading;
 
@@ -733,6 +861,20 @@ export default function MeetingsIndexRoute() {
     );
     return filtered;
   }, [meetings, debouncedQuery]);
+
+  const filteredUpcoming = useMemo(() => {
+    const filtered = upcomingMeetings.filter((m) =>
+      meetingMatches(m, debouncedQuery),
+    );
+    filtered.sort(
+      (a, b) =>
+        new Date(a.scheduledStart).getTime() -
+        new Date(b.scheduledStart).getTime(),
+    );
+    return filtered;
+  }, [upcomingMeetings, debouncedQuery]);
+
+  const needsCalendarReauth = calendarErrors.some((e) => e.needsReauth);
 
   if (isLoading) {
     return (
@@ -774,7 +916,9 @@ export default function MeetingsIndexRoute() {
     );
   }
 
-  if (!hasCalendar && meetings.length === 0) {
+  const nothingAtAll = meetings.length === 0 && upcomingMeetings.length === 0;
+
+  if (!hasCalendar && nothingAtAll) {
     return (
       <div className="p-6 w-full">
         <MeetingsHeader
@@ -790,7 +934,12 @@ export default function MeetingsIndexRoute() {
     );
   }
 
-  const hasResults = recordedMeetings.length > 0;
+  const hasPast = recordedMeetings.length > 0;
+  const hasUpcoming = filteredUpcoming.length > 0;
+  const upcomingLoading =
+    upcomingQuery.isLoading && upcomingMeetings.length === 0 && hasCalendar;
+  const noSearchMatches =
+    !!debouncedQuery && !hasPast && !hasUpcoming && !nothingAtAll;
 
   return (
     <div className="p-6 max-w-6xl mx-auto w-full">
@@ -803,18 +952,22 @@ export default function MeetingsIndexRoute() {
         onDisconnected={handleCalendarDisconnected}
       />
 
-      {meetings.length === 0 ? (
+      {needsCalendarReauth && (
+        <CalendarReauthBanner onReconnect={handleReconnectCalendar} />
+      )}
+
+      {nothingAtAll ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
           <IconCalendar className="h-10 w-10 text-muted-foreground/50 mx-auto" />
           <p className="mt-3 text-sm text-foreground font-medium">
-            No recorded meetings yet
+            No meetings yet
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Start notes from the desktop meeting widget and finished recordings
-            will appear here.
+            Upcoming calendar meetings show up here, and finished recordings
+            land here once you take notes.
           </p>
         </div>
-      ) : !hasResults ? (
+      ) : noSearchMatches ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-12 text-center">
           <IconSearch className="h-7 w-7 text-muted-foreground/50 mx-auto" />
           <p className="mt-2 text-sm text-foreground">
@@ -830,10 +983,17 @@ export default function MeetingsIndexRoute() {
           </Button>
         </div>
       ) : (
-        <RecordedMeetingsList meetings={recordedMeetings} />
+        <div className="space-y-8">
+          {upcomingLoading ? (
+            <UpcomingMeetingsLoading />
+          ) : (
+            <UpcomingMeetingsList meetings={filteredUpcoming} />
+          )}
+          <RecordedMeetingsList meetings={recordedMeetings} />
+        </div>
       )}
 
-      {meetingsQuery.isFetching && !meetingsQuery.isLoading && (
+      {(meetingsQuery.isFetching || upcomingQuery.isFetching) && !isLoading && (
         <div className="flex items-center justify-center mt-6 text-xs text-muted-foreground gap-1.5">
           <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
           Refreshing…

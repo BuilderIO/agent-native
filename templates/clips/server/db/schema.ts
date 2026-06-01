@@ -461,7 +461,7 @@ export const dictations = table("clips_dictations", {
   // are text-only since native recognition runs on-device.
   audioUrl: text("audio_url"),
   source: text("source", {
-    enum: ["fn-hold", "cmd-shift-space", "manual", "other"],
+    enum: ["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"],
   })
     .notNull()
     .default("fn-hold"),
