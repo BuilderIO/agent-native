@@ -1,0 +1,189 @@
+import { describe, expect, it } from "vitest";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
+
+/**
+ * Every fixture below is a byte-exact sample of what Notion's
+ * `/pages/{id}/markdown` API actually emits (captured from a live round-trip
+ * probe). The whole contract of the converter is that these are FIXPOINTS:
+ * canonicalizeNfm(x) === x and docToNfm(nfmToDoc(x)) === x. If a fixture is not
+ * a fixpoint, a pull/edit/push cycle would mutate the document — the exact drift
+ * bug this module exists to prevent.
+ */
+const L = (...lines: string[]) => lines.join("\n");
+
+const FIXTURES: Array<{ name: string; nfm: string }> = [
+  { name: "plain paragraph", nfm: "Just a paragraph." },
+  {
+    name: "inline marks",
+    nfm: "Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline=\"true\">underline</span>, <span color=\"red\">red text</span>, <span color=\"blue_bg\">blue bg</span>, a [link](https://example.com), and inline math $`E = mc^2`$.",
+  },
+  { name: "block color paragraph", nfm: 'Colored paragraph {color="red"}' },
+  { name: "headings", nfm: L("# Heading One", "## Heading Two", "### Heading Three", "#### Heading Four") },
+  { name: "toggle heading", nfm: L('## Toggle Heading Two {toggle="true"}', "\tChild under toggle heading") },
+  { name: "single quote", nfm: "> A single real quote block" },
+  { name: "multi-line quote", nfm: "> Multi-line quote line one<br>line two<br>line three" },
+  { name: "quote with color", nfm: '> Quoted {color="gray"}' },
+  { name: "nested bullets", nfm: L("- bullet one", "\t- nested bullet", "- bullet two") },
+  { name: "numbered list", nfm: L("1. first", "2. second", "3. third") },
+  { name: "todo list", nfm: L("- [ ] unchecked todo", "- [x] checked todo") },
+  {
+    name: "callout with nested list",
+    nfm: L(
+      '<callout icon="💡" color="blue_bg">',
+      "\tCallout with **bold** and a nested list:",
+      "\t- callout item one",
+      "\t- callout item two",
+      "</callout>",
+    ),
+  },
+  {
+    name: "toggle with children",
+    nfm: L(
+      "<details>",
+      "<summary>A toggle</summary>",
+      "\tHidden child paragraph",
+      "\t- hidden bullet",
+      "</details>",
+    ),
+  },
+  {
+    name: "columns",
+    nfm: L(
+      "<columns>",
+      "\t<column>",
+      "\t\tLeft column text",
+      "\t</column>",
+      "\t<column>",
+      "\t\tRight column text",
+      "\t</column>",
+      "</columns>",
+    ),
+  },
+  {
+    name: "table with header row + column + cell color",
+    nfm: L(
+      '<table header-row="true" header-column="true">',
+      "<tr>",
+      "<td>H1</td>",
+      "<td>H2</td>",
+      "</tr>",
+      "<tr>",
+      "<td>r1c1</td>",
+      '<td color="green_bg">r1c2 green</td>',
+      "</tr>",
+      "</table>",
+    ),
+  },
+  {
+    name: "code block (literal, unescaped)",
+    nfm: L("```python", "def f(x):", "    return x < 3 and x * 2", "```"),
+  },
+  { name: "block equation", nfm: L("$$", "\\int_0^1 x^2 dx = \\frac{1}{3}", "$$") },
+  {
+    name: "literal special chars (escaped)",
+    nfm: "Text with literal special chars: a \\< b, 2 \\* 3, x_y, price \\$5, \\[bracket\\], \\{brace\\}.",
+  },
+  { name: "divider", nfm: "---" },
+  { name: "empty block", nfm: L("above", "<empty-block/>", "below") },
+  { name: "consecutive empty blocks", nfm: L("first", "<empty-block/>", "<empty-block/>", "last") },
+  { name: "page atom", nfm: '<page url="https://www.notion.so/abc">Child Page</page>' },
+  { name: "table of contents atom", nfm: "<table_of_contents/>" },
+  { name: "image", nfm: "![A caption](https://cdn.example.com/x.png)" },
+  { name: "mention inline", nfm: '<mention-page url="https://www.notion.so/abc">A Page</mention-page>' },
+  { name: "mention date self-closing", nfm: '<mention-date start="2026-06-01"/>' },
+  {
+    name: "synced block with children",
+    nfm: L('<synced_block url="https://www.notion.so/s">', "\tShared content", "</synced_block>"),
+  },
+  { name: "visual-indented paragraphs", nfm: L("root", "\tindented once", "\t\tindented twice") },
+  {
+    name: "nested toggles",
+    nfm: L(
+      "<details>",
+      "<summary>Outer</summary>",
+      "\t<details>",
+      "\t<summary>Inner</summary>",
+      "\t\tinner child",
+      "\t</details>",
+      "</details>",
+    ),
+  },
+];
+
+describe("nfm converter — canonical fixpoints", () => {
+  for (const { name, nfm } of FIXTURES) {
+    it(`is a fixpoint: ${name}`, () => {
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+      expect(docToNfm(nfmToDoc(nfm))).toBe(nfm);
+    });
+  }
+
+  it("the whole probe document round-trips byte-exact", () => {
+    const doc = FIXTURES.map((f) => f.nfm).join("\n");
+    expect(canonicalizeNfm(doc)).toBe(doc);
+  });
+
+  it("is idempotent under double canonicalization", () => {
+    const doc = FIXTURES.map((f) => f.nfm).join("\n");
+    expect(canonicalizeNfm(canonicalizeNfm(doc))).toBe(canonicalizeNfm(doc));
+  });
+});
+
+describe("nfm converter — structural parsing", () => {
+  it("parses a toggle heading into notionToggle with headingLevel", () => {
+    const doc = nfmToDoc('## H {toggle="true"}\n\tchild');
+    expect(doc.content[0].type).toBe("notionToggle");
+    expect(doc.content[0].attrs?.headingLevel).toBe(2);
+    expect(doc.content[0].attrs?.summary).toBe("H");
+    expect(doc.content[0].content?.[0].type).toBe("paragraph");
+  });
+
+  it("keeps a real quote distinct from indentation", () => {
+    const quote = nfmToDoc("> quote");
+    expect(quote.content[0].type).toBe("blockquote");
+    const indent = nfmToDoc("root\n\tchild");
+    expect(indent.content[1].type).toBe("paragraph");
+    expect(indent.content[1].attrs?.indent).toBe(1);
+  });
+
+  it("models a synced block as a container (children preserved)", () => {
+    const doc = nfmToDoc('<synced_block url="u">\n\tkid\n</synced_block>');
+    expect(doc.content[0].type).toBe("notionSyncedBlock");
+    expect(doc.content[0].content?.[0].type).toBe("paragraph");
+  });
+
+  it("parses table header cells and cell colors", () => {
+    const doc = nfmToDoc(
+      '<table header-row="true">\n<tr>\n<td>A</td>\n</tr>\n<tr>\n<td color="red">b</td>\n</tr>\n</table>',
+    );
+    const table = doc.content[0];
+    expect(table.type).toBe("table");
+    expect(table.content?.[0].content?.[0].type).toBe("tableHeader");
+    expect(table.content?.[1].content?.[0].type).toBe("tableCell");
+    expect(table.content?.[1].content?.[0].attrs?.color).toBe("red");
+  });
+});
+
+describe("nfm converter — inline round-trips", () => {
+  const inlineCases = [
+    "**bold**",
+    "*italic*",
+    "***bold italic***",
+    "~~strike~~",
+    "`code span`",
+    "`multi<br>line code`",
+    "<span underline=\"true\">u</span>",
+    "<span color=\"purple\">colored</span>",
+    "<span color=\"green_bg\">bg</span>",
+    "[text](https://x.com)",
+    "[**bold link**](https://x.com)",
+    "before $`a^2 + b^2`$ after",
+    "line one<br>line two",
+    "literal \\* not italic and a \\[ bracket",
+  ];
+  for (const text of inlineCases) {
+    it(`inline fixpoint: ${text}`, () => {
+      expect(canonicalizeNfm(text)).toBe(text);
+    });
+  }
+});
