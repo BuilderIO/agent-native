@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import pLimit from "p-limit";
+import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
 import generateImage from "./generate-image.js";
@@ -64,6 +65,7 @@ export default defineAction({
       await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
     }
     const limit = pLimit(4);
+    const variantBatchId = nanoid();
     const results = await Promise.allSettled(
       slots.map((slot) =>
         limit(() =>
@@ -84,6 +86,7 @@ export default defineAction({
             includeLogo: base.includeLogo,
             groundingMode: base.groundingMode,
             slotId: slot.slotId,
+            variantBatchId,
             dismissible: slot.dismissible,
             sourceAssetId: slot.sourceAssetId,
             subjectAssetId: slot.subjectAssetId,

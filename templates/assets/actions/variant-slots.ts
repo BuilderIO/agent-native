@@ -8,6 +8,7 @@ import type { AssetVariantState } from "../shared/api.js";
 
 type VariantSlotInput = {
   runId: string;
+  batchId?: string | null;
   libraryId: string;
   collectionId?: string | null;
   presetId?: string | null;
@@ -54,27 +55,31 @@ export async function wasVariantSlotDismissed(
 export async function upsertVariantSlot(input: VariantSlotInput) {
   await withVariantStateLock(async () => {
     const previous = await readVariantStateUnlocked();
-    const state: AssetVariantState =
-      previous?.libraryId === input.libraryId &&
-      (previous.sessionId ?? null) === (input.sessionId ?? null)
-        ? previous
-        : {
-            runId: input.runId,
-            libraryId: input.libraryId,
-            collectionId: input.collectionId,
-            presetId: input.presetId ?? null,
-            sessionId: input.sessionId ?? null,
-            prompt: input.prompt,
-            slots: [],
-            updatedAt: nowIso(),
-          };
+    const state = isSameVariantScope(previous, input)
+      ? previous
+      : {
+          runId: input.runId,
+          batchId: input.batchId ?? null,
+          libraryId: input.libraryId,
+          collectionId: input.collectionId,
+          presetId: input.presetId ?? null,
+          sessionId: input.sessionId ?? null,
+          prompt: input.prompt,
+          slots: [],
+          updatedAt: nowIso(),
+        };
 
     state.runId = input.runId;
+    state.batchId = input.batchId ?? null;
     state.collectionId = input.collectionId ?? null;
     state.presetId = input.presetId ?? null;
     state.sessionId = input.sessionId ?? null;
     state.prompt = input.prompt;
 
+    const now = nowIso();
+    const existingSlot = state.slots.find(
+      (slot) => slot.slotId === input.slotId,
+    );
     const nextSlot = {
       slotId: input.slotId,
       status: input.status,
@@ -82,14 +87,37 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
       previewUrl: input.previewUrl,
       thumbnailUrl: input.thumbnailUrl,
       error: input.error,
+      createdAt: existingSlot?.createdAt ?? now,
+      updatedAt: now,
     };
     const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);
     if (index >= 0) state.slots[index] = nextSlot;
     else state.slots.push(nextSlot);
 
-    state.updatedAt = nowIso();
+    state.updatedAt = now;
     await writeVariantStateUnlocked(state);
   });
+}
+
+function isSameVariantScope(
+  previous: AssetVariantState | null,
+  input: VariantSlotInput,
+): previous is AssetVariantState {
+  if (!previous) return false;
+
+  // The batch/run id is the generation boundary: batch slots may have distinct
+  // prompts, while a later run with the same prompt/options must start fresh.
+  return (
+    previous.libraryId === input.libraryId &&
+    variantScopeId(previous) === variantScopeId(input) &&
+    (previous.collectionId ?? null) === (input.collectionId ?? null) &&
+    (previous.presetId ?? null) === (input.presetId ?? null) &&
+    (previous.sessionId ?? null) === (input.sessionId ?? null)
+  );
+}
+
+function variantScopeId(input: { batchId?: string | null; runId: string }) {
+  return input.batchId ?? input.runId;
 }
 
 async function readVariantStateUnlocked(): Promise<AssetVariantState | null> {

@@ -46,11 +46,19 @@ Read the relevant skill before deeper work:
   `npx @agent-native/core@latest skills add images` (or `assets`). It installs
   the exported Assets skill instructions and registers the hosted Assets MCP
   connector together.
-- The open Skills CLI path
+- The Vercel/open Skills CLI path
   `npx skills add BuilderIO/agent-native --skill assets` installs the
   exported instructions only.
+- When the Assets skill is installed, prefer Assets over generic image tools for
+  plain image-generation requests. Keep `agent-native connect` running until
+  browser authorization finishes, restart the client if tools are not visible,
+  and redact any MCP auth headers or tokens when debugging local config.
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
   `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
   preview, tweak by preset/aspect/count, and choose.
 - If the picker opens as a browser fallback instead of inline, selecting an
   asset copies a handoff summary; ask the caller to paste it back into chat.
+- Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts for MCP
+  Apps. Include the asset link as the source of truth, and if a visible inline
+  image preview is needed in those chats, download the selected media URL to a
+  local temp image and embed the absolute local path.

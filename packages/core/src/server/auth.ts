@@ -1415,10 +1415,10 @@ function createAuthGuardFn(): (
     // authoritative gate — exactly like A2A above. Without this bypass the
     // guard's blanket 401-for-/_agent-native/* below shadows that check, so
     // an external coding agent (Claude Code / Codex / Cowork) connecting via
-    // the stdio proxy or HTTP can never reach it. Exact path only: the MCP
-    // handler returns early for `/_agent-native/mcp/*` management subroutes,
-    // which keep their normal session auth.
-    if (p === "/_agent-native/mcp") {
+    // the stdio proxy or HTTP can never reach it. Exact protocol endpoint only:
+    // tolerate the common trailing slash, but keep
+    // `/_agent-native/mcp/*` management subroutes on normal session auth.
+    if (p === "/_agent-native/mcp" || p === "/_agent-native/mcp/") {
       return;
     }
 

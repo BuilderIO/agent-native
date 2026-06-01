@@ -337,6 +337,98 @@ function renderConnectPage(params: {
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
+  const setupHtml = safeUserCode
+    ? ""
+    : `
+  <div class="mcp-url-block">
+    <div class="section-label">Your MCP URL</div>
+    <div class="url-row">
+      <code id="mcpUrlValue">${safeMcpUrl}</code>
+      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
+    </div>
+  </div>
+
+  <details id="assistantSetup" class="hosts">
+    <summary>
+      <span class="connections-title">Assistant setup</span>
+      <span class="connections-state">MCP URL guides</span>
+      <span class="chev" aria-hidden="true"></span>
+    </summary>
+    <div class="hosts-body">
+      <div class="section-label">Pick your AI assistant</div>
+      <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
+        <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
+        <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
+        <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
+        <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
+        <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
+        <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
+      </div>
+      <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
+        <ol>
+          <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
+          <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
+          <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
+          <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        </ol>
+        <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
+        <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
+        <ol>
+          <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
+          <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
+          <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        </ol>
+        <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
+        <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="cursor">
+        <ol>
+          <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
+          <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
+          <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
+        </ol>
+        <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="claude-code">
+        <p>In your terminal, run:</p>
+        <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
+        <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
+        <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="codex">
+        <p>In your terminal, run:</p>
+        <pre id="codexCmd">${safeCodexCmd}</pre>
+        <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
+        <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="other">
+        <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
+        <pre id="genericConfig">${safeGenericConfig}</pre>
+        <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
+      </div>
+    </div>
+  </details>`;
+  const tokenAdvancedOptionsHtml = safeUserCode
+    ? ""
+    : `
+        <details class="advanced">
+          <summary>
+            Advanced options
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="label">Label (optional)</label>
+              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+            </div>
+            <div class="field">
+              <label for="ttl">Expires in (days, 1–365)</label>
+              <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
+            </div>
+          </div>
+        </details>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -570,7 +662,26 @@ function renderConnectPage(params: {
     font-size: 0.78rem; color: var(--text);
   }
   .url-row .ghost { flex: 0 0 auto; }
-  .hosts { margin: 0 0 1rem; }
+  .hosts {
+    margin: 0 0 1rem; border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); padding: 0.35rem 0;
+  }
+  .hosts > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 0.55rem;
+    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+  }
+  .hosts > summary::-webkit-details-marker { display: none; }
+  .hosts > summary:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 6px;
+  }
+  .hosts > summary .chev {
+    width: 7px; height: 7px; border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
+    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+  }
+  .hosts[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
+  .hosts-body { padding: 0.15rem 0 0.25rem; }
   .tabs {
     display: flex; flex-wrap: wrap; gap: 0.25rem;
     border-bottom: 1px solid var(--border); margin-bottom: 0.75rem;
@@ -680,69 +791,7 @@ function renderConnectPage(params: {
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
 
-  <div class="mcp-url-block">
-    <div class="section-label">Your MCP URL</div>
-    <div class="url-row">
-      <code id="mcpUrlValue">${safeMcpUrl}</code>
-      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
-    </div>
-  </div>
-
-  <div class="hosts">
-    <div class="section-label">Pick your AI assistant</div>
-    <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
-      <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
-      <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
-      <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
-      <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
-      <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
-      <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
-    </div>
-    <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
-      <ol>
-        <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
-        <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
-        <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
-        <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-      </ol>
-      <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
-      <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
-      <ol>
-        <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
-        <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
-        <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-      </ol>
-      <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
-      <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="cursor">
-      <ol>
-        <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
-        <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
-        <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
-      </ol>
-      <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="claude-code">
-      <p>In your terminal, run:</p>
-      <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
-      <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
-      <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="codex">
-      <p>In your terminal, run:</p>
-      <pre id="codexCmd">${safeCodexCmd}</pre>
-      <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
-      <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="other">
-      <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
-      <pre id="genericConfig">${safeGenericConfig}</pre>
-      <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
-    </div>
-  </div>
+  ${setupHtml}
 
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
@@ -754,22 +803,7 @@ function renderConnectPage(params: {
       <div id="msg" class="msg"></div>
       <div id="mintForm">
         <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
-        <details class="advanced">
-          <summary>
-            Advanced options
-            <span class="chev" aria-hidden="true"></span>
-          </summary>
-          <div class="advanced-body">
-            <div class="field">
-              <label for="label">Label (optional)</label>
-              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
-            </div>
-            <div class="field">
-              <label for="ttl">Expires in (days, 1–365)</label>
-              <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
-            </div>
-          </div>
-        </details>
+        ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
         <div class="result-title">Connection token created</div>
@@ -928,8 +962,6 @@ function renderConnectPage(params: {
     var btn = this;
     btn.disabled = true;
     clearMsg();
-    var label = document.getElementById("label").value || undefined;
-    var ttlDays = parseInt(document.getElementById("ttl").value, 10) || undefined;
     try {
       if (USER_CODE) {
         var a = await postJson("/device/authorize", { user_code: USER_CODE });
@@ -990,6 +1022,10 @@ function renderConnectPage(params: {
         }, 2000);
         return;
       } else {
+        var labelEl = document.getElementById("label");
+        var ttlEl = document.getElementById("ttl");
+        var label = labelEl ? labelEl.value || undefined : undefined;
+        var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
         var m = await postJson("/token", { label: label, ttlDays: ttlDays });
         if (!m.ok) {
           btn.disabled = false;

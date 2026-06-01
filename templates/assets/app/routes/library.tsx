@@ -355,8 +355,17 @@ function selectedAssetContext(payload: ReturnType<typeof assetPayload>) {
 }
 
 function selectedAssetClipboardText(payload: ReturnType<typeof assetPayload>) {
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const previewTip =
+    payload.mediaType === "image" && url
+      ? [
+          `Markdown preview: ![Selected asset](${url})`,
+          "If this remote preview does not render in Codex or Claude Code, download the image locally and embed the absolute local file path.",
+        ]
+      : [];
   return [
     selectedAssetFollowUpMessage(payload),
+    ...previewTip,
     "",
     JSON.stringify(selectedAssetContext(payload), null, 2),
   ].join("\n");
@@ -622,13 +631,61 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
+  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
+    string[]
+  >([]);
+  const generateBatch = useActionMutation(
+    "generate-image-batch" as any,
+    {
+      onSuccess: (result: any) => {
+        const images = Array.isArray(result?.images) ? result.images : [];
+        const generatedCount = images.filter((image: any) => image?.ok).length;
+        const failedCount = images.length - generatedCount;
+        setVisibleCandidateRunIds(
+          images
+            .map((image: any) =>
+              image?.ok && typeof image.runId === "string" ? image.runId : null,
+            )
+            .filter((runId: string | null): runId is string => Boolean(runId)),
+        );
+        if (generatedCount > 0) {
+          toast.success(
+            `Generated ${generatedCount} image candidate${
+              generatedCount === 1 ? "" : "s"
+            }`,
+            {
+              description:
+                failedCount > 0
+                  ? `${failedCount} candidate${
+                      failedCount === 1 ? "" : "s"
+                    } failed.`
+                  : "Pick the one you want to send back.",
+            },
+          );
+          setQuery("");
+        } else {
+          toast.error(
+            images[0]?.error ||
+              "Image generation finished without usable candidates.",
+          );
+        }
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || "Image generation failed");
+      },
+    } as any,
+  );
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
       mediaType,
       query: query.trim() || undefined,
+      includeCandidates:
+        mediaType === "image" && visibleCandidateRunIds.length > 0,
+      candidateRunIds:
+        visibleCandidateRunIds.length > 0 ? visibleCandidateRunIds : undefined,
     }),
-    [mediaType, query, selectedLibraryId],
+    [mediaType, query, selectedLibraryId, visibleCandidateRunIds],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
@@ -743,44 +800,10 @@ export default function AssetPicker() {
     } as any,
   );
 
-  const generateBatch = useActionMutation(
-    "generate-image-batch" as any,
-    {
-      onSuccess: (result: any) => {
-        const images = Array.isArray(result?.images) ? result.images : [];
-        const generatedCount = images.filter((image: any) => image?.ok).length;
-        const failedCount = images.length - generatedCount;
-        if (generatedCount > 0) {
-          toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
-            {
-              description:
-                failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
-            },
-          );
-          setQuery("");
-        } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
-        }
-      },
-      onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
-      },
-    } as any,
-  );
-
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
+    setVisibleCandidateRunIds([]);
     generateBatch.mutate({
       libraryId: selectedLibraryId,
       presetId: selectedPreset?.id,
@@ -798,10 +821,15 @@ export default function AssetPicker() {
     effectiveAspectRatio,
     generateBatch,
     prompt,
+    setVisibleCandidateRunIds,
     selectedLibraryId,
     selectedPreset,
     waitingForRequestedPreset,
   ]);
+
+  useEffect(() => {
+    setVisibleCandidateRunIds([]);
+  }, [aspectRatio, count, mediaType, presetId, prompt, selectedLibraryId]);
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
@@ -984,17 +1012,24 @@ export default function AssetPicker() {
 
         {mediaType === "image" ? (
           <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
-            <Input
+            <Textarea
+              autoGrow
+              rows={1}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.shiftKey) return;
-                if (!canGenerate) return;
+                if (
+                  event.key !== "Enter" ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing
+                ) {
+                  return;
+                }
                 event.preventDefault();
-                runGenerate();
+                if (canGenerate) runGenerate();
               }}
               placeholder="Generate an image asset"
-              className="h-11 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <div className="flex items-center gap-1 px-2 pb-2">
               <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">

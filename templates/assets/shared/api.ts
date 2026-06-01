@@ -194,6 +194,7 @@ export interface FailedAssetUpload {
 
 export interface AssetVariantState {
   runId: string;
+  batchId?: string | null;
   libraryId: string;
   collectionId?: string | null;
   presetId?: string | null;
@@ -206,6 +207,8 @@ export interface AssetVariantState {
     previewUrl?: string;
     thumbnailUrl?: string;
     error?: string;
+    createdAt?: string;
+    updatedAt?: string;
   }>;
   updatedAt: string;
 }
