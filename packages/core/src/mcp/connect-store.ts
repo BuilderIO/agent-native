@@ -12,17 +12,12 @@
  *     (`consumed_at`), rate-limited at creation.
  *
  * Mirrors `application-state/store.ts`: lazy `ensureTable()`, `getDbExec()`,
- * `isPostgres()` dialect branching for upserts, `isConnectionError()` swallow
- * so a transient Neon WS drop never 500s. `CREATE TABLE IF NOT EXISTS` only —
- * strictly additive, never DROP / ALTER (shared prod DB rule).
+ * `isConnectionError()` swallow so a transient Neon WS drop never 500s.
+ * `CREATE TABLE IF NOT EXISTS` only — strictly additive, never DROP / ALTER
+ * (shared prod DB rule).
  */
 
-import {
-  getDbExec,
-  isConnectionError,
-  isPostgres,
-  intType,
-} from "../db/client.js";
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 let _initPromise: Promise<void> | undefined;
@@ -353,7 +348,7 @@ export async function getDeviceCode(
   }
 }
 
-export async function getDeviceCodeByUserCode(
+async function getDeviceCodeByUserCode(
   userCode: string,
 ): Promise<DeviceCodeRow | null> {
   try {

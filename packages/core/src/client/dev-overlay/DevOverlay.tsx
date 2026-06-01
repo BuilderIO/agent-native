@@ -17,7 +17,6 @@ import {
   useEffect,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from "react";
 import {
   IconChevronDown,
@@ -580,7 +579,3 @@ if (
   styleEl.textContent = "@keyframes spin { to { transform: rotate(360deg); } }";
   document.head.appendChild(styleEl);
 }
-
-// `ReactNode` is intentionally re-imported here so the file is self-contained
-// when consumed via the package's exports map.
-export type { ReactNode };
