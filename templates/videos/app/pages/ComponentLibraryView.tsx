@@ -5,6 +5,7 @@ import {
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import type { Zone } from "@/remotion/hooks/useEditableZones";
 import {
