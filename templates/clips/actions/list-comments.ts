@@ -10,7 +10,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq, asc } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -52,6 +52,3 @@ export default defineAction({
     return { comments };
   },
 });
-
-// Silence unused-import warnings in environments that tree-shake type-only deps.
-void and;

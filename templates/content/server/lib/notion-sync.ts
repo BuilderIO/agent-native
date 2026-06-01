@@ -13,6 +13,7 @@ import {
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
+import { getCurrentOwnerEmail } from "./documents.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;

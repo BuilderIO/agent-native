@@ -7,7 +7,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq, or } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -60,5 +60,3 @@ export default defineAction({
     return { id: args.id };
   },
 });
-
-void and;

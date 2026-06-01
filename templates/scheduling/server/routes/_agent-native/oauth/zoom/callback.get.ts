@@ -53,7 +53,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const session = await getSession(event);
     if (!session?.email) {
       setResponseStatus(event, 401);
-      return errorPage("Unauthenticated — please sign in and retry.");
+      return errorPage("Unauthenticated — please sign in and retry.", 401);
     }
     const userEmail = session.email;
 
@@ -89,13 +89,13 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 });
 
-function errorPage(message: string): Response {
+function errorPage(message: string, status = 400): Response {
   return new Response(
     `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
       <p style="font-size:15px;color:#e55">${escapeHtml(message)}</p>
       <p style="margin-top:16px;font-size:13px;color:#888"><a href="${appPath("/apps")}" style="color:#888">Back to integrations</a></p>
     </body></html>`,
-    { status: 400, headers: { "content-type": "text/html" } },
+    { status, headers: { "content-type": "text/html" } },
   );
 }
 

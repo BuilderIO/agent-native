@@ -28,10 +28,9 @@ export function StatsRail(props: StatsRailProps) {
     ms: number;
     name: string;
   } | null>((acc, p) => {
-    const ms = 0;
     const pms =
       (p as SpeakerParticipant & { longestMonologueMs?: number })
-        .longestMonologueMs ?? ms;
+        .longestMonologueMs ?? 0;
     if (!acc || pms > acc.ms)
       return { ms: pms, name: p.displayName || p.speakerLabel };
     return acc;

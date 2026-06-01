@@ -215,8 +215,8 @@ const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
 };
 assert.equal(
   videosPackage.scripts?.typecheck,
-  "echo 'skipping typecheck (pre-existing errors)'",
-  "videos typecheck skip must stay explicit and intentional until the template is cleaned up",
+  "agent-native typecheck",
+  "videos is now cleaned up and must run the real typecheck (not the skip placeholder)",
 );
 
 console.log("qa-template-route-matrix: clean");

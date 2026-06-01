@@ -83,7 +83,7 @@ export default function DesignSystemSetup() {
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
-  const [figFiles, setFigFiles] = useState<UploadedFile[]>([]);
+  const [figFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -92,7 +92,6 @@ export default function DesignSystemSetup() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const figInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
@@ -316,21 +315,6 @@ export default function DesignSystemSetup() {
       e.target.value = "";
     },
     [readTextFiles],
-  );
-
-  const handleFigUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setFigFiles((prev) => [...prev, ...newAssets]);
-      e.target.value = "";
-    },
-    [],
   );
 
   const handleDocUpload = useCallback(

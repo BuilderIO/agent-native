@@ -19,7 +19,9 @@ import { useDbSync } from "@agent-native/core";
 import {
   ClientOnly,
   CommandMenu,
+  configureTracking,
   DefaultSpinner,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -30,8 +32,6 @@ import { Layout as AppLayout } from "@agent-native/dispatch/components";
 import type { LinksFunction } from "react-router";
 import { dispatchExtensions } from "./dispatch-extensions";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
