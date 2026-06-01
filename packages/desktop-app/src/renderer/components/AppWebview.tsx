@@ -79,17 +79,11 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    if (
-      templateGatewayOverridesDevUrls() ||
-      isDefaultDesktopTemplateDevTarget(appConfig)
-    ) {
-      const gatewayUrl = getDesktopTemplateGatewayAppUrl(appConfig.id);
-      if (gatewayUrl) return gatewayUrl;
-    }
+    // First-party templates must load through the frame so the Chat | CLI |
+    // Workspace panel lives outside the hot-reloaded app iframe.
+    if (getTemplate(appConfig.id)) return getAppUrl(app);
     // User-edited dev URLs still win for custom/non-default dev targets.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
-    // First-party templates without an explicit override go through the frame.
-    if (getTemplate(appConfig.id)) return getAppUrl(app);
     if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
     if (appConfig.url) return appConfig.url;
     return getAppUrl(app);

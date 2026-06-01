@@ -29,9 +29,7 @@ export type AgentChatSurfaceKind =
    */
   | "app"
   /** Chat rendered by the outer local dev frame, outside the app iframe. */
-  | "dev-frame"
-  /** Chat rendered inside Agent Native Desktop's native app webview. */
-  | "desktop";
+  | "dev-frame";
 
 type AdapterHistoryMessage = {
   role: "user" | "assistant";

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Restore the CLI tab for Agent Native Desktop webviews by treating desktop-hosted app panels as code-capable surfaces.
+Keep the embedded CLI scoped to dev-frame surfaces and route desktop template dev apps through the frame so hot reloads do not refresh terminal state.
