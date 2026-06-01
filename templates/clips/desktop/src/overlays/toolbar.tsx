@@ -236,7 +236,11 @@ export function Toolbar() {
           <IconPlayerPauseFilled size={18} />
         )}
       </button>
-      <div className="toolbar-v-hover-actions" aria-label="Recording actions">
+      <div
+        className="toolbar-v-hover-actions"
+        role="group"
+        aria-label="Recording actions"
+      >
         <button
           className="toolbar-v-action"
           onClick={restart}
