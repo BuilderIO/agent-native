@@ -1063,7 +1063,11 @@ function markdownUrlTransform(value: string): string {
 const TextStreamingContext = React.createContext(false);
 
 function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false,
+  );
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return undefined;
@@ -1101,7 +1105,7 @@ function useSmoothStreamingText(
 ): string {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [visibleText, setVisibleText] = useState(() => {
-    if (!streaming) return targetText;
+    if (!streaming || prefersReducedMotion) return targetText;
     const graphemes = splitStreamingTextGraphemes(targetText);
     return sliceGraphemes(
       targetText,
