@@ -217,32 +217,40 @@ function shouldUseDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) {
-    return !headers.has("cache-control");
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
   }
 
   if (!pathname.endsWith(".data")) return false;
-  if (hasAuthSignal) return false;
   if (!contentType.includes("text/x-script")) return false;
 
-  const cacheControl = headers.get("cache-control");
-  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+  // React Router gives loader `.data` responses `cache-control: no-cache` by
+  // default. In Agent-Native, SSR output is intentionally public app shell:
+  // user/org-specific reads happen after hydration through actions and API
+  // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
+  // render-time route prefetch warms the CDN instead of hammering origin.
+  // Do not re-add a cookie/auth-signal bypass here without changing that
+  // architecture; logged-in browsers still need CDN-cached public route data.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
 }
 
 function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
-  hasAuthSignal: boolean,
 ) {
-  if (
-    !shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)
-  ) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) {
     return;
   }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
@@ -270,11 +278,10 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
-  hasAuthSignal: boolean,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -355,14 +362,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
-          hasAuthSignal,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
-        hasAuthSignal,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

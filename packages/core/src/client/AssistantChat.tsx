@@ -4104,6 +4104,11 @@ const AssistantChatInner = forwardRef<
           setIsRestoring(false);
         }
       })();
+    } else if (threadId && isNewThread) {
+      // Client-created empty tabs do not have a server row until the first
+      // message is sent. Avoid probing /threads/:id on mount; that request
+      // can only 404 and makes normal app startup look broken in DevTools.
+      setIsRestoring(false);
     } else if (threadId) {
       (async () => {
         try {
@@ -4151,6 +4156,7 @@ const AssistantChatInner = forwardRef<
     importThreadData,
     reconnectActiveRunForThread,
     loadHistoryRepository,
+    isNewThread,
   ]);
 
   useEffect(() => {

@@ -232,6 +232,7 @@ export { wrapWithAnalytics } from "./analytics.js";
 export {
   getH3App,
   awaitBootstrap,
+  markDefaultPluginProvided,
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {

@@ -209,6 +209,7 @@ function ThreadListSidebar({
 // through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_LABELS: string[] = [];
+const EMPTY_EMAILS: EmailMessage[] = [];
 
 export function InboxPage() {
   const { view = "inbox", threadId: routeThreadId } = useParams<{
@@ -306,17 +307,27 @@ export function InboxPage() {
     ? undefined
     : (activeLabel ?? undefined);
   const {
-    data: rawEmails = [],
+    data: rawEmails,
     isLoading,
+    isFetching,
     isError,
     error: emailsError,
+    refetch: refetchEmails,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
   } = useEmails(view, searchQuery, effectiveLabel);
+  const hasEmailData = rawEmails !== undefined;
+  const emailListLoading =
+    isLoading ||
+    !hasEmailData ||
+    (!googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
     // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
     // matching triage tab. Shared with the badge counts (AppLayout) so the
     // two agree on self-sent threads.
-    let filtered = augmentSelfSentLabels(rawEmails, {
+    let filtered = augmentSelfSentLabels(rawEmails ?? EMPTY_EMAILS, {
       isGoogleConnected,
       connectedEmails,
       hasNoteToSelf,
@@ -572,7 +583,8 @@ export function InboxPage() {
     view === "inbox" && (!activeLabel || activeLabel === "important");
   const isInboxZero =
     showsScenicInboxZero &&
-    !isLoading &&
+    hasEmailData &&
+    !emailListLoading &&
     !isError &&
     !hasThread &&
     !searchQuery &&
@@ -650,12 +662,19 @@ export function InboxPage() {
             onArchived={setLastArchivedId}
             onDraftOpen={handleDraftOpen}
             onNavigateThread={handleOptimisticThreadNavigation}
+            isLoading={emailListLoading}
+            isFetching={isFetching}
+            emailsError={emailsError}
+            refetchEmails={refetchEmails}
+            hasNextPage={hasNextPage}
+            fetchNextPage={fetchNextPage}
+            isFetchingNextPage={isFetchingNextPage}
           />
         )}
       </div>
 
       {/* Right contact panel — hidden during initial load or when maximized */}
-      {!isLoading && !(hasThread && isMaximized) && (
+      {!emailListLoading && !(hasThread && isMaximized) && (
         <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
           <ContactPanel
             emailId={contactEmailId}
