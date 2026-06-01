@@ -152,6 +152,18 @@ function getNotionPageId(attrs: Record<string, string>) {
   );
 }
 
+function safeExternalPageUrl(input: string | null): string | null {
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export const TOGGLE_SUMMARY_PLACEHOLDER = "Toggle";
 export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
   "Empty toggle. Click or drop blocks inside.";
@@ -437,7 +449,7 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
     attrs.src ||
     humanizeTag(tagName);
   const canOpenLocalPage = Boolean(pageLink && options.onOpenPageLink);
-  const externalUrl = attrs.url || attrs.href || null;
+  const externalUrl = safeExternalPageUrl(attrs.url || attrs.href || null);
 
   if (tagName === "page") {
     const openPage = () => {
