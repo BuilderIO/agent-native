@@ -134,9 +134,7 @@ export function syncMcpActionEntries(
   const current = new Set<string>();
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
     current.add(tool.name);
-    if (!target[tool.name]) {
-      target[tool.name] = mcpToolToActionEntry(manager, tool);
-    }
+    target[tool.name] = mcpToolToActionEntry(manager, tool);
   }
   for (const key of Object.keys(target)) {
     if (key.startsWith("mcp__") && !current.has(key)) {
@@ -155,6 +153,7 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     run: async (args: Record<string, string>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
       // into the LLM's visible tool list, reject invocation here so we never

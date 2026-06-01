@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, expect, it } from "vitest";
 import { injectWebmDuration } from "./webm-duration";
 
 function concat(...chunks: Uint8Array[]): Uint8Array {
@@ -110,14 +109,11 @@ describe("injectWebmDuration", () => {
 
     const out = injectWebmDuration(file, 12_345);
 
-    assert.notEqual(out, file, "should return a patched copy");
-    assert.ok(
-      Math.abs(readDuration(out) - 12_345) < 0.001,
-      `expected ~12345, got ${readDuration(out)}`,
-    );
+    expect(out).not.toBe(file);
+    expect(readDuration(out)).toBeCloseTo(12_345, 3);
     // The cluster (and its bytes) must survive verbatim at the tail.
     const tail = out.slice(out.length - CLUSTER.length);
-    assert.deepEqual([...tail], [...CLUSTER]);
+    expect([...tail]).toEqual([...CLUSTER]);
   });
 
   it("overwrites an existing wrong Duration", () => {
@@ -132,10 +128,7 @@ describe("injectWebmDuration", () => {
     const file = concat(el(EBML_ID, new Uint8Array([0x01])), segment);
 
     const out = injectWebmDuration(file, 60_000);
-    assert.ok(
-      Math.abs(readDuration(out) - 60_000) < 0.001,
-      `expected ~60000, got ${readDuration(out)}`,
-    );
+    expect(readDuration(out)).toBeCloseTo(60_000, 3);
   });
 
   it("honors a non-default TimecodeScale", () => {
@@ -148,21 +141,18 @@ describe("injectWebmDuration", () => {
 
     const out = injectWebmDuration(file, 10_000);
     // 10_000ms * 1e6 / 500_000 = 20_000 ticks
-    assert.ok(
-      Math.abs(readDuration(out) - 20_000) < 0.001,
-      `expected ~20000, got ${readDuration(out)}`,
-    );
+    expect(readDuration(out)).toBeCloseTo(20_000, 3);
   });
 
   it("returns input unchanged for non-WebM bytes", () => {
     const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
-    assert.equal(injectWebmDuration(garbage, 5_000), garbage);
+    expect(injectWebmDuration(garbage, 5_000)).toBe(garbage);
   });
 
   it("returns input unchanged for a non-positive duration", () => {
     const info = el(INFO_ID, timecodeScaleEl(1_000_000));
     const segment = el(SEGMENT_ID, info, { unknownSize: true });
     const file = concat(el(EBML_ID, new Uint8Array([0x01])), segment);
-    assert.equal(injectWebmDuration(file, 0), file);
+    expect(injectWebmDuration(file, 0)).toBe(file);
   });
 });

@@ -231,6 +231,7 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
+const SHOW_AGENT_ACTIVITY_STEPS = false;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -2305,7 +2306,9 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const activityTrail = activityTrailFromMetadata(msg);
+  const activityTrail = SHOW_AGENT_ACTIVITY_STEPS
+    ? activityTrailFromMetadata(msg)
+    : [];
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -2378,7 +2381,7 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {isComplete && activityTrail.length > 0 && (
+      {SHOW_AGENT_ACTIVITY_STEPS && isComplete && activityTrail.length > 0 && (
         <RunActivityTrail steps={activityTrail} />
       )}
       {isComplete && (
@@ -2492,7 +2495,9 @@ function RunningActivityStatus({
   return (
     <div className="agent-running-activity shrink-0 px-4 pb-2">
       <div className="flex flex-col gap-2">
-        <ActivitySteps steps={steps} className="max-w-full" />
+        {SHOW_AGENT_ACTIVITY_STEPS && (
+          <ActivitySteps steps={steps} className="max-w-full" />
+        )}
         <ThinkingIndicator label={label} />
       </div>
     </div>
@@ -4460,7 +4465,11 @@ const AssistantChatInner = forwardRef<
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (typeof detail?.label === "string" && detail.label.trim()) {
+      if (
+        SHOW_AGENT_ACTIVITY_STEPS &&
+        typeof detail?.label === "string" &&
+        detail.label.trim()
+      ) {
         const label = detail.label.trim();
         const tool = detail.tool?.trim() || undefined;
         setActivityLabel(label);
@@ -5252,7 +5261,9 @@ const AssistantChatInner = forwardRef<
                 label={
                   isReconnecting
                     ? "Reconnecting"
-                    : (activityLabel ?? "Thinking")
+                    : SHOW_AGENT_ACTIVITY_STEPS
+                      ? (activityLabel ?? "Thinking")
+                      : "Thinking"
                 }
               />
             )}

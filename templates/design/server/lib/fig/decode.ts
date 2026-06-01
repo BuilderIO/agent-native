@@ -241,9 +241,28 @@ function isZip(file: Buffer): boolean {
   return file.length >= 4 && file.subarray(0, 4).equals(ZIP_MAGIC);
 }
 
-function jsonReplacer(_key: string, value: unknown): unknown {
+// Recursively normalize a decoded kiwi document into plain, JSON-safe values.
+// We walk the tree directly instead of `JSON.parse(JSON.stringify(...))`:
+// real Figma files decode to hundreds of thousands of nodes, and serializing
+// the whole tree to a single string blows V8's max-string-length limit
+// (RangeError: Invalid string length). A direct walk has no such ceiling.
+function normalizeDecoded(value: unknown): unknown {
   if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
   if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) {
+    const arr = new Array(value.length);
+    for (let i = 0; i < value.length; i++) arr[i] = normalizeDecoded(value[i]);
+    return arr;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>)) {
+      const v = (value as Record<string, unknown>)[k];
+      if (v === undefined) continue;
+      out[k] = normalizeDecoded(v);
+    }
+    return out;
+  }
   return value;
 }
 
@@ -286,7 +305,7 @@ function decodeKiwiDocument(
     );
     const bb = new ByteBuffer(view);
     const document = decoder.call(compiled, bb);
-    return JSON.parse(JSON.stringify(document, jsonReplacer));
+    return normalizeDecoded(document);
   } catch {
     return null;
   }
