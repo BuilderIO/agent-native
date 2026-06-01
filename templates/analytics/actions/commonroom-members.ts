@@ -5,6 +5,7 @@ import {
   getMembers,
   getSegments,
 } from "../server/lib/commonroom";
+import { cliBoolean } from "./schema-helpers";
 
 export default defineAction({
   description:
@@ -12,10 +13,7 @@ export default defineAction({
   schema: z.object({
     email: z.string().optional().describe("Look up member by email"),
     query: z.string().optional().describe("Search query"),
-    segments: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true to list segments"),
+    segments: cliBoolean.optional().describe("Set to true to list segments"),
     limit: z.coerce.number().optional().describe("Max results (default 25)"),
   }),
   http: { method: "GET" },

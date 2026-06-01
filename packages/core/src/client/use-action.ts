@@ -95,6 +95,33 @@ function resolveUserTimezone(): string | undefined {
   }
 }
 
+export function serializeActionQueryParams(
+  params: Record<string, any>,
+): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    appendActionQueryParam(qs, key, value);
+  }
+  return qs.toString();
+}
+
+function appendActionQueryParam(
+  qs: URLSearchParams,
+  key: string,
+  value: unknown,
+) {
+  if (value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    // Use bracket keys so a one-item array still arrives as an array after the
+    // server parses URLSearchParams. Repeated bare keys lose that distinction.
+    for (const item of value) {
+      appendActionQueryParam(qs, `${key}[]`, item);
+    }
+    return;
+  }
+  qs.append(key, String(value));
+}
+
 async function actionFetch<T>(
   name: string,
   method: string,
@@ -116,13 +143,8 @@ async function actionFetch<T>(
   if (method === "GET" && params && Object.keys(params).length > 0) {
     // Skip null/undefined so optional filters don't turn into literal "null"
     // strings in the query string (e.g. `?folderId=null`).
-    const entries = Object.entries(params).filter(
-      ([, v]) => v !== null && v !== undefined,
-    );
-    if (entries.length > 0) {
-      const qs = new URLSearchParams(entries.map(([k, v]) => [k, String(v)]));
-      url += `?${qs}`;
-    }
+    const qs = serializeActionQueryParams(params);
+    if (qs) url += `?${qs}`;
   } else if (method !== "GET" && params) {
     init.body = JSON.stringify(params);
   }

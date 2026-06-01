@@ -185,6 +185,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user swipes a row to snooze, we need to snooze that specific
@@ -1099,6 +1100,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           </>
 
           <div className="flex-1" />
+
+          {headerActions && (
+            <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
+            </div>
+          )}
 
           {/* Search — stays visible while a search is active so the
                   user always knows what they searched */}

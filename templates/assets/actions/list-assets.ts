@@ -29,7 +29,12 @@ export default defineAction({
     includeCandidates: includeCandidatesSchema.describe(
       "Include unsaved generated candidate assets. Defaults to false so picker/search views only expose approved or reference assets unless a generation flow opts in.",
     ),
-    candidateRunIds: z.array(z.string()).optional(),
+    candidateRunIds: z
+      .preprocess(
+        (value) => (typeof value === "string" ? [value] : value),
+        z.array(z.string()),
+      )
+      .optional(),
   }),
   http: { method: "GET" },
   readOnly: true,

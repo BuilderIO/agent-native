@@ -136,9 +136,41 @@ assert.match(
   "desktop dev-mode URL resolution must honor custom devUrl values",
 );
 assert.match(
+  desktopRegistry,
+  /if \(!devUrl\) return devPort === template\.devPort;/,
+  "desktop default-template detection must treat custom devPort values as non-default targets",
+);
+const templateBranchIndex = appWebview.indexOf(
+  "const template = getTemplate(appConfig.id);",
+);
+const customTemplateDevUrlIndex = appWebview.indexOf(
+  "const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)",
+);
+const framedTemplateReturnIndex = appWebview.indexOf(
+  "return getFramedAppUrl(app, customTemplateDevUrl);",
+);
+const nonTemplateDevUrlIndex = appWebview.indexOf(
+  "if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();",
+);
+assert.ok(
+  templateBranchIndex !== -1 &&
+    customTemplateDevUrlIndex !== -1 &&
+    framedTemplateReturnIndex !== -1 &&
+    nonTemplateDevUrlIndex !== -1 &&
+    templateBranchIndex < customTemplateDevUrlIndex &&
+    customTemplateDevUrlIndex < framedTemplateReturnIndex &&
+    framedTemplateReturnIndex < nonTemplateDevUrlIndex,
+  "desktop template dev targets must use the frame and pass custom targets into the app iframe",
+);
+assert.match(
   appWebview,
-  /getDesktopTemplateGatewayAppUrl\(appConfig\.id\)/,
-  "desktop lazy Electron mode must route template dev URLs through the gateway",
+  /frameUrl\.searchParams\.set\("devUrl", trimmedDevUrl\)/,
+  "desktop template frame URL must preserve custom devUrl/devPort targets for the app iframe",
+);
+assert.doesNotMatch(
+  appWebview,
+  /if\s*\(\s*templateGatewayOverridesDevUrls\(\)\s*\|\|\s*isDefaultDesktopTemplateDevTarget\(appConfig\)\s*\)\s*\{[\s\S]*?getDesktopTemplateGatewayAppUrl\(appConfig\.id\)/,
+  "desktop must not top-level-load template gateway URLs; the frame owns the CLI sidebar and proxies the app iframe",
 );
 assert.match(
   appWebview,

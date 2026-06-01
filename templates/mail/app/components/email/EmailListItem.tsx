@@ -384,7 +384,10 @@ export const EmailListItem = memo(function EmailListItem({
         role="row"
         tabIndex={0}
         onClick={handleRowClick}
-        onMouseEnter={onHover}
+        // `mouseenter` can fire when layout moves under a stationary cursor.
+        // `mousemove` only follows the pointer after the user actually moves it,
+        // so keyboard navigation keeps ownership during list/header changes.
+        onMouseMove={onHover}
         onKeyDown={(e) => {
           if (e.key === "Enter") onSelect();
           if (e.key === " ") {

@@ -8,6 +8,7 @@ import {
   archiveDashboard,
   unarchiveDashboard,
 } from "../server/lib/dashboards-store";
+import { cliBoolean } from "./schema-helpers";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -26,8 +27,7 @@ export default defineAction({
     "dashboard permanently.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
-    archived: z
-      .boolean()
+    archived: cliBoolean
       .optional()
       .default(true)
       .describe(

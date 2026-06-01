@@ -3609,6 +3609,8 @@ function PlanModeCallout({
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
   sendMessage(text: string, images?: string[]): void;
+  /** Programmatically prefill the composer without submitting. */
+  prefillMessage(text: string): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
   sendRecoveryMessage(
     text: string,
@@ -5039,6 +5041,10 @@ const AssistantChatInner = forwardRef<
     () => ({
       sendMessage(text: string, images?: string[]) {
         addToQueue(text, images);
+      },
+      prefillMessage(text: string) {
+        tiptapRef.current?.setText(text);
+        tiptapRef.current?.focus();
       },
       sendRecoveryMessage(
         text: string,

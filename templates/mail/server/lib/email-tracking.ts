@@ -2,6 +2,7 @@ import { eq, sql, desc, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db/index.js";
 import type { EmailTrackingStats } from "../../shared/types.js";
+import { extractMarkdownUrls } from "../../shared/markdown.js";
 
 export type TrackingContext = {
   pixelToken: string;
@@ -59,13 +60,7 @@ export function injectTrackingIntoHtml(
 
 /** Collect unique http(s) URLs from a markdown body (top portion, not quoted). */
 export function collectLinks(body: string): string[] {
-  const urls = new Set<string>();
-  const markdown = /\[[^\]]+\]\((https?:\/\/[^\s)]+)\)/g;
-  const bare = /(?<!["(>])(https?:\/\/[^\s<)]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = markdown.exec(body))) urls.add(m[1]);
-  while ((m = bare.exec(body))) urls.add(m[1]);
-  return [...urls];
+  return extractMarkdownUrls(body);
 }
 
 /**

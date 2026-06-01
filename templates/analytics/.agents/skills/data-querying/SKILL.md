@@ -52,10 +52,16 @@ pnpm action github-prs --org=<org> --query="is:open label:bug"
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
 # HubSpot deals
-pnpm action hubspot-deals --properties=dealname,amount,dealstage
+pnpm action hubspot-deals --query="The Knot" --limit=10 --properties=dealname,amount,dealstage
+
+# HubSpot + Gong account/deal deep dive
+pnpm action account-deep-dive --query="The Knot" --days=180 --gongLimit=10 --transcriptLimit=5
 
 # HubSpot contacts or companies
 pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
+
+# Gong call content for a customer deep dive
+pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
 
 ### Writing Ad-Hoc Scripts
@@ -87,6 +93,7 @@ For complete answers, combine data from multiple sources:
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
+- **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
 - **Sentry** for error rates and trends
@@ -95,6 +102,9 @@ For complete answers, combine data from multiple sources:
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
+- Before finalizing an analytics answer, make the evidence trail explicit enough
+  to audit: source(s), time window, filters, sample size or row count, join or
+  match method, caveats/gaps, and what action to take next when useful.
 - Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns

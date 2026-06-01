@@ -70,6 +70,48 @@ function resolveAppId(event: H3Event): string {
   return "mail";
 }
 
+function normalizeCustomDevUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function customDevUrlFromFrameUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return normalizeCustomDevUrl(new URL(value).searchParams.get("devUrl"));
+  } catch {
+    return null;
+  }
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function resolveCustomDevUrl(event: H3Event): string | null {
+  const query = getQuery(event);
+  const explicit = normalizeCustomDevUrl(query._devUrl);
+  if (explicit) return explicit;
+
+  const referer = getHeader(event, "referer");
+  const fromReferer = customDevUrlFromFrameUrl(referer);
+  if (fromReferer) return fromReferer;
+
+  const cookie = getCookie(event, "frame_active_dev_url");
+  return normalizeCustomDevUrl(cookie ? safeDecodeURIComponent(cookie) : null);
+}
+
 const app = createApp();
 const router = createRouter();
 
@@ -100,13 +142,15 @@ router.get(
     const query = getQuery(event);
     const appId = (query.app as string) || "mail";
     const app = getTemplate(appId);
+    const customDevUrl = normalizeCustomDevUrl(query.devUrl);
     const gatewayUrl = templateGatewayUrl();
     const devUrl =
-      gatewayUrl && app?.devPort
+      customDevUrl ??
+      (gatewayUrl && app?.devPort
         ? new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "")
         : app?.devPort
           ? `http://localhost:${app.devPort}`
-          : null;
+          : null);
     return {
       id: appId,
       name: app?.label || appId,
@@ -122,6 +166,10 @@ router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
+    const customDevUrl = resolveCustomDevUrl(event);
+    if (customDevUrl) {
+      return proxyRequest(event, `${customDevUrl}${event.path}`);
+    }
     const gatewayUrl = templateGatewayUrl();
     if (gatewayUrl) {
       return proxyRequest(event, `${gatewayUrl}/${appId}${event.path}`);
@@ -138,6 +186,10 @@ router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
+    const customDevUrl = resolveCustomDevUrl(event);
+    if (customDevUrl) {
+      return proxyRequest(event, `${customDevUrl}${event.path}`);
+    }
     const gatewayUrl = templateGatewayUrl();
     if (gatewayUrl) {
       return proxyRequest(event, `${gatewayUrl}/${appId}${event.path}`);

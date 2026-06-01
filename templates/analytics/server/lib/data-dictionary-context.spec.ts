@@ -60,4 +60,35 @@ describe("renderDataDictionary", () => {
     expect(context).toContain("Guessed Metric** (ai-suggestion)");
     expect(context).toContain("verify table, columns, and meaning");
   });
+
+  it("renders join, freshness, ownership, and caveat metadata", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "Expansion Pipeline",
+        definition: "Open expansion opportunity amount",
+        table: "hubspot.deals",
+        columnsUsed: "deal_id, company_id, amount",
+        cuts: "stage, owner",
+        joinPattern:
+          "Join HubSpot companies on company_id, then usage by domain",
+        updateFrequency: "hourly",
+        dataLag: "15 minutes",
+        dependencies: "hubspot sync",
+        validDateRange: "2024-01-01 onward",
+        commonQuestions: "Which accounts are stuck in procurement?",
+        knownGotchas: "Merged companies can duplicate deal rows.",
+        owner: "Sales Ops",
+        approved: true,
+      },
+    ]);
+
+    expect(context).toContain(
+      "joins: Join HubSpot companies on company_id, then usage by domain",
+    );
+    expect(context).toContain("freshness: hourly; 15 minutes");
+    expect(context).toContain("owner: Sales Ops");
+    expect(context).toContain(
+      "gotchas: Merged companies can duplicate deal rows.",
+    );
+  });
 });

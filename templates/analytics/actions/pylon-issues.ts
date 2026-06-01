@@ -5,15 +5,13 @@ import {
   providerError,
   requireActionCredentials,
 } from "./_provider-action-utils";
+import { cliBoolean } from "./schema-helpers";
 
 export default defineAction({
   description:
     "Query Pylon support issues and customer accounts. Use this first when the user asks about Pylon, support tickets, support issues, or customer account data from Pylon. Do not use BigQuery for Pylon data unless the user explicitly asks for a warehouse copy.",
   schema: z.object({
-    accounts: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true to list accounts"),
+    accounts: cliBoolean.optional().describe("Set to true to list accounts"),
     account: z.string().optional().describe("Filter by account name"),
     state: z.string().optional().describe("Filter by issue state"),
     query: z.string().optional().describe("Search query"),

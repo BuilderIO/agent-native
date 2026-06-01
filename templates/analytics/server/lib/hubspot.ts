@@ -124,6 +124,16 @@ export const HUBSPOT_OBJECT_TYPES = [
 ] as const;
 
 export type HubSpotObjectType = (typeof HUBSPOT_OBJECT_TYPES)[number];
+export type HubSpotAssociatedObjectType =
+  | HubSpotObjectType
+  | "notes"
+  | "emails";
+
+function isHubSpotObjectType(
+  objectType: HubSpotAssociatedObjectType,
+): objectType is HubSpotObjectType {
+  return (HUBSPOT_OBJECT_TYPES as readonly string[]).includes(objectType);
+}
 
 export interface DealStage {
   id: string;
@@ -230,9 +240,25 @@ const OPTIONAL_DEAL_PROPERTIES = [
   "associatedcompanyid",
   "company_name",
   "hs_primary_company_name",
+  "hs_deal_stage_probability_label",
   "hs_manual_forecast_category",
   "nbm_meeting_booked_date",
   "nbm_meeting_complete_date",
+  "products",
+  "closed_lost_reason",
+  "hs_closed_lost_reason",
+  "closed_lost_detail_reason",
+  "notes_last_updated",
+  "notes_last_contacted",
+  "num_associated_contacts",
+  "num_notes",
+  "hs_next_step",
+  "risk_status",
+  "risk_summary",
+  "risk_category",
+  "risk_status_last_updated",
+  "total_contract_value",
+  "churn_notes",
   // POV stage entry dates (hs_v2_date_entered_{stageId})
   "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
@@ -246,10 +272,17 @@ const DEFAULT_OBJECT_PROPERTIES: Record<HubSpotObjectType, string[]> = {
     "lastname",
     "company",
     "jobtitle",
+    "phone",
     "lifecyclestage",
     "hubspot_owner_id",
     "createdate",
     "lastmodifieddate",
+    "hs_lead_status",
+    "hubspotscore",
+    "linkedin_profile",
+    "hs_email_last_open_date",
+    "notes_last_updated",
+    "hs_last_sales_activity_timestamp",
   ],
   companies: [
     "hs_object_id",
@@ -258,6 +291,8 @@ const DEFAULT_OBJECT_PROPERTIES: Record<HubSpotObjectType, string[]> = {
     "industry",
     "type",
     "lifecyclestage",
+    "num_associated_contacts",
+    "num_associated_deals",
     "hubspot_owner_id",
     "createdate",
     "hs_lastmodifieddate",
@@ -274,6 +309,25 @@ const DEFAULT_OBJECT_PROPERTIES: Record<HubSpotObjectType, string[]> = {
     "hubspot_owner_id",
     "createdate",
     "hs_lastmodifieddate",
+  ],
+};
+
+const DEFAULT_ASSOCIATED_OBJECT_PROPERTIES: Record<
+  HubSpotAssociatedObjectType,
+  string[]
+> = {
+  ...DEFAULT_OBJECT_PROPERTIES,
+  notes: ["hs_object_id", "hs_note_body", "hs_timestamp", "createdate"],
+  emails: [
+    "hs_object_id",
+    "hs_email_direction",
+    "hs_email_from_email",
+    "hs_email_from_firstname",
+    "hs_email_from_lastname",
+    "hs_email_subject",
+    "hs_email_text",
+    "hs_timestamp",
+    "createdate",
   ],
 };
 
@@ -325,12 +379,18 @@ async function resolveDealProperties(extraProperties: string[] = []) {
 }
 
 async function resolveObjectProperties(
-  objectType: HubSpotObjectType,
+  objectType: HubSpotAssociatedObjectType,
   extraProperties: string[] = [],
 ) {
+  if (!isHubSpotObjectType(objectType)) {
+    return uniqueProperties([
+      ...(DEFAULT_ASSOCIATED_OBJECT_PROPERTIES[objectType] ?? []),
+      ...extraProperties,
+    ]);
+  }
   const available = await getAvailableObjectPropertyNames(objectType);
   return uniqueProperties([
-    ...(DEFAULT_OBJECT_PROPERTIES[objectType] ?? []),
+    ...(DEFAULT_ASSOCIATED_OBJECT_PROPERTIES[objectType] ?? []),
     ...extraProperties,
   ]).filter((property) => available.has(property));
 }
@@ -388,6 +448,106 @@ export async function searchHubSpotObjects(options: {
     nextAfter: data.paging?.next?.after ?? null,
     properties,
   };
+}
+
+export async function getHubSpotAssociations(options: {
+  fromObjectType: HubSpotAssociatedObjectType;
+  fromObjectId: string;
+  toObjectType: HubSpotAssociatedObjectType;
+  limit?: number;
+}): Promise<string[]> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const limit = Math.max(1, Math.min(500, options.limit ?? 100));
+  let after: string | undefined;
+
+  for (let page = 0; page < 10 && ids.length < limit; page++) {
+    const params = new URLSearchParams({
+      limit: String(Math.min(100, limit - ids.length)),
+    });
+    if (after) params.set("after", after);
+    const data = await apiGet<{
+      results?: Array<{ id?: string; toObjectId?: string | number }>;
+      paging?: { next?: { after?: string } };
+    }>(
+      `/crm/v3/objects/${options.fromObjectType}/${options.fromObjectId}/associations/${options.toObjectType}?${params.toString()}`,
+      `assoc:${options.fromObjectType}:${options.fromObjectId}:${options.toObjectType}:${params.toString()}`,
+    );
+
+    for (const result of data.results ?? []) {
+      const id =
+        typeof result.id === "string"
+          ? result.id
+          : result.toObjectId != null
+            ? String(result.toObjectId)
+            : null;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+      if (ids.length >= limit) break;
+    }
+    after = data.paging?.next?.after;
+    if (!after) break;
+  }
+
+  return ids;
+}
+
+export async function readHubSpotObjects(options: {
+  objectType: HubSpotAssociatedObjectType;
+  ids: string[];
+  properties?: string[];
+}): Promise<HubSpotObjectRecord[]> {
+  const ids = Array.from(new Set(options.ids.filter(Boolean)));
+  if (!ids.length) return [];
+  const properties = await resolveObjectProperties(
+    options.objectType,
+    options.properties ?? [],
+  );
+  const records: HubSpotObjectRecord[] = [];
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const batch = ids.slice(i, i + 100);
+    const data = await apiPost<HubSpotObjectListResponse>(
+      `/crm/v3/objects/${options.objectType}/batch/read`,
+      {
+        inputs: batch.map((id) => ({ id })),
+        properties,
+      },
+      `batch:${options.objectType}:${batch.join(",")}:${properties.join(",")}`,
+    );
+    records.push(...(data.results ?? []));
+  }
+
+  return records;
+}
+
+export async function getAssociatedHubSpotObjects(options: {
+  fromObjectType: HubSpotAssociatedObjectType;
+  fromObjectId: string;
+  toObjectType: HubSpotAssociatedObjectType;
+  limit?: number;
+  properties?: string[];
+}): Promise<HubSpotObjectRecord[]> {
+  const ids = await getHubSpotAssociations(options);
+  return readHubSpotObjects({
+    objectType: options.toObjectType,
+    ids,
+    properties: options.properties,
+  });
+}
+
+export function stripHubSpotHtml(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function getDealPipelines(): Promise<Pipeline[]> {

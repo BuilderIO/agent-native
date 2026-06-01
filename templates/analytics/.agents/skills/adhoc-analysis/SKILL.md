@@ -7,7 +7,7 @@ description: >-
 
 # Ad-Hoc Analysis
 
-Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources, produce a written report with findings, and save a reusable artifact so anyone on the team can re-run the analysis with up-to-date data at any time.
+Ad-hoc analyses are deep-dive investigations that cross-reference multiple data sources and produce a written report with findings. Saving a reusable artifact is optional: answer in chat first unless the user explicitly asks to save the analysis, create a reusable artifact, or re-run/update an existing saved analysis.
 
 ## When to Use
 
@@ -15,10 +15,15 @@ Use the ad-hoc analysis workflow when:
 
 - The user asks a complex question that requires data from multiple sources
 - The investigation involves cross-referencing (e.g., CRM deals matched against call recordings)
-- The results are worth saving for future reference or periodic refresh
 - The user explicitly asks for an "analysis" or "deep dive"
 
-For simple one-off questions (e.g., "how many signups last week?"), just query the data and answer in chat — no need to save an analysis.
+Save a reusable analysis only when:
+
+- The user explicitly asks to save, create, publish, or re-run a saved analysis
+- The user is already viewing or re-running an existing saved analysis
+- The output needs a durable artifact because it includes generated chart images or a reusable refresh workflow
+
+For one-off questions and exploratory deep dives, query the data and answer in chat. Do not call `save-analysis` just because the user said "analysis" or "deep dive".
 
 If the user asks for an analysis output that needs a bespoke interactive
 surface, custom visualization, multi-step workflow, or UI that cannot be
@@ -33,6 +38,7 @@ you built it as an extension.
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
 Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
 - What data sources are relevant? (map each fact to the one source that owns it)
@@ -46,29 +52,46 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 **Common data source combinations:**
 
-| Analysis type | Data sources |
-|---|---|
-| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions |
-| Customer health check | HubSpot deals + Pylon support tickets + BigQuery usage events |
-| Content performance | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups |
-| Engineering velocity | GitHub PRs + Jira tickets + BigQuery deploy events |
-| Churn investigation | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage |
+| Analysis type           | Data sources                                                    |
+| ----------------------- | --------------------------------------------------------------- |
+| Deal/account deep dive  | `account-deep-dive` bundle, then targeted HubSpot/Gong follow-up |
+| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions                     |
+| Customer health check   | HubSpot deals + Pylon support tickets + BigQuery usage events   |
+| Content performance     | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups       |
+| Engineering velocity    | GitHub PRs + Jira tickets + BigQuery deploy events              |
+| Churn investigation     | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage |
 
 **Tips for data gathering:**
+
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- Use `--grep` and `--fields` to narrow results before cross-referencing
+- For named deal/account deep dives, call `account-deep-dive` first with the
+  account, company, domain, deal, or opportunity name. It returns HubSpot deals,
+  associated companies/contacts/tickets/notes/emails, Gong call detail, compact
+  transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`
+  or `gong-calls` follow-ups only when that bundle leaves a specific gap.
+- Structure named deal/account reports like Fusion Analytics: executive summary,
+  company/deal overview, key contacts and roles, dated timeline, Gong evidence
+  with call dates/titles, current state, risks/blockers, recommended next steps,
+  and methodology/gaps. Do not answer from an all-deals dump or Gong metadata
+  alone.
+- Use action filters such as `query`, `properties`, `objectType`, `company`, and
+  `limit` to narrow results before cross-referencing
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
 - If a data source is not configured, mention what's missing and work with what's available — never invent rows to fill a gap.
 
 ### Step 3: Analyze and Synthesize
 
 Don't just dump raw data. Synthesize findings:
+
 - Identify patterns, trends, and outliers
 - Calculate key metrics (totals, averages, rates, distributions)
 - Rank or categorize items when useful
 - Call out surprises or actionable insights
 - Compare against benchmarks or prior periods when possible
 - Only report figures you actually retrieved from a source — never present a number you did not query. Attribute each figure to its source and time window.
+- Make the evidence trail explicit enough to audit: source(s), time window,
+  filters, sample size or row count, join/match method, caveats/gaps, and
+  recommended next action when useful.
 
 ### Step 4: Generate Charts (when useful)
 
@@ -105,18 +128,20 @@ Structure the report clearly:
 
 ## Summary Metrics
 
-| Metric | Value |
-|---|---|
-| Total deals analyzed | 54 |
-| Average deal size | $42,300 |
-| Win rate | 23% |
+| Metric               | Value   |
+| -------------------- | ------- |
+| Total deals analyzed | 54      |
+| Average deal size    | $42,300 |
+| Win rate             | 23%     |
 
 ## Detailed Analysis
 
 ### Category 1
+
 [Detailed breakdown with tables, lists, etc.]
 
 ### Category 2
+
 [More detail...]
 
 ## Methodology
@@ -126,9 +151,9 @@ Time range: Jan 1 – Mar 31, 2026
 Filters: S1+ pipeline, closed-lost only
 ```
 
-### Step 6: Save the Analysis
+### Step 6: Save the Analysis (only when requested)
 
-Call `save-analysis` with all required fields:
+Call `save-analysis` with all required fields only when the user asked for a saved/re-runnable analysis or this turn is updating an existing saved analysis:
 
 ```
 save-analysis
@@ -149,9 +174,10 @@ save-analysis
   --resultData '{"deals": [...], "metrics": {...}}'
 ```
 
-`resultData` is required. Fill it with structured evidence copied or summarized from the real data-source action results you used: raw rows, row samples, aggregate metrics, match decisions, and explicit provider errors for any gaps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
+`resultData` is required. Fill it with compact structured evidence from the real data-source action results you used: row samples, aggregate metrics, match decisions, call/message IDs, short transcript/message excerpts, coded themes, sentiment labels, and explicit provider errors for any gaps. Do not include full Gong transcripts, full tool outputs, or raw provider payload dumps. If you cannot query a source, do not save a guessed analysis; report the unavailable/error result instead.
 
 **Critical: Write good instructions.** The `instructions` field is what gets sent to the agent on re-run. Be specific:
+
 - Which actions to call with which parameters
 - What filters to apply
 - How to match records across sources
@@ -170,6 +196,7 @@ navigate --view=analyses --analysisId=closed-lost-q1-2026
 ## Re-Running an Analysis
 
 When a user clicks "Re-run" on a saved analysis, the agent receives:
+
 - The original question
 - The saved instructions (step-by-step)
 - The analysis ID to update
@@ -178,19 +205,20 @@ Follow the instructions to gather fresh data, then call `save-analysis` with the
 
 ## Actions Reference
 
-| Action | Purpose |
-|---|---|
-| `save-analysis` | Save or update an analysis (id, name, instructions, results) |
-| `get-analysis` | Retrieve a saved analysis by ID |
-| `list-analyses` | List all saved analyses (id, name, description, timestamps) |
-| `delete-analysis` | Delete a saved analysis |
-| `navigate` | Navigate to analyses view: `--view=analyses [--analysisId=<id>]` |
+| Action            | Purpose                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| `save-analysis`   | Save or update an analysis (id, name, instructions, results)     |
+| `get-analysis`    | Retrieve a saved analysis by ID                                  |
+| `list-analyses`   | List all saved analyses (id, name, description, timestamps)      |
+| `delete-analysis` | Delete a saved analysis                                          |
+| `navigate`        | Navigate to analyses view: `--view=analyses [--analysisId=<id>]` |
 
 ## Storage
 
 Analyses are stored in the SQL settings table with key prefix `adhoc-analysis-{id}`. They respect org/user scoping — org-scoped analyses are visible to all org members.
 
 API endpoints (for UI consumption):
+
 - `GET /api/analyses` — list all
 - `GET /api/analyses/{id}` — get one
 - `DELETE /api/analyses/{id}` — delete one
@@ -200,7 +228,7 @@ API endpoints (for UI consumption):
 1. **Use descriptive IDs** — `closed-lost-q1-2026` not `analysis-1`
 2. **Include methodology** — mention data sources, time ranges, and filters in the report
 3. **Write self-contained instructions** — another agent (or the same agent in a new session) should be able to re-run from the instructions alone
-4. **Include structured data** — pass `resultData` with raw metrics/rows so the UI can render richer views in the future
+4. **Include structured data** — pass compact `resultData` with metrics, rows, IDs, short excerpts, and coded themes so the UI can render richer views in the future
 5. **Keep reports scannable** — lead with key findings, put details below
 6. **Note data gaps** — if a source was unavailable or matching was imperfect, say so
 7. **Suggest next steps** — end with actionable recommendations when appropriate

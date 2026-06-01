@@ -62,6 +62,7 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  submit: boolean;
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -1288,6 +1289,7 @@ export function MultiTabAssistantChat({
       const tabId = event.data.data?.tabId;
       const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
+      const submit = event.data.data?.submit !== false;
       const rawImages = event.data.data?.images;
       const images = Array.isArray(rawImages)
         ? rawImages.filter(
@@ -1334,9 +1336,17 @@ export function MultiTabAssistantChat({
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
-          ref.sendMessage(fullMessage, images);
+          if (submit) {
+            ref.sendMessage(fullMessage, images);
+          } else {
+            ref.prefillMessage(fullMessage);
+          }
         } else {
-          pendingSends.current.set(threadId, { message: fullMessage, images });
+          pendingSends.current.set(threadId, {
+            message: fullMessage,
+            images,
+            submit,
+          });
         }
       };
 
@@ -1372,7 +1382,13 @@ export function MultiTabAssistantChat({
     for (const [tabId, pending] of pendingSends.current) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => ref.sendMessage(pending.message, pending.images), 50);
+        setTimeout(() => {
+          if (pending.submit) {
+            ref.sendMessage(pending.message, pending.images);
+          } else {
+            ref.prefillMessage(pending.message);
+          }
+        }, 50);
         pendingSends.current.delete(tabId);
       }
     }
