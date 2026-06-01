@@ -54,12 +54,16 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
    ```
 
    Default client is `codex`; add `--client claude-code` or `--client all` for others.
-   If you only want the portable skill instructions through the open Skills CLI,
-   use:
+   If you only want the portable skill instructions through the Vercel/open
+   Skills CLI, use:
 
    ```bash
    npx skills add BuilderIO/agent-native --skill assets
    ```
+
+   The Vercel/open Skills CLI installs the instruction file only; it does not
+   run MCP connector setup. Use the Agent Native CLI path above when you want
+   the one-command setup.
 
 2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
 3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
@@ -134,6 +138,13 @@ copies a handoff summary and shows a copyable context block; paste that summary
 back into the chat so the external agent can use the selected media URL and
 asset metadata.
 
+Codex, Claude Code, and Claude Desktop Code should be treated as link-out hosts
+for this flow. They may not render MCP Apps inline, and remote CDN markdown
+images may not display reliably in the chat transcript. Agents should keep the
+asset link as the source of truth; when a visible inline preview is needed in a
+code-editor chat, download the selected `previewUrl`/`downloadUrl` to a local
+image file and embed that absolute local path.
+
 For generate-and-choose flows, call `open-asset-picker` with `prompt`,
 `autoGenerate: true`, and `count: 3` (customizable from 1-6). The picker opens
 with candidate images and lets the user adjust count, aspect ratio, or a
@@ -154,7 +165,7 @@ npx @agent-native/core@latest skills add assets
 # Image-generation alias for demos and tutorials.
 npx @agent-native/core@latest skills add images
 
-# Open Skills CLI install: exported instructions only.
+# Vercel/open Skills CLI install: exported instructions only, no MCP config.
 npx skills add BuilderIO/agent-native --skill assets
 
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.

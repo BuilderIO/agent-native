@@ -101,6 +101,10 @@ The command asks which local agent clients should receive MCP config. All client
 
 For Claude Code and Claude Code CLI, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart Claude Code, run `/mcp`, and choose **Authenticate**; Claude completes the OAuth flow and stores its own tokens. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
 
+Keep the `connect` command running until the browser approval completes. If the
+waiting process is stopped early, the approval can succeed in the browser but
+the local client config will not receive the token.
+
 If you previously connected Claude Code through the old bearer-token flow, just run the same `agent-native connect ... --client claude-code` command again. The CLI replaces the legacy `Authorization` headers with the URL-only OAuth entry and tells you to re-authenticate from `/mcp`.
 
 | Local client                  | Config written by `connect`                             | Auth flow                                       |
@@ -111,6 +115,11 @@ If you previously connected Claude Code through the old bearer-token flow, just 
 
 Restart the agent client after connecting so it picks up the new MCP server; OAuth-native clients may then prompt you to authenticate from their MCP UI.
 
+When troubleshooting local MCP config, redact `Authorization`, `http_headers`,
+and token values before sharing logs. Do not use raw curl as a substitute for a
+host MCP session; after connecting, use the host-exposed tools or restart the
+client if the new server is not visible yet.
+
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
 First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
@@ -120,7 +129,7 @@ npx @agent-native/core@latest skills add assets              # aliases: images, 
 npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
 ```
 
-The open Skills CLI path is also available when you only want portable
+The Vercel/open Skills CLI path is also available when you only want portable
 instructions:
 
 ```bash
@@ -240,7 +249,16 @@ only when it truly needs to stay visible in chat-host discovery.
 
 That makes the same app surface available to every compatible host rather than building per-client shims. The current official MCP Apps client list includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support still varies by plan, release channel, and client version, so check the [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). ChatGPT custom MCP apps are available through developer mode for Business and Enterprise/Edu workspaces on ChatGPT web; see OpenAI's [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) notes.
 
-Claude Code and other CLI-first clients still receive the same resources and metadata when they support MCP Apps, but the deep link remains the reliable fallback when a host chooses not to render an iframe. In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app. Human-selection tools can add a paste-back step to that fallback: for example, the Assets picker opens from the fallback link, lets the user choose media in the browser, then copies a handoff summary that the user pastes back into the chat.
+Claude Code, Codex, and other CLI/code-editor clients still receive the same
+resources and metadata when they support MCP Apps, but treat them as link-out
+hosts unless you have verified inline iframe rendering in that exact surface.
+The deep link remains the reliable fallback when a host chooses not to render an
+iframe. In practice, every agent-native app should be authored with both: MCP
+Apps for inline review/edit in capable hosts, and `link` for universal
+round-tripping back to the full app. Human-selection tools can add a paste-back
+step to that fallback: for example, the Assets picker opens from the fallback
+link, lets the user choose media in the browser, then copies a handoff summary
+that the user pastes back into the chat.
 
 Claude and ChatGPT can cache tool and resource metadata for an existing custom
 connector. After changing MCP App metadata, verify with a fresh tool call; if

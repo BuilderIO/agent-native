@@ -4,6 +4,8 @@ description: >-
   How to register user-facing setup steps (API keys, OAuth, connecting
   third-party services) for the sidebar setup checklist. Use when adding a
   feature that needs initial user configuration.
+metadata:
+  internal: true
 ---
 
 # Onboarding Steps

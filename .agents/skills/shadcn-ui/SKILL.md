@@ -5,6 +5,8 @@ description: >-
   components, forms, dialogs, menus, charts, sidebars, themes, registries, or
   any project with a components.json file.
 source: https://ui.shadcn.com/docs/skills
+metadata:
+  internal: true
 ---
 
 # shadcn/ui

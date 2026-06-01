@@ -5,6 +5,8 @@ description: >-
   for app operations — the agent calls them as tools, the frontend calls them
   as HTTP endpoints. Use when creating a new action, adding an API integration,
   or wiring up frontend data fetching.
+metadata:
+  internal: true
 ---
 
 # Agent Actions

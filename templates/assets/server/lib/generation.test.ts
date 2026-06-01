@@ -349,6 +349,7 @@ describe("compilePrompt", () => {
 
     expect(prompt).toContain("Generation preset: Social image.");
     expect(prompt).toContain("Keep visible text to 5 words or fewer.");
+    expect(prompt).toContain("subject/source references provide content");
     expect(prompt).toContain("social post visual");
   });
 
@@ -365,6 +366,8 @@ describe("compilePrompt", () => {
       prompt: "A hero image",
       referenceCount: 3,
       includeLogo: false,
+      aspectRatio: "16:9",
+      imageSize: "2K",
       category: "hero",
     });
 
@@ -376,6 +379,7 @@ describe("compilePrompt", () => {
     expect(prompt).toContain(
       "Texture/material treatment: soft matte surfaces.",
     );
+    expect(prompt).toContain("Output frame: 16:9, 2K.");
   });
 
   it("puts subject preservation first for restyle prompts", () => {

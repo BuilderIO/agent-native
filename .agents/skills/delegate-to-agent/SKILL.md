@@ -5,6 +5,8 @@ description: >-
   from UI or scripts to the agent, when a user asks for agent behavior or
   LLM-powered features, when tempted to add inline LLM calls, or when sending
   messages to the agent from application code.
+metadata:
+  internal: true
 ---
 
 # Delegate All AI to the Agent

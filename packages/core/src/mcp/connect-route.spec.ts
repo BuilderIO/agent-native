@@ -198,6 +198,10 @@ describe("handleMcpConnect", () => {
       expect(body).toContain(
         "npx @agent-native/core connect https://mail.agent-native.com",
       );
+      expect(body).toContain('<details id="assistantSetup" class="hosts">');
+      expect(body).not.toContain(
+        '<details id="assistantSetup" class="hosts" open>',
+      );
     });
 
     it("shows the device user_code when present and well-formed", async () => {
@@ -206,7 +210,12 @@ describe("handleMcpConnect", () => {
         ev({ path: "/?user_code=ABCD-2345" }),
         "/",
       );
-      expect(await res.text()).toContain("ABCD-2345");
+      const body = await res.text();
+      expect(body).toContain("ABCD-2345");
+      expect(body).toContain("Authorize this device");
+      expect(body).not.toContain("Pick your AI assistant");
+      expect(body).not.toContain("Your MCP URL");
+      expect(body).not.toContain("Advanced options");
     });
   });
 

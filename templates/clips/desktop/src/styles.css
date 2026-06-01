@@ -2076,7 +2076,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 28px 36px;
   border-radius: 22px;
   background: rgba(20, 22, 28, 0.94);
@@ -2088,6 +2088,7 @@ body[data-clips-route="recording-pill"] #root {
     0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   min-width: 260px;
+  max-width: min(420px, calc(100vw - 48px));
 }
 
 /*
@@ -2118,12 +2119,29 @@ body[data-clips-route="recording-pill"] #root {
   text-align: center;
 }
 
+.finalizing-progress {
+  width: 220px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.finalizing-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.88);
+  transition: width 180ms ease;
+}
+
 .finalizing-sub {
   font-size: 12px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.65);
   text-align: center;
   margin-top: -4px;
+  max-width: 340px;
+  line-height: 1.35;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2152,9 +2170,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   cursor: grab;
 }
@@ -2279,9 +2294,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.42),
-    0 4px 12px rgba(0, 0, 0, 0.34);
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
@@ -2294,6 +2306,10 @@ body[data-clips-route="recording-pill"] #root {
 .toolbar-v-stop {
   width: 30px;
   height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  flex: 0 0 30px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   border: none;
   /* orange-500 — a touch softer than the red-orange we had before. */
@@ -2303,6 +2319,7 @@ body[data-clips-route="recording-pill"] #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .toolbar-v-stop:hover {
@@ -2332,6 +2349,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .toolbar-v-time {
+  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 600;
@@ -2342,6 +2360,10 @@ body[data-clips-route="recording-pill"] #root {
 .toolbar-v-pause {
   width: 30px;
   height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  flex: 0 0 30px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
@@ -2350,29 +2372,12 @@ body[data-clips-route="recording-pill"] #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .toolbar-v-pause:hover {
   background: rgba(255, 255, 255, 0.1);
   color: white;
-}
-
-.toolbar-v-cancel {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.72);
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toolbar-v-cancel:hover {
-  background: rgba(239, 68, 68, 0.18);
-  color: #fecaca;
 }
 
 .toolbar-v-paused {
@@ -2384,22 +2389,19 @@ body[data-clips-route="recording-pill"] #root {
    (no recorder to drive yet). Greyed out + not-allowed cursor makes the
    "not yet" affordance obvious. */
 .toolbar-v-disabled .toolbar-v-stop,
-.toolbar-v-disabled .toolbar-v-pause,
-.toolbar-v-disabled .toolbar-v-cancel {
+.toolbar-v-disabled .toolbar-v-pause {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
   cursor: not-allowed;
   pointer-events: auto;
 }
 .toolbar-v-disabled .toolbar-v-stop:hover,
-.toolbar-v-disabled .toolbar-v-pause:hover,
-.toolbar-v-disabled .toolbar-v-cancel:hover {
+.toolbar-v-disabled .toolbar-v-pause:hover {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
 }
 .toolbar-v-stop:disabled,
-.toolbar-v-pause:disabled,
-.toolbar-v-cancel:disabled {
+.toolbar-v-pause:disabled {
   cursor: not-allowed;
 }
 
@@ -2430,7 +2432,7 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   align-items: center;
   /* Transparent background — the Tauri window is `transparent: true`,
-     so the shadow + circle below paint through. */
+     so the circular camera surface below paints through. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
@@ -2448,9 +2450,6 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  box-shadow:
-    0 22px 54px rgba(0, 0, 0, 0.28),
-    0 4px 14px rgba(0, 0, 0, 0.18);
   /* Position context for absolute children (close X, canvas). */
   position: relative;
   /* Cursor hint — the drag region is here. */
@@ -3274,9 +3273,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.35);
   color: white;
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */

@@ -1181,7 +1181,8 @@ function useSmoothStreamingText(
       return;
     }
 
-    const lastCommitAt = lastCommitAtRef.current || time - 16;
+    const lastCommitAt =
+      lastCommitAtRef.current || time - SMOOTH_STREAMING_COMMIT_INTERVAL_MS;
     if (
       time - lastCommitAt < SMOOTH_STREAMING_COMMIT_INTERVAL_MS &&
       backlog > 1

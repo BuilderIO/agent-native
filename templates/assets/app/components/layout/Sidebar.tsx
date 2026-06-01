@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
-  IconPhoto,
+  IconLayoutGrid,
   IconPhotoPlus,
   IconPalette,
   IconSettings,
@@ -26,7 +26,7 @@ import {
 
 const baseNavItems = [
   { icon: IconPhotoPlus, label: "Create", href: "/" },
-  { icon: IconPhoto, label: "Library", href: "/library" },
+  { icon: IconLayoutGrid, label: "Library", href: "/library" },
   { icon: IconPalette, label: "Brand Kits", href: "/brand-kits" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];

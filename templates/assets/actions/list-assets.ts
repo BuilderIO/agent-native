@@ -8,7 +8,11 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
-import { parseJson } from "../server/lib/json.js";
+import {
+  assetMatchesSearch,
+  includeCandidatesSchema,
+  shouldIncludeAssetInLibraryResults,
+} from "./_asset-search.js";
 
 export default defineAction({
   description:
@@ -22,6 +26,10 @@ export default defineAction({
     role: z.string().optional(),
     category: z.enum(IMAGE_CATEGORIES).optional(),
     query: z.string().optional(),
+    includeCandidates: includeCandidatesSchema.describe(
+      "Include unsaved generated candidate assets. Defaults to false so picker/search views only expose approved or reference assets unless a generation flow opts in.",
+    ),
+    candidateRunIds: z.array(z.string()).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -34,6 +42,8 @@ export default defineAction({
     role,
     category,
     query,
+    includeCandidates,
+    candidateRunIds,
   }) => {
     await requireLibrary(libraryId);
     const filters = [eq(schema.assets.libraryId, libraryId)];
@@ -50,6 +60,7 @@ export default defineAction({
     if (status) filters.push(eq(schema.assets.status, status));
     if (role) filters.push(eq(schema.assets.role, role));
     const normalizedQuery = query?.trim().toLowerCase();
+    const candidateRunIdSet = new Set(candidateRunIds ?? []);
     const db = getDb();
     const [rows, lineageRows] = await Promise.all([
       db
@@ -64,29 +75,22 @@ export default defineAction({
     ]);
     const lineageById = buildAssetLineage(lineageRows);
     const assets = rows
+      .filter((asset) =>
+        shouldIncludeAssetInLibraryResults(
+          asset,
+          includeCandidates || status === "candidate",
+        ),
+      )
       .filter((asset) => {
-        const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
-        if (category && metadata.category !== category) return false;
-        if (!normalizedQuery) return true;
-        const searchable = [
-          asset.title,
-          asset.description,
-          asset.altText,
-          asset.prompt,
-          asset.mimeType,
-          asset.role,
-          asset.status,
-          metadata.category,
-          metadata.description,
-          metadata.originalName,
-          metadata.prompt,
-          metadata.compiledPrompt,
-        ]
-          .filter((value): value is string => typeof value === "string")
-          .join("\n")
-          .toLowerCase();
-        return searchable.includes(normalizedQuery);
+        if (!candidateRunIdSet.size) return true;
+        if (!(asset.role === "generated" && asset.status === "candidate")) {
+          return true;
+        }
+        return Boolean(
+          asset.generationRunId && candidateRunIdSet.has(asset.generationRunId),
+        );
       })
+      .filter((asset) => assetMatchesSearch(asset, normalizedQuery, category))
       .map((asset) => serializeAsset(asset, lineageById.get(asset.id) ?? null));
     return { count: assets.length, assets };
   },

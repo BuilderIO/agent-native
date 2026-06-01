@@ -5,6 +5,8 @@ description: >-
   (dashboards, documents, forms, decks, etc.). Use when making a resource
   table ownable, wiring list/read/update access checks, or dropping the
   standard share dialog into a template.
+metadata:
+  internal: true
 ---
 
 # Sharing — Private by Default, Explicit Share

@@ -8,11 +8,28 @@ function optionalParam(params: URLSearchParams, key: string) {
   return value ? value : undefined;
 }
 
+function optionalLibraryTab(params: URLSearchParams) {
+  const tab = params.get("tab");
+  return tab === "references" ||
+    tab === "generated" ||
+    tab === "runs" ||
+    tab === "settings"
+    ? tab
+    : undefined;
+}
+
 function navigationFromPath(pathname: string, search = "") {
   // The "library" view is the brand-kit detail page (route /brand-kits/:id).
   // Keep the internal view key stable for the agent/MCP contract.
   const library = pathname.match(/^\/brand-kits\/([^/]+)/);
-  if (library) return { view: "library", libraryId: library[1] };
+  if (library) {
+    const params = new URLSearchParams(search);
+    return {
+      view: "library",
+      libraryId: library[1],
+      activeTab: optionalLibraryTab(params),
+    };
+  }
   const asset = pathname.match(/^\/asset\/([^/]+)/);
   if (asset) return { view: "asset", assetId: asset[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
@@ -49,7 +66,12 @@ function pathFromCommand(command: any): string | null {
   if (!command) return null;
   if (typeof command.path === "string") return command.path;
   if (command.view === "library" && command.libraryId) {
-    return `/brand-kits/${command.libraryId}`;
+    const params = new URLSearchParams();
+    if (typeof command.activeTab === "string") {
+      params.set("tab", command.activeTab);
+    }
+    const query = params.toString();
+    return `/brand-kits/${command.libraryId}${query ? `?${query}` : ""}`;
   }
   if (
     (command.view === "asset" || command.view === "image") &&
@@ -62,7 +84,9 @@ function pathFromCommand(command: any): string | null {
       command.view === "generation-run") &&
     command.libraryId
   ) {
-    return `/brand-kits/${command.libraryId}`;
+    const tab =
+      typeof command.activeTab === "string" ? command.activeTab : "runs";
+    return `/brand-kits/${command.libraryId}?tab=${encodeURIComponent(tab)}`;
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";

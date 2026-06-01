@@ -4,6 +4,8 @@ description: >-
   How to store application data in agent-native apps. All data lives in SQL.
   Use when adding data models, deciding where to store data, or reading/writing
   application data.
+metadata:
+  internal: true
 ---
 
 # Storing Data — SQL is the Source of Truth

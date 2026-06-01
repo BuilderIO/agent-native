@@ -880,6 +880,80 @@
 }
 
 /* Enhanced Notion-flavored markdown blocks */
+/* Notion block colors and backgrounds (matches Notion's light-mode palette).
+   Applied by the NotionBlockColor fidelity extension via `data-notion-color`
+   and the .notion-block-color--* / .notion-block-bg--* classes. */
+.notion-block-color--gray {
+  color: #787774;
+}
+.notion-block-color--brown {
+  color: #976d57;
+}
+.notion-block-color--orange {
+  color: #cc772f;
+}
+.notion-block-color--yellow {
+  color: #c29243;
+}
+.notion-block-color--green {
+  color: #548164;
+}
+.notion-block-color--blue {
+  color: #487ca5;
+}
+.notion-block-color--purple {
+  color: #8a67ab;
+}
+.notion-block-color--pink {
+  color: #b35488;
+}
+.notion-block-color--red {
+  color: #c4554d;
+}
+
+.notion-block-bg {
+  display: block;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+}
+.notion-block-bg--gray {
+  background-color: #f1f1ef;
+}
+.notion-block-bg--brown {
+  background-color: #f4eeee;
+}
+.notion-block-bg--orange {
+  background-color: #fbecdd;
+}
+.notion-block-bg--yellow {
+  background-color: #fbf3db;
+}
+.notion-block-bg--green {
+  background-color: #edf3ec;
+}
+.notion-block-bg--blue {
+  background-color: #e7f3f8;
+}
+.notion-block-bg--purple {
+  background-color: #f6f3f9;
+}
+.notion-block-bg--pink {
+  background-color: #faf1f5;
+}
+.notion-block-bg--red {
+  background-color: #fdebec;
+}
+
+/* Synced block container — a subtle marker so it reads as shared content. */
+.notion-synced-block {
+  border-left: 2px solid #d0a8e0;
+  padding-left: 0.75em;
+  margin: 0.2em 0;
+}
+.notion-synced-block[data-synced-reference="true"] {
+  border-left-color: #b0b0b0;
+}
+
 .notion-toggle {
   margin: 0.2em 0;
 }

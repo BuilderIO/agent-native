@@ -5,6 +5,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
 import { serializeAsset, serializeLibrary } from "./_helpers.js";
+import { shouldIncludeAssetInLibraryResults } from "./_asset-search.js";
 
 function isImageAsset(asset: typeof schema.assets.$inferSelect): boolean {
   return (
@@ -93,7 +94,10 @@ export default defineAction({
       : [];
     const libraries = rows.map((row) => {
       const libAssets = assets.filter((asset) => asset.libraryId === row.id);
-      const imageAssets = sortPreviewAssets(libAssets.filter(isImageAsset));
+      const visibleAssets = libAssets.filter((asset) =>
+        shouldIncludeAssetInLibraryResults(asset),
+      );
+      const imageAssets = sortPreviewAssets(visibleAssets.filter(isImageAsset));
       const cover =
         imageAssets.find((asset) => asset.id === row.coverAssetId) ??
         imageAssets.find((asset) => asset.status === "saved") ??
@@ -104,13 +108,13 @@ export default defineAction({
         ? { id: base.id, title: base.title, description: base.description }
         : {
             ...base,
-            referenceCount: libAssets.filter((asset) =>
+            referenceCount: visibleAssets.filter((asset) =>
               isReusableReference(asset),
             ).length,
-            generatedCount: libAssets.filter(
+            generatedCount: visibleAssets.filter(
               (asset) => asset.role === "generated",
             ).length,
-            videoCount: libAssets.filter(
+            videoCount: visibleAssets.filter(
               (asset) =>
                 asset.mediaType === "video" ||
                 asset.mimeType?.startsWith("video/"),

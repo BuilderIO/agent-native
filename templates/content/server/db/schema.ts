@@ -56,6 +56,11 @@ export const documentSyncLinks = table("document_sync_links", {
   lastPulledRemoteUpdatedAt: text("last_pulled_remote_updated_at"),
   lastPushedLocalUpdatedAt: text("last_pushed_local_updated_at"),
   lastKnownRemoteUpdatedAt: text("last_known_remote_updated_at"),
+  // Hash of the canonical content that is currently identical on both sides.
+  // Content-based change detection is immune to timestamp jitter and the
+  // normalization mismatches that previously caused no-op syncs to look like
+  // real edits (the root of the bidirectional drift).
+  lastSyncedContentHash: text("last_synced_content_hash"),
   lastError: text("last_error"),
   warningsJson: text("warnings_json"),
   hasConflict: integer("has_conflict").notNull().default(0),

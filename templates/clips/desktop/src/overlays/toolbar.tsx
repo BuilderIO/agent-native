@@ -5,7 +5,6 @@ import {
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
-  IconX,
 } from "@tabler/icons-react";
 
 /**
@@ -16,7 +15,7 @@ import {
  *
  * IPC contract:
  *   receives → `clips:recorder-state` { paused, elapsedMs }
- *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:cancel`
+ *   emits    → `clips:recorder-stop`, `:pause`, `:resume`
  *
  * IMPORTANT: The Stop button MUST NOT close its own window. The popover's
  * recorder listener is what drives the stop flow, and it invokes
@@ -122,25 +121,6 @@ export function Toolbar() {
     );
   }
 
-  function cancel() {
-    if (stopping || !enabled) return;
-    setStopping(true);
-    console.log(
-      "[clips-toolbar] cancel clicked — emitting clips:recorder-cancel",
-    );
-    emit("clips:recorder-cancel").catch((err) => {
-      console.error("[clips-toolbar] emit clips:recorder-cancel failed:", err);
-    });
-    fallbackTimer.current = setTimeout(() => {
-      console.warn(
-        "[clips-toolbar] recorder did not close toolbar within 3s after cancel — self-closing",
-      );
-      getCurrentWindow()
-        .close()
-        .catch(() => {});
-    }, 3_000);
-  }
-
   // Same explicit-drag pattern the bubble uses — `data-tauri-drag-region`
   // has been unreliable across iterations so we call `startDragging()`
   // directly on mousedown. Interactive controls are marked `data-no-drag`
@@ -203,22 +183,6 @@ export function Toolbar() {
         ) : (
           <IconPlayerPauseFilled size={18} />
         )}
-      </button>
-      <button
-        className="toolbar-v-cancel"
-        onClick={cancel}
-        disabled={!enabled || stopping}
-        aria-label="Cancel recording"
-        title={
-          stopping
-            ? "Stopping..."
-            : enabled
-              ? "Cancel recording"
-              : "Recording not started yet"
-        }
-        data-no-drag
-      >
-        <IconX size={17} stroke={2.5} />
       </button>
     </div>
   );

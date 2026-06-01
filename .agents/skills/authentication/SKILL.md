@@ -4,6 +4,8 @@ description: >-
   How auth works in agent-native apps. Use when wiring login/signup,
   configuring auth modes, setting up organizations, protecting routes, or
   debugging session issues.
+metadata:
+  internal: true
 ---
 
 # Authentication
