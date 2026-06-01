@@ -11,16 +11,9 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
   resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -72,9 +65,3 @@ export default defineAction({
     };
   },
 });
-
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void accessFilter;
-void assertAccess;
