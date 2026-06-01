@@ -53,6 +53,20 @@ export function assertValidFields(fields: unknown): void {
       if (v.max != null && !isFinite(Number(v.max))) {
         throw new Error(`field #${idx + 1} validation.max must be a number`);
       }
+      if (v.pattern != null) {
+        if (typeof v.pattern !== "string") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern must be a string`,
+          );
+        }
+        try {
+          new RegExp(v.pattern);
+        } catch {
+          throw new Error(
+            `field #${idx + 1} validation.pattern must be a valid regular expression`,
+          );
+        }
+      }
     }
   }
 }

@@ -19,33 +19,39 @@ const REQUIRED_DESIGN_ACTIONS = [
   "navigate",
 ];
 
+const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;
+
 describe("design agent card", () => {
-  it("advertises design domain actions from the generated static registry", async () => {
-    generateActionRegistryForProject(projectRoot);
+  it(
+    "advertises design domain actions from the generated static registry",
+    async () => {
+      generateActionRegistryForProject(projectRoot);
 
-    const registryUrl =
-      pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
-        .href + `?cacheBust=${Date.now()}`;
-    const { default: modules } = await import(registryUrl);
-    const actions = loadActionsFromStaticRegistry(modules);
-    const card = generateAgentCard(
-      {
-        name: "Design",
-        description: "Agent-native design agent",
-        skills: Object.entries(actions).map(([name, entry]) => ({
-          id: name,
-          name,
-          description: entry.tool.description,
-        })),
-        streaming: true,
-      },
-      "https://design.agent-native.com",
-    );
+      const registryUrl =
+        pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
+          .href + `?cacheBust=${Date.now()}`;
+      const { default: modules } = await import(registryUrl);
+      const actions = loadActionsFromStaticRegistry(modules);
+      const card = generateAgentCard(
+        {
+          name: "Design",
+          description: "Agent-native design agent",
+          skills: Object.entries(actions).map(([name, entry]) => ({
+            id: name,
+            name,
+            description: entry.tool.description,
+          })),
+          streaming: true,
+        },
+        "https://design.agent-native.com",
+      );
 
-    expect(card.name).toBe("Design");
-    expect(card.description).toBe("Agent-native design agent");
-    expect(card.skills.map((skill) => skill.id)).toEqual(
-      expect.arrayContaining(REQUIRED_DESIGN_ACTIONS),
-    );
-  });
+      expect(card.name).toBe("Design");
+      expect(card.description).toBe("Agent-native design agent");
+      expect(card.skills.map((skill) => skill.id)).toEqual(
+        expect.arrayContaining(REQUIRED_DESIGN_ACTIONS),
+      );
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
 });

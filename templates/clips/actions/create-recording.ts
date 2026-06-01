@@ -10,7 +10,6 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
@@ -19,77 +18,13 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
-import {
-  DEFAULT_RECORDING_TITLE,
-  RECORDING_TITLE_SOURCES,
-} from "./lib/title-source.js";
-
-const cliBoolean = z
-  .union([z.boolean(), z.enum(["true", "false"])])
-  .transform((value) => value === true || value === "true");
+import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
+import { createRecordingSchema } from "./lib/create-recording-schema.js";
 
 export default defineAction({
   description:
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
-  schema: z.object({
-    id: z
-      .string()
-      .optional()
-      .describe("Pre-generated recording ID (for optimistic UI)"),
-    title: z
-      .string()
-      .optional()
-      .describe("Recording title (defaults to 'Untitled recording')"),
-    titleSource: z
-      .enum(RECORDING_TITLE_SOURCES)
-      .optional()
-      .describe("How the initial title was chosen"),
-    sourceAppName: z
-      .string()
-      .trim()
-      .max(200)
-      .nullish()
-      .describe("Captured application name, when known"),
-    sourceWindowTitle: z
-      .string()
-      .trim()
-      .max(500)
-      .nullish()
-      .describe("Captured window or browser tab title, when known"),
-    folderId: z.string().nullish().describe("Optional folder ID"),
-    spaceIds: z
-      .array(z.string().min(1))
-      .nullish()
-      .describe(
-        "Space IDs the recording should belong to (used when recording from a space)",
-      ),
-    organizationId: z
-      .string()
-      .optional()
-      .describe(
-        "Organization the recording belongs to (defaults to the caller's active org)",
-      ),
-    hasCamera: z
-      .union([z.boolean(), cliBoolean])
-      .optional()
-      .describe("Whether the recording includes a camera track"),
-    hasAudio: z
-      .union([z.boolean(), cliBoolean])
-      .optional()
-      .describe("Whether the recording includes an audio track"),
-    width: z.coerce
-      .number()
-      .optional()
-      .describe("Width of the recording in pixels (may be 0 until finalized)"),
-    height: z.coerce
-      .number()
-      .optional()
-      .describe("Height of the recording in pixels (may be 0 until finalized)"),
-    visibility: z
-      .enum(["private", "org", "public"])
-      .optional()
-      .describe("Initial share visibility for the recording"),
-  }),
+  schema: createRecordingSchema,
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

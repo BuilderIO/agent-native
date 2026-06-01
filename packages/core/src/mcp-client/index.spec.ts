@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { isMcpActionResult, mcpToolsToActionEntries } from "./index.js";
+import {
+  isMcpActionResult,
+  mcpToolsToActionEntries,
+  syncMcpActionEntries,
+} from "./index.js";
 import { McpClientManager } from "./manager.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 
 // Reuse the stdio/client fakes from manager.spec.ts so the ActionEntry
 // wrapper can exercise a real McpClientManager end-to-end.
@@ -12,6 +17,7 @@ const serverFixtures: Record<
       name: string;
       description?: string;
       inputSchema?: Record<string, unknown>;
+      annotations?: Record<string, unknown>;
       _meta?: Record<string, unknown>;
     }>;
     callImpl: (n: string, a: any) => any;
@@ -120,6 +126,77 @@ describe("mcpToolsToActionEntries", () => {
         { type: "text", text: "line two" },
       ],
     });
+  });
+
+  it("threads MCP readOnlyHint annotations into ActionEntry metadata", async () => {
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "inspect",
+          description: "Inspect state",
+          annotations: { readOnlyHint: true },
+        },
+        {
+          name: "mutate",
+          description: "Mutate state",
+          annotations: { readOnlyHint: false },
+        },
+      ],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+
+    const entries = mcpToolsToActionEntries(mgr);
+
+    expect(entries["mcp__x__inspect"].readOnly).toBe(true);
+    expect(entries["mcp__x__mutate"].readOnly).toBeUndefined();
+  });
+
+  it("updates existing MCP ActionEntry metadata when the manager tool set changes", () => {
+    const target: Record<string, ActionEntry> = {
+      mcp__x__inspect: {
+        tool: {
+          description: "Old description",
+          parameters: { type: "object", properties: {} },
+        },
+        http: false,
+        run: async () => "old",
+      },
+    };
+    const manager = {
+      getTools: () => [
+        {
+          source: "x",
+          name: "mcp__x__inspect",
+          originalName: "inspect",
+          description: "New description",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+          annotations: { readOnlyHint: true },
+          raw: { annotations: { readOnlyHint: true } },
+        },
+      ],
+      callTool: vi.fn(),
+      readResourceForTool: vi.fn(),
+    } as unknown as McpClientManager;
+
+    syncMcpActionEntries(manager, target);
+
+    expect(target["mcp__x__inspect"].tool).toEqual({
+      description: "New description",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+    });
+    expect(target["mcp__x__inspect"].readOnly).toBe(true);
   });
 
   it("prefixes error-flagged results with 'Error:'", async () => {

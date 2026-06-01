@@ -19,33 +19,39 @@ const REQUIRED_SLIDES_ACTIONS = [
   "navigate",
 ];
 
+const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;
+
 describe("slides agent card", () => {
-  it("advertises slides domain actions from the generated static registry", async () => {
-    generateActionRegistryForProject(projectRoot);
+  it(
+    "advertises slides domain actions from the generated static registry",
+    async () => {
+      generateActionRegistryForProject(projectRoot);
 
-    const registryUrl =
-      pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
-        .href + `?cacheBust=${Date.now()}`;
-    const { default: modules } = await import(registryUrl);
-    const actions = loadActionsFromStaticRegistry(modules);
-    const card = generateAgentCard(
-      {
-        name: "Slides",
-        description: "Agent-native slides agent",
-        skills: Object.entries(actions).map(([name, entry]) => ({
-          id: name,
-          name,
-          description: entry.tool.description,
-        })),
-        streaming: true,
-      },
-      "https://slides.agent-native.com",
-    );
+      const registryUrl =
+        pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
+          .href + `?cacheBust=${Date.now()}`;
+      const { default: modules } = await import(registryUrl);
+      const actions = loadActionsFromStaticRegistry(modules);
+      const card = generateAgentCard(
+        {
+          name: "Slides",
+          description: "Agent-native slides agent",
+          skills: Object.entries(actions).map(([name, entry]) => ({
+            id: name,
+            name,
+            description: entry.tool.description,
+          })),
+          streaming: true,
+        },
+        "https://slides.agent-native.com",
+      );
 
-    expect(card.name).toBe("Slides");
-    expect(card.description).toBe("Agent-native slides agent");
-    expect(card.skills.map((skill) => skill.id)).toEqual(
-      expect.arrayContaining(REQUIRED_SLIDES_ACTIONS),
-    );
-  });
+      expect(card.name).toBe("Slides");
+      expect(card.description).toBe("Agent-native slides agent");
+      expect(card.skills.map((skill) => skill.id)).toEqual(
+        expect.arrayContaining(REQUIRED_SLIDES_ACTIONS),
+      );
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
 });

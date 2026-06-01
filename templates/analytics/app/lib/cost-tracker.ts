@@ -9,12 +9,16 @@ interface StoredCost {
 }
 
 function load(): StoredCost {
+  if (typeof window === "undefined") {
+    return { bytes: 0, startedAt: Date.now() };
+  }
+
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return { bytes: 0, startedAt: Date.now() };
     const parsed: StoredCost = JSON.parse(raw);
     if (Date.now() - parsed.startedAt > TTL_MS) {
-      localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(STORAGE_KEY);
       return { bytes: 0, startedAt: Date.now() };
     }
     return parsed;
@@ -24,7 +28,12 @@ function load(): StoredCost {
 }
 
 function save(data: StoredCost) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore storage failures; cost tracking is advisory UI state.
+  }
 }
 
 let state = load();

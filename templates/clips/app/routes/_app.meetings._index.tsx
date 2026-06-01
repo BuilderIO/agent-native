@@ -470,9 +470,11 @@ function CalendarAccountMenu({
   const statusText =
     primaryAccount?.status === "disconnected"
       ? "Disconnected"
-      : primaryAccount
-        ? "Connected"
-        : "Not connected";
+      : primaryAccount?.status === "needs-reauth"
+        ? "Needs reconnect"
+        : primaryAccount
+          ? "Connected"
+          : "Not connected";
 
   const handleReconnect = () => {
     setConnectPending(true);
@@ -874,7 +876,12 @@ export default function MeetingsIndexRoute() {
     return filtered;
   }, [upcomingMeetings, debouncedQuery]);
 
-  const needsCalendarReauth = calendarErrors.some((e) => e.needsReauth);
+  // A calendar can need re-auth either via a live fetch error (calendarErrors)
+  // or — more commonly — because list-meetings skips non-"connected" accounts
+  // entirely, so the only signal is the account's own status. Cover both.
+  const needsCalendarReauth =
+    calendarErrors.some((e) => e.needsReauth) ||
+    calendarAccounts.some((a) => a.status === "needs-reauth");
 
   if (isLoading) {
     return (

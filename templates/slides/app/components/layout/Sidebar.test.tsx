@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/client/extensions", () => ({
 }));
 vi.mock("@agent-native/core/client", () => ({
   appPath: (path: string) => path,
+  DevDatabaseLink: () => null,
   FeedbackButton: () => null,
 }));
 vi.mock("@agent-native/core/client/org", () => ({

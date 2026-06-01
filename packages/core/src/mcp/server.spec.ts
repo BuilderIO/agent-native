@@ -13,6 +13,7 @@
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
 // MCP SDK itself is REAL — that's the whole point of these tests.
@@ -1900,6 +1901,59 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
       "view=thing&id=thing-42",
     );
+  });
+
+  it("preserves MCP action-result errors as errored tools/call responses", async () => {
+    const errorConfig = {
+      ...config,
+      actions: {
+        "proxy-fail": {
+          tool: {
+            description: "Proxy an upstream MCP tool",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Error calling MCP tool mcp__x__fail: boom",
+            raw: {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: "Error calling MCP tool mcp__x__fail: boom",
+                },
+              ],
+            },
+            serverId: "x",
+            toolName: "mcp__x__fail",
+            originalToolName: "fail",
+            input: {},
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 31,
+        method: "tools/call",
+        params: { name: "proxy-fail", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: errorConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content).toEqual([
+      {
+        type: "text",
+        text: "Error calling MCP tool mcp__x__fail: boom",
+      },
+    ]);
   });
 
   it("adds hidden open-link metadata for MCP App embed start URLs", async () => {

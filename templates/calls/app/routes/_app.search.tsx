@@ -26,8 +26,9 @@ interface SearchResult {
 }
 
 function loadRecent(): string[] {
+  if (typeof window === "undefined") return [];
   try {
-    const raw = sessionStorage.getItem(RECENT_KEY);
+    const raw = window.sessionStorage.getItem(RECENT_KEY);
     const arr = raw ? (JSON.parse(raw) as unknown) : [];
     return Array.isArray(arr)
       ? (arr.filter((s) => typeof s === "string") as string[])
@@ -39,10 +40,11 @@ function loadRecent(): string[] {
 
 function saveRecent(q: string) {
   if (!q.trim()) return;
+  if (typeof window === "undefined") return;
   try {
     const prev = loadRecent().filter((x) => x !== q);
     const next = [q, ...prev].slice(0, 8);
-    sessionStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    window.sessionStorage.setItem(RECENT_KEY, JSON.stringify(next));
   } catch {}
 }
 

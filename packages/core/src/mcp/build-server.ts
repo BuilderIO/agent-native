@@ -1384,10 +1384,14 @@ export async function createMCPServerForRequest(
 
       try {
         const result = await entry.run((args as Record<string, string>) ?? {});
-        const rawResult = isMcpActionResult(result) ? result.raw : result;
-        const resultForClient = isMcpActionResult(result)
-          ? result.text
-          : result;
+        const mcpResult = isMcpActionResult(result) ? result : null;
+        const rawResult = mcpResult ? mcpResult.raw : result;
+        const resultForClient = mcpResult ? mcpResult.text : result;
+        const mcpResultIsError =
+          !!mcpResult &&
+          !!mcpResult.raw &&
+          typeof mcpResult.raw === "object" &&
+          (mcpResult.raw as Record<string, unknown>).isError === true;
         const mcpAppResource = await resolveMcpAppResourceSafely(
           config,
           name,
@@ -1437,6 +1441,7 @@ export async function createMCPServerForRequest(
         if (block) content.push(block);
         return {
           content,
+          ...(mcpResultIsError ? { isError: true } : {}),
           ...(structuredContent ? { structuredContent } : {}),
           ...(Object.keys(responseMeta).length > 0
             ? { _meta: responseMeta }
