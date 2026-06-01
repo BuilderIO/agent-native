@@ -113,7 +113,7 @@ Restart the agent client after connecting so it picks up the new MCP server; OAu
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
-First-party app skills install the instructions and the hosted MCP connector together with `skills add <name>`. Each has a short alias for demos and tutorials:
+First-party app skills install the instructions and the hosted MCP connector together with `npx @agent-native/core@latest skills add <name>`. Each has a short alias for demos and tutorials:
 
 ```bash
 npx @agent-native/core@latest skills add assets              # aliases: images, image-generation

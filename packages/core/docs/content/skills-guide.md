@@ -100,7 +100,7 @@ agent-native app-skill launch --manifest templates/assets/agent-native.app-skill
 # plain/Claude skills, and MCP configs.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install the exported skill with the open skills CLI.
+# Install a local exported bundle with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y
 
 # Add the generated Claude Code marketplace, then install its Assets plugin.
@@ -113,10 +113,16 @@ metadata; OAuth/device setup happens in the MCP host or through the app's normal
 settings flow.
 
 The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
-for `npx skills add ...`. For first-party hosted apps, prefer
-`agent-native skills add images`, `agent-native skills add assets`, or
-`agent-native skills add design-exploration`; each installs the exported
-instructions and runs the MCP registration step together.
+for `npx skills add ...`, but the raw `skills` CLI installs instructions only.
+For first-party hosted apps, keep the default docs on
+`npx @agent-native/core@latest skills add assets` and
+`npx @agent-native/core@latest skills add design-exploration`; each installs
+the exported instructions and runs the MCP registration step together.
+
+`npx skills add BuilderIO/agent-native-skills --skill assets` is only valid
+after `BuilderIO/agent-native-skills` exists as a real public GitHub repo, or
+after an equivalent well-known/full-URL source is published. `skills.sh` is a
+discovery and leaderboard directory, not an npm-style package namespace.
 
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested
