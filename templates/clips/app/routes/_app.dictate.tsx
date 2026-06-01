@@ -815,7 +815,10 @@ export default function DictateRoute() {
   );
 
   useEffect(() => {
-    if (!isDesktopApp) return;
+    // Inside the desktop app the global Rust shortcut owns Cmd+Shift+Space, so
+    // the in-page handler must run only in a plain browser to avoid firing
+    // dictation twice.
+    if (isDesktopApp) return;
     function onKeyDown(event: KeyboardEvent) {
       if (isEditableTarget(event.target)) return;
       if (

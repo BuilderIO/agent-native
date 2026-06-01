@@ -328,6 +328,24 @@ async function transcriptCleanupEnabled(): Promise<boolean> {
   return settings?.transcriptCleanupEnabled !== false;
 }
 
+/**
+ * Read the language already detected/stored on this recording's transcript row.
+ * Cleanup and renormalization must preserve a detected non-English language
+ * rather than clobbering it back to "en". Falls back to "en" only when no row
+ * (or no language) exists yet.
+ */
+async function resolveStoredLanguage(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+): Promise<string> {
+  const [row] = await db
+    .select({ language: schema.recordingTranscripts.language })
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, recordingId))
+    .limit(1);
+  return row?.language?.trim() || "en";
+}
+
 async function cleanupNativeTranscript({
   db,
   recordingId,
@@ -377,12 +395,13 @@ async function cleanupNativeTranscript({
     }
 
     const now = new Date().toISOString();
+    const language = await resolveStoredLanguage(db, recordingId);
     await upsertTranscriptRow(db, {
       recordingId,
       ownerEmail,
       status: "ready",
       failureReason: null,
-      language: "en",
+      language,
       segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
       fullText: cleanedText,
       now,
@@ -460,12 +479,13 @@ async function completeReadyTranscript({
   if (normalizedSegments.length) {
     const normalizedSegmentsJson = JSON.stringify(normalizedSegments);
     if (normalizedSegmentsJson !== (segmentsJson ?? "[]")) {
+      const language = await resolveStoredLanguage(db, recordingId);
       await upsertTranscriptRow(db, {
         recordingId,
         ownerEmail,
         status: "ready",
         failureReason: null,
-        language: "en",
+        language,
         segmentsJson: normalizedSegmentsJson,
         fullText,
         now: new Date().toISOString(),

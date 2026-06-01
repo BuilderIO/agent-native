@@ -13,7 +13,6 @@ import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
-import { getActiveOrganizationId } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -24,13 +23,13 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    // `accessFilter` already scopes by owner/org/shares — the same helper
+    // list-meetings uses for calendarAccounts. Do not add an extra org filter
+    // here; an `eq(orgId)` on top would hide a user's personal calendar account
+    // whenever an org is active, desyncing this list from what list-meetings reads.
     const where = [
       accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
     ];
-    const orgId = await getActiveOrganizationId().catch(() => undefined);
-    if (orgId) {
-      where.push(eq(schema.calendarAccounts.orgId, orgId));
-    }
     if (args.provider) {
       where.push(eq(schema.calendarAccounts.provider, args.provider));
     }

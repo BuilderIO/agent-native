@@ -21,7 +21,7 @@ export default defineAction({
     durationMs: z.coerce.number().int().min(0).optional(),
     audioUrl: z.string().url().nullable().optional(),
     source: z
-      .enum(["fn-hold", "cmd-shift-space", "manual", "other"])
+      .enum(["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"])
       .default("manual"),
     targetApp: z.string().nullable().optional(),
     startedAt: z.string().datetime().optional(),

@@ -818,6 +818,38 @@ export function App() {
     };
   }, [signedInAs, serverUrl]);
 
+  // Tray "Upcoming Meetings" submenu click → open that meeting's notes page in
+  // the browser. The rich meeting UI (transcript + AI notes) lives in the web
+  // app, not this popover, so we deep-link to it. Without this listener the
+  // tray click emitted `meetings:open` into the void and nothing happened.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ meetingId?: string }>("meetings:open", (ev) => {
+      const id = ev.payload?.meetingId;
+      if (!id) return;
+      const base = serverUrl.replace(/\/+$/, "");
+      const url = `${base}/meetings/${encodeURIComponent(id)}`;
+      import("@tauri-apps/plugin-shell")
+        .then(({ open }) => open(url))
+        .catch((err) => {
+          console.error("[clips-popover] open meeting failed:", err);
+        });
+    })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [serverUrl]);
+
   // Open meeting join URLs (Zoom / Meet / Teams) when the meeting
   // notification banner asks. Centralized here so any future surface that
   // emits `meetings:open-join-url` works the same way.

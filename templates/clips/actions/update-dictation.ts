@@ -19,7 +19,7 @@ export default defineAction({
     fullText: z.string().optional(),
     cleanedText: z.string().nullable().optional(),
     source: z
-      .enum(["fn-hold", "cmd-shift-space", "manual", "other"])
+      .enum(["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"])
       .optional(),
     targetApp: z.string().nullable().optional(),
   }),

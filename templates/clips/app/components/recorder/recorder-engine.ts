@@ -74,6 +74,14 @@ export interface RecorderEngineOptions {
   /** Fired on any error. */
   onError?: (err: Error) => void;
   /**
+   * Fired with a non-fatal notice the UI should surface (e.g. a toast) without
+   * stopping the recording. Used when the camera or microphone disconnects
+   * mid-recording: the engine tears that input down cleanly and keeps going,
+   * then reports here so the user knows the webcam/audio dropped. Unlike
+   * `onError`, this does NOT transition the engine into the `error` state.
+   */
+  onWarning?: (message: string) => void;
+  /**
    * Called when the display stream's video track ends because the user clicked
    * the browser's native "Stop sharing" button. When provided, the engine
    * delegates the stop flow to this callback instead of calling `stop()`
@@ -364,6 +372,12 @@ export class RecorderEngine {
    */
   private uploadAbort: AbortController | null = null;
   private streamChunksDuringRecording = false;
+  /**
+   * One-shot guards so a camera/mic disconnect warning fires at most once even
+   * when a device exposes multiple tracks that each emit `ended`.
+   */
+  private cameraDisconnectNotified = false;
+  private micDisconnectNotified = false;
 
   private state: RecorderState = "idle";
 
@@ -544,6 +558,29 @@ export class RecorderEngine {
         }
       }
 
+      // Camera / mic disconnects mid-recording (USB webcam unplugged, mic
+      // permission revoked, a Bluetooth input dropping) are NON-fatal: the
+      // recording continues with whatever inputs remain, and we surface a
+      // non-blocking warning. We use the same recording/paused guard as the
+      // display handler so the `ended` events fired by `cleanupTracks()` during
+      // a normal stop()/cancel() (state is `stopping`/`idle` by then) are
+      // ignored rather than treated as a disconnect.
+      if (this.cameraStream) {
+        for (const track of this.cameraStream.getVideoTracks()) {
+          track.addEventListener("ended", () => {
+            this.onCameraTrackEnded();
+          });
+        }
+      }
+
+      if (this.micStream) {
+        for (const track of this.micStream.getAudioTracks()) {
+          track.addEventListener("ended", () => {
+            this.onMicTrackEnded();
+          });
+        }
+      }
+
       this.previewStream =
         this.opts.mode === "camera" ? this.cameraStream! : this.displayStream!;
 
@@ -648,6 +685,8 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
     this.streamChunksDuringRecording = false;
+    this.cameraDisconnectNotified = false;
+    this.micDisconnectNotified = false;
     const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
       this.mimeType,
     );
@@ -1551,6 +1590,55 @@ export class RecorderEngine {
     const e = err instanceof Error ? err : new Error(String(err));
     this.opts.onError?.(e);
     this.transition("error", { message: e.message });
+  }
+
+  /**
+   * Surface a non-fatal notice to the UI without leaving the `recording`/
+   * `paused` state. Mirrors `emitError` but never transitions to `error`, so
+   * the MediaRecorder keeps running.
+   */
+  private emitWarning(message: string) {
+    console.warn("[recorder]", message);
+    this.opts.onWarning?.(message);
+  }
+
+  /**
+   * Camera video track ended mid-recording (USB webcam unplugged, OS revoked
+   * the camera, etc.). Non-fatal: keep recording. In `screen+camera` mode the
+   * recorded video comes from the composite canvas — its bubble draw self-hides
+   * once the camera `<video>` reports zero dimensions, so we deliberately do
+   * NOT call `cameraComposite.cleanup()` (that would stop the canvas capture
+   * and kill the screen recording too). We just stop the dead camera tracks and
+   * warn the user.
+   */
+  private onCameraTrackEnded() {
+    if (this.state !== "recording" && this.state !== "paused") return;
+    if (this.cameraDisconnectNotified) return;
+    this.cameraDisconnectNotified = true;
+    for (const track of this.cameraStream?.getVideoTracks() ?? []) {
+      try {
+        track.stop();
+      } catch {
+        // ignore — the track has already ended.
+      }
+    }
+    this.emitWarning(
+      "Camera disconnected — recording continues without webcam.",
+    );
+  }
+
+  /**
+   * Microphone track ended mid-recording (input unplugged, Bluetooth dropped,
+   * permission revoked). Non-fatal: the recording keeps going, just without
+   * captured mic audio from this point on.
+   */
+  private onMicTrackEnded() {
+    if (this.state !== "recording" && this.state !== "paused") return;
+    if (this.micDisconnectNotified) return;
+    this.micDisconnectNotified = true;
+    this.emitWarning(
+      "Microphone disconnected — recording continues without audio.",
+    );
   }
 
   private friendlyError(

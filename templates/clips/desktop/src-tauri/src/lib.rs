@@ -115,6 +115,7 @@ pub fn run() {
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
+            meetings_watcher::meetings_snooze,
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,

@@ -64,9 +64,9 @@ export function MeetingNotification() {
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
 
-  // Keep a ref to the latest data so the snooze timer (which runs after a
-  // 5-min sleep) can re-emit the original payload even if the component
-  // re-renders in between.
+  // Keep a ref to the latest data so the transcription-status listeners can
+  // match incoming events against the meeting currently on screen without
+  // re-subscribing on every render.
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
@@ -201,23 +201,14 @@ export function MeetingNotification() {
 
   function snooze() {
     if (!data) return;
-    const payload = data;
-    // Hide the current banner and re-fire the same payload after the snooze
-    // delay. We re-emit through Tauri so the in-app banner overlay window
-    // (which is what hosts this React component) can rerender with a fresh
-    // dismiss timer.
-    emit("meetings:show-notification", {
-      ...payload,
-      subtitle: `${payload.subtitle} (snoozed)`,
-    } as NotificationData).catch(() => {});
-    // We use a setTimeout in the watcher process by going through the
-    // backend — but since the renderer owns this banner, do it here too as
-    // a safety net.
-    setTimeout(() => {
-      const latest = dataRef.current;
-      if (latest && latest.meetingId === payload.meetingId) return;
-      emit("meetings:show-notification", payload).catch(() => {});
-    }, SNOOZE_MS);
+    // Hand the snooze to the Rust watcher so the reminder re-fires after the
+    // delay even though this overlay window closes right away. A setTimeout
+    // here would be torn down with the window and never fire, and re-emitting
+    // immediately (as before) just re-showed the same banner instantly.
+    invoke("meetings_snooze", {
+      meetingId: data.meetingId,
+      minutes: Math.round(SNOOZE_MS / 60_000),
+    }).catch(() => {});
     dismiss();
   }
 

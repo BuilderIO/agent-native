@@ -192,6 +192,21 @@ effects to CSS box-shadow, and text styles to font tokens; snap spacing to a
 4/8px scale. If no Figma MCP is connected, ask the user to paste the token
 values or describe the file.
 
+**When the user uploads a raw `.fig` file**, parse it in-process with
+`import-figma-file` (no Figma account needed):
+
+```bash
+pnpm action import-figma-file --fileBase64 "<base64 of the .fig>"   # or --fileDataUrl
+```
+
+It decodes the binary `.fig`, returns `frames` (each Figma frame rendered to
+HTML), an extracted `designSystem` (colors with assigned roles, typography,
+spacing, radius, shadows — ready for `DesignSystemData`), and image metadata.
+It's read-only/preview: review the result, then call `create-design-system`
+with the `designSystem` and/or `create-design` + `generate-design` with the
+`frames`. The full `palette` is returned too, so re-assign a color role if a
+heuristic looks off.
+
 ### Source: Brand Analysis (combines website + notes)
 
 ```bash

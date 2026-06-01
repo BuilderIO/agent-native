@@ -8,10 +8,13 @@ import { NavLink } from "react-router";
 import {
   IconCheck,
   IconClock,
+  IconExternalLink,
+  IconMicrophone2,
   IconNotes,
   IconVideo,
 } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";
@@ -163,6 +166,134 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
         </CardContent>
       </Card>
     </NavLink>
+  );
+}
+
+export interface UpcomingMeetingCardData {
+  id: string;
+  title: string;
+  scheduledStart: string;
+  scheduledEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  joinUrl?: string | null;
+  platform?: string | null;
+  participants?: AttendeeStackParticipant[];
+}
+
+/** Human "starts in 5 min" / "now" / "in 2 hrs" label for an upcoming card. */
+function relativeStartLabel(iso: string): { text: string; soon: boolean } {
+  const start = Date.parse(iso);
+  if (Number.isNaN(start)) return { text: "", soon: false };
+  const diffMin = Math.round((start - Date.now()) / 60000);
+  if (diffMin <= 0 && diffMin > -120) return { text: "Now", soon: true };
+  if (diffMin <= 0) return { text: "Started", soon: false };
+  if (diffMin < 60) return { text: `in ${diffMin} min`, soon: diffMin <= 5 };
+  const hrs = Math.round(diffMin / 60);
+  return { text: `in ${hrs} hr${hrs === 1 ? "" : "s"}`, soon: false };
+}
+
+/**
+ * <UpcomingMeetingCard /> — a not-yet-recorded calendar event with explicit
+ * Record + Join affordances (Granola/Loom-style). Clicking the body opens the
+ * meeting detail where notes are captured; "Join & record" jumps straight there
+ * and "Join" opens the call link. Buttons are NavLink/<a> siblings (never
+ * nested anchors) so the markup stays valid.
+ */
+export function UpcomingMeetingCard({
+  meeting,
+}: {
+  meeting: UpcomingMeetingCardData;
+}) {
+  const isLive = !!(meeting.actualStart && !meeting.actualEnd);
+  const { text: whenText, soon } = relativeStartLabel(meeting.scheduledStart);
+  const joinable = soon || isLive;
+
+  return (
+    <Card
+      className={cn(
+        "transition-all duration-150 hover:border-foreground/20 hover:shadow-sm",
+        joinable && "border-foreground/25",
+      )}
+    >
+      <CardContent className="p-4 space-y-2.5">
+        <NavLink
+          to={`/meetings/${meeting.id}`}
+          className="block group focus:outline-none"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-sm font-medium leading-snug line-clamp-2 flex-1 text-foreground group-hover:text-foreground">
+              {meeting.title || "Untitled meeting"}
+            </h3>
+            {isLive ? (
+              <Badge
+                variant="secondary"
+                className="bg-red-500/10 text-red-600 border-red-500/20 text-[10px] gap-1 font-medium px-1.5 shrink-0"
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+                Live
+              </Badge>
+            ) : (
+              <span
+                className={cn(
+                  "shrink-0 text-[11px] tabular-nums",
+                  soon
+                    ? "text-foreground font-medium"
+                    : "text-muted-foreground",
+                )}
+              >
+                {whenText}
+              </span>
+            )}
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+            <IconClock className="h-3.5 w-3.5" />
+            <span>{formatTime(meeting.scheduledStart)}</span>
+            {meeting.scheduledEnd && (
+              <span>– {formatTime(meeting.scheduledEnd)}</span>
+            )}
+          </div>
+        </NavLink>
+
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <AttendeeStack participants={meeting.participants ?? []} size="xs" />
+          <div className="flex items-center gap-1.5">
+            {meeting.joinUrl && (
+              <a
+                href={meeting.joinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2 text-xs cursor-pointer"
+                  tabIndex={-1}
+                >
+                  <IconExternalLink className="h-3.5 w-3.5" />
+                  Join
+                </Button>
+              </a>
+            )}
+            <Button
+              asChild
+              size="sm"
+              variant={joinable ? "default" : "secondary"}
+              className="h-7 gap-1 px-2.5 text-xs cursor-pointer"
+            >
+              <NavLink to={`/meetings/${meeting.id}`}>
+                <IconMicrophone2 className="h-3.5 w-3.5" />
+                {isLive ? "Open notes" : joinable ? "Record" : "Take notes"}
+              </NavLink>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

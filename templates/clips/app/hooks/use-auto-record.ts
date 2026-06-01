@@ -15,7 +15,7 @@
  * everything from a single import.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const TWO_MIN_MS = 2 * 60 * 1000;
 const POLL_MS = 10_000;
@@ -106,6 +106,10 @@ export function useAutoFireCountdown({
   onFire: () => void;
 }) {
   const [remaining, setRemaining] = useState(durationMs);
+  // `cancelled` is React state (not just a ref) so cancelling re-renders the
+  // consumer — otherwise the prompt could stay on screen after the user hits
+  // Cancel, and a ref-only flag wouldn't reflect in the returned value.
+  const [cancelled, setCancelled] = useState(false);
   const cancelledRef = useRef(false);
   const onFireRef = useRef(onFire);
   onFireRef.current = onFire;
@@ -113,6 +117,7 @@ export function useAutoFireCountdown({
   useEffect(() => {
     if (!armed) {
       cancelledRef.current = false;
+      setCancelled(false);
       setRemaining(durationMs);
       return;
     }
@@ -130,15 +135,16 @@ export function useAutoFireCountdown({
     return () => clearInterval(id);
   }, [armed, durationMs]);
 
-  const cancel = () => {
+  const cancel = useCallback(() => {
     cancelledRef.current = true;
+    setCancelled(true);
     setRemaining(durationMs);
-  };
+  }, [durationMs]);
 
   return {
     remaining,
     secondsRemaining: Math.ceil(remaining / 1000),
     cancel,
-    cancelled: cancelledRef.current,
+    cancelled,
   };
 }

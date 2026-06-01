@@ -85,6 +85,14 @@ export default defineAction({
     const db = getDb();
     const now = new Date();
     const nowIso = now.toISOString();
+
+    // We merge persisted rows with live calendar events, then sort once and
+    // slice(offset, offset + limit) at the end. To make that final slice
+    // correct we must fetch enough rows from BOTH sources to cover the whole
+    // offset + limit window before merging — fetching only `limit` would drop
+    // events once offset > 0 or the calendar is large. Keep the hard caps
+    // (500 persisted, 250 live) so a huge calendar can't blow up the request.
+    const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
           now.getTime() + args.upcomingWithinMin * 60 * 1000,
@@ -105,6 +113,7 @@ export default defineAction({
         and(
           isNotNull(schema.meetings.scheduledStart),
           gte(schema.meetings.scheduledStart, nowIso),
+          isNull(schema.meetings.actualStart),
           isNull(schema.meetings.actualEnd),
           upcomingWindowMaxIso
             ? lte(schema.meetings.scheduledStart, upcomingWindowMaxIso)
@@ -141,7 +150,7 @@ export default defineAction({
       .from(schema.meetings)
       .where(and(...whereClauses))
       .orderBy(...orderBy)
-      .limit(Math.min(500, Math.max(args.limit + args.offset, args.limit)))
+      .limit(Math.min(500, windowCount))
       .offset(0);
 
     // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
@@ -156,7 +165,17 @@ export default defineAction({
 
     const liveMeetings: any[] = [];
     const calendarErrors: CalendarFetchError[] = [];
-    let readLiveCalendars = false;
+
+    // Identities of calendar events actually emitted by the live loop this
+    // call. We record both the live meeting `id` (which equals the persisted
+    // meeting id when correlated) and the Google event id (`calendarExternalId`).
+    // A persisted empty calendar meeting is only suppressed when its own live
+    // event was emitted here — not merely because some other account returned
+    // data or errored.
+    const emittedLiveEventKeys = new Set<string>();
+    // Map a persisted meeting's `calendarEventId` (calendar_events.id) to the
+    // Google event externalId so we can match it against the emitted set.
+    const calendarEventIdToExternalId = new Map<string, string>();
 
     if (
       args.includeLiveCalendar &&
@@ -178,7 +197,6 @@ export default defineAction({
 
       for (const account of accounts) {
         if (account.provider !== "google") continue;
-        readLiveCalendars = true;
 
         try {
           const accessToken = await resolveCalendarAccessToken(account);
@@ -210,7 +228,7 @@ export default defineAction({
               calendarId: "primary",
               timeMin,
               timeMax,
-              maxResults: Math.min(250, Math.max(args.limit + args.offset, 50)),
+              maxResults: Math.min(250, Math.max(windowCount, 50)),
             }),
             db
               .select()
@@ -221,6 +239,14 @@ export default defineAction({
           const cachedByExternalId = new Map(
             cachedEvents.map((event) => [event.externalId, event]),
           );
+          for (const cachedEvent of cachedEvents) {
+            if (cachedEvent.externalId) {
+              calendarEventIdToExternalId.set(
+                cachedEvent.id,
+                cachedEvent.externalId,
+              );
+            }
+          }
 
           for (const event of items) {
             if (!event.id || event.status === "cancelled") continue;
@@ -250,7 +276,13 @@ export default defineAction({
               event,
               meeting: persisted,
             });
-            if (liveMeeting) liveMeetings.push(liveMeeting);
+            if (liveMeeting) {
+              liveMeetings.push(liveMeeting);
+              emittedLiveEventKeys.add(liveMeeting.id);
+              if (liveMeeting.calendarExternalId) {
+                emittedLiveEventKeys.add(liveMeeting.calendarExternalId);
+              }
+            }
           }
 
           await recordCalendarFetchSuccess(account).catch(() => {});
@@ -268,12 +300,21 @@ export default defineAction({
       combined.push(meeting);
     }
 
-    const liveHasCalendarData =
-      readLiveCalendars || liveMeetings.length > 0 || calendarErrors.length > 0;
     for (const meeting of persistedMeetings) {
       if (seenIds.has(meeting.id)) continue;
+      // Only suppress an empty persisted calendar meeting when its OWN live
+      // event was actually emitted this call (matched by meeting id or by the
+      // Google event externalId behind its calendarEventId). This avoids hiding
+      // a real persisted calendar meeting whose live event didn't come back —
+      // e.g. because another account errored.
+      const liveExternalId = meeting.calendarEventId
+        ? calendarEventIdToExternalId.get(meeting.calendarEventId)
+        : undefined;
+      const liveEventEmitted =
+        emittedLiveEventKeys.has(meeting.id) ||
+        (liveExternalId ? emittedLiveEventKeys.has(liveExternalId) : false);
       if (
-        liveHasCalendarData &&
+        liveEventEmitted &&
         meeting.source === "calendar" &&
         !meeting.recordingId &&
         !meeting.actualStart &&
