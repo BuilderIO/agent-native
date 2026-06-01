@@ -8,7 +8,9 @@ import {
   isRouteErrorResponse,
   useRouteError,
   useLocation,
+  matchRoutes,
 } from "react-router";
+import type { RouteObject } from "react-router";
 import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentSidebar, configureTracking } from "@agent-native/core/client";
@@ -108,6 +110,40 @@ const DATA_ROUTE_PREFETCH_ATTR = "data-an-prefetch";
 const DATA_ROUTE_PREFETCH_SELECTOR = `a[${DATA_ROUTE_PREFETCH_ATTR}="render"][href]`;
 const MAX_CONCURRENT_DATA_PREFETCHES = 4;
 const warmedDataRoutes = new Set<string>();
+const warmedRouteAssets = new Set<string>();
+
+type ReactRouterManifestRoute = {
+  id: string;
+  parentId?: string;
+  path?: string;
+  index?: boolean;
+  module?: string;
+  clientActionModule?: string;
+  clientLoaderModule?: string;
+  hydrateFallbackModule?: string;
+  imports?: string[];
+};
+
+type ReactRouterManifest = {
+  routes?: Record<string, ReactRouterManifestRoute>;
+};
+
+type WarmupRouteObject = {
+  id: string;
+  path?: string;
+  index?: boolean;
+  children?: WarmupRouteObject[];
+};
+
+declare global {
+  interface Window {
+    __reactRouterContext?: { basename?: string };
+    __reactRouterManifest?: ReactRouterManifest;
+  }
+}
+
+let cachedManifest: ReactRouterManifest | undefined;
+let cachedManifestRouteTree: WarmupRouteObject[] = [];
 
 function CanonicalLink() {
   const location = useLocation();
@@ -259,7 +295,112 @@ function dataRouteUrlForHref(href: string): string | null {
   return url.href;
 }
 
-function DataRouteWarmup() {
+function getManifestRouteTree(
+  manifest: ReactRouterManifest,
+): WarmupRouteObject[] {
+  if (manifest === cachedManifest) return cachedManifestRouteTree;
+
+  const manifestRoutes = Object.values(manifest.routes ?? {});
+  const nodes = new Map<string, WarmupRouteObject>();
+  for (const route of manifestRoutes) {
+    nodes.set(route.id, {
+      id: route.id,
+      path: route.path,
+      index: route.index || undefined,
+    });
+  }
+
+  const tree: WarmupRouteObject[] = [];
+  for (const route of manifestRoutes) {
+    const node = nodes.get(route.id);
+    if (!node) continue;
+    const parent = route.parentId ? nodes.get(route.parentId) : null;
+    if (parent) {
+      parent.children ??= [];
+      parent.children.push(node);
+    } else {
+      tree.push(node);
+    }
+  }
+
+  cachedManifest = manifest;
+  cachedManifestRouteTree = tree;
+  return tree;
+}
+
+function assetUrlForManifestPath(assetPath: string): string | null {
+  try {
+    const url = new URL(assetPath, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function routeAssetUrlsForHref(href: string): string[] {
+  const manifest = window.__reactRouterManifest;
+  if (!manifest?.routes) return [];
+
+  let url: URL;
+  try {
+    url = new URL(href, window.location.href);
+  } catch {
+    return [];
+  }
+  if (url.origin !== window.location.origin) return [];
+  if (url.pathname === window.location.pathname && url.hash) return [];
+  if (
+    url.pathname.startsWith("/_agent-native/") ||
+    url.pathname.startsWith("/api/")
+  ) {
+    return [];
+  }
+  if (/\.\w+$/.test(url.pathname)) return [];
+
+  const basename = window.__reactRouterContext?.basename || "/";
+  const matches =
+    matchRoutes(
+      getManifestRouteTree(manifest) as unknown as RouteObject[],
+      url.pathname,
+      basename,
+    ) ?? [];
+  const assetUrls: string[] = [];
+
+  for (const match of matches) {
+    const routeId = match.route.id;
+    if (!routeId) continue;
+    const route = manifest.routes[routeId];
+    if (!route) continue;
+    for (const assetPath of [
+      route.module,
+      route.clientActionModule,
+      route.clientLoaderModule,
+      route.hydrateFallbackModule,
+      ...(route.imports ?? []),
+    ]) {
+      if (!assetPath) continue;
+      const assetUrl = assetUrlForManifestPath(assetPath);
+      if (assetUrl) assetUrls.push(assetUrl);
+    }
+  }
+
+  return assetUrls;
+}
+
+function warmRouteAssetsForHref(href: string) {
+  for (const assetUrl of routeAssetUrlsForHref(href)) {
+    if (warmedRouteAssets.has(assetUrl)) continue;
+    warmedRouteAssets.add(assetUrl);
+
+    const link = document.createElement("link");
+    link.rel = "modulepreload";
+    link.href = assetUrl;
+    document.head.appendChild(link);
+  }
+}
+
+function RouteWarmup() {
   useEffect(() => {
     const connection = (
       navigator as Navigator & { connection?: { saveData?: boolean } }
@@ -288,9 +429,16 @@ function DataRouteWarmup() {
     };
 
     const enqueue = () => {
+      for (const link of document.querySelectorAll<HTMLLinkElement>(
+        'link[rel="modulepreload"][href]',
+      )) {
+        warmedRouteAssets.add(link.href);
+      }
+
       for (const link of document.querySelectorAll<HTMLAnchorElement>(
         DATA_ROUTE_PREFETCH_SELECTOR,
       )) {
+        warmRouteAssetsForHref(link.href);
         const dataUrl = dataRouteUrlForHref(link.href);
         if (!dataUrl || warmedDataRoutes.has(dataUrl)) continue;
         warmedDataRoutes.add(dataUrl);
@@ -310,10 +458,10 @@ function DataRouteWarmup() {
     // Do not use React Router's native `prefetch="render"` on the public docs
     // site while it sits behind Cloudflare. Native link prefetches carry
     // `Sec-Purpose: prefetch`; Cloudflare Speed Brain intercepts those and
-    // returns 503 for cache-ineligible dynamic routes before Netlify/origin can
-    // serve the now-cacheable `.data` response. This normal fetch warmup keeps
-    // render-time route-data warming without tripping Cloudflare's prefetch
-    // refusal path.
+    // returns 503 for dynamic routes before Netlify/origin can serve the
+    // now-cacheable `.data` response. This custom warmup uses ordinary fetches
+    // for route data and `modulepreload` for route JS chunks, keeping render-time
+    // navigations fast without re-entering Cloudflare's speculation refusal path.
     schedule();
     const observer = new MutationObserver(schedule);
     observer.observe(document.documentElement, {
@@ -403,7 +551,7 @@ export default function Root() {
   const content = (
     <>
       <ScrollManager />
-      <DataRouteWarmup />
+      <RouteWarmup />
       <Header />
       <Outlet />
       <Footer />

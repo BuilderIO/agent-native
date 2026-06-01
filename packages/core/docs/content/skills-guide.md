@@ -81,14 +81,14 @@ Hosted is the default install path. Local launch is explicit for customization,
 offline work, or privacy-sensitive use.
 
 ```bash
-# One-command hosted install for the exported Assets skill plus MCP connector.
+# Happy path: exported instructions plus hosted MCP connector.
 npx @agent-native/core@latest skills add assets
-
-# Same install, using the image-generation alias for demos and tutorials.
 npx @agent-native/core@latest skills add images
-
-# One-command hosted install for Design exploration plus MCP connector.
 npx @agent-native/core@latest skills add design-exploration
+
+# Open Skills CLI: exported instructions only.
+npx skills add BuilderIO/agent-native --skill assets
+npx skills add BuilderIO/agent-native --skill design-exploration
 
 # Register a hosted MCP connector for local agent clients.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
@@ -100,7 +100,7 @@ agent-native app-skill launch --manifest templates/assets/agent-native.app-skill
 # plain/Claude skills, and MCP configs.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install the exported skill with the open skills CLI.
+# Install a local exported bundle with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y
 
 # Add the generated Claude Code marketplace, then install its Assets plugin.
@@ -113,10 +113,11 @@ metadata; OAuth/device setup happens in the MCP host or through the app's normal
 settings flow.
 
 The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
-for `npx skills add ...`. For first-party hosted apps, prefer
-`agent-native skills add images`, `agent-native skills add assets`, or
-`agent-native skills add design-exploration`; each installs the exported
-instructions and runs the MCP registration step together.
+for `npx skills add ...`, but the raw `skills` CLI installs instructions only.
+Keep the Agent Native CLI as the default docs path for local agents because it
+also registers the MCP connector. `BuilderIO/agent-native` is a real GitHub
+repository source for the open Skills CLI; `skills.sh` is a discovery and
+leaderboard directory, not an npm-style package namespace.
 
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested

@@ -49,6 +49,7 @@ import {
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
 } from "./code-agent-runs.js";
+import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 
 export interface ExecuteCodeAgentRunOptions {
   runId: string;
@@ -188,10 +189,11 @@ export async function executeCodeAgentRun(
   }
 
   let assistantText = "";
+  const outputSmoother = createCodeAgentOutputSmoother(options.stdout);
   const send = (event: AgentChatEvent) => {
     if (event.type === "text") {
       assistantText += event.text;
-      options.stdout?.write(event.text);
+      outputSmoother.write(event.text);
       return;
     }
     if (event.type === "activity") {
@@ -251,6 +253,7 @@ export async function executeCodeAgentRun(
         reasoningEffort,
       }),
     );
+    await outputSmoother.flush();
     if (assistantText.trim()) {
       options.stdout?.write("\n");
       appendCodeAgentTranscriptEvent({
@@ -350,6 +353,7 @@ export async function executeCodeAgentRun(
       },
     });
   } catch (err) {
+    await outputSmoother.flush().catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
     options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
     appendCodeAgentTranscriptEvent({
@@ -374,6 +378,7 @@ export async function executeCodeAgentRun(
       },
     });
   } finally {
+    outputSmoother.cancel();
     options.signal?.removeEventListener("abort", abortFromParent);
     await mcpManager?.stop().catch(() => undefined);
     void running;

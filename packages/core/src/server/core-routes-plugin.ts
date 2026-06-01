@@ -136,7 +136,7 @@ import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
-  DEFAULT_SSR_CACHE_CONTROL,
+  DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
 } from "../shared/cache-control.js";
 
@@ -773,7 +773,11 @@ export function createCoreRoutesPlugin(
             "content-type",
             "application/speculationrules+json; charset=utf-8",
           );
-          setResponseHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+          for (const [name, value] of Object.entries(
+            DEFAULT_SSR_CACHE_HEADERS,
+          )) {
+            setResponseHeader(event, name, value);
+          }
           return EMPTY_SPECULATION_RULES;
         }),
       );

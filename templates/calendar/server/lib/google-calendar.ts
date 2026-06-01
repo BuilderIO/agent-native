@@ -1272,6 +1272,7 @@ async function rsvpSingleEvent(
   eventId: string,
   responseStatus: string,
   accountEmail: string,
+  comment?: string,
   sendUpdates?: string,
 ): Promise<void> {
   await calendarPatchEvent(
@@ -1279,7 +1280,13 @@ async function rsvpSingleEvent(
     "primary",
     eventId,
     {
-      attendees: [{ email: accountEmail, responseStatus }],
+      attendees: [
+        {
+          email: accountEmail,
+          responseStatus,
+          ...(comment !== undefined ? { comment } : {}),
+        },
+      ],
       attendeesOmitted: true,
     },
     { sendUpdates: sendUpdates ?? "none" },
@@ -1295,6 +1302,7 @@ export async function rsvpEvent(
   responseStatus: "accepted" | "declined" | "tentative",
   accountEmail: string,
   scope: "single" | "all" | "thisAndFollowing" = "single",
+  comment?: string,
   sendUpdates?: string,
 ): Promise<void> {
   const client = await getClient(accountEmail);
@@ -1308,6 +1316,7 @@ export async function rsvpEvent(
       googleEventId,
       responseStatus,
       accountEmail,
+      comment,
       sendUpdates,
     );
     return;
@@ -1329,6 +1338,7 @@ export async function rsvpEvent(
       recurringEventId,
       responseStatus,
       accountEmail,
+      comment,
       sendUpdates,
     );
     return;
@@ -1363,6 +1373,7 @@ export async function rsvpEvent(
         e.id,
         responseStatus,
         accountEmail,
+        comment,
         sendUpdates,
       ),
     ),

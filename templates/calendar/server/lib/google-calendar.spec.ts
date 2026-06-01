@@ -46,6 +46,7 @@ import {
   getAuthStatus,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
+  rsvpEvent,
   updateEvent,
 } from "./google-calendar";
 
@@ -208,6 +209,69 @@ describe("calendar recurring event updates", () => {
         end: { dateTime: "2026-05-06T17:00:00Z" },
       }),
       expect.any(Object),
+    );
+  });
+});
+
+describe("calendar RSVP updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("includes the attendee response note when RSVP-ing", async () => {
+    await rsvpEvent(
+      "event-1",
+      "declined",
+      "steve@example.com",
+      "single",
+      "I have a conflict",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "declined",
+            comment: "I have a conflict",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+    );
+  });
+
+  it("sends an empty comment so an RSVP note can be cleared", async () => {
+    await rsvpEvent("event-1", "accepted", "steve@example.com", "single", "");
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+            comment: "",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
     );
   });
 });

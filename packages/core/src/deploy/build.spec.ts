@@ -14,7 +14,20 @@ import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
+
+function expectDefaultWorkerSsrCacheHeaders(response: Response) {
+  expect(response.headers.get("cache-control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
+  expect(response.headers.get("cdn-cache-control")).toBe(
+    DEFAULT_SSR_CDN_CACHE_CONTROL,
+  );
+  expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+    DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  );
+}
 
 function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-worker-test-"));
@@ -234,9 +247,7 @@ export default (event) =>
     expect(html).toContain(
       `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
     );
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
     expect(response.headers.get("speculation-rules")).toBe(
       '"/docs/_agent-native/speculation-rules.json"',
     );
@@ -262,9 +273,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("overwrites explicit no-store cache policies on Cloudflare worker SSR", async () => {
@@ -276,9 +285,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
@@ -290,9 +297,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("replaces default no-cache headers for authenticated Cloudflare worker data responses", async () => {
@@ -306,9 +311,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("overwrites explicit private cache policies on authenticated Cloudflare worker data responses", async () => {
@@ -322,9 +325,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {
@@ -337,6 +338,8 @@ export default (event) =>
     );
 
     expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });
 
   it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
@@ -351,9 +354,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
@@ -384,6 +385,9 @@ export default (event) =>
     expect(hashed.headers.get("cdn-cache-control")).toBe(
       IMMUTABLE_ASSET_CACHE_CONTROL,
     );
+    expect(hashed.headers.get("netlify-cdn-cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
 
     const unhashed = await worker.fetch(
       new Request("https://app.test/docs/assets/logo.png"),
@@ -393,6 +397,7 @@ export default (event) =>
     expect(await unhashed.text()).toBe("asset");
     expect(unhashed.headers.get("cache-control")).toBeNull();
     expect(unhashed.headers.get("cdn-cache-control")).toBeNull();
+    expect(unhashed.headers.get("netlify-cdn-cache-control")).toBeNull();
 
     const manuallyVersioned = await worker.fetch(
       new Request("https://app.test/docs/assets/logo-20240501.png"),
@@ -402,6 +407,9 @@ export default (event) =>
     expect(await manuallyVersioned.text()).toBe("asset");
     expect(manuallyVersioned.headers.get("cache-control")).toBeNull();
     expect(manuallyVersioned.headers.get("cdn-cache-control")).toBeNull();
+    expect(
+      manuallyVersioned.headers.get("netlify-cdn-cache-control"),
+    ).toBeNull();
   });
 
   it("uses the build-time app base path for mounted Cloudflare Pages hashed assets", async () => {
@@ -435,6 +443,9 @@ export default (event) =>
       IMMUTABLE_ASSET_CACHE_CONTROL,
     );
     expect(response.headers.get("cdn-cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
       IMMUTABLE_ASSET_CACHE_CONTROL,
     );
   });
@@ -690,6 +701,11 @@ describe("runNitroBuildPipeline", () => {
         "cdn-cache-control"
       ],
     ).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
+    expect(
+      nitro.options.routeRules["/docs/assets/entry.client-aB12_cdE.js"].headers[
+        "netlify-cdn-cache-control"
+      ],
+    ).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
     expect(nitro.options.routeRules["/assets/logo.png"]).toBeUndefined();
     expect(
       nitro.options.routeRules["/assets/entry.client-abc.js"],
@@ -712,6 +728,7 @@ describe("runNitroBuildPipeline", () => {
       "cross-origin-resource-policy": "cross-origin",
       "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
       "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
     });
   });
 

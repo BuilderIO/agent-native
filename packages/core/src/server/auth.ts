@@ -109,7 +109,7 @@ import {
   workspaceAppRouteAccessFromEnv,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
-import { DEFAULT_SSR_CACHE_CONTROL } from "../shared/cache-control.js";
+import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -1309,7 +1309,7 @@ function loginHtmlResponse(loginHtml: string): Response {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": DEFAULT_SSR_CACHE_CONTROL,
+      ...DEFAULT_SSR_CACHE_HEADERS,
       "X-Robots-Tag": "noindex, nofollow",
     },
   });

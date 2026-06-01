@@ -54,6 +54,12 @@ Generate and pick brand media without leaving Codex, Claude Code, Claude, or Cha
    ```
 
    Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   If you only want the portable skill instructions through the open Skills CLI,
+   use:
+
+   ```bash
+   npx skills add BuilderIO/agent-native --skill assets
+   ```
 
 2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
 3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
@@ -148,6 +154,9 @@ npx @agent-native/core@latest skills add assets
 # Image-generation alias for demos and tutorials.
 npx @agent-native/core@latest skills add images
 
+# Open Skills CLI install: exported instructions only.
+npx skills add BuilderIO/agent-native --skill assets
+
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
 
@@ -157,7 +166,7 @@ agent-native app-skill launch --manifest templates/assets/agent-native.app-skill
 # Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
 agent-native app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
 
-# Install the exported Assets skill with the open skills CLI.
+# Install a local exported Assets bundle with the open skills CLI.
 npx skills add ./dist/assets-skill --skill assets -a codex -y
 
 # Install from the generated Claude Code marketplace adapter.

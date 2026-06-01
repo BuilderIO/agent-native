@@ -23,6 +23,9 @@ Detailed event, availability, booking, storage, and UI rules live in
   applicable.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
+- Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
+  visible RSVP comment on a declined or tentative response; pass an empty note to
+  clear an existing RSVP comment.
 
 ## Application State
 

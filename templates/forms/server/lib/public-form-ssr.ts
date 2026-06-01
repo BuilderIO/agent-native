@@ -1,7 +1,7 @@
 import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getAppBasePath } from "@agent-native/core/server";
-import { DEFAULT_SSR_CACHE_CONTROL } from "@agent-native/core/server/ssr-handler";
+import { DEFAULT_SSR_CACHE_HEADERS } from "@agent-native/core/server/ssr-handler";
 import { getDb, schema } from "../db/index.js";
 import {
   toPublicFormSettings,
@@ -254,7 +254,10 @@ export async function renderPublicForm(event: H3Event) {
     "Content-Security-Policy": "frame-ancestors *",
   };
   if (status === 200) {
-    headers["Cache-Control"] = DEFAULT_SSR_CACHE_CONTROL;
+    // Public form SSR is anonymous HTML and follows the same framework-level
+    // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
+    // here; relying on provider config would make templates perform differently.
+    Object.assign(headers, DEFAULT_SSR_CACHE_HEADERS);
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,

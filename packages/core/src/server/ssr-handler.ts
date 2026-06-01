@@ -31,11 +31,13 @@ import {
 } from "../shared/embed-auth.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
+  DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 
 export {
+  DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
@@ -281,7 +283,14 @@ function applyDefaultSsrCacheHeader(
   ) {
     return;
   }
-  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+  // Netlify Functions/proxies are not cached by default, and production docs
+  // requests often carry stale auth/doc cookies. Keep all three cache headers:
+  // Cache-Control for browsers, CDN-Cache-Control for generic CDNs, and
+  // Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache actually
+  // serves SSR HTML/.data instead of forwarding every request to origin.
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    headers.set(name, value);
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(

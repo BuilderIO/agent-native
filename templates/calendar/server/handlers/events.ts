@@ -578,15 +578,40 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
     const scope = body?.scope || "single";
+    const note = typeof body?.note === "string" ? body.note.trim() : undefined;
+    if (body?.note != null && typeof body.note !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "note must be a string" };
+    }
+    if (note && note.length > 1000) {
+      setResponseStatus(event, 400);
+      return { error: "note must be 1000 characters or fewer" };
+    }
+    const sendUpdates = body?.sendUpdates;
+    if (
+      sendUpdates !== undefined &&
+      sendUpdates !== "all" &&
+      sendUpdates !== "none"
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "sendUpdates must be all or none" };
+    }
 
     try {
-      await googleCalendar.rsvpEvent(googleEventId, status, acctEmail, scope);
+      await googleCalendar.rsvpEvent(
+        googleEventId,
+        status,
+        acctEmail,
+        scope,
+        note,
+        sendUpdates,
+      );
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to update RSVP: ${error.message}` };
     }
 
-    return { success: true, status };
+    return { success: true, status, note };
   } catch (error: any) {
     return handleError(event, error);
   }

@@ -36,6 +36,8 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
+  DEFAULT_SSR_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
@@ -398,6 +400,8 @@ function injectHeadScript(html, script) {
 }
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -465,6 +469,12 @@ function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+  headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
+  // Netlify function responses are dynamic by default and can otherwise show
+  // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
+  // Netlify-specific header so SSR HTML/.data are served from the shared
+  // durable CDN cache instead of stampeding origin under logged-in browsers.
+  headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -493,6 +503,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

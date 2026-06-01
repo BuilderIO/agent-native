@@ -29,10 +29,18 @@ be installed as an app-backed skill plus MCP connector:
 npx @agent-native/core@latest skills add design-exploration
 ```
 
-That gives the agent instructions to create a design shell, present 2-5 visual
-directions (3 is the sweet spot) in the inline Design MCP app, wait for your
-pick, and iterate from the selected prototype. See [Using it from your coding
-agent](#coding-agent) for the full flow.
+If you only want the portable skill instructions through the open Skills CLI,
+use:
+
+```bash
+npx skills add BuilderIO/agent-native --skill design-exploration
+```
+
+The Agent Native CLI path gives the agent instructions and MCP tools to create
+a design shell, present 2-5 visual directions (3 is the sweet spot) in the
+inline Design MCP app, wait for your pick, and iterate from the selected
+prototype. See [Using it from your coding agent](#coding-agent) for the full
+flow.
 
 ## Useful Prompts
 
@@ -61,7 +69,13 @@ Generate and pick design directions without leaving Codex, Claude Code, Claude, 
    npx @agent-native/core@latest skills add design-exploration   # aliases: design, ux-exploration
    ```
 
-   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   Default client is `codex`; add `--client claude-code` or `--client all` for
+   others. If you only want the portable skill instructions through the open
+   Skills CLI, use:
+
+   ```bash
+   npx skills add BuilderIO/agent-native --skill design-exploration
+   ```
 
 2. **Ask for directions.** In your agent's chat: "Create three landing-page directions for a technical analytics product." The agent generates 2-5 directions (3 is the sweet spot) you can compare side by side.
 3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the variant grid renders right in the chat — pick a direction and it auto-persists as `index.html`, then keep refining. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Design →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "I picked direction B".
