@@ -12,6 +12,8 @@ import {
   CommandMenu,
   DefaultSpinner,
   appPath,
+  configureTracking,
+  getThemeInitScript,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
@@ -21,8 +23,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,

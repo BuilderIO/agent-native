@@ -1092,10 +1092,8 @@ function ProposalOverflowMenu({
 
 function EvidenceSnippet({
   item,
-  compact = false,
 }: {
   item: NonNullable<ReviewItem["evidence"]>[number];
-  compact?: boolean;
 }) {
   const source = item.captureTitle ?? item.captureId ?? "Captured source";
   const when = timecode(item.timestampMs);
@@ -1105,12 +1103,7 @@ function EvidenceSnippet({
 
   return (
     <div className="rounded-md border border-border bg-background p-3 text-sm">
-      <p
-        className={cn(
-          "whitespace-pre-wrap break-words leading-6",
-          compact && "line-clamp-4",
-        )}
-      >
+      <p className="whitespace-pre-wrap break-words leading-6">
         {item.quote ?? "Evidence quote unavailable"}
       </p>
       <p className="mt-2 break-words text-xs leading-5 text-muted-foreground">

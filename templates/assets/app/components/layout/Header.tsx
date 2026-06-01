@@ -1,7 +1,6 @@
 import { useLocation } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { AgentToggleButton, useActionQuery } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "Create",
