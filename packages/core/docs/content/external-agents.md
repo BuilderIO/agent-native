@@ -113,28 +113,24 @@ Restart the agent client after connecting so it picks up the new MCP server; OAu
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
-First-party app skills are available through the open Skills CLI:
+First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
+
+```bash
+npx @agent-native/core@latest skills add assets              # aliases: images, image-generation
+npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
+```
+
+The open Skills CLI path is also available when you only want portable
+instructions:
 
 ```bash
 npx skills add BuilderIO/agent-native --skill assets
 npx skills add BuilderIO/agent-native --skill design-exploration
 ```
 
-That installs instructions only. For local MCP clients, connect the hosted app
-once:
-
-```bash
-npx @agent-native/core@latest connect https://assets.agent-native.com
-npx @agent-native/core@latest connect https://design.agent-native.com
-```
-
-Use the Agent Native convenience installer when you want one command to install
-the instructions and register the hosted MCP connector together:
-
-```bash
-npx @agent-native/core@latest skills add assets              # aliases: images, image-generation
-npx @agent-native/core@latest skills add design-exploration  # aliases: design, ux-exploration
-```
+The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
+need a connector such as `npx @agent-native/core@latest connect
+https://assets.agent-native.com`.
 
 | Skill                | Alias    | For                    |
 | -------------------- | -------- | ---------------------- |

@@ -47,24 +47,18 @@ Use it when your team needs reusable visual direction and searchable source asse
 
 Generate and pick brand media without leaving Codex, Claude Code, Claude, or ChatGPT.
 
-1. **Install once.** This adds the public Assets skill instructions:
+1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add assets   # aliases: images, image-generation
+   ```
+
+   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   If you only want the portable skill instructions through the open Skills CLI,
+   use:
 
    ```bash
    npx skills add BuilderIO/agent-native --skill assets
-   ```
-
-   For local MCP clients such as Codex or Claude Code, also connect the hosted
-   Assets app once:
-
-   ```bash
-   npx @agent-native/core@latest connect https://assets.agent-native.com
-   ```
-
-   Or use the Agent Native convenience installer when you want one command to
-   install the skill and register the MCP connector together:
-
-   ```bash
-   npx @agent-native/core@latest skills add assets
    ```
 
 2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
@@ -154,14 +148,14 @@ The Assets app skill has app id `assets` and hosted MCP URL
 `https://assets.agent-native.com/_agent-native/mcp`.
 
 ```bash
-# Public Skills CLI install: exported skill instructions.
-npx skills add BuilderIO/agent-native --skill assets
-
-# Convenience install: exported skill instructions plus MCP connector.
+# Easiest hosted install: exported skill instructions plus MCP connector.
 npx @agent-native/core@latest skills add assets
 
 # Image-generation alias for demos and tutorials.
 npx @agent-native/core@latest skills add images
+
+# Open Skills CLI install: exported instructions only.
+npx skills add BuilderIO/agent-native --skill assets
 
 # Hosted install: URL-only MCP connector, no shared secrets in skill files.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
