@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.10
+
+### Patch Changes
+
+- 408af9c: Keep the Builder connect popup open by falling back to the signed connect URL already rendered in the UI when the click-time status refresh fails.
+
 ## 0.32.9
 
 ### Patch Changes
