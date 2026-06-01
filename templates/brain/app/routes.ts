@@ -8,6 +8,7 @@ export default [
   route("sources", "./routes/sources.tsx"),
   route("ops", "./routes/ops.tsx"),
   route("settings", "./routes/settings.tsx"),
+  route("team", "./routes/team.tsx"),
   route("extensions", "./routes/extensions.tsx", [
     index("./routes/extensions._index.tsx"),
     route(":id", "./routes/extensions.$id.tsx"),

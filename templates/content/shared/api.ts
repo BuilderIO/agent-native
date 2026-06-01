@@ -9,6 +9,8 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  notionPageId?: string | null;
+  notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canEdit?: boolean;

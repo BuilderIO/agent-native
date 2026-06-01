@@ -14,6 +14,7 @@ const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =
   "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
 const OPEN_DESKTOP_URL = "agentnative://open";
+const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v1";
 
 type Platform = "mac" | "windows" | "linux";
 type DesktopAssetKind =
@@ -104,6 +105,50 @@ interface Manifest {
   }[];
 }
 
+function isManifestAsset(value: unknown): value is Manifest["assets"][number] {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Partial<Manifest["assets"][number]>;
+  return (
+    typeof asset.name === "string" &&
+    typeof asset.url === "string" &&
+    typeof asset.size === "number" &&
+    typeof asset.kind === "string"
+  );
+}
+
+function isManifest(value: unknown): value is Manifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Partial<Manifest>;
+  return (
+    typeof manifest.version === "string" &&
+    typeof manifest.tag === "string" &&
+    (typeof manifest.pub_date === "string" || manifest.pub_date === null) &&
+    Array.isArray(manifest.assets) &&
+    manifest.assets.every(isManifestAsset)
+  );
+}
+
+function readCachedManifest(): Manifest | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const cached = window.localStorage.getItem(MANIFEST_STORAGE_KEY);
+    if (!cached) return null;
+    const parsed: unknown = JSON.parse(cached);
+    return isManifest(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedManifest(manifest: Manifest): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+  } catch {
+    // Storage can be unavailable in private browsing or locked-down contexts.
+  }
+}
+
 function detectPlatform(): Platform {
   if (typeof navigator === "undefined") return "mac";
   const ua = navigator.userAgent.toLowerCase();
@@ -134,15 +179,25 @@ export default function DownloadPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const cachedManifest = readCachedManifest();
+    if (cachedManifest) {
+      setManifest(cachedManifest);
+    }
+
     fetch(LATEST_JSON_URL)
       .then((response) =>
         response.ok ? response.json() : Promise.reject(new Error("failed")),
       )
       .then((json) => {
-        if (!cancelled) setManifest(json as Manifest);
+        if (!isManifest(json)) throw new Error("invalid manifest");
+        if (!cancelled) {
+          setManifest(json);
+          setManifestError(false);
+          writeCachedManifest(json);
+        }
       })
       .catch(() => {
-        if (!cancelled) setManifestError(true);
+        if (!cancelled && !cachedManifest) setManifestError(true);
       });
     return () => {
       cancelled = true;
@@ -170,6 +225,15 @@ export default function DownloadPage() {
     : manifestError
       ? "Could not load the latest desktop release. The releases page has all installers."
       : "Checking the latest desktop release...";
+  const primaryHref = primaryAsset?.url ?? RELEASES;
+  const primaryLabel = primaryAsset
+    ? primaryDownload?.option.label
+    : manifestError || !manifest
+      ? "View installers on GitHub"
+      : primaryDownload?.option.label;
+  const desktopDownloadLabel = primaryAsset
+    ? "Download installer"
+    : "View installers";
 
   function handleDownload(label: string) {
     trackEvent("desktop download", { platform, label });
@@ -229,38 +293,22 @@ export default function DownloadPage() {
             </a>
           )}
 
-          {primaryAsset || manifestError ? (
-            <a
-              href={primaryAsset?.url ?? RELEASES}
-              onClick={() =>
-                handleDownload(
-                  primaryDownload?.option.label ?? info.primary.label,
-                )
-              }
-              className={
-                isDesktopApp
-                  ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-                  : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-              }
-            >
-              <IconDownload size={18} />
-              {isDesktopApp
-                ? "Download installer"
-                : primaryDownload?.option.label}
-            </a>
-          ) : (
-            <button
-              disabled
-              className={
-                isDesktopApp
-                  ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] opacity-60"
-                  : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] opacity-60"
-              }
-            >
-              <IconDownload size={18} />
-              Loading latest release...
-            </button>
-          )}
+          <a
+            href={primaryHref}
+            onClick={() =>
+              handleDownload(
+                primaryDownload?.option.label ?? info.primary.label,
+              )
+            }
+            className={
+              isDesktopApp
+                ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
+                : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
+            }
+          >
+            <IconDownload size={18} />
+            {isDesktopApp ? desktopDownloadLabel : primaryLabel}
+          </a>
         </div>
 
         {alternativeDownloads.length > 0 && (

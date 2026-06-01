@@ -59,7 +59,24 @@ export default defineAction({
       .orderBy(asc(schema.documents.position));
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
+    const notionPageIdByDocumentId = new Map<string, string>();
     if (documents.length > 0) {
+      const notionLinks = await db
+        .select({
+          documentId: schema.documentSyncLinks.documentId,
+          remotePageId: schema.documentSyncLinks.remotePageId,
+        })
+        .from(schema.documentSyncLinks)
+        .where(
+          inArray(
+            schema.documentSyncLinks.documentId,
+            documents.map((d) => d.id),
+          ),
+        );
+      for (const link of notionLinks) {
+        notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
+      }
+
       const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
       if (userEmail) {
         principalClauses.push(
@@ -132,6 +149,10 @@ export default defineAction({
         position: d.position,
         isFavorite: parseDocumentFavorite(d.isFavorite),
         hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
+        notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
+        notionPageUrl: notionPageIdByDocumentId.has(d.id)
+          ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
+          : null,
         visibility: d.visibility,
         accessRole,
         canEdit: canEditRole(accessRole),

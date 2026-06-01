@@ -378,7 +378,7 @@ export function Sidebar() {
         </div>
 
         <div className="border-t border-sidebar-border px-3 py-2">
-          <OrgSwitcher />
+          <OrgSwitcher reserveSpace />
         </div>
 
         <div className="border-t border-sidebar-border px-3 py-2">

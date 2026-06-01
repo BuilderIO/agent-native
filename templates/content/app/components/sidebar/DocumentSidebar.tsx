@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -177,6 +177,19 @@ export function DocumentSidebar({
   const expandedIds = new Set(
     documents.map((d) => d.id).filter((id) => !collapsedIds.current.has(id)),
   );
+
+  useEffect(() => {
+    if (!activeDocumentId) return;
+
+    let changed = false;
+    let parentId = parentByDocumentId.get(activeDocumentId) ?? null;
+    while (parentId) {
+      if (collapsedIds.current.delete(parentId)) changed = true;
+      parentId = parentByDocumentId.get(parentId) ?? null;
+    }
+
+    if (changed) forceUpdate((n) => n + 1);
+  }, [activeDocumentId, parentByDocumentId]);
 
   const handleToggleExpanded = useCallback((id: string) => {
     if (collapsedIds.current.has(id)) {

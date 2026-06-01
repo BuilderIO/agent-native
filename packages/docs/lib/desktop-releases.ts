@@ -4,7 +4,10 @@ const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
 const PER_PAGE = 100;
 const MAX_PAGES = 10;
-const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_FRESH_MS = 5 * 60_000;
+
+export const DESKTOP_RELEASE_CACHE_CONTROL =
+  "public, max-age=300, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400";
 
 const DESKTOP_UPDATE_METADATA = new Set([
   "latest-mac.yml",
@@ -196,23 +199,28 @@ async function buildManifest(): Promise<DesktopDownloadManifest> {
   };
 }
 
-export async function getDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
-  const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.data;
+function refreshDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
-    try {
-      const data = await buildManifest();
-      cache = { data, ts: Date.now() };
-      return data;
-    } catch (error) {
-      if (cache) return cache.data;
-      throw error;
-    } finally {
-      inFlight = null;
-    }
+    const data = await buildManifest();
+    cache = { data, ts: Date.now() };
+    return data;
   })();
+  inFlight = inFlight.finally(() => {
+    inFlight = null;
+  });
   return inFlight;
+}
+
+export async function getDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
+  const now = Date.now();
+  if (cache) {
+    if (now - cache.ts >= CACHE_FRESH_MS) {
+      void refreshDesktopDownloadManifest().catch(() => undefined);
+    }
+    return cache.data;
+  }
+  return refreshDesktopDownloadManifest();
 }
 
 export function getDesktopReleaseError(error: unknown): {
@@ -229,4 +237,9 @@ export function getDesktopReleaseError(error: unknown): {
     statusMessage:
       e.statusMessage ?? e.message ?? "Upstream releases fetch failed",
   };
+}
+
+export function resetDesktopDownloadManifestCacheForTests(): void {
+  cache = null;
+  inFlight = null;
 }

@@ -339,6 +339,44 @@ describe("useBuilderConnectFlow", () => {
     resolveInitialFetch(jsonResponse({ configured: false }));
   });
 
+  it("falls back to a signed prop URL when status has not loaded and click refresh fails", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const signedConnectUrl =
+      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed-from-prop";
+
+    let resolveInitialFetch!: (response: Response) => void;
+    const initialFetch = new Promise<Response>((resolve) => {
+      resolveInitialFetch = resolve;
+    });
+    vi.mocked(fetch)
+      .mockReturnValueOnce(initialFetch)
+      .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe popupUrl={signedConnectUrl} />);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
+
+    resolveInitialFetch(jsonResponse({ configured: false }));
+  });
+
   it("refreshes status when a Builder preview callback posts success", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     vi.mocked(fetch)
