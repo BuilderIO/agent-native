@@ -94,13 +94,6 @@ function getRouteWarmupConfig(
   );
 }
 
-function isProductionClientBuild(): boolean {
-  const meta = import.meta as ImportMeta & {
-    env?: Record<string, boolean | string | undefined>;
-  };
-  return meta.env?.PROD === true || meta.env?.MODE === "production";
-}
-
 function normalizeBasename(basename: string | undefined): string {
   if (!basename || basename === "/") return "/";
   return basename.startsWith("/") ? basename.replace(/\/+$/, "") : "/";
@@ -225,10 +218,33 @@ function assetUrlForManifestPath(assetPath: string): string | null {
   try {
     const url = new URL(assetPath, window.location.origin);
     if (url.origin !== window.location.origin) return null;
+    // The framework package is often consumed from prebuilt core dist, where
+    // Vite does not replace `import.meta.env` in this module. Use the React
+    // Router manifest itself to distinguish production client assets from dev
+    // source module ids. Production manifests point at immutable Vite chunks;
+    // dev manifests point at raw TS/TSX modules that should not be warmed.
+    if (!/\/assets\/[^/?#]+\.m?js$/.test(url.pathname)) return null;
     return url.href;
   } catch {
     return null;
   }
+}
+
+function hasWarmableRouteAssets(): boolean {
+  for (const route of Object.values(
+    window.__reactRouterManifest?.routes ?? {},
+  )) {
+    for (const assetPath of [
+      route.module,
+      route.clientActionModule,
+      route.clientLoaderModule,
+      route.hydrateFallbackModule,
+      ...(route.imports ?? []),
+    ]) {
+      if (assetPath && assetUrlForManifestPath(assetPath)) return true;
+    }
+  }
+  return false;
 }
 
 function routeAssetUrlsForHref(href: string): string[] {
@@ -360,13 +376,7 @@ export function AgentNativeRouteWarmup({
 }: AgentNativeRouteWarmupProps) {
   useEffect(() => {
     const resolved = getRouteWarmupConfig(config);
-    // Vite dev manifests contain raw source module ids. Warming those with
-    // modulepreload can route through React Router's dev SSR loader and make
-    // local servers log false-positive internal errors. Keep route warmup to
-    // production builds, where manifests point at real hashed JS assets and
-    // SSR `.data` requests have the CDN cache headers this feature relies on.
-    const isProduction = isProductionClientBuild();
-    if (!isProduction || resolved.strategy === "off") {
+    if (resolved.strategy === "off") {
       return;
     }
     // Legacy SPA builds still mount the AgentPanel but do not expose React
@@ -374,8 +384,14 @@ export function AgentNativeRouteWarmup({
     // route data/modules when that manifest is present; otherwise this would
     // generate noisy `/<path>.data` 404s for apps that cannot serve them.
     const hasManifestRoutes = hasReactRouterManifestRoutes();
-    const warmData = resolved.data && hasManifestRoutes;
-    const warmModules = resolved.modules && hasManifestRoutes;
+    // Vite dev manifests contain raw source module ids. Warming those with
+    // modulepreload can route through React Router's dev SSR loader and make
+    // local servers log false-positive internal errors. Keep route warmup to
+    // manifests that point at built JS assets, where SSR `.data` requests have
+    // the CDN cache headers this feature relies on.
+    const hasRouteAssets = hasManifestRoutes && hasWarmableRouteAssets();
+    const warmData = resolved.data && hasRouteAssets;
+    const warmModules = resolved.modules && hasRouteAssets;
     if (!warmData && !warmModules) return;
 
     const connection = (
@@ -518,7 +534,9 @@ export function AgentNativeRouteWarmup({
 export const __routeWarmupInternalsForTests = {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
+  hasWarmableRouteAssets,
   parseBuildTimeRouteWarmupConfig,
   renderWarmupLinksForSelector,
+  routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
 };

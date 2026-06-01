@@ -6,8 +6,10 @@ import { __routeWarmupInternalsForTests } from "./route-warmup.js";
 const {
   getManifestRouteTree,
   hasReactRouterManifestRoutes,
+  hasWarmableRouteAssets,
   parseBuildTimeRouteWarmupConfig,
   renderWarmupLinksForSelector,
+  routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
 } = __routeWarmupInternalsForTests;
 
@@ -67,6 +69,60 @@ describe("route warmup runtime helpers", () => {
       },
     };
     expect(hasReactRouterManifestRoutes()).toBe(true);
+  });
+
+  it("recognizes production route manifests without relying on import.meta.env", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: {
+          id: "root",
+          path: "",
+          module: "/assets/root-AbC123.js",
+          imports: ["/assets/vendor-DeF456.js"],
+        },
+        "routes/docs._index": {
+          id: "routes/docs._index",
+          parentId: "root",
+          path: "docs",
+          index: true,
+          module: "/assets/docs._index-DNb8kxCk.js",
+          imports: ["/assets/MarkdownRenderer-ri6QZniN.js"],
+        },
+      },
+    };
+
+    expect(hasWarmableRouteAssets()).toBe(true);
+    expect(
+      routeAssetUrlsForHref("/docs").map((href) => new URL(href).pathname),
+    ).toEqual([
+      "/assets/root-AbC123.js",
+      "/assets/vendor-DeF456.js",
+      "/assets/docs._index-DNb8kxCk.js",
+      "/assets/MarkdownRenderer-ri6QZniN.js",
+    ]);
+  });
+
+  it("does not warm dev source module ids from the route manifest", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: {
+          id: "root",
+          path: "",
+          module: "/app/root.tsx",
+          imports: ["/@fs/Users/example/app/components/Nav.tsx"],
+        },
+        "routes/docs._index": {
+          id: "routes/docs._index",
+          parentId: "root",
+          path: "docs",
+          index: true,
+          module: "/app/routes/docs._index.tsx",
+        },
+      },
+    };
+
+    expect(hasWarmableRouteAssets()).toBe(false);
+    expect(routeAssetUrlsForHref("/docs")).toEqual([]);
   });
 
   it("finds render warmup links using the configured selector", () => {
