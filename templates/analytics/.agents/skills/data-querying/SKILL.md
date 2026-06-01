@@ -52,10 +52,13 @@ pnpm action github-prs --org=<org> --query="is:open label:bug"
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
 # HubSpot deals
-pnpm action hubspot-deals --properties=dealname,amount,dealstage
+pnpm action hubspot-deals --query="The Knot" --limit=10 --properties=dealname,amount,dealstage
 
 # HubSpot contacts or companies
 pnpm action hubspot-records --objectType=companies --query=builder.io --properties=name,domain,lifecyclestage
+
+# Gong call content for a customer deep dive
+pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
 
 ### Writing Ad-Hoc Scripts
@@ -87,6 +90,7 @@ For complete answers, combine data from multiple sources:
 - **BigQuery** for analytics events, signups, pageviews
 - **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — `hubspot-records` for contacts/companies/tickets/general lookup; `hubspot-deals` and `hubspot-metrics` for pipeline and revenue analysis
+- **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
 - **Sentry** for error rates and trends

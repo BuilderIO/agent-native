@@ -48,6 +48,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 | Analysis type | Data sources |
 |---|---|
+| Deal/account deep dive | HubSpot deals/records + Gong transcript excerpts |
 | Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions |
 | Customer health check | HubSpot deals + Pylon support tickets + BigQuery usage events |
 | Content performance | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups |
@@ -56,7 +57,9 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 **Tips for data gathering:**
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- Use `--grep` and `--fields` to narrow results before cross-referencing
+- For named deal/account deep dives, use `hubspot-deals` with `query` and `gong-calls` with `includeTranscripts=true`; do not answer from an all-deals dump or Gong metadata alone
+- Use action filters such as `query`, `properties`, `objectType`, `company`, and
+  `limit` to narrow results before cross-referencing
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
 - If a data source is not configured, mention what's missing and work with what's available — never invent rows to fill a gap.
 
