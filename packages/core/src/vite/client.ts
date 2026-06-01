@@ -19,6 +19,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   MCP_EMBED_STATIC_ASSET_HEADERS,
   mcpEmbedStaticAssetRouteRules,
+  shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 
 import { fileURLToPath } from "url";
@@ -882,6 +883,15 @@ function embedDevFrameHeaders(): Plugin {
         if (isMcpEmbedCorsOrigin(origin)) {
           res.setHeader("Access-Control-Allow-Origin", origin);
           res.setHeader("Vary", "Origin");
+          // The desktop app's dev origin (http://localhost:1420) also matches
+          // here, and it logs in with `credentials: "include"`. A credentialed
+          // request needs this header or the browser discards the response.
+          // The OPTIONS short-circuit below means we can't rely on the real
+          // auth handler to set it, so set it here too (production already does
+          // the same).
+          if (shouldAllowMcpEmbedCredentials(origin)) {
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+          }
           res.setHeader(
             "Access-Control-Allow-Methods",
             "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
