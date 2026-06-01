@@ -39,6 +39,7 @@ import {
   focusMostRecentEmptyToggleSummary,
   notionEditorExtensions,
 } from "./extensions/NotionExtensions";
+import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import { DragHandle } from "./extensions/DragHandle";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
@@ -467,32 +468,40 @@ const NotionToggleBodyPlaceholder = Extension.create({
  * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
  * so list sinking still works and we only kick in for non-list blocks.
  */
-const NotionBlockIndent = Extension.create({
-  name: "notionBlockIndent",
-  priority: 50,
-  addKeyboardShortcuts() {
-    const inHandled = (editor: any) =>
-      editor.isActive("listItem") ||
-      editor.isActive("taskItem") ||
-      editor.isActive("tableCell") ||
-      editor.isActive("tableHeader") ||
-      editor.isActive("codeBlock");
-
+const CustomTable = BaseTable.extend({
+  addAttributes() {
     return {
-      Tab: ({ editor }) => {
-        if (inHandled(editor)) return false;
-        return editor.chain().focus().wrapIn("blockquote").run();
+      ...this.parent?.(),
+      // Notion table structure attributes — preserved so the NFM converter can
+      // round-trip header rows/columns, full-width tables, and column colors.
+      headerRow: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-row") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerRow ? { "data-header-row": "true" } : {},
       },
-      "Shift-Tab": ({ editor }) => {
-        if (inHandled(editor)) return false;
-        if (!editor.isActive("blockquote")) return false;
-        return editor.chain().focus().lift("blockquote").run();
+      headerColumn: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-column") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerColumn ? { "data-header-column": "true" } : {},
+      },
+      fitPageWidth: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-fit-page-width") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.fitPageWidth ? { "data-fit-page-width": "true" } : {},
+      },
+      colMeta: {
+        default: null,
+        parseHTML: () => null,
+        renderHTML: () => ({}),
       },
     };
   },
-});
-
-const CustomTable = BaseTable.extend({
   addStorage() {
     return {
       markdown: {
@@ -1181,13 +1190,13 @@ export function createVisualEditorExtensions({
     TableCell,
     NormalizeTableHeaders,
     ...notionEditorExtensions,
+    ...notionFidelityExtensions,
     DragHandle,
     TypographyReplacements,
     NotionMarkdownShortcuts,
     MarkdownPasteDetection,
     SelectAllDocument,
     JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-    NotionBlockIndent,
     Markdown.configure({
       html: true,
       transformPastedText: true,
