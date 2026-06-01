@@ -206,6 +206,107 @@ describe("nfm converter — structural parsing", () => {
   });
 });
 
+const HARD_FIXTURES: Array<{ name: string; nfm: string }> = [
+  { name: "colored bullet item", nfm: '- colored item {color="green"}' },
+  { name: "colored todo item", nfm: '- [x] done {color="blue_bg"}' },
+  { name: "colored heading", nfm: '# Big red {color="red"}' },
+  { name: "colored quote", nfm: '> Quoted in gray {color="gray"}' },
+  {
+    name: "toggle inside callout",
+    nfm: L(
+      '<callout icon="📌">',
+      "\tCallout intro",
+      "\t<details>",
+      "\t<summary>Nested toggle</summary>",
+      "\t\tdeep content",
+      "\t</details>",
+      "</callout>",
+    ),
+  },
+  {
+    name: "quote with child blocks",
+    nfm: L(
+      "> Quote lead",
+      "\tChild paragraph of the quote",
+      "\t- child bullet",
+    ),
+  },
+  {
+    name: "deeply nested bullets",
+    nfm: L("- a", "\t- b", "\t\t- c", "\t\t\t- d", "- e"),
+  },
+  {
+    name: "table with column colors (colgroup)",
+    nfm: L(
+      '<table header-row="true">',
+      "<colgroup>",
+      '<col color="gray"/>',
+      "<col/>",
+      "</colgroup>",
+      "<tr>",
+      "<td>A</td>",
+      "<td>B</td>",
+      "</tr>",
+      "<tr>",
+      '<td color="red_bg">1</td>',
+      "<td>2</td>",
+      "</tr>",
+      "</table>",
+    ),
+  },
+  {
+    name: "row color",
+    nfm: L(
+      "<table>",
+      '<tr color="blue_bg">',
+      "<td>x</td>",
+      "</tr>",
+      "</table>",
+    ),
+  },
+  { name: "combined bold italic strike", nfm: "~~***everything***~~" },
+  { name: "bold link", nfm: "[**important**](https://x.com)" },
+  { name: "code with specials inside", nfm: "`a < b && c[0]`" },
+  { name: "underline + color span", nfm: '<span color="purple">u</span>' },
+  {
+    name: "list with nested paragraph child",
+    nfm: L("- item", "\tnested paragraph under the item"),
+  },
+  {
+    name: "numbered list starting at 3",
+    nfm: L("3. three", "4. four"),
+  },
+  {
+    name: "audio and file blocks",
+    nfm: L(
+      '<audio src="https://x.com/a.mp3">My audio</audio>',
+      '<file src="https://x.com/f.pdf">A file</file>',
+    ),
+  },
+  {
+    name: "synced block reference",
+    nfm: L(
+      '<synced_block_reference url="https://www.notion.so/r">',
+      "\tref content",
+      "</synced_block_reference>",
+    ),
+  },
+];
+
+describe("nfm converter — hardening fixpoints", () => {
+  for (const { name, nfm } of HARD_FIXTURES) {
+    it(`is a fixpoint: ${name}`, () => {
+      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    });
+  }
+
+  it("a large mixed torture document is a stable fixpoint", () => {
+    const doc = [...FIXTURES, ...HARD_FIXTURES].map((f) => f.nfm).join("\n");
+    const once = canonicalizeNfm(doc);
+    expect(canonicalizeNfm(once)).toBe(once);
+  });
+});
+
 describe("nfm converter — inline round-trips", () => {
   const inlineCases = [
     "**bold**",
