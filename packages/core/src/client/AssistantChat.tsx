@@ -1116,7 +1116,6 @@ function useSmoothStreamingText(
   const targetTextRef = useRef(targetText);
   const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
   const frameRef = useRef<number | null>(null);
-  const lastFrameAtRef = useRef<number | null>(null);
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);
   const resetKeyRef = useRef(resetKey);
@@ -1146,7 +1145,6 @@ function useSmoothStreamingText(
       window.cancelAnimationFrame(frameRef.current);
     }
     frameRef.current = null;
-    lastFrameAtRef.current = null;
     pauseUntilRef.current = 0;
   }, []);
 
@@ -1170,7 +1168,6 @@ function useSmoothStreamingText(
     const targetGraphemes = targetGraphemesRef.current;
     const backlog = targetGraphemes.length - visibleCountRef.current;
     if (backlog <= 0) {
-      lastFrameAtRef.current = null;
       pauseUntilRef.current = 0;
       return;
     }
@@ -1180,35 +1177,35 @@ function useSmoothStreamingText(
       return;
     }
 
-    const lastFrameAt = lastFrameAtRef.current ?? time - 16;
-    lastFrameAtRef.current = time;
+    const lastCommitAt = lastCommitAtRef.current || time - 16;
+    if (
+      time - lastCommitAt < SMOOTH_STREAMING_COMMIT_INTERVAL_MS &&
+      backlog > 1
+    ) {
+      scheduleFrame();
+      return;
+    }
+
     const revealCount = smoothStreamingRevealCount({
       backlog,
-      elapsedMs: Math.min(120, Math.max(8, time - lastFrameAt)),
+      elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
     });
 
     if (revealCount > 0) {
       const nextCount = visibleCountRef.current + revealCount;
-      const shouldCommit =
-        time - lastCommitAtRef.current >= SMOOTH_STREAMING_COMMIT_INTERVAL_MS ||
-        nextCount >= targetGraphemes.length;
-
-      if (shouldCommit) {
-        commitVisibleCount(nextCount);
-        lastCommitAtRef.current = time;
-        const nextBacklog = targetGraphemes.length - visibleCountRef.current;
-        const pauseMs = smoothStreamingPunctuationDelayMs(
-          targetGraphemes[visibleCountRef.current - 1],
-          nextBacklog,
-        );
-        pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
-      }
+      commitVisibleCount(nextCount);
+      lastCommitAtRef.current = time;
+      const nextBacklog = targetGraphemes.length - visibleCountRef.current;
+      const pauseMs = smoothStreamingPunctuationDelayMs(
+        targetGraphemes[visibleCountRef.current - 1],
+        nextBacklog,
+      );
+      pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
     }
 
     if (visibleCountRef.current < targetGraphemes.length) {
       scheduleFrame();
     } else {
-      lastFrameAtRef.current = null;
       pauseUntilRef.current = 0;
     }
   };
@@ -1237,7 +1234,7 @@ function useSmoothStreamingText(
       visibleCountRef.current > targetGraphemes.length
     ) {
       commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
-      lastFrameAtRef.current = null;
+      lastCommitAtRef.current = 0;
       pauseUntilRef.current = 0;
     }
 
@@ -1303,7 +1300,8 @@ function MarkdownText() {
   const lastMessage = thread.messages[thread.messages.length - 1];
   const isLastAssistantMessage =
     message.role === "assistant" && lastMessage?.id === message.id;
-  const statusType = textPart.status?.type ?? message.status.type;
+  const statusType =
+    textPart.status?.type ?? message.status?.type ?? "complete";
 
   return (
     <SmoothMarkdownText
