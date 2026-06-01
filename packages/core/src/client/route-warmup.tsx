@@ -75,6 +75,13 @@ function getRouteWarmupConfig(
   );
 }
 
+function isProductionClientBuild(): boolean {
+  const meta = import.meta as ImportMeta & {
+    env?: Record<string, boolean | string | undefined>;
+  };
+  return meta.env?.PROD === true || meta.env?.MODE === "production";
+}
+
 function normalizeBasename(basename: string | undefined): string {
   if (!basename || basename === "/") return "/";
   return basename.startsWith("/") ? basename.replace(/\/+$/, "") : "/";
@@ -268,7 +275,12 @@ export function AgentNativeRouteWarmup({
 }: AgentNativeRouteWarmupProps) {
   useEffect(() => {
     const resolved = getRouteWarmupConfig(config);
-    if (resolved.strategy === "off" || (!resolved.data && !resolved.modules)) {
+    // Vite dev manifests contain raw source module ids. Warming those with
+    // modulepreload can route through React Router's dev SSR loader and make
+    // local servers log false-positive internal errors. Production manifests
+    // point at real hashed JS assets, which is the path we need to make fast.
+    const warmModules = resolved.modules && isProductionClientBuild();
+    if (resolved.strategy === "off" || (!resolved.data && !warmModules)) {
       return;
     }
 
@@ -277,7 +289,7 @@ export function AgentNativeRouteWarmup({
     ).connection;
     if (connection?.saveData) return;
 
-    seedExistingModulepreloads();
+    if (warmModules) seedExistingModulepreloads();
 
     const queue: string[] = [];
     const queuedDataRoutes = new Set<string>();
@@ -303,7 +315,7 @@ export function AgentNativeRouteWarmup({
     };
 
     const warmHref = (href: string) => {
-      if (resolved.modules) warmRouteAssetsForHref(href);
+      if (warmModules) warmRouteAssetsForHref(href);
       if (!resolved.data) return;
       const dataUrl = dataRouteUrlForHref(href);
       if (!dataUrl || warmedDataRoutes.has(dataUrl)) return;
@@ -327,7 +339,7 @@ export function AgentNativeRouteWarmup({
           });
 
     const scan = () => {
-      seedExistingModulepreloads();
+      if (warmModules) seedExistingModulepreloads();
 
       for (const link of document.querySelectorAll<HTMLAnchorElement>(
         "a[href]",
