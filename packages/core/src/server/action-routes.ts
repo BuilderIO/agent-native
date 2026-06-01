@@ -31,6 +31,27 @@ import {
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
+export function parseActionSearchParams(
+  searchParams: URLSearchParams,
+): Record<string, any> {
+  const params: Record<string, any> = {};
+  for (const [rawKey, value] of searchParams.entries()) {
+    const isArrayKey = rawKey.endsWith("[]");
+    // The core client serializes arrays as `key[]=value` so even a single
+    // value can validate against z.array() action schemas.
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    const current = params[key];
+    if (current === undefined) {
+      params[key] = isArrayKey ? [value] : value;
+    } else if (Array.isArray(current)) {
+      current.push(value);
+    } else {
+      params[key] = [current, value];
+    }
+  }
+  return params;
+}
+
 /**
  * Read the caller's IANA timezone from the `x-user-timezone` header. The core
  * client sends this on every action request so server-side "today" fallbacks
@@ -202,7 +223,7 @@ export function mountActionRoutes(
                 const webReq = (event as any).req;
                 if (webReq?.url) {
                   const url = new URL(webReq.url);
-                  params = Object.fromEntries(url.searchParams);
+                  params = parseActionSearchParams(url.searchParams);
                 } else {
                   params = getQuery(event) as Record<string, any>;
                 }

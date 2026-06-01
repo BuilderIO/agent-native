@@ -1003,7 +1003,9 @@ export default function AssetPicker() {
             </SelectContent>
           </Select>
           <Input
+            type="search"
             value={query}
+            onInput={(event) => setQuery(event.currentTarget.value)}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={`Search ${mediaLabel}s`}
             className="h-9 border-border/70 bg-background"
