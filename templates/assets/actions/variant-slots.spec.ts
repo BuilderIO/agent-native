@@ -95,7 +95,33 @@ describe("variant slot state", () => {
         slotId: "slot-1",
         status: "ready",
         assetId: "asset-1",
+        createdAt: "2026-05-28T00:00:00.000Z",
+        updatedAt: "2026-05-28T00:00:00.000Z",
       }),
+      expect.objectContaining({ slotId: "slot-2", status: "pending" }),
+    ]);
+  });
+
+  it("starts a fresh live panel when a new prompt begins", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      libraryId: "lib-1",
+      prompt: "First prompt",
+      slotId: "slot-1",
+      status: "ready",
+      assetId: "asset-1",
+    });
+
+    await upsertVariantSlot({
+      runId: "run-2",
+      libraryId: "lib-1",
+      prompt: "Second prompt",
+      slotId: "slot-2",
+      status: "pending",
+    });
+
+    expect((appState as any).prompt).toBe("Second prompt");
+    expect((appState as any).slots).toEqual([
       expect.objectContaining({ slotId: "slot-2", status: "pending" }),
     ]);
   });

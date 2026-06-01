@@ -39,14 +39,34 @@ import {
 export default function AssetDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data } = useActionQuery("get-asset", { id: id! }) as any;
+  const assetQuery = useActionQuery("get-asset", { id: id! }) as any;
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
-  const asset = data;
+  const asset = assetQuery.data;
 
   if (!asset) {
+    if (assetQuery.isLoading || assetQuery.isPending || assetQuery.isFetching) {
+      return (
+        <div className="p-6 text-sm text-muted-foreground">
+          Loading asset...
+        </div>
+      );
+    }
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading asset...</div>
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="max-w-sm space-y-3 text-center">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Asset unavailable
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            This generated image may have been cleared before it was saved, or
+            the link may point to an asset you no longer have access to.
+          </p>
+          <Button asChild variant="outline">
+            <Link to="/library">Back to library</Link>
+          </Button>
+        </div>
+      </div>
     );
   }
 

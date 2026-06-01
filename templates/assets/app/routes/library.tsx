@@ -622,13 +622,50 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
+  const generateBatch = useActionMutation(
+    "generate-image-batch" as any,
+    {
+      onSuccess: (result: any) => {
+        const images = Array.isArray(result?.images) ? result.images : [];
+        const generatedCount = images.filter((image: any) => image?.ok).length;
+        const failedCount = images.length - generatedCount;
+        if (generatedCount > 0) {
+          toast.success(
+            `Generated ${generatedCount} image candidate${
+              generatedCount === 1 ? "" : "s"
+            }`,
+            {
+              description:
+                failedCount > 0
+                  ? `${failedCount} candidate${
+                      failedCount === 1 ? "" : "s"
+                    } failed.`
+                  : "Pick the one you want to send back.",
+            },
+          );
+          setQuery("");
+        } else {
+          toast.error(
+            images[0]?.error ||
+              "Image generation finished without usable candidates.",
+          );
+        }
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || "Image generation failed");
+      },
+    } as any,
+  );
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
       mediaType,
       query: query.trim() || undefined,
+      includeCandidates:
+        mediaType === "image" &&
+        Boolean(prompt.trim() || generateBatch.isPending),
     }),
-    [mediaType, query, selectedLibraryId],
+    [generateBatch.isPending, mediaType, prompt, query, selectedLibraryId],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
@@ -739,41 +776,6 @@ export default function AssetPicker() {
       },
       onError: (error: Error) => {
         toast.error(error.message || "Could not prepare an image library");
-      },
-    } as any,
-  );
-
-  const generateBatch = useActionMutation(
-    "generate-image-batch" as any,
-    {
-      onSuccess: (result: any) => {
-        const images = Array.isArray(result?.images) ? result.images : [];
-        const generatedCount = images.filter((image: any) => image?.ok).length;
-        const failedCount = images.length - generatedCount;
-        if (generatedCount > 0) {
-          toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
-            {
-              description:
-                failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
-            },
-          );
-          setQuery("");
-        } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
-        }
-      },
-      onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
       },
     } as any,
   );

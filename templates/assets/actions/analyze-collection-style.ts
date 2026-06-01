@@ -49,14 +49,18 @@ export default defineAction({
       .select()
       .from(schema.assets)
       .where(eq(schema.assets.libraryId, libraryId));
-    const refs = rows.filter(
-      (asset) =>
+    const refs = rows.filter((asset) => {
+      const metadata = parseJson<{ intent?: string }>(asset.metadata, {});
+      return (
         asset.role !== "generated" &&
+        asset.role !== "subject_reference" &&
+        metadata.intent !== "subject" &&
         asset.status !== "archived" &&
         asset.status !== "failed" &&
         asset.mimeType.startsWith("image/") &&
-        (!collectionId || asset.collectionId === collectionId),
-    );
+        (!collectionId || asset.collectionId === collectionId)
+      );
+    });
 
     const colorScores = new Map<string, number>();
     const referenceData: ReferenceForGeneration[] = [];

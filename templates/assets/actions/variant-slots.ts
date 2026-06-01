@@ -56,7 +56,8 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     const previous = await readVariantStateUnlocked();
     const state: AssetVariantState =
       previous?.libraryId === input.libraryId &&
-      (previous.sessionId ?? null) === (input.sessionId ?? null)
+      (previous.sessionId ?? null) === (input.sessionId ?? null) &&
+      previous.prompt === input.prompt
         ? previous
         : {
             runId: input.runId,
@@ -75,6 +76,10 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     state.sessionId = input.sessionId ?? null;
     state.prompt = input.prompt;
 
+    const now = nowIso();
+    const existingSlot = state.slots.find(
+      (slot) => slot.slotId === input.slotId,
+    );
     const nextSlot = {
       slotId: input.slotId,
       status: input.status,
@@ -82,12 +87,14 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
       previewUrl: input.previewUrl,
       thumbnailUrl: input.thumbnailUrl,
       error: input.error,
+      createdAt: existingSlot?.createdAt ?? now,
+      updatedAt: now,
     };
     const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);
     if (index >= 0) state.slots[index] = nextSlot;
     else state.slots.push(nextSlot);
 
-    state.updatedAt = nowIso();
+    state.updatedAt = now;
     await writeVariantStateUnlocked(state);
   });
 }

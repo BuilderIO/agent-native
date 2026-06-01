@@ -206,6 +206,8 @@ export interface AssetVariantState {
     previewUrl?: string;
     thumbnailUrl?: string;
     error?: string;
+    createdAt?: string;
+    updatedAt?: string;
   }>;
   updatedAt: string;
 }

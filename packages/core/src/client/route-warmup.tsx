@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { matchRoutes, type RouteObject } from "react-router";
 import {
-  normalizeAgentNativeRouteWarmupConfig,
+  mergeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
   type AgentNativeRouteWarmupResolvedConfig,
   type AgentNativeRouteWarmupStrategy,
@@ -88,8 +88,9 @@ function getBuildTimeRouteWarmupConfig():
 function getRouteWarmupConfig(
   config: AgentNativeRouteWarmupConfigInput | undefined,
 ): AgentNativeRouteWarmupResolvedConfig {
-  return normalizeAgentNativeRouteWarmupConfig(
-    config ?? getBuildTimeRouteWarmupConfig(),
+  return mergeAgentNativeRouteWarmupConfig(
+    getBuildTimeRouteWarmupConfig(),
+    config,
   );
 }
 

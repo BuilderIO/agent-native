@@ -269,6 +269,8 @@ export default defineAction({
       prompt: promptForRun,
       referenceCount: references.length,
       includeLogo: args.includeLogo,
+      aspectRatio: resolvedAspectRatio,
+      imageSize: resolvedImageSize,
       category,
       intent: args.intent,
       styleStrength: args.styleStrength,
