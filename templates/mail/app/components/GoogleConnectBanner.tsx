@@ -302,11 +302,7 @@ export function GoogleConnectBanner({
       signInViaDesktopBrowser();
       return;
     }
-    if (showWizard && allConfigured) {
-      setWantAuthUrl(true);
-    } else {
-      setWantAuthUrl(true);
-    }
+    setWantAuthUrl(true);
   }
 
   function handleAddAccount() {

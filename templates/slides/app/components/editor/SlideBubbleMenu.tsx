@@ -25,13 +25,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  copiedStyle,
-  setCopiedStyle,
-  getBrandPalette,
-  setBrandPalette,
-  type CopiedStyle,
-} from "./style-clipboard";
+import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 import {
   Tooltip,
   TooltipContent,
@@ -381,7 +375,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
               }
               const btn = item as ButtonItem;
               const Icon = btn.icon;
-              const active = btn.isActive() ?? false;
+              const active = btn.isActive();
               return (
                 <Tooltip key={i}>
                   <TooltipTrigger asChild>

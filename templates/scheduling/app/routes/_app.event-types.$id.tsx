@@ -37,19 +37,10 @@ import {
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
-  IconBrandGoogle,
-  IconBrandTeams,
-  IconBrandZoom,
   IconCopy,
   IconExternalLink,
-  IconLink,
-  IconMapPin,
-  IconPhone,
   IconPlus,
   IconTrash,
-  IconUser,
-  IconVideo,
-  IconX,
 } from "@tabler/icons-react";
 import {
   ConferencingSelector,

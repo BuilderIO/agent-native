@@ -331,7 +331,6 @@ function AddSlidePopover({
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
-  generating: boolean;
   agentSubmit: (message: string, context: string) => void;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
@@ -660,7 +659,6 @@ export default function EditorSidebar({
         activeSlideId={activeSlideId}
         slideCount={slides.length}
         activeSlideIndex={activeIndex >= 0 ? activeIndex : 0}
-        generating={generating}
         agentSubmit={(msg, ctx) => {
           setAddSlideGenerating(true);
           agentSubmit(msg, ctx);
