@@ -75,6 +75,14 @@ function failureDetail(reason: string | null | undefined): string | null {
   return trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
 }
 
+function nativeSaveFailureMessage(reason: string | null | undefined): string {
+  const text = reason ?? "";
+  if (/too large|compression/i.test(text)) {
+    return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
+  }
+  return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
+}
+
 function parseTimeParam(raw: string | null): number {
   if (!raw) return 0;
   const value = raw.trim();
@@ -398,7 +406,7 @@ export default function RecordingPage() {
     const displayReason = explicitFailure
       ? (rawFailureReason ?? "You can retry from the library.")
       : nativeSaveFailed
-        ? "The desktop recorder finished, but Clips could not upload and save the video."
+        ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
           ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
           : "Uploading and assembling your video — this usually takes just a few seconds.";
@@ -406,7 +414,7 @@ export default function RecordingPage() {
     const label = storageSetupFailure
       ? "Connect storage to finish saving this clip."
       : nativeSaveFailed
-        ? "Oops, that clip did not save."
+        ? "Upload paused; clip saved locally."
         : isFailure
           ? "Something went wrong while saving this clip."
           : "Finishing up your clip…";

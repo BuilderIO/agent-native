@@ -2076,7 +2076,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 28px 36px;
   border-radius: 22px;
   background: rgba(20, 22, 28, 0.94);
@@ -2088,6 +2088,7 @@ body[data-clips-route="recording-pill"] #root {
     0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   min-width: 260px;
+  max-width: min(420px, calc(100vw - 48px));
 }
 
 /*
@@ -2118,12 +2119,29 @@ body[data-clips-route="recording-pill"] #root {
   text-align: center;
 }
 
+.finalizing-progress {
+  width: 220px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.finalizing-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.88);
+  transition: width 180ms ease;
+}
+
 .finalizing-sub {
   font-size: 12px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.65);
   text-align: center;
   margin-top: -4px;
+  max-width: 340px;
+  line-height: 1.35;
 }
 
 /* ------------------------------------------------------------------------- */

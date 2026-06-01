@@ -104,6 +104,11 @@ export function RecordingCard({
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
+  const nativeUploadPaused =
+    recording.status === "failed" &&
+    /native recording|native fullscreen|screencapture|avconvert/i.test(
+      recording.failureReason ?? "",
+    );
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -223,12 +228,18 @@ export function RecordingCard({
               />
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium text-foreground">
-                  {waitingForStorage ? "Waiting for storage" : "Upload failed"}
+                  {waitingForStorage
+                    ? "Waiting for storage"
+                    : nativeUploadPaused
+                      ? "Saved locally"
+                      : "Upload failed"}
                 </div>
                 <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
                   {waitingForStorage
                     ? "Open to connect storage and finish saving."
-                    : (recording.failureReason ?? "Remove this failed clip.")}
+                    : nativeUploadPaused
+                      ? "Retry from the Clips menu; no need to re-record."
+                      : (recording.failureReason ?? "Remove this failed clip.")}
                 </div>
               </div>
               {!waitingForStorage && (
