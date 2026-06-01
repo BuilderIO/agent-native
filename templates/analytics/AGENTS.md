@@ -58,6 +58,10 @@ Read the relevant skill before deeper work:
   handling.
 - `cross-source-analysis` for questions that span multiple data sources
   (identity stitching, de-duplication, consolidated provenance).
+- `hubspot` for CRM deals, companies, contacts, tickets, owners, and account
+  context.
+- `gong` for call metadata, transcript excerpts, objections, risks, and next
+  steps.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers.
 - `bigquery` and `prometheus` for provider-specific behavior.

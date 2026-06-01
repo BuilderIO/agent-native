@@ -161,6 +161,55 @@ export async function getUsers(): Promise<GongUser[]> {
   return data.users ?? [];
 }
 
+const GONG_QUERY_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "co",
+  "company",
+  "corp",
+  "corporation",
+  "inc",
+  "llc",
+  "ltd",
+  "of",
+  "the",
+]);
+
+function queryTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9@._-]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 1 && !GONG_QUERY_STOP_WORDS.has(term));
+}
+
+function partySearchText(
+  party: NonNullable<GongCall["parties"]>[number],
+): string {
+  return [party.name, party.emailAddress, party.affiliation]
+    .filter((value): value is string => typeof value === "string" && !!value)
+    .join(" ");
+}
+
+export function matchesGongCallQuery(call: GongCall, query: string): boolean {
+  const lowerQuery = query.trim().toLowerCase();
+  if (!lowerQuery) return true;
+
+  const searchable = [
+    call.title,
+    ...(call.parties ?? []).map((party) => partySearchText(party)),
+  ]
+    .filter((value): value is string => typeof value === "string" && !!value)
+    .join(" ")
+    .toLowerCase();
+
+  if (searchable.includes(lowerQuery)) return true;
+
+  const terms = queryTerms(lowerQuery);
+  return terms.length > 0 && terms.every((term) => searchable.includes(term));
+}
+
 export async function searchCalls(
   query: string,
   days = 90,
@@ -182,13 +231,9 @@ export async function searchCalls(
       calls?: GongCall[];
       records?: { cursor?: string; totalRecords?: number };
     }>(`/calls?${params.toString()}`);
-    const lowerQuery = query.toLowerCase();
-    const pageMatches = (data.calls ?? []).filter((call) => {
-      const title = call.title?.toLowerCase() ?? "";
-      const parties =
-        call.parties?.map((p) => p.name.toLowerCase()).join(" ") ?? "";
-      return title.includes(lowerQuery) || parties.includes(lowerQuery);
-    });
+    const pageMatches = (data.calls ?? []).filter((call) =>
+      matchesGongCallQuery(call, query),
+    );
     allCalls = allCalls.concat(pageMatches);
     cursor = data.records?.cursor;
     if (allCalls.length >= normalizedLimit) {

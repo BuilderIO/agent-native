@@ -9,8 +9,27 @@ import {
   getCalls,
   getCallTranscript,
   getUsers,
+  type GongCall,
   searchCalls,
 } from "../server/lib/gong";
+
+const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
+const MAX_GONG_TRANSCRIPT_LIMIT = 8;
+const DEFAULT_TRANSCRIPT_MAX_CHARS = 12_000;
+const MAX_TRANSCRIPT_MAX_CHARS = 40_000;
+
+interface TranscriptExtraction {
+  text: string;
+  sentenceCount: number;
+  truncated: boolean;
+}
+
+interface TranscriptEvidence extends TranscriptExtraction {
+  callId: string;
+  title?: string;
+  started?: string;
+  error?: string;
+}
 
 function callLimitGuidance(limit: number, truncated: boolean): string {
   return truncated
@@ -18,16 +37,204 @@ function callLimitGuidance(limit: number, truncated: boolean): string {
     : `Returned ${limit} or fewer matching calls. Answer from these calls now; do not expand the search unless the user explicitly asks.`;
 }
 
+function normalizeBoundedInt(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value!)));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatTranscriptOffset(value: unknown): string | null {
+  const ms =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `[${minutes}:${String(seconds).padStart(2, "0")}]`;
+}
+
+function transcriptSpeaker(record: Record<string, unknown>): string | null {
+  const speaker =
+    stringValue(record.speakerName) ??
+    stringValue(record.speaker) ??
+    stringValue(record.name);
+  if (speaker) return speaker;
+
+  const speakerId =
+    stringValue(record.speakerId) ??
+    stringValue(record.speaker_id) ??
+    (typeof record.speakerId === "number" ? String(record.speakerId) : null);
+  return speakerId ? `Speaker ${speakerId}` : null;
+}
+
+function sentenceText(record: Record<string, unknown>): string | null {
+  return (
+    stringValue(record.text) ??
+    stringValue(record.sentence) ??
+    stringValue(record.content)
+  );
+}
+
+export function extractTranscriptText(
+  transcript: unknown,
+  maxChars = DEFAULT_TRANSCRIPT_MAX_CHARS,
+): TranscriptExtraction {
+  const limit = normalizeBoundedInt(
+    maxChars,
+    DEFAULT_TRANSCRIPT_MAX_CHARS,
+    1_000,
+    MAX_TRANSCRIPT_MAX_CHARS,
+  );
+  const lines: string[] = [];
+  let chars = 0;
+  let sentenceCount = 0;
+  let truncated = false;
+
+  function addLine(text: string, record?: Record<string, unknown>) {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (!normalized) return;
+
+    sentenceCount += 1;
+    if (chars >= limit) {
+      truncated = true;
+      return;
+    }
+
+    const prefix = record
+      ? [
+          formatTranscriptOffset(record.start ?? record.startTime),
+          transcriptSpeaker(record),
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
+    const line = prefix ? `${prefix}: ${normalized}` : normalized;
+    const remaining = limit - chars;
+    if (line.length > remaining) {
+      lines.push(line.slice(0, remaining).trimEnd());
+      chars = limit;
+      truncated = true;
+      return;
+    }
+
+    lines.push(line);
+    chars += line.length + 1;
+  }
+
+  function collect(value: unknown) {
+    if (truncated || value == null) return;
+
+    if (typeof value === "string") {
+      addLine(value);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item);
+      return;
+    }
+
+    const record = asRecord(value);
+    if (!record) return;
+
+    const text = sentenceText(record);
+    if (text) {
+      addLine(text, record);
+      return;
+    }
+
+    for (const key of [
+      "callTranscripts",
+      "transcript",
+      "sentences",
+      "segments",
+    ]) {
+      collect(record[key]);
+    }
+  }
+
+  collect(transcript);
+
+  if (!lines.length && transcript != null) {
+    const raw = JSON.stringify(transcript);
+    if (raw) {
+      truncated = raw.length > limit;
+      return {
+        text: raw.slice(0, limit),
+        sentenceCount: 0,
+        truncated,
+      };
+    }
+  }
+
+  return {
+    text: lines.join("\n"),
+    sentenceCount,
+    truncated,
+  };
+}
+
+async function loadTranscriptEvidence(
+  calls: GongCall[],
+  limit: number,
+  maxChars: number,
+): Promise<TranscriptEvidence[]> {
+  return Promise.all(
+    calls.slice(0, limit).map(async (call) => {
+      try {
+        const transcript = await getCallTranscript(call.id);
+        return {
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          ...extractTranscriptText(transcript, maxChars),
+        };
+      } catch (err) {
+        return {
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          text: "",
+          sentenceCount: 0,
+          truncated: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }),
+  );
+}
+
 export default defineAction({
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company. Default call searches return only the 8 most recent matches; answer from that bounded batch unless the user asks for more.",
+    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone.",
   schema: z.object({
     users: z.coerce
       .boolean()
       .optional()
       .describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
-    company: z.string().optional().describe("Search calls by company name"),
+    company: z
+      .string()
+      .optional()
+      .describe("Search calls by company name, domain, person, or email"),
     days: z.coerce
       .number()
       .optional()
@@ -41,6 +248,30 @@ export default defineAction({
       .describe(
         "Maximum number of calls to return for call searches (default 8, max 25). Use 5-8 for ordinary analysis.",
       ),
+    includeTranscripts: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "Fetch transcript excerpts for the newest matching calls. Use true for deep dives, deal/customer context, objections, risks, next steps, or qualitative analysis.",
+      ),
+    transcriptLimit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_GONG_TRANSCRIPT_LIMIT)
+      .optional()
+      .describe(
+        "Number of matching calls to load transcripts for when includeTranscripts=true (default 3, max 8).",
+      ),
+    transcriptMaxChars: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(MAX_TRANSCRIPT_MAX_CHARS)
+      .optional()
+      .describe(
+        "Maximum transcript characters to return per call (default 12000, max 40000).",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -49,17 +280,50 @@ export default defineAction({
       return { users, total: users.length };
     } else if (args.transcript) {
       const transcript = await getCallTranscript(args.transcript);
-      return { transcript };
+      return {
+        transcript,
+        transcriptText: extractTranscriptText(
+          transcript,
+          args.transcriptMaxChars,
+        ),
+      };
     } else if (args.company) {
       const days = args.days ?? 90;
       const limit = normalizeGongCallLimit(
         args.limit ?? DEFAULT_GONG_CALL_LIMIT,
       );
       const result = await searchCalls(args.company, days, limit);
+      const shouldLoadTranscripts = Boolean(args.includeTranscripts);
+      const transcriptLimit = normalizeBoundedInt(
+        args.transcriptLimit,
+        DEFAULT_GONG_TRANSCRIPT_LIMIT,
+        1,
+        MAX_GONG_TRANSCRIPT_LIMIT,
+      );
+      const transcriptMaxChars = normalizeBoundedInt(
+        args.transcriptMaxChars,
+        DEFAULT_TRANSCRIPT_MAX_CHARS,
+        1_000,
+        MAX_TRANSCRIPT_MAX_CHARS,
+      );
+      const transcripts = shouldLoadTranscripts
+        ? await loadTranscriptEvidence(
+            result.calls,
+            transcriptLimit,
+            transcriptMaxChars,
+          )
+        : undefined;
+
       return {
         ...result,
         total: result.calls.length,
-        guidance: callLimitGuidance(result.limit, result.truncated),
+        ...(transcripts ? { transcripts } : {}),
+        guidance: [
+          callLimitGuidance(result.limit, result.truncated),
+          shouldLoadTranscripts
+            ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} matching call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
+            : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
+        ].join(" "),
       };
     } else {
       const days = args.days ?? 30;
@@ -71,10 +335,37 @@ export default defineAction({
       ).toISOString();
       const result = await getCalls({ fromDateTime });
       const limited = limitGongCalls(result.calls, limit);
+      const shouldLoadTranscripts = Boolean(args.includeTranscripts);
+      const transcriptLimit = normalizeBoundedInt(
+        args.transcriptLimit,
+        DEFAULT_GONG_TRANSCRIPT_LIMIT,
+        1,
+        MAX_GONG_TRANSCRIPT_LIMIT,
+      );
+      const transcriptMaxChars = normalizeBoundedInt(
+        args.transcriptMaxChars,
+        DEFAULT_TRANSCRIPT_MAX_CHARS,
+        1_000,
+        MAX_TRANSCRIPT_MAX_CHARS,
+      );
+      const transcripts = shouldLoadTranscripts
+        ? await loadTranscriptEvidence(
+            limited.calls,
+            transcriptLimit,
+            transcriptMaxChars,
+          )
+        : undefined;
+
       return {
         ...limited,
         total: limited.calls.length,
-        guidance: callLimitGuidance(limited.limit, limited.truncated),
+        ...(transcripts ? { transcripts } : {}),
+        guidance: [
+          callLimitGuidance(limited.limit, limited.truncated),
+          shouldLoadTranscripts
+            ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
+            : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
+        ].join(" "),
       };
     }
   },
