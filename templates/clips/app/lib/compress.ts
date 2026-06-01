@@ -92,7 +92,8 @@ export interface CompressionResult {
 }
 
 export interface CompressOptions {
-  /** Override the threshold (mostly for testing). Defaults to 45 MB. */
+  /** Override the threshold (mostly for testing). Defaults to
+   * COMPRESS_THRESHOLD_BYTES (24 MB). */
   thresholdBytes?: number;
   /** Optional progress callback for UI plumbing. */
   onProgress?: (p: CompressionProgress) => void;
