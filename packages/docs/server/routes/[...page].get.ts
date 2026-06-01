@@ -1,6 +1,6 @@
 import {
   createH3SSRHandler,
-  DEFAULT_SSR_CACHE_CONTROL,
+  DEFAULT_SSR_CACHE_HEADERS,
 } from "@agent-native/core/server/ssr-handler";
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import fs from "fs";
@@ -25,7 +25,7 @@ export default async function docsPageHandler(event: H3Event) {
   const agentWebAsset = readAgentWebAssetForRequest(event);
   if (agentWebAsset) {
     setHeader(event, "content-type", agentWebAsset.contentType);
-    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+    setDefaultSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     return agentWebAsset.content;
   }
@@ -42,7 +42,7 @@ export default async function docsPageHandler(event: H3Event) {
     )) {
       setHeader(event, name, value);
     }
-    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+    setDefaultSsrCacheHeaders(event);
     return markdown.content;
   }
 
@@ -51,6 +51,16 @@ export default async function docsPageHandler(event: H3Event) {
   }
 
   return ssrHandler(event);
+}
+
+function setDefaultSsrCacheHeaders(event: H3Event) {
+  // Keep docs-only public text/markdown assets on the same framework SSR cache
+  // policy as HTML and React Router .data. Do not move these back to
+  // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
+  // provider and template gets the same short-fresh/long-SWR behavior.
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    setHeader(event, name, value);
+  }
 }
 
 function readAgentWebAssetForRequest(
