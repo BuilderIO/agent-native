@@ -653,7 +653,9 @@ export async function createAndLinkNotionPage(
     documentId,
     remotePageId: newPage.id,
     state: "linked",
+    lastPushedLocalUpdatedAt: document.updatedAt,
     lastKnownRemoteUpdatedAt: null,
+    lastSyncedContentHash: hashContent(document.content),
     warnings: [],
     hasConflict: false,
   });
