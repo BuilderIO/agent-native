@@ -127,11 +127,18 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Verify captcha
-  const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
-  if (!captchaResult.success) {
-    setResponseStatus(event, 403);
-    return { error: "Captcha verification failed" };
+  // Verify captcha — but only when the public site key is configured. The
+  // client (SSR renderer and React page) only renders the Turnstile widget and
+  // produces a token when VITE_TURNSTILE_SITE_KEY is set, so enforcing the
+  // secret without the site key would reject every submission with no widget
+  // ever shown. Keep the requirement symmetric: skip verification when the
+  // client could not have rendered a widget.
+  if (process.env.VITE_TURNSTILE_SITE_KEY) {
+    const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
+    if (!captchaResult.success) {
+      setResponseStatus(event, 403);
+      return { error: "Captcha verification failed" };
+    }
   }
 
   // Parse form fields and build whitelist of valid field IDs

@@ -341,7 +341,7 @@ export function MessagingSetupPanel() {
     try {
       const action = enabled ? "disable" : "enable";
       const res = await fetch(
-        `/_agent-native/integrations/${platform.id}/${action}`,
+        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
         {
           method: "POST",
         },
@@ -371,7 +371,7 @@ export function MessagingSetupPanel() {
     setSetupPlatform(platform.id);
     try {
       const res = await fetch(
-        `/_agent-native/integrations/${platform.id}/setup`,
+        agentNativePath(`/_agent-native/integrations/${platform.id}/setup`),
         {
           method: "POST",
         },
