@@ -587,6 +587,15 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "note must be 1000 characters or fewer" };
     }
+    const sendUpdates = body?.sendUpdates;
+    if (
+      sendUpdates !== undefined &&
+      sendUpdates !== "all" &&
+      sendUpdates !== "none"
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "sendUpdates must be all or none" };
+    }
 
     try {
       await googleCalendar.rsvpEvent(
@@ -595,7 +604,7 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
         acctEmail,
         scope,
         note,
-        body?.sendUpdates,
+        sendUpdates,
       );
     } catch (error: any) {
       setResponseStatus(event, 500);

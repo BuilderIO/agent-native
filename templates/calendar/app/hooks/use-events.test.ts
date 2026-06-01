@@ -128,13 +128,47 @@ describe("calendar event list cache helpers", () => {
       "declined",
       "single",
       "me@example.com",
+      "I have a conflict",
     );
 
     expect(next?.[0]?.responseStatus).toBe("declined");
-    expect(next?.[0]?.attendees?.find((a) => a.self)?.responseStatus).toBe(
-      "declined",
-    );
+    expect(next?.[0]?.attendees?.find((a) => a.self)).toMatchObject({
+      responseStatus: "declined",
+      comment: "I have a conflict",
+    });
     expect(next?.[0]?.attendees?.[0]?.responseStatus).toBe("accepted");
+  });
+
+  it("optimistically clears a self attendee RSVP note", () => {
+    const event = calendarEvent({
+      source: "google",
+      accountEmail: "me@example.com",
+      responseStatus: "declined",
+      attendees: [
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          responseStatus: "declined",
+          comment: "I have a conflict",
+          self: true,
+        },
+      ],
+    });
+
+    const next = applyCalendarEventRsvp(
+      [event],
+      event.id,
+      "accepted",
+      "single",
+      "me@example.com",
+      "",
+    );
+
+    expect(next?.[0]?.responseStatus).toBe("accepted");
+    expect(next?.[0]?.attendees?.find((a) => a.self)).toMatchObject({
+      responseStatus: "accepted",
+      comment: undefined,
+    });
   });
 
   it("optimistically updates this and following recurring RSVP instances", () => {

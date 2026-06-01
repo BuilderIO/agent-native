@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "RSVP to a Google Calendar event as accepted, declined, or tentative. Use this when the user asks to accept, decline, or maybe a meeting invitation.",
+    "RSVP to a Google Calendar event as accepted, declined, or tentative, optionally with a response note. Use this when the user asks to accept, decline, or maybe a meeting invitation.",
   schema: z.object({
     id: z
       .string()
