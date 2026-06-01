@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.5
+
+### Patch Changes
+
+- d56f689: Merge runtime route-warmup config overrides with the build-time config, and tune smooth streaming commit cadence.
+
 ## 0.32.4
 
 ### Patch Changes
