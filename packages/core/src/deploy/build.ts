@@ -1172,14 +1172,28 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-function copyDir(src: string, dest: string) {
+export function copyDir(
+  src: string,
+  dest: string,
+  ancestorRealPaths = new Set<string>(),
+) {
+  const realSrc = fs.realpathSync(src);
+  if (ancestorRealPaths.has(realSrc)) return;
+  const nextAncestorRealPaths = new Set(ancestorRealPaths);
+  nextAncestorRealPaths.add(realSrc);
+
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+    if (entry.isDirectory() || entry.isSymbolicLink()) {
+      const stat = fs.statSync(srcPath);
+      if (stat.isDirectory()) {
+        copyDir(srcPath, destPath, nextAncestorRealPaths);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -1200,6 +1214,13 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
+const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
+
+export function shouldBundleFfmpegStaticForServerless(
+  hostPlatform: NodeJS.Platform = process.platform,
+): boolean {
+  return hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM;
+}
 
 function nodeModulesAncestors(startDir: string): string[] {
   const dirs: string[] = [];
@@ -1326,6 +1347,16 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
 function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
+  if (!shouldBundleFfmpegStaticForServerless()) {
+    if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
+      console.warn(
+        `[deploy] ffmpeg-static installs a ${process.platform} binary, but serverless bundles run on ${SERVERLESS_FFMPEG_STATIC_PLATFORM}; ` +
+          "server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+      );
+    }
+    return;
+  }
+
   const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
   if (!src) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {

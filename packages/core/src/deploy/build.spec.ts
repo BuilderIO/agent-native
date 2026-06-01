@@ -4,11 +4,13 @@ import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  copyDir,
   findInstalledFfmpegStaticPackage,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
   runNitroBuildPipeline,
+  shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
@@ -564,6 +566,38 @@ describe("Cloudflare deploy builtins", () => {
   });
 });
 
+describe("copyDir", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it("copies directory symlink targets instead of treating symlinks as files", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-copy-dir-test-"));
+    dirs.push(cwd);
+    const src = path.join(cwd, "src");
+    const dest = path.join(cwd, "dest");
+    const linkedTarget = path.join(cwd, "linked-target");
+    fs.mkdirSync(src, { recursive: true });
+    fs.mkdirSync(linkedTarget, { recursive: true });
+    fs.writeFileSync(path.join(linkedTarget, "asset.txt"), "asset");
+    fs.symlinkSync(
+      linkedTarget,
+      path.join(src, "linked-dir"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    copyDir(src, dest);
+
+    expect(
+      fs.readFileSync(path.join(dest, "linked-dir", "asset.txt"), "utf8"),
+    ).toBe("asset");
+  });
+});
+
 describe("findInstalledFfmpegStaticPackage", () => {
   const dirs: string[] = [];
 
@@ -608,6 +642,12 @@ describe("findInstalledFfmpegStaticPackage", () => {
     fs.writeFileSync(path.join(packageDir, "ffmpeg"), "binary");
 
     expect(findInstalledFfmpegStaticPackage([nodeModules])).toBe(packageDir);
+  });
+
+  it("only bundles host ffmpeg-static binaries for matching Linux serverless targets", () => {
+    expect(shouldBundleFfmpegStaticForServerless("linux")).toBe(true);
+    expect(shouldBundleFfmpegStaticForServerless("darwin")).toBe(false);
+    expect(shouldBundleFfmpegStaticForServerless("win32")).toBe(false);
   });
 });
 
