@@ -285,6 +285,22 @@ describe("route warmup config", () => {
     expect(routeWarmup.modules).toBe(true);
     expect(config.define?.__APP_DEFINE__).toBe(JSON.stringify("ok"));
   });
+
+  it("does not let app define options override the framework route warmup config", () => {
+    const config = defineConfig({
+      routeWarmup: { strategy: "viewport" },
+      define: {
+        __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify({
+          strategy: "off",
+        }),
+      },
+    });
+    const routeWarmup = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+    );
+
+    expect(routeWarmup.strategy).toBe("viewport");
+  });
 });
 
 describe("Vite MCP embed headers", () => {

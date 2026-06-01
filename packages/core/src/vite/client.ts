@@ -1285,10 +1285,14 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     envDir,
     base,
     define: {
+      ...(options.define ?? {}),
+      // Framework route warmup controls how SSR `.data` routes are fetched:
+      // ordinary fetches keep them CDN-cacheable, while native prefetch headers
+      // can be refused before the CDN/origin sees the request. Keep this value
+      // authoritative even if app config provides its own `define` entries.
       __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
         normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
       ),
-      ...(options.define ?? {}),
     },
     server: {
       host: "::",

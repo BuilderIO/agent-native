@@ -9,6 +9,7 @@ import {
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
+  | string
   | undefined;
 
 type ReactRouterManifestRoute = {
@@ -48,10 +49,25 @@ const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
 
 let cachedManifest: ReactRouterManifest | undefined;
+let cachedManifestRoutesSignature = "";
 let cachedManifestRouteTree: WarmupRouteObject[] = [];
 
 export interface AgentNativeRouteWarmupProps {
   config?: AgentNativeRouteWarmupConfigInput;
+}
+
+function parseBuildTimeRouteWarmupConfig(
+  raw: AgentNativeRouteWarmupConfigInput | string | undefined,
+): AgentNativeRouteWarmupConfigInput | undefined {
+  if (typeof raw !== "string") return raw;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed) as AgentNativeRouteWarmupConfigInput;
+  } catch {
+    // Some test/build paths may inject a bare strategy string instead of JSON.
+    return raw as AgentNativeRouteWarmupConfigInput;
+  }
 }
 
 function getBuildTimeRouteWarmupConfig():
@@ -59,7 +75,9 @@ function getBuildTimeRouteWarmupConfig():
   | undefined {
   try {
     if (typeof __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__ !== "undefined") {
-      return __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__;
+      return parseBuildTimeRouteWarmupConfig(
+        __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__,
+      );
     }
   } catch {
     // Some non-Vite test/runtime paths do not define the global.
@@ -141,10 +159,32 @@ function dataRouteUrlForHref(href: string): string | null {
   return url.href;
 }
 
+function manifestRoutesSignature(
+  routes: Record<string, ReactRouterManifestRoute> | undefined,
+): string {
+  return Object.values(routes ?? {})
+    .map((route) =>
+      [
+        route.id,
+        route.parentId ?? "",
+        route.path ?? "",
+        route.index ? "1" : "0",
+      ].join("\0"),
+    )
+    .sort()
+    .join("\n");
+}
+
 function getManifestRouteTree(
   manifest: ReactRouterManifest,
 ): WarmupRouteObject[] {
-  if (manifest === cachedManifest) return cachedManifestRouteTree;
+  const routesSignature = manifestRoutesSignature(manifest.routes);
+  if (
+    manifest === cachedManifest &&
+    routesSignature === cachedManifestRoutesSignature
+  ) {
+    return cachedManifestRouteTree;
+  }
 
   const manifestRoutes = Object.values(manifest.routes ?? {});
   const nodes = new Map<string, WarmupRouteObject>();
@@ -170,6 +210,7 @@ function getManifestRouteTree(
   }
 
   cachedManifest = manifest;
+  cachedManifestRoutesSignature = routesSignature;
   cachedManifestRouteTree = tree;
   return tree;
 }
@@ -260,6 +301,44 @@ function linkWarmupMode(
   return strategy;
 }
 
+function selectorWarmupMode(link: HTMLAnchorElement): "render" | "none" {
+  const explicit = link.getAttribute(PREFETCH_ATTR)?.trim().toLowerCase();
+  return explicit === "none" || explicit === "off" || explicit === "false"
+    ? "none"
+    : "render";
+}
+
+function renderWarmupLinksForSelector(selector: string): HTMLAnchorElement[] {
+  let elements: Element[];
+  try {
+    elements = Array.from(document.querySelectorAll(selector));
+  } catch {
+    return [];
+  }
+
+  const links: HTMLAnchorElement[] = [];
+  const seen = new Set<HTMLAnchorElement>();
+  for (const element of elements) {
+    const link =
+      element instanceof HTMLAnchorElement
+        ? element
+        : (element.querySelector<HTMLAnchorElement>("a[href]") ??
+          element.closest<HTMLAnchorElement>("a[href]"));
+    if (!link || seen.has(link)) continue;
+    seen.add(link);
+    links.push(link);
+  }
+  return links;
+}
+
+function resetRouteWarmupCachesForTests() {
+  cachedManifest = undefined;
+  cachedManifestRoutesSignature = "";
+  cachedManifestRouteTree = [];
+  warmedDataRoutes.clear();
+  warmedRouteAssets.clear();
+}
+
 /**
  * Warms React Router route data and matched route JS without using native link
  * prefetch. React Router's built-in `<Link prefetch>` does both pieces, but
@@ -344,6 +423,13 @@ export function AgentNativeRouteWarmup({
     const scan = () => {
       if (warmModules) seedExistingModulepreloads();
 
+      for (const link of renderWarmupLinksForSelector(resolved.selector)) {
+        if (!isWarmableAnchor(link)) continue;
+        const mode = selectorWarmupMode(link);
+        if (mode === "none") continue;
+        warmHref(link.href);
+      }
+
       for (const link of document.querySelectorAll<HTMLAnchorElement>(
         "a[href]",
       )) {
@@ -385,11 +471,12 @@ export function AgentNativeRouteWarmup({
 
     schedule();
     const observer = new MutationObserver(schedule);
+    // The render-warmup selector is configurable, so it may depend on class or
+    // custom data attributes. Watch all attribute changes and debounce rescans.
     observer.observe(document.documentElement, {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ["href", PREFETCH_ATTR],
     });
 
     document.addEventListener("pointerover", warmFromIntent, {
@@ -415,3 +502,10 @@ export function AgentNativeRouteWarmup({
 
   return null;
 }
+
+export const __routeWarmupInternalsForTests = {
+  getManifestRouteTree,
+  parseBuildTimeRouteWarmupConfig,
+  renderWarmupLinksForSelector,
+  resetRouteWarmupCachesForTests,
+};

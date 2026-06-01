@@ -5,6 +5,15 @@ export type AgentNativeRouteWarmupStrategy =
   | "render"
   | "viewport";
 
+const AGENT_NATIVE_ROUTE_WARMUP_STRATEGIES =
+  new Set<AgentNativeRouteWarmupStrategy>([
+    "off",
+    "marked",
+    "intent",
+    "render",
+    "viewport",
+  ]);
+
 export interface AgentNativeRouteWarmupResolvedConfig {
   /**
    * How unmarked internal route links are warmed.
@@ -43,6 +52,25 @@ export const DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG: AgentNativeRouteWarmupRes
     maxConcurrent: 4,
   };
 
+export function isAgentNativeRouteWarmupStrategy(
+  value: unknown,
+): value is AgentNativeRouteWarmupStrategy {
+  return (
+    typeof value === "string" &&
+    AGENT_NATIVE_ROUTE_WARMUP_STRATEGIES.has(
+      value as AgentNativeRouteWarmupStrategy,
+    )
+  );
+}
+
+function normalizeRouteWarmupStrategy(
+  value: unknown,
+): AgentNativeRouteWarmupStrategy {
+  return isAgentNativeRouteWarmupStrategy(value)
+    ? value
+    : DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG.strategy;
+}
+
 export function normalizeAgentNativeRouteWarmupConfig(
   input: AgentNativeRouteWarmupConfigInput | undefined = true,
 ): AgentNativeRouteWarmupResolvedConfig {
@@ -51,7 +79,10 @@ export function normalizeAgentNativeRouteWarmupConfig(
   }
 
   if (typeof input === "string") {
-    return { ...DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG, strategy: input };
+    return {
+      ...DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG,
+      strategy: normalizeRouteWarmupStrategy(input),
+    };
   }
 
   if (input === true || input === undefined) {
@@ -61,6 +92,19 @@ export function normalizeAgentNativeRouteWarmupConfig(
   return {
     ...DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG,
     ...input,
+    strategy: normalizeRouteWarmupStrategy(input.strategy),
+    data:
+      typeof input.data === "boolean"
+        ? input.data
+        : DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG.data,
+    modules:
+      typeof input.modules === "boolean"
+        ? input.modules
+        : DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG.modules,
+    selector:
+      typeof input.selector === "string" && input.selector.trim()
+        ? input.selector
+        : DEFAULT_AGENT_NATIVE_ROUTE_WARMUP_CONFIG.selector,
     maxConcurrent:
       typeof input.maxConcurrent === "number" &&
       Number.isFinite(input.maxConcurrent) &&
