@@ -1,5 +1,11 @@
 # @agent-native/migrate
 
+## 0.0.5
+
+### Patch Changes
+
+- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
 ## 0.0.4
 
 ### Patch Changes

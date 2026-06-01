@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.8.24
+
+### Patch Changes
+
+- d4013f0: Remove compiler-verified dead code (unused imports, unused non-exported types,
+  and side-effect-free unused locals) across the framework. No behavior or public
+  API changes — only declarations the TypeScript compiler proves are unreferenced.
+- d4013f0: Fix Messaging enable/disable and webhook setup fetches to use `agentNativePath()`, so they work under a base-path (workspace) mount instead of 404ing at the gateway root.
+- d4013f0: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
+  SSRF-safe URL fetch paths.
+
 ## 0.8.23
 
 ### Patch Changes
