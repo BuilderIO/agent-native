@@ -1783,11 +1783,11 @@ export function MultiTabAssistantChat({
     tabCount: openTabIds.length,
   };
 
-  // No full-shell skeleton: the hook seeds an optimistic activeThreadId
-  // synchronously so the chat shell + composer can paint on first render.
-  // Per-thread restore (existing chats with history) shows its own message-area
-  // skeleton inside AssistantChat — header and composer stay visible.
-  if (isLoading && !activeThreadId) {
+  // Wait for the first thread-list pass before mounting restored tabs. Saved
+  // localStorage ids may be empty client-only tabs or old ids from another
+  // deployment; rendering AssistantChat before validation causes harmless but
+  // noisy /threads/:id 404s during app startup.
+  if (isLoading) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}

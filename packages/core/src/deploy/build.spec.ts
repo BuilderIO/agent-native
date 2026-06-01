@@ -4,6 +4,7 @@ import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
   runNitroBuildPipeline,
@@ -59,6 +60,14 @@ export function createRequestHandler() {
         headers: { location: "/login", "content-type": "text/html" },
       });
     }
+    if (url.pathname === "/private-html") {
+      return new Response("<html></html>", {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "text/html; charset=utf-8",
+        },
+      });
+    }
     return new Response(
       '<html><head></head><body><a href="/next">next</a><form action="/api/search"></form><style>.hero{background:url("/hero.png")}</style>' +
         request.method + ' ' + url.pathname + '</body></html>',
@@ -80,6 +89,51 @@ describe("generateWorkerEntry", () => {
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("pre-marks generated plugin slots before running async plugins", () => {
+    const dir = makeTempDir();
+    const agentChatPlugin = path.join(
+      dir,
+      "server",
+      "plugins",
+      "agent-chat.ts",
+    );
+    const coreRoutesPlugin = path.join(
+      dir,
+      "server",
+      "plugins",
+      "core-routes.ts",
+    );
+    const source = generateWorkerEntry(
+      [],
+      [agentChatPlugin, coreRoutesPlugin],
+      ["resources"],
+    );
+
+    expect(source).toContain(
+      'import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server";',
+    );
+    expect(source).toContain(
+      'markGeneratedPluginProvided(nitroApp, "core-routes");',
+    );
+    expect(source).toContain(
+      'markGeneratedPluginProvided(nitroApp, "terminal");',
+    );
+    expect(
+      source.indexOf('markGeneratedPluginProvided(nitroApp, "agent-chat");'),
+    ).toBeLessThan(source.indexOf("await plugin_0(nitroApp);"));
+  });
+
+  it("pre-marks slots before generated default plugin calls", () => {
+    const source = generateWorkerEntry([], [], ["core-routes"]);
+
+    expect(source).toContain(
+      'markGeneratedPluginProvided(nitroApp, "core-routes");',
+    );
+    expect(
+      source.indexOf('markGeneratedPluginProvided(nitroApp, "core-routes");'),
+    ).toBeLessThan(source.indexOf("await defaultPlugin_0(nitroApp);"));
   });
 
   it("strips mounted /api prefixes and removes bodies for HEAD on GET API routes", async () => {
@@ -194,7 +248,7 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
-  it("uses public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+  it("does not add public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -206,9 +260,19 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
+    expect(response.headers.get("cache-control")).toBeNull();
+  });
+
+  it("preserves explicit no-store cache policies on Cloudflare worker SSR", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/private-html"),
+      {},
+      {},
     );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
@@ -225,7 +289,7 @@ export default (event) =>
     );
   });
 
-  it("preserves React Router's default no-cache policy on authenticated Cloudflare worker data responses", async () => {
+  it("preserves default no-cache headers for authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -243,7 +307,9 @@ export default (event) =>
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
-      new Request("https://app.test/private.data"),
+      new Request("https://app.test/private.data", {
+        headers: { cookie: "an_session=active" },
+      }),
       {},
       {},
     );
@@ -326,6 +392,41 @@ export default (event) =>
     expect(await manuallyVersioned.text()).toBe("asset");
     expect(manuallyVersioned.headers.get("cache-control")).toBeNull();
     expect(manuallyVersioned.headers.get("cdn-cache-control")).toBeNull();
+  });
+
+  it("uses the build-time app base path for mounted Cloudflare Pages hashed assets", async () => {
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [],
+        null,
+        ["/assets/entry.client-aB12_cdE.js"],
+        "/docs",
+      ),
+    );
+
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/assets/entry.client-aB12_cdE.js"),
+      {
+        ASSETS: {
+          fetch: async () =>
+            new Response("asset", {
+              headers: { "content-type": "application/javascript" },
+            }),
+        },
+      },
+      {},
+    );
+
+    expect(await response.text()).toBe("asset");
+    expect(response.headers.get("cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {
@@ -417,6 +518,24 @@ export default {
   });
 });
 
+describe("generateProvidedPluginsNitroPluginSource", () => {
+  it("emits a Nitro plugin that pre-marks discovered app plugin slots", () => {
+    const source = generateProvidedPluginsNitroPluginSource([
+      "core-routes",
+      "agent-chat",
+      "core-routes",
+    ]);
+
+    expect(source).toContain(
+      'import { markDefaultPluginProvided } from "@agent-native/core/server";',
+    );
+    expect(source).toContain(
+      'const pluginStems = ["agent-chat","core-routes"]',
+    );
+    expect(source).toContain("markDefaultPluginProvided(nitroApp, stem);");
+  });
+});
+
 describe("Cloudflare deploy builtins", () => {
   it("externalizes node:sqlite references from optional runtime probes", () => {
     expect(getNodeBuiltinNames()).toContain("sqlite");
@@ -462,13 +581,19 @@ describe("runNitroBuildPipeline", () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
 
     const calls: string[] = [];
+    let routeRuleAtPrepare: unknown;
     let publicDirContentsAtNitroBuild: string[] = [];
+    const nitro: any = {
+      options: { output: { publicDir: publicOutputDir } },
+    };
 
     await runNitroBuildPipeline({
-      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      nitro,
       hooks: {
         prepare: async () => {
           calls.push("prepare");
+          routeRuleAtPrepare =
+            nitro.options.routeRules?.["/assets/entry.client-aB12_cdE.js"];
         },
         copyPublicAssets: async () => {
           calls.push("copyPublicAssets");
@@ -489,6 +614,9 @@ describe("runNitroBuildPipeline", () => {
     });
 
     expect(calls).toEqual(["prepare", "copyPublicAssets", "nitroBuild"]);
+    expect(routeRuleAtPrepare).toMatchObject({
+      headers: { "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL },
+    });
     // The regression we're guarding against: if the client build is copied
     // *after* nitroBuild, the manifest is empty here and /assets/* 404s at
     // runtime even though the files exist on disk.

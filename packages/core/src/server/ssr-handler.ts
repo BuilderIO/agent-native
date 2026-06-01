@@ -220,6 +220,7 @@ function shouldUseDefaultSsrCacheHeader(
   hasAuthSignal: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
+  if (hasAuthSignal) return false;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) {
@@ -227,9 +228,12 @@ function shouldUseDefaultSsrCacheHeader(
   }
 
   if (!pathname.endsWith(".data")) return false;
-  if (hasAuthSignal) return false;
   if (!contentType.includes("text/x-script")) return false;
 
+  // React Router gives loader `.data` responses `cache-control: no-cache` by
+  // default. For public loader responses, replace that default with the same
+  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
+  // explicit route cache policies and any authenticated request untouched.
   const cacheControl = headers.get("cache-control");
   return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
 }

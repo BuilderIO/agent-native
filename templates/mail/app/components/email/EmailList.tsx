@@ -52,6 +52,13 @@ import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {
   emails?: EmailMessage[];
+  isLoading?: boolean;
+  isFetching?: boolean;
+  emailsError?: Error | null;
+  refetchEmails?: () => unknown;
+  hasNextPage?: boolean;
+  fetchNextPage?: () => Promise<unknown>;
+  isFetchingNextPage?: boolean;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
@@ -326,6 +333,13 @@ function EmailErrorState({
 
 export function EmailList({
   emails: emailsProp,
+  isLoading: isLoadingProp,
+  isFetching: isFetchingProp,
+  emailsError: emailsErrorProp,
+  refetchEmails,
+  hasNextPage: hasNextPageProp,
+  fetchNextPage: fetchNextPageProp,
+  isFetchingNextPage: isFetchingNextPageProp,
   focusedId,
   setFocusedId,
   selectedIds,
@@ -349,16 +363,26 @@ export function EmailList({
 
   const {
     data: fetchedEmails = [],
-    isLoading,
-    isFetching,
-    error: emailsError,
-    refetch,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-  } = useEmails(view, searchQuery, labelParam ?? undefined);
+    isLoading: fetchedEmailsLoading,
+    isFetching: fetchedEmailsFetching,
+    error: fetchedEmailsError,
+    refetch: refetchFetchedEmails,
+    hasNextPage: fetchedEmailsHasNextPage,
+    fetchNextPage: fetchFetchedNextPage,
+    isFetchingNextPage: fetchedEmailsFetchingNextPage,
+  } = useEmails(view, searchQuery, labelParam ?? undefined, {
+    enabled: emailsProp === undefined,
+  });
 
   const emails = emailsProp ?? fetchedEmails;
+  const isLoading = isLoadingProp ?? fetchedEmailsLoading;
+  const isFetching = isFetchingProp ?? fetchedEmailsFetching;
+  const emailsError = emailsErrorProp ?? fetchedEmailsError;
+  const refetch = refetchEmails ?? refetchFetchedEmails;
+  const hasNextPage = hasNextPageProp ?? fetchedEmailsHasNextPage;
+  const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
+  const isFetchingNextPage =
+    isFetchingNextPageProp ?? fetchedEmailsFetchingNextPage;
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();

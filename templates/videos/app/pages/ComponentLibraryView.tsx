@@ -2,10 +2,10 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
 import {
+  IconDeviceFloppy,
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
-  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import type { Zone } from "@/remotion/hooks/useEditableZones";
 import {

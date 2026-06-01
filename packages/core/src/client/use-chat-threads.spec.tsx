@@ -118,6 +118,42 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("does not reclassify a saved thread as new when the initial thread list fails", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:thread-list-failure",
+      "thread-1",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "thread-list-failure");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe("thread-1");
+    expect(hook!.threads).toEqual([]);
+    expect(hook!.isNewThread("thread-1")).toBe(false);
+  });
+
   it("can ignore a saved active thread and start fresh immediately", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:brain",

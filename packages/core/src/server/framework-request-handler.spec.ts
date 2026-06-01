@@ -93,6 +93,26 @@ describe("framework request handler", () => {
     });
   });
 
+  it("rewraps the generated dispatcher if Nitro replaces it later", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", () => ({ ok: "first" }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({ ok: "first" });
+
+    nitroApp.h3["~getMiddleware"] = () => [];
+    getH3App(nitroApp).use("/_agent-native/builder/status", () => ({
+      ok: "second",
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/builder/status"),
+    ).resolves.toEqual({ ok: "second" });
+  });
+
   it("dispatches with a mount-relative event.path for legacy handlers", async () => {
     const nitroApp = createNitroApp();
     getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
