@@ -376,21 +376,31 @@ export function useRsvpEvent() {
       status,
       accountEmail,
       scope,
+      note,
+      sendUpdates,
     }: {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
       scope?: "single" | "all" | "thisAndFollowing";
+      note?: string;
+      sendUpdates?: "all" | "none";
     }) => {
       const res = await fetch(appApiPath(`/api/events/${id}/rsvp`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, accountEmail, scope }),
+        body: JSON.stringify({
+          status,
+          accountEmail,
+          scope,
+          note,
+          sendUpdates,
+        }),
       });
       if (!res.ok) throw new Error("Failed to update RSVP");
       return res.json();
     },
-    onMutate: async ({ id, status, accountEmail, scope }) => {
+    onMutate: async ({ id, status, accountEmail, scope, note }) => {
       await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: LIST_EVENTS_QUERY_KEY,
@@ -401,7 +411,7 @@ export function useRsvpEvent() {
       ]);
 
       updateListEventQueries(queryClient, (old) =>
-        applyCalendarEventRsvp(old, id, status, scope, accountEmail),
+        applyCalendarEventRsvp(old, id, status, scope, accountEmail, note),
       );
       queryClient.setQueryData<CalendarEvent>(["events", id], (old) => {
         const updated = applyCalendarEventRsvp(
@@ -410,6 +420,7 @@ export function useRsvpEvent() {
           status,
           scope,
           accountEmail,
+          note,
         );
         return updated?.[0];
       });
@@ -426,8 +437,9 @@ export function useRsvpEvent() {
         queryClient.setQueryData(["events", vars.id], context.previousEvent);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["events", vars.id] });
     },
   });
 }

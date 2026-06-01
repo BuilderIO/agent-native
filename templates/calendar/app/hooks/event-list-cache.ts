@@ -97,16 +97,22 @@ function applyRsvpStatus(
   event: CalendarEvent,
   status: RsvpStatus,
   accountEmail?: string,
+  note?: string,
 ) {
   const attendees = event.attendees?.map((attendee) =>
     isSelfAttendee(attendee, event, accountEmail)
-      ? { ...attendee, responseStatus: status }
+      ? {
+          ...attendee,
+          responseStatus: status,
+          ...(note !== undefined ? { comment: note || undefined } : {}),
+        }
       : attendee,
   );
   return {
     ...event,
     responseStatus: status,
     attendees,
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -116,6 +122,7 @@ export function applyCalendarEventRsvp(
   status: RsvpStatus,
   scope: RsvpScope = "single",
   accountEmail?: string,
+  note?: string,
 ) {
   if (!old) return old;
 
@@ -124,7 +131,7 @@ export function applyCalendarEventRsvp(
 
   return old.map((event) =>
     shouldApplyRsvpToEvent(event, target, scope)
-      ? applyRsvpStatus(event, status, accountEmail)
+      ? applyRsvpStatus(event, status, accountEmail, note)
       : event,
   );
 }
