@@ -28,6 +28,9 @@ details live in `.agents/skills/`.
   tools. The action schema is authoritative.
 - Prefer app query actions and provider readers over hand-written ad hoc SQL
   unless the user explicitly asks for low-level inspection.
+- For named account/deal deep dives, call `account-deep-dive` first. It bundles
+  HubSpot deal/account/contact activity with Gong call detail and compact
+  transcript evidence so the final report can match Fusion-style depth.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:

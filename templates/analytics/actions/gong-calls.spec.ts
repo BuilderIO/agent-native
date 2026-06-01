@@ -90,6 +90,29 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
 
+  it("honors string false for transcript loading from GET query params", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "The Knot renewal",
+          started: "2026-05-03T10:00:00Z",
+        },
+      ],
+      limit: 8,
+      truncated: false,
+    });
+
+    const result = (await gongCalls.run({
+      company: "The Knot",
+      includeTranscripts: "false",
+    })) as Record<string, any>;
+
+    expect(getCallTranscript).not.toHaveBeenCalled();
+    expect(result.transcripts).toBeUndefined();
+    expect(result.guidance).toContain("includeTranscripts=true");
+  });
+
   it("returns compact transcript text without the raw Gong payload by default", async () => {
     getCallTranscript.mockResolvedValue({
       callTranscripts: [

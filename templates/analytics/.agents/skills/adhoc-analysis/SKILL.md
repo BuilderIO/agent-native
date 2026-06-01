@@ -54,7 +54,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 | Analysis type           | Data sources                                                    |
 | ----------------------- | --------------------------------------------------------------- |
-| Deal/account deep dive  | HubSpot deals/records + Gong transcript excerpts                |
+| Deal/account deep dive  | `account-deep-dive` bundle, then targeted HubSpot/Gong follow-up |
 | Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions                     |
 | Customer health check   | HubSpot deals + Pylon support tickets + BigQuery usage events   |
 | Content performance     | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups       |
@@ -64,7 +64,16 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- For named deal/account deep dives, use `hubspot-deals` with `query` and `gong-calls` with `includeTranscripts=true`; do not answer from an all-deals dump or Gong metadata alone. Avoid fetching individual raw transcripts unless the user asks for exhaustive quoting or export.
+- For named deal/account deep dives, call `account-deep-dive` first with the
+  account, company, domain, deal, or opportunity name. It returns HubSpot deals,
+  associated companies/contacts/tickets/notes/emails, Gong call detail, compact
+  transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`
+  or `gong-calls` follow-ups only when that bundle leaves a specific gap.
+- Structure named deal/account reports like Fusion Analytics: executive summary,
+  company/deal overview, key contacts and roles, dated timeline, Gong evidence
+  with call dates/titles, current state, risks/blockers, recommended next steps,
+  and methodology/gaps. Do not answer from an all-deals dump or Gong metadata
+  alone.
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
   `limit` to narrow results before cross-referencing
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.

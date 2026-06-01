@@ -5,7 +5,11 @@ import {
   normalizeGongCallLimit,
   type GongCallLike,
 } from "./gong-limits";
-import { matchesGongCallQuery, type GongCall } from "./gong";
+import {
+  gongSearchVariants,
+  matchesGongCallQuery,
+  type GongCall,
+} from "./gong";
 
 function call(id: string, started: string): GongCallLike {
   return { id, started };
@@ -40,6 +44,15 @@ describe("Gong call limits", () => {
 });
 
 describe("Gong call search matching", () => {
+  it("generates Fusion-style account variants from deal names and domains", () => {
+    expect(gongSearchVariants("The Knot Worldwide - New Deal")).toEqual(
+      expect.arrayContaining(["the knot worldwide", "the knot", "@the."]),
+    );
+    expect(gongSearchVariants("theknotww.com")).toEqual(
+      expect.arrayContaining(["theknotww.com", "@theknotww.com"]),
+    );
+  });
+
   it("matches company queries across title, participant email, and stop-word-light terms", () => {
     const call = {
       id: "call-1",

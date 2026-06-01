@@ -16,6 +16,10 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "hubspot-records" }])).toBe(true);
   });
 
+  it("treats account deep dives as real source evidence", () => {
+    expect(hasDataQueryAttempt([{ name: "account-deep-dive" }])).toBe(true);
+  });
+
   it("treats connected MCP provider tools as real source evidence", () => {
     expect(
       hasDataQueryAttempt([
@@ -28,6 +32,17 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "data-source-status" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "save-analysis" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "generate-chart" }])).toBe(false);
+  });
+
+  it("does not count failed source reads as evidence", () => {
+    expect(
+      hasDataQueryAttempt([{ name: "hubspot-records", isError: true }]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        { name: "mcp__codex_apps__hubspot__legacy.__search", isError: true },
+      ]),
+    ).toBe(false);
   });
 });
 
