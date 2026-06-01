@@ -36,6 +36,11 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       userId: credentialState.builderUserId,
       orgName: credentialState.builderOrgName,
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     })),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
@@ -136,6 +141,11 @@ describe("createBuilderEngine", () => {
       userId: null,
       orgName: null,
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     });
 
     const fetchSpy = vi.fn();

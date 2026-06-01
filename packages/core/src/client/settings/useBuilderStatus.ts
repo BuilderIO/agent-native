@@ -25,6 +25,11 @@ export interface BuilderStatus {
   userId?: string;
   orgName?: string;
   orgKind?: string;
+  subscription?: string;
+  subscriptionLevel?: string;
+  subscriptionName?: string;
+  isEnterprise?: boolean;
+  isFreeAccount?: boolean;
   /**
    * Set when the OAuth callback ran but failed to persist credentials.
    * Surfaced as a one-shot row by the server so the connect-flow polling

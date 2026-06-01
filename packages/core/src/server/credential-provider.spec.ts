@@ -44,6 +44,21 @@ import {
 } from "./credential-provider.js";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const BUILDER_OPTIONAL_KEYS = [
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
+  "BUILDER_ORG_KIND",
+  "BUILDER_ORG_NAME",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_USER_ID",
+] as const;
+const BUILDER_ALL_KEYS = [
+  ...BUILDER_OPTIONAL_KEYS,
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+].sort();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -60,6 +75,14 @@ beforeEach(() => {
   delete process.env.VITE_FUSION_ENV_ORIGIN;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
+  delete process.env.BUILDER_USER_ID;
+  delete process.env.BUILDER_ORG_NAME;
+  delete process.env.BUILDER_ORG_KIND;
+  delete process.env.BUILDER_SUBSCRIPTION;
+  delete process.env.BUILDER_SUBSCRIPTION_LEVEL;
+  delete process.env.BUILDER_SUBSCRIPTION_NAME;
+  delete process.env.BUILDER_IS_ENTERPRISE;
+  delete process.env.BUILDER_IS_FREE_ACCOUNT;
   delete process.env.OPENAI_API_KEY;
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
@@ -143,7 +166,7 @@ describe("writeBuilderCredentials", () => {
     expect(target).toEqual({ scope: "user", scopeId: "member@b.com" });
   });
 
-  it("includes optional fields (userId, orgName, orgKind)", async () => {
+  it("includes optional account metadata fields", async () => {
     await writeBuilderCredentials(
       "owner@b.com",
       {
@@ -152,17 +175,16 @@ describe("writeBuilderCredentials", () => {
         userId: "u1",
         orgName: "Builder.io",
         orgKind: "team",
+        subscription: "vcp:v3:level2",
+        subscriptionLevel: "pro",
+        subscriptionName: "Pro",
+        isEnterprise: true,
+        isFreeAccount: false,
       },
       { orgId: "builder_io", role: "owner" },
     );
     const keys = mockWriteAppSecret.mock.calls.map((c) => c[0].key).sort();
-    expect(keys).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(keys).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("clears stale optional keys at target scope before writing the new connection", async () => {
@@ -177,13 +199,7 @@ describe("writeBuilderCredentials", () => {
     const orgDeletes = deleteCalls.filter(
       (c) => c.scope === "org" && c.scopeId === "builder_io",
     );
-    expect(orgDeletes.map((c) => c.key).sort()).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(orgDeletes.map((c) => c.key).sort()).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("clears the writer's user-scope override when writing at org scope so the new connection wins resolution", async () => {
@@ -200,13 +216,7 @@ describe("writeBuilderCredentials", () => {
     const userDeletes = mockDeleteAppSecret.mock.calls
       .map((c) => c[0])
       .filter((c) => c.scope === "user" && c.scopeId === "owner@b.com");
-    expect(userDeletes.map((c) => c.key).sort()).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(userDeletes.map((c) => c.key).sort()).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("does NOT touch the org-scope row when writing at user scope (other org members still need it)", async () => {
@@ -630,6 +640,11 @@ describe("resolveBuilderCredential", () => {
       userId: null,
       orgName: "Builder.io",
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     });
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
   });

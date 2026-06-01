@@ -149,6 +149,13 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
 registerBuiltinEngines();
 
+function parseBuilderCallbackBoolean(
+  value: string | null | undefined,
+): boolean | null {
+  if (value == null || value === "") return null;
+  return /^(1|true)$/i.test(value);
+}
+
 const PROVIDER_ENV_VAR_KEYS = new Set(
   Object.values(PROVIDER_ENV_META).map(({ envVar }) => envVar),
 );
@@ -884,6 +891,11 @@ export function createCoreRoutesPlugin(
                     userId: undefined,
                     orgName: undefined,
                     orgKind: undefined,
+                    subscription: undefined,
+                    subscriptionLevel: undefined,
+                    subscriptionName: undefined,
+                    isEnterprise: undefined,
+                    isFreeAccount: undefined,
                     connectError: {
                       message: errRow.message as string,
                       at:
@@ -921,6 +933,11 @@ export function createCoreRoutesPlugin(
                   userId: undefined,
                   orgName: undefined,
                   orgKind: undefined,
+                  subscription: undefined,
+                  subscriptionLevel: undefined,
+                  subscriptionName: undefined,
+                  isEnterprise: undefined,
+                  isFreeAccount: undefined,
                   credentialSource: credentialSource ?? undefined,
                   // Surface durable credential rejection separately from
                   // one-shot cli-auth callback failures. The reconnect UI keeps
@@ -942,6 +959,20 @@ export function createCoreRoutesPlugin(
                   userId: creds.userId || envStatus.userId,
                   orgName: creds.orgName || envStatus.orgName,
                   orgKind: creds.orgKind || envStatus.orgKind,
+                  subscription:
+                    creds.subscription || envStatus.subscription || undefined,
+                  subscriptionLevel:
+                    creds.subscriptionLevel ||
+                    envStatus.subscriptionLevel ||
+                    undefined,
+                  subscriptionName:
+                    creds.subscriptionName ||
+                    envStatus.subscriptionName ||
+                    undefined,
+                  isEnterprise:
+                    creds.isEnterprise ?? envStatus.isEnterprise ?? undefined,
+                  isFreeAccount:
+                    creds.isFreeAccount ?? envStatus.isFreeAccount ?? undefined,
                   credentialSource: credentialSource ?? undefined,
                 });
               }
@@ -961,6 +992,11 @@ export function createCoreRoutesPlugin(
                   userId: undefined,
                   orgName: undefined,
                   orgKind: undefined,
+                  subscription: undefined,
+                  subscriptionLevel: undefined,
+                  subscriptionName: undefined,
+                  isEnterprise: undefined,
+                  isFreeAccount: undefined,
                 });
               }
             } catch {
@@ -977,6 +1013,11 @@ export function createCoreRoutesPlugin(
               userId: undefined,
               orgName: undefined,
               orgKind: undefined,
+              subscription: undefined,
+              subscriptionLevel: undefined,
+              subscriptionName: undefined,
+              isEnterprise: undefined,
+              isFreeAccount: undefined,
             });
           });
         }),
@@ -1549,6 +1590,17 @@ export function createCoreRoutesPlugin(
           const userId = requestUrl.searchParams.get("user-id");
           const orgName = requestUrl.searchParams.get("org-name");
           const orgKind = requestUrl.searchParams.get("kind");
+          const subscription = requestUrl.searchParams.get("subscription");
+          const subscriptionLevel =
+            requestUrl.searchParams.get("subscription-level");
+          const subscriptionName =
+            requestUrl.searchParams.get("subscription-name");
+          const isEnterprise = parseBuilderCallbackBoolean(
+            requestUrl.searchParams.get("is-enterprise"),
+          );
+          const isFreeAccount = parseBuilderCallbackBoolean(
+            requestUrl.searchParams.get("is-free-account"),
+          );
 
           // Store per-user in app_secrets so each user's Builder connection
           // is independent. No more shared env vars that the last connector
@@ -1585,7 +1637,18 @@ export function createCoreRoutesPlugin(
             }
             const target = await writeBuilderCredentials(
               ownerEmail,
-              { privateKey, publicKey, userId, orgName, orgKind },
+              {
+                privateKey,
+                publicKey,
+                userId,
+                orgName,
+                orgKind,
+                subscription,
+                subscriptionLevel,
+                subscriptionName,
+                isEnterprise,
+                isFreeAccount,
+              },
               { orgId, role },
             );
             console.log(
@@ -1662,6 +1725,11 @@ export function createCoreRoutesPlugin(
               stage: "callback",
               has_preview_url: Boolean(previewUrl),
               org_kind: orgKind || undefined,
+              subscription: subscription || undefined,
+              subscription_level: subscriptionLevel || undefined,
+              subscription_name: subscriptionName || undefined,
+              is_enterprise: isEnterprise ?? undefined,
+              is_free_account: isFreeAccount ?? undefined,
             },
           );
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
