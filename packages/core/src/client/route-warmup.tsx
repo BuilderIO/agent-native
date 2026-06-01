@@ -277,12 +277,15 @@ export function AgentNativeRouteWarmup({
     const resolved = getRouteWarmupConfig(config);
     // Vite dev manifests contain raw source module ids. Warming those with
     // modulepreload can route through React Router's dev SSR loader and make
-    // local servers log false-positive internal errors. Production manifests
-    // point at real hashed JS assets, which is the path we need to make fast.
-    const warmModules = resolved.modules && isProductionClientBuild();
-    if (resolved.strategy === "off" || (!resolved.data && !warmModules)) {
+    // local servers log false-positive internal errors. Keep route warmup to
+    // production builds, where manifests point at real hashed JS assets and
+    // SSR `.data` requests have the CDN cache headers this feature relies on.
+    const isProduction = isProductionClientBuild();
+    if (!isProduction || resolved.strategy === "off") {
       return;
     }
+    const warmModules = resolved.modules;
+    if (!resolved.data && !warmModules) return;
 
     const connection = (
       navigator as Navigator & { connection?: { saveData?: boolean } }
