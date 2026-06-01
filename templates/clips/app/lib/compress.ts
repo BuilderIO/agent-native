@@ -203,7 +203,7 @@ export function pickVideoBitrate(
     const seconds = durationMs / 1000;
     const totalBudgetBps = (TARGET_COMPRESSED_BYTES * 8) / seconds;
     const videoBudgetBps = totalBudgetBps - ASSUMED_AUDIO_BITRATE_BPS;
-    if (Number.isFinite(videoBudgetBps) && videoBudgetBps > 0) {
+    if (Number.isFinite(videoBudgetBps)) {
       targetBps = Math.min(
         resolutionCapBps,
         Math.max(MIN_VIDEO_BITRATE_BPS, videoBudgetBps),
