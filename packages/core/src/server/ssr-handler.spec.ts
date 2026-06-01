@@ -122,7 +122,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("replaces explicit no-store cache policies on SSR HTML responses", async () => {
+  it("preserves explicit no-store cache policies on SSR HTML responses", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: {
@@ -135,9 +135,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/private-html"));
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("replaces React Router's default no-cache policy on .data responses", async () => {
@@ -159,7 +157,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("uses public SSR caching for authenticated .data responses", async () => {
+  it("preserves React Router's default no-cache policy on authenticated .data responses", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response('[{"_1":2},"routes/account"]', {
         headers: {
@@ -177,12 +175,10 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
-  it("replaces explicit private cache policies on React Router .data responses", async () => {
+  it("preserves explicit private cache policies on React Router .data responses", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response('[{"_1":2},"routes/private"]', {
         headers: {
@@ -200,9 +196,7 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("does not replace no-cache on non-React Router .data responses", async () => {
@@ -267,7 +261,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("keeps public SSR caching when a page request carries a framework session cookie", async () => {
+  it("does not add public SSR caching when a page request carries a framework session cookie", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -281,9 +275,7 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBeNull();
   });
 
   it("keeps public SSR caching for docs anonymous session cookies", async () => {
@@ -326,7 +318,7 @@ describe("createH3SSRHandler", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
-  it("keeps public SSR caching when anonymous and authenticated cookies coexist", async () => {
+  it("does not add public SSR caching when anonymous and authenticated cookies coexist", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -340,13 +332,11 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBeNull();
     expect(mocks.getSession).toHaveBeenCalledTimes(1);
   });
 
-  it("replaces explicit SSR cache policies from routes", async () => {
+  it("preserves explicit SSR cache policies from routes", async () => {
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>ok</body></html>", {
         headers: {
@@ -359,9 +349,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("does not resolve auth for anonymous SSR page requests", async () => {

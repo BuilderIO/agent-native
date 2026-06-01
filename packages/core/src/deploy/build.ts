@@ -400,6 +400,8 @@ const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CON
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
     [...new Set(immutableAssetPaths)].sort(),
   )});
+const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
+const BETTER_AUTH_SESSION_COOKIE_RE = /\\.session_(?:token|data)$/;
 const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
     AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   )};
@@ -429,34 +431,60 @@ function injectDefaultSocialImageMeta(html) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
+function requestHasAuthenticatedCookie(cookieHeader) {
+  if (!cookieHeader) return false;
+  return cookieHeader
+    .split(";")
+    .map((cookie) => (cookie.trim().split("=", 1)[0] || "").trim())
+    .filter(Boolean)
+    .some(isAuthenticatedCookieName);
+}
+
+function isAuthenticatedCookieName(name) {
+  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
+  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
+  return (
+    bareName === "an_embed_session" ||
+    bareName === "an_session" ||
+    bareName === "an_session_workspace" ||
+    bareName.startsWith("an_session_") ||
+    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
+  );
+}
+
+function requestHasAuthSignal(request) {
+  const headers = request.headers;
+  const url = new URL(request.url);
+  return Boolean(
+    headers.get("authorization") ||
+    requestHasAuthenticatedCookie(headers.get("cookie")) ||
+    url.searchParams.has("__an_embed_token") ||
+    url.searchParams.has("_session")
+  );
+}
+
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
   if (status < 200 || status >= 400) return false;
+  if (hasAuthSignal) return false;
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) {
-    // SSR HTML is public app shell in this framework; any per-user state is
-    // fetched after hydration. Always enforce the framework SWR default here;
-    // route-level no-cache/private headers on SSR HTML recreate the same
-    // origin stampede this cache policy is meant to prevent.
-    return true;
+    return !headers.has("cache-control");
   }
 
   if (!pathname.endsWith(".data")) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   // React Router marks loader .data responses no-cache by default. Agent-Native
-  // SSR is public app shell, even for browsers carrying auth-looking cookies;
-  // user/org-specific data is loaded client-side through actions/API routes
-  // after hydration. Keep .data on the same SWR policy as HTML so render-time
-  // prefetch fills CDN cache instead of bypassing it and slamming origin.
-  // Also do not preserve route-level private/no-store for React Router .data:
-  // if a route needs per-user data, it belongs behind a client-side action/API
-  // call rather than in the shared SSR payload.
-  return true;
+  // default. For public loader responses, replace that default with the same
+  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
+  // explicit route cache policies and any authenticated request untouched.
+  const cacheControl = headers.get("cache-control");
+  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
 }
 
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
+function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -480,10 +508,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname) {
+async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -600,6 +628,7 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
+    const hasAuthSignal = requestHasAuthSignal(request);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -611,9 +640,10 @@ ${actionRegistrations.join("\n")}
         }),
         basePath,
         p,
+        hasAuthSignal,
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
   }));
 
   _handler = app.fetch.bind(app);

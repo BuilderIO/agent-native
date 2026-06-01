@@ -471,7 +471,7 @@ export function createCoreRoutesPlugin(
       rejectInit = reject;
     });
     trackPluginInit(nitroApp, initPromise, {
-      paths: [FRAMEWORK_ROUTE_PREFIX],
+      paths: [FRAMEWORK_ROUTE_PREFIX, "/.well-known"],
     });
     try {
       await awaitBootstrap(nitroApp);

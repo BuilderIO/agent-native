@@ -248,7 +248,7 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
-  it("uses public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
+  it("does not add public SSR cache headers for authenticated Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -260,12 +260,10 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBeNull();
   });
 
-  it("replaces explicit no-store cache policies on Cloudflare worker SSR", async () => {
+  it("preserves explicit no-store cache policies on Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -274,9 +272,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
@@ -293,7 +289,7 @@ export default (event) =>
     );
   });
 
-  it("uses public SSR cache headers for authenticated Cloudflare worker data responses", async () => {
+  it("preserves default no-cache headers for authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -304,12 +300,10 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
-  it("replaces explicit private cache policies on Cloudflare worker data responses", async () => {
+  it("preserves explicit private cache policies on Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -320,9 +314,7 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {

@@ -438,8 +438,15 @@ export function useChatThreads(
       setIsLoading(true);
       const loadedThreads = await fetchThreads();
       const savedId = activeThreadIdRef.current;
+      if (loadedThreads === undefined) {
+        // Thread-list fetch failed. Do not reclassify a saved id as a new
+        // optimistic tab; AssistantChat should still get a chance to restore
+        // the specific saved thread via /threads/:id.
+        setIsLoading(false);
+        return;
+      }
       const loadedHasSavedId = Boolean(
-        savedId && (loadedThreads ?? []).some((t) => t.id === savedId),
+        savedId && loadedThreads.some((t) => t.id === savedId),
       );
 
       if (
