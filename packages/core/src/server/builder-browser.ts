@@ -137,6 +137,11 @@ export interface BuilderBrowserStatus {
   userId?: string;
   orgName?: string;
   orgKind?: string;
+  subscription?: string;
+  subscriptionLevel?: string;
+  subscriptionName?: string;
+  isEnterprise?: boolean;
+  isFreeAccount?: boolean;
 }
 
 export interface BrowserConnectionArgs {
@@ -715,7 +720,19 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     userId: process.env.BUILDER_USER_ID || undefined,
     orgName: process.env.BUILDER_ORG_NAME || undefined,
     orgKind: process.env.BUILDER_ORG_KIND || undefined,
+    subscription: process.env.BUILDER_SUBSCRIPTION || undefined,
+    subscriptionLevel: process.env.BUILDER_SUBSCRIPTION_LEVEL || undefined,
+    subscriptionName: process.env.BUILDER_SUBSCRIPTION_NAME || undefined,
+    isEnterprise: parseOptionalEnvBoolean(process.env.BUILDER_IS_ENTERPRISE),
+    isFreeAccount: parseOptionalEnvBoolean(process.env.BUILDER_IS_FREE_ACCOUNT),
   };
+}
+
+function parseOptionalEnvBoolean(
+  value: string | undefined,
+): boolean | undefined {
+  if (!value) return undefined;
+  return /^(1|true)$/i.test(value);
 }
 
 export function getBuilderBrowserStatusForEvent(
@@ -737,6 +754,11 @@ export const BUILDER_ENV_KEYS = [
   "BUILDER_USER_ID",
   "BUILDER_ORG_NAME",
   "BUILDER_ORG_KIND",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
 ] as const;
 
 export type BuilderEnvKey = (typeof BUILDER_ENV_KEYS)[number];
@@ -747,6 +769,11 @@ export function getBuilderCallbackEnvVars(params: {
   userId?: string | null;
   orgName?: string | null;
   orgKind?: string | null;
+  subscription?: string | null;
+  subscriptionLevel?: string | null;
+  subscriptionName?: string | null;
+  isEnterprise?: boolean | null;
+  isFreeAccount?: boolean | null;
 }) {
   const values: Record<BuilderEnvKey, string> = {
     BUILDER_PRIVATE_KEY: params.privateKey?.trim() || "",
@@ -754,6 +781,17 @@ export function getBuilderCallbackEnvVars(params: {
     BUILDER_USER_ID: params.userId?.trim() || "",
     BUILDER_ORG_NAME: params.orgName?.trim() || "",
     BUILDER_ORG_KIND: params.orgKind?.trim() || "",
+    BUILDER_SUBSCRIPTION: params.subscription?.trim() || "",
+    BUILDER_SUBSCRIPTION_LEVEL: params.subscriptionLevel?.trim() || "",
+    BUILDER_SUBSCRIPTION_NAME: params.subscriptionName?.trim() || "",
+    BUILDER_IS_ENTERPRISE:
+      typeof params.isEnterprise === "boolean"
+        ? String(params.isEnterprise)
+        : "",
+    BUILDER_IS_FREE_ACCOUNT:
+      typeof params.isFreeAccount === "boolean"
+        ? String(params.isFreeAccount)
+        : "",
   };
   return BUILDER_ENV_KEYS.map((key) => ({ key, value: values[key] }));
 }

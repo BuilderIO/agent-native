@@ -4,8 +4,8 @@
  * One-shot cleanup for the legacy cross-tenant Builder credential leak.
  *
  * Pre-migration, the Builder OAuth callback wrote BUILDER_PRIVATE_KEY,
- * BUILDER_PUBLIC_KEY, BUILDER_USER_ID, BUILDER_ORG_NAME, BUILDER_ORG_KIND
- * into the unscoped `persisted-env-vars` settings row. On shared-DB
+ * BUILDER_PUBLIC_KEY, BUILDER_USER_ID, BUILDER_ORG_NAME, BUILDER_ORG_KIND,
+ * and related account metadata into the unscoped `persisted-env-vars` row. On shared-DB
  * hosted templates that row was global, so the first user to connect
  * left their Builder identity sitting in `process.env` for every
  * subsequent tenant on the same serverless instance — anyone without
@@ -35,6 +35,11 @@ const BUILDER_KEYS = [
   "BUILDER_USER_ID",
   "BUILDER_ORG_NAME",
   "BUILDER_ORG_KIND",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
 ] as const;
 
 function isPostgresUrl(url: string): boolean {
@@ -180,7 +185,13 @@ function logRemoved(removed: string[], row: Record<string, unknown>): void {
   console.log(`[wipe-leaked-builder-keys] BUILDER_* keys present:`);
   for (const k of removed) {
     const masked =
-      k === "BUILDER_ORG_NAME" || k === "BUILDER_ORG_KIND"
+      k === "BUILDER_ORG_NAME" ||
+      k === "BUILDER_ORG_KIND" ||
+      k === "BUILDER_SUBSCRIPTION" ||
+      k === "BUILDER_SUBSCRIPTION_LEVEL" ||
+      k === "BUILDER_SUBSCRIPTION_NAME" ||
+      k === "BUILDER_IS_ENTERPRISE" ||
+      k === "BUILDER_IS_FREE_ACCOUNT"
         ? String(row[k])
         : maskValue(row[k]);
     console.log(`  - ${k}: ${masked}`);
