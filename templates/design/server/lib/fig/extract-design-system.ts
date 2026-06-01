@@ -71,13 +71,14 @@ function colorToHex(c: Color | undefined, alphaMul = 1): string | null {
   return `#${hex(r)}${hex(g)}${hex(b)}`;
 }
 
-/** Raw rgba() string for a Figma 0-1 color, preserving alpha (for gradients). */
-function colorToRgba(c: Color | undefined): string | null {
+/** Raw rgba() string for a Figma 0-1 color, preserving alpha (for gradients).
+ * `alphaMul` folds in a paint-level opacity that scales every stop's alpha. */
+function colorToRgba(c: Color | undefined, alphaMul = 1): string | null {
   if (!c) return null;
   if (![c.r, c.g, c.b].every((v) => typeof v === "number" && isFinite(v))) {
     return null;
   }
-  const a = typeof c.a === "number" ? c.a : 1;
+  const a = (typeof c.a === "number" ? c.a : 1) * alphaMul;
   return `rgba(${clamp255(c.r * 255)}, ${clamp255(c.g * 255)}, ${clamp255(c.b * 255)}, ${Number(a.toFixed(3))})`;
 }
 
@@ -253,11 +254,14 @@ function gradientToCss(paint: Paint): { css: string; key: string } | null {
   const parts: string[] = [];
   const keyParts: string[] = [];
   for (const s of stops) {
-    const rgba = colorToRgba(s.color);
+    // Fold the paint-level opacity into every stop's alpha.
+    const rgba = colorToRgba(s.color, paint.opacity ?? 1);
     if (!rgba) return null;
-    const pos = `${clampPct(s.position)}%`;
-    parts.push(`${rgba} ${pos}`);
-    keyParts.push(colorToHex(s.color) ?? rgba);
+    const pct = clampPct(s.position);
+    parts.push(`${rgba} ${pct}%`);
+    // Key on color AND position so two gradients with the same colors but
+    // different stop placement aren't treated as duplicates.
+    keyParts.push(`${colorToHex(s.color) ?? rgba}@${pct}`);
   }
   const body = parts.join(", ");
   let css: string;
@@ -716,10 +720,12 @@ export function extractDesignSystemFromFig(
   // Rank by colorfulness first: a saturated brand gradient should beat the
   // big black/white scrim overlays that dominate by area in marketing files.
   const gradientColorfulness = (key: string): number => {
-    const hexes = key.split(":")[1]?.split("|") ?? [];
+    const parts = key.split(":")[1]?.split("|") ?? [];
     let s = 0;
-    for (const h of hexes) {
-      if (/^#[0-9a-f]{6}$/i.test(h.trim())) s += saturation(h.trim());
+    for (const p of parts) {
+      // Each part is "<hex>@<pos>" — score on the hex.
+      const hex = p.split("@")[0]?.trim() ?? "";
+      if (/^#[0-9a-f]{6}$/i.test(hex)) s += saturation(hex);
     }
     return s;
   };
