@@ -728,6 +728,10 @@
   background: rgba(255, 255, 255, 0.14) !important;
 }
 
+.inbox-zero .inbox-zero-header button.bg-background {
+  background-color: transparent;
+}
+
 /* Inbox Zero — frosted glass effect on the agent chat sidebar */
 .inbox-zero .agent-sidebar-panel {
   /* position + z-index create a stacking context above the position:fixed
