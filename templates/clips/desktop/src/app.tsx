@@ -2342,9 +2342,7 @@ export function App() {
             recordingFlowGateRef.current = false;
             setRecorder(null);
             setRecordingFlowActive(false);
-            await invoke("set_recording_state", { active: false }).catch(
-              () => {},
-            );
+            invoke("set_recording_state", { active: false }).catch(() => {});
             // Starting a new browser capture must come from a fresh click in
             // this webview. The toolbar click arrives here through async Tauri
             // IPC, so reopen the popover and let the next Start click provide

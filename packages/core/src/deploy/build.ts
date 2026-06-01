@@ -1232,14 +1232,24 @@ const SERVERLESS_FFMPEG_STATIC_ARCHES = new Set<NodeJS.Architecture>([
   "arm64",
   "x64",
 ]);
+type ServerlessFfmpegStaticArch = "arm64" | "x64";
+
+function serverlessFfmpegStaticTargetArchFromEnv(): ServerlessFfmpegStaticArch | null {
+  const value = process.env.AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH;
+  if (value === "arm64" || value === "x64") return value;
+  return null;
+}
 
 export function shouldBundleFfmpegStaticForServerless(
   hostPlatform: NodeJS.Platform = process.platform,
   hostArch: NodeJS.Architecture = process.arch,
+  targetArch: ServerlessFfmpegStaticArch | null = serverlessFfmpegStaticTargetArchFromEnv(),
 ): boolean {
   return (
     hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM &&
-    SERVERLESS_FFMPEG_STATIC_ARCHES.has(hostArch)
+    targetArch !== null &&
+    hostArch === targetArch &&
+    SERVERLESS_FFMPEG_STATIC_ARCHES.has(targetArch)
   );
 }
 
@@ -1371,8 +1381,8 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   if (!shouldBundleFfmpegStaticForServerless()) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
       console.warn(
-        `[deploy] ffmpeg-static installs a ${process.platform}-${process.arch} binary, but serverless bundles target ${SERVERLESS_FFMPEG_STATIC_PLATFORM} on ${[...SERVERLESS_FFMPEG_STATIC_ARCHES].join("/")} architectures; ` +
-          "server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+        `[deploy] ffmpeg-static installs a ${process.platform}-${process.arch} binary, but the serverless runtime architecture is not known to match it; ` +
+          "set AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH=x64 or arm64 to bundle a matching binary, otherwise server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
       );
     }
     return;
