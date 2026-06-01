@@ -46,7 +46,7 @@ export async function acceptPendingInvitationsForEmail(
       orgId: String(r.orgId ?? r.org_id),
       role: r.role == null ? null : String(r.role),
     }));
-  } catch (err) {
+  } catch {
     // Template doesn't use the org module / tables not migrated yet.
     return { accepted: [], activeOrgId: null };
   }

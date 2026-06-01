@@ -33,7 +33,7 @@ interface CameraControlsProps {
   durationInFrames?: number;
 }
 
-interface CameraState {
+interface CameraState extends Record<string, number> {
   translateX: number;
   translateY: number;
   scale: number;

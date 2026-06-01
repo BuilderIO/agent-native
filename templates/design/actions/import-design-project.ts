@@ -209,8 +209,8 @@ export default defineAction({
     let existingDesignSystem: {
       id: string;
       title: string;
-      data: any;
-      assets: any;
+      data: unknown;
+      assets: unknown;
     } | null = null;
     if (design.designSystemId) {
       const dsAccess = await resolveAccess(

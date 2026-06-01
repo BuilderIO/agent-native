@@ -231,7 +231,7 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    const results = await drain(
+    await drain(
       readSSEStream(
         eventStream([{ type: "error", error: "Authentication required" }]),
         [],
@@ -273,7 +273,7 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    const results = await drain(
+    await drain(
       readSSEStream(
         eventStream([
           {

@@ -50,6 +50,8 @@ interface ActiveRunResponse {
   status?: string;
   heartbeatAt: number | null;
   lastProgressAt?: number | null;
+  /** Server clock at response time, used to compute elapsed server-relative. */
+  serverNow?: number;
 }
 
 const EMPTY_STATE: RunStuckState = {
@@ -91,8 +93,14 @@ export function useRunStuckDetection({
         if (res.ok) {
           const data = (await res.json()) as ActiveRunResponse;
           const lastProgressAt = data.lastProgressAt ?? null;
+          // Measure elapsed against the SERVER clock (serverNow) rather than the
+          // client's Date.now(). lastProgressAt is a server timestamp, so client
+          // clock skew of more than stuckThresholdMs would otherwise mark every
+          // run stuck (clock ahead) or never stuck (clock behind). Fall back to
+          // the client clock for older bundles that don't send serverNow.
+          const nowMs = data.serverNow ?? Date.now();
           const stuckSinceMs =
-            lastProgressAt != null ? Date.now() - lastProgressAt : null;
+            lastProgressAt != null ? nowMs - lastProgressAt : null;
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&

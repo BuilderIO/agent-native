@@ -38,7 +38,7 @@ function safeExternalUrl(value: unknown): string | null {
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const db = getDb();
-  const rows = await getDb()
+  const rows = await db
     .select()
     .from(schema.routingForms)
     .where(eq(schema.routingForms.id, params.formId!));

@@ -28,7 +28,11 @@ async function ensureTable(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
         ),
       );
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

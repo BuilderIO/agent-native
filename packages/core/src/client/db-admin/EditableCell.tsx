@@ -247,7 +247,7 @@ function InlineTextEditor({
     <div className="relative h-full w-full">
       <input
         ref={ref}
-        type={kind === "number" ? "text" : "text"}
+        type="text"
         inputMode={kind === "number" ? "decimal" : undefined}
         value={text}
         onChange={(e) => setText(e.target.value)}

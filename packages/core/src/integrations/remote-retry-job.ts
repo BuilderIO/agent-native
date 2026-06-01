@@ -11,7 +11,7 @@ export async function retryRemoteCommands(): Promise<{
 }> {
   try {
     return await retryStaleRemoteCommands();
-  } catch (err) {
+  } catch {
     if (process.env.DEBUG) {
       console.log(
         "[integrations] remote command retry job: tables not ready, skipping",

@@ -1,75 +1,15 @@
 import React from "react";
 import type { InteractiveComponentState } from "../hooks/useInteractiveComponent";
 
-/**
- * AnimatedElement - Universal wrapper that applies ALL animated properties
- *
- * This component automatically converts animated properties from useInteractiveComponent
- * into inline styles, supporting ANY CSS property.
- *
- * 🎯 Receives duration-based animation values from useInteractiveComponent that respect
- * the animation.duration setting from the UI. No hardcoded frame counts!
- *
- * USAGE:
- * ```tsx
- * const button = useInteractiveComponent({ ... });
- *
- * <AnimatedElement interactive={button} as="button">
- *   Click me
- * </AnimatedElement>
- * ```
- *
- * SUPPORTED PROPERTIES (auto-detected):
- * - scale → transform: scale()
- * - translateX, translateY → transform: translate()
- * - rotateX, rotateY, rotateZ, rotate → transform: rotate()
- * - opacity → opacity
- * - backgroundColor, background → background/backgroundColor
- * - color, textColor → color
- * - borderColor, borderTopColor, borderBottomColor, etc. → individual border properties
- * - borderWidth, borderTopWidth, borderBottomWidth, etc. → individual border properties
- * - borderStyle, borderTopStyle, borderBottomStyle, etc. → individual border properties
- * - borderRadius → borderRadius
- *
- * NOTE: Uses individual border properties (not shorthands) to avoid React warnings
- * - boxShadow, shadow → boxShadow
- * - blur → filter: blur()
- * - brightness → filter: brightness()
- * - contrast → filter: contrast()
- * - saturate → filter: saturate()
- * - hueRotate → filter: hue-rotate()
- * - width, height → width, height
- * - padding, margin → padding, margin
- * - ANY other CSS property directly
- */
-
 export interface AnimatedElementProps {
-  /** Interactive component state from useInteractiveComponent */
   interactive: InteractiveComponentState;
-
-  /** HTML element type or React component */
   as?: keyof React.JSX.IntrinsicElements | React.ComponentType<any>;
-
-  /** Additional inline styles (merged with animated properties) */
   style?: React.CSSProperties;
-
-  /** Class name */
   className?: string;
-
-  /** Children */
   children?: React.ReactNode;
-
-  /** Any other props to pass to the underlying element */
   [key: string]: any;
 }
 
-/**
- * Convert animated properties to inline styles
- * Handles transforms, filters, and all CSS properties
- *
- * IMPORTANT: Uses longhand properties (borderTopWidth, borderTopColor) instead of
- * shorthand properties (borderTop) to avoid React warnings when mixing with static styles.
- */
 function animatedPropsToStyles(
   props: Record<string, number | string>,
 ): React.CSSProperties {
@@ -219,13 +159,15 @@ function animatedPropsToStyles(
       styles.borderRightWidth =
         typeof value === "number" ? `${value}px` : value;
     } else if (key === "borderTopStyle") {
-      styles.borderTopStyle = value as string;
+      styles.borderTopStyle = value as React.CSSProperties["borderTopStyle"];
     } else if (key === "borderBottomStyle") {
-      styles.borderBottomStyle = value as string;
+      styles.borderBottomStyle =
+        value as React.CSSProperties["borderBottomStyle"];
     } else if (key === "borderLeftStyle") {
-      styles.borderLeftStyle = value as string;
+      styles.borderLeftStyle = value as React.CSSProperties["borderLeftStyle"];
     } else if (key === "borderRightStyle") {
-      styles.borderRightStyle = value as string;
+      styles.borderRightStyle =
+        value as React.CSSProperties["borderRightStyle"];
     } else if (key === "boxShadow" || key === "shadow") {
       styles.boxShadow = value as string;
     } else if (key === "width") {

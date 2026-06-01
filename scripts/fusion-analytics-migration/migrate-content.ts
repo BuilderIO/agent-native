@@ -283,20 +283,6 @@ function dateFilters() {
   ];
 }
 
-function cadenceFilter(defaultValue = "Weekly") {
-  return {
-    id: "cadence",
-    label: "Cadence",
-    type: "select",
-    default: defaultValue,
-    options: [
-      { value: "Daily", label: "Daily" },
-      { value: "Weekly", label: "Weekly" },
-      { value: "Monthly", label: "Monthly" },
-    ],
-  };
-}
-
 function panel(
   id: string,
   title: string,
@@ -3241,44 +3227,6 @@ function baseExtension(title: string, body: string): string {
 </div>`;
 }
 
-function actionSearchExtension(title: string, actions: string[]): string {
-  return baseExtension(
-    title,
-    `<div x-data="{ query: '', loading: false, error: '', results: {}, paramsFor(action) { const q = this.query.trim(); switch (action) { case 'bigquery': return { sql: q || 'SELECT 1 AS ok' }; case 'gong-calls': return q ? { company: q } : {}; case 'gcloud': return q ? { mode: 'logs', service: q, limit: 25 } : { mode: 'services' }; case 'grafana': return q ? { mode: 'dashboards', search: q } : { mode: 'dashboards' }; case 'jira': return q ? { mode: 'search', jql: q, maxResults: 25 } : { mode: 'projects' }; case 'jira-analytics': return q ? { projects: q } : {}; case 'sentry': return q ? { mode: 'issues', query: q } : { mode: 'issues' }; case 'hubspot-deals': case 'hubspot-metrics': case 'hubspot-pipelines': return {}; default: return q ? { query: q } : {}; } }, async run(action) { this.loading = true; this.error = ''; try { this.results[action] = await appAction(action, this.paramsFor(action)); } catch (e) { this.error = e.message || String(e); } finally { this.loading = false; } } }" class="space-y-3">
-      <input x-model="query" class="w-full rounded border px-3 py-2" placeholder="Search term, company, project, or query" />
-      <div class="flex flex-wrap gap-2">
-        ${actions.map((action) => `<button class="rounded border px-3 py-1.5 text-xs" x-on:click="run('${action}')">${action}</button>`).join("")}
-      </div>
-      <p x-show="loading" class="text-muted-foreground">Loading...</p>
-      <p x-show="error" x-text="error" class="text-red-600"></p>
-      <template x-for="(value, key) in results" :key="key">
-        <section class="rounded border p-3">
-          <h2 class="font-medium" x-text="key"></h2>
-          <pre class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-xs" x-text="JSON.stringify(value, null, 2)"></pre>
-        </section>
-      </template>
-    </div>`,
-  );
-}
-
-function dataBrowserExtension(title: string, collection: string): string {
-  return baseExtension(
-    title,
-    `<div x-data="{ rows: [], selected: null, loading: true, async init() { this.rows = await extensionData.list('${collection}', { scope: 'org' }); this.loading = false; } }" x-init="init()" class="space-y-3">
-      <p x-show="loading" class="text-muted-foreground">Loading migrated SQL data...</p>
-      <div class="grid gap-2">
-        <template x-for="row in rows" :key="row.itemId || row.id">
-          <button class="rounded border px-3 py-2 text-left hover:bg-accent" x-on:click="selected = row">
-            <span class="font-medium" x-text="row.itemId || row.id"></span>
-            <span class="ml-2 text-xs text-muted-foreground" x-text="row.data?.sourcePath || ''"></span>
-          </button>
-        </template>
-      </div>
-      <pre x-show="selected" class="max-h-[520px] overflow-auto rounded border bg-muted p-3 text-xs" x-text="JSON.stringify(selected?.data?.value ?? selected?.data, null, 2)"></pre>
-    </div>`,
-  );
-}
-
 function aePipelineExtension(): string {
   return baseExtension(
     "AE PG Scoreboard",
@@ -5119,30 +5067,6 @@ function discoveryCoachExtension(): string {
         </div>
       </section>
     </div>`;
-}
-
-function gcnExtension(): string {
-  return baseExtension(
-    "GCN Conference Prep",
-    `<div x-data="{ rows: [], selected: null, query: '', async init() { const speakers = await extensionData.get('legacy', 'speakers', { scope: 'org' }); const meetings = await extensionData.get('legacy', 'meetings', { scope: 'org' }); this.rows = [{ itemId: 'speakers', data: speakers }, { itemId: 'meetings', data: meetings }]; } }" x-init="init()" class="space-y-3">
-      <input x-model="query" class="w-full rounded border px-3 py-2" placeholder="Filter rendered JSON text" />
-      <template x-for="row in rows" :key="row.itemId">
-        <button class="rounded border px-3 py-2 text-left" x-on:click="selected = row"><span class="font-medium" x-text="row.itemId"></span></button>
-      </template>
-      <pre x-show="selected" class="max-h-[560px] overflow-auto rounded border bg-muted p-3 text-xs" x-text="JSON.stringify(selected?.data?.value ?? selected?.data, null, 2)"></pre>
-    </div>`,
-  );
-}
-
-function engagementExtension(): string {
-  return baseExtension(
-    "User Engagement Planner",
-    `<div x-data="{ company: '', prompt: '', async build() { this.prompt = 'Analyze user engagement and create an outreach strategy for ' + this.company + '. Use BigQuery, HubSpot, Gong, Slack, Pylon, and Apollo where available. Include active users, dormant users, power users, team segmentation, blockers, and recommended outreach.'; await extensionData.set('prompts', this.company || String(Date.now()), { company: this.company, prompt: this.prompt, createdAt: new Date().toISOString() }, { scope: 'org' }); } }" class="space-y-3">
-      <input x-model="company" class="w-full rounded border px-3 py-2" placeholder="Company name or org ID" />
-      <button class="rounded bg-primary px-3 py-2 text-primary-foreground" x-on:click="build()">Build analysis prompt</button>
-      <textarea x-show="prompt" x-model="prompt" class="h-56 w-full rounded border p-3"></textarea>
-    </div>`,
-  );
 }
 
 function escapeHtml(s: string): string {

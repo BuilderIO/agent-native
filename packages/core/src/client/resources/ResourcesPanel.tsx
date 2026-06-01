@@ -1218,8 +1218,6 @@ Workspace resources are for files users intentionally add, edit, or manage. Agen
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 
-// BuilderBrowserCard moved to settings/BrowserSection.tsx
-
 export function ResourcesPanel() {
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.

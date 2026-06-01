@@ -1011,7 +1011,12 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const result = await tryConnect(server.url, server.headers);
+  // `server.headers` holds only the cleartext (non-secret) subset; auth headers
+  // (Authorization, API keys) live encrypted in app_secrets and are resolved by
+  // toHttpServerConfigAsync. Testing with cleartext-only headers would fail for
+  // any server that uses encrypted credentials.
+  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);
     return { ok: false, error: result.error };

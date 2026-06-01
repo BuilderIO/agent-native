@@ -6,6 +6,7 @@ export function useFileSearch(query: string, enabled: boolean) {
   const [files, setFiles] = useState<FileResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -16,6 +17,11 @@ export function useFileSearch(query: string, enabled: boolean) {
 
     setIsLoading(true);
     const id = ++requestIdRef.current;
+    // Abort any in-flight request so a superseded/unmounted query stops fetching
+    // (mirrors use-mention-search). The requestId guard still protects state.
+    abortRef.current?.abort();
+    const abort = new AbortController();
+    abortRef.current = abort;
 
     const timer = setTimeout(
       async () => {
@@ -24,6 +30,7 @@ export function useFileSearch(query: string, enabled: boolean) {
             agentNativePath(
               `/_agent-native/agent-chat/files?q=${encodeURIComponent(query)}`,
             ),
+            { signal: abort.signal },
           );
           if (!res.ok) throw new Error();
           const data = await res.json();
@@ -31,7 +38,8 @@ export function useFileSearch(query: string, enabled: boolean) {
           if (id === requestIdRef.current) {
             setFiles(data.files || []);
           }
-        } catch {
+        } catch (err) {
+          if ((err as Error)?.name === "AbortError") return;
           if (id === requestIdRef.current) {
             setFiles([]);
           }
@@ -44,7 +52,10 @@ export function useFileSearch(query: string, enabled: boolean) {
       query.length === 0 ? 0 : 200,
     );
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
   }, [query, enabled]);
 
   return { files, isLoading };

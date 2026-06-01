@@ -1577,24 +1577,6 @@ function ResizeHandle({
 }
 
 /**
- * Remounts its children whenever the framework's `refresh-screen` tool is
- * invoked. Used inside AgentSidebar so the main content area re-fetches
- * without disturbing the chat sidebar's in-flight state.
- *
- * Two mechanisms work together here:
- *
- *  1. Before the remount, every react-query cache entry is marked stale
- *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
- *     trigger a refetch on its own, so active queries elsewhere (chat
- *     sidebar, left nav) keep their current data — they'll refetch only
- *     on their next natural trigger.
- *  2. The React `key` then bumps, unmounting and remounting the subtree.
- *     On remount, child components re-subscribe to their queries, see
- *     the data is stale, and refetch — regardless of configured
- *     `staleTime`. This is what makes the dashboard pick up the agent's
- *     edits even when the query uses `staleTime: 30_000` or similar.
- */
-/**
  * Syncs the current URL (pathname + search + hash) to application_state
  * under `__url__`, and processes one-shot URL-update commands the agent
  * writes to `__set_url__`. Lives inside AgentSidebar so every framework
@@ -1791,6 +1773,24 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
 
   return null;
 }
+/**
+ * Remounts its children whenever the framework's `refresh-screen` tool is
+ * invoked. Used inside AgentSidebar so the main content area re-fetches
+ * without disturbing the chat sidebar's in-flight state.
+ *
+ * Two mechanisms work together here:
+ *
+ *  1. Before the remount, every react-query cache entry is marked stale
+ *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
+ *     trigger a refetch on its own, so active queries elsewhere (chat
+ *     sidebar, left nav) keep their current data — they'll refetch only
+ *     on their next natural trigger.
+ *  2. The React `key` then bumps, unmounting and remounting the subtree.
+ *     On remount, child components re-subscribe to their queries, see
+ *     the data is stale, and refetch — regardless of configured
+ *     `staleTime`. This is what makes the dashboard pick up the agent's
+ *     edits even when the query uses `staleTime: 30_000` or similar.
+ */
 function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
   const key = useScreenRefreshKey();
   const queryClient = useQueryClient();

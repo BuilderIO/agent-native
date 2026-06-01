@@ -5,6 +5,9 @@
 
 export type EasingKey =
   | "linear"
+  | "ease-in"
+  | "ease-out"
+  | "ease-in-out"
   | "power1.in"
   | "power1.out"
   | "power1.inOut"
@@ -167,6 +170,9 @@ const spring: EasingFunction = (t) => {
 // Easing function map
 const easingFunctions: Record<EasingKey, EasingFunction> = {
   linear,
+  "ease-in": power2In,
+  "ease-out": power2Out,
+  "ease-in-out": power2InOut,
   "power1.in": power1In,
   "power1.out": power1Out,
   "power1.inOut": power1InOut,
@@ -212,6 +218,9 @@ export function getEasingFunction(key: EasingKey): EasingFunction {
  */
 export const EASING_OPTIONS: Array<{ value: EasingKey; label: string }> = [
   { value: "linear", label: "Linear" },
+  { value: "ease-in", label: "Ease In" },
+  { value: "ease-out", label: "Ease Out" },
+  { value: "ease-in-out", label: "Ease In Out" },
   { value: "power1.in", label: "Power1 In" },
   { value: "power1.out", label: "Power1 Out" },
   { value: "power1.inOut", label: "Power1 InOut" },

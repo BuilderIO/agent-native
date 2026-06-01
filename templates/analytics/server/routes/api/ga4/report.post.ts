@@ -1,6 +1,8 @@
 import { defineEventHandler, createError } from "h3";
-import { resolveCredential } from "../../../lib/credentials";
-import { withRequestContextFromEvent } from "../../../lib/credentials";
+import {
+  resolveCredential,
+  withRequestContextFromEvent,
+} from "../../../lib/credentials";
 import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {

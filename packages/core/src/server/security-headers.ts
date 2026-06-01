@@ -44,10 +44,11 @@
  *     MCP embed-session page loads use `cross-origin` so COEP hosts such as
  *     Claude's MCP Apps proxy can frame the short-lived app document.
  *
- * NOTE: We don't set `Cross-Origin-Embedder-Policy` because it requires every
- * embedded subresource to opt in via CORP/CORS, which would break Builder's
- * iframe editor and template embed use cases. COOP + CORP without COEP gives
- * us most of the protection.
+ * NOTE: `Cross-Origin-Embedder-Policy` is NOT set by default because it
+ * requires every embedded subresource to opt in via CORP/CORS, which would
+ * break Builder's iframe editor and template embed use cases. COOP + CORP
+ * without COEP gives us most of the protection on normal responses; COEP is
+ * only added for validated MCP embed-session page loads (see above).
  */
 
 import { defineEventHandler, getHeader, setResponseHeader } from "h3";

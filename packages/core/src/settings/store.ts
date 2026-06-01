@@ -25,7 +25,11 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL
         )
       `);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

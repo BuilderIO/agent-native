@@ -157,7 +157,11 @@ async function ensureUsageTable(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         );
       } catch {}
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

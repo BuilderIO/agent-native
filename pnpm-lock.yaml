@@ -414,6 +414,9 @@ importers:
       '@agent-native/code-agents-ui':
         specifier: workspace:*
         version: link:../code-agents-ui
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
       '@agent-native/shared-app-config':
         specifier: workspace:*
         version: link:../shared-app-config

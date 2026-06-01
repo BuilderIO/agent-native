@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { parseMergedKey } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -77,8 +77,4 @@ describe("isMcpToolAllowedForRequest — hub tools must not bypass the org gate"
       },
     );
   });
-});
-
-afterEach(() => {
-  // No-op placeholder for future per-test cleanup.
 });

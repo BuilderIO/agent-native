@@ -375,7 +375,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
               }
               const btn = item as ButtonItem;
               const Icon = btn.icon;
-              const active = btn.isActive() ?? false;
+              const active = btn.isActive();
               return (
                 <Tooltip key={i}>
                   <TooltipTrigger asChild>

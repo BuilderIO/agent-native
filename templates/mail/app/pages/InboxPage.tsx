@@ -254,7 +254,7 @@ export function InboxPage() {
   const [isMaximized, setIsMaximized] = useState(false);
   const compose = useComposeState();
   const navState = useNavigationState();
-  const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
+  const [, setLastArchivedId] = useState<string | null>(null);
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");

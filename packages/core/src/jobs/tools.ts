@@ -202,7 +202,10 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   }
 
   if (enabled !== undefined) {
-    meta.enabled = enabled === "true";
+    // Accept both the schema's string enum ("true"/"false") and a real boolean
+    // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
+    // as false — silently *disabling* a job the caller meant to enable.
+    meta.enabled = enabled === true || enabled === "true";
   }
 
   if (runAs === "creator" || runAs === "shared") {

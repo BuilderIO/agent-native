@@ -5,6 +5,7 @@ import {
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import type { Zone } from "@/remotion/hooks/useEditableZones";
 import {
@@ -12,6 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/use-toast";
 
 type ComponentLibraryViewProps = {
   component: LibraryComponentEntry;
@@ -30,10 +32,8 @@ export function ComponentLibraryView({
   const [inputText, setInputText] = useState("");
   const [debugMode, setDebugMode] = useState(false);
 
-  // Keyboard shortcut to toggle debug mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Don't trigger when typing in inputs/textareas
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -43,12 +43,7 @@ export function ComponentLibraryView({
         return;
       }
       if (e.key === "d" || e.key === "D") {
-        setDebugMode((prev) => {
-          console.log(
-            `Component Debug Mode: ${!prev ? "ON" : "OFF"} - ${!prev ? "Zones editable" : "Normal mode"}`,
-          );
-          return !prev;
-        });
+        setDebugMode((prev) => !prev);
       }
     };
 
@@ -61,38 +56,37 @@ export function ComponentLibraryView({
   }, []);
 
   const handleSend = useCallback(() => {
-    console.log("Sent:", inputText);
     setInputText("");
-  }, [inputText]);
+  }, []);
 
-  // Seek to initial frame when component or initialFrame changes
   useEffect(() => {
     if (playerRef.current && initialFrame !== undefined) {
       playerRef.current.seekTo(initialFrame);
     }
   }, [component.id, initialFrame]);
 
-  // Set up event listeners for the player
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
 
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    const onFrame = (e: { detail: { frame: number } }) => {
-      setCurrentFrame(e.detail.frame);
+    const onFrame = (event: Event) => {
+      const frame = (event as CustomEvent<{ frame: number }>).detail?.frame;
+      if (typeof frame === "number") {
+        setCurrentFrame(frame);
+      }
     };
+    const playerEventTarget = player as unknown as EventTarget;
 
     player.addEventListener("play", onPlay);
     player.addEventListener("pause", onPause);
-    // @ts-ignore - frameupdate is valid but not in types
-    player.addEventListener("frameupdate", onFrame);
+    playerEventTarget.addEventListener("frameupdate", onFrame);
 
     return () => {
       player.removeEventListener("play", onPlay);
       player.removeEventListener("pause", onPause);
-      // @ts-ignore
-      player.removeEventListener("frameupdate", onFrame);
+      playerEventTarget.removeEventListener("frameupdate", onFrame);
     };
   }, []);
 
@@ -109,21 +103,31 @@ export function ComponentLibraryView({
     playerRef.current?.pause();
   }, []);
 
-  const handleSaveZones = useCallback(() => {
-    // Read zones from localStorage
+  const handleSaveZones = useCallback(async () => {
     const storedZones = localStorage.getItem(
       "videos-zones:create-project-prompt",
     );
     if (!storedZones) {
-      alert(
-        "No zones found. Press D to enable debug mode and adjust zones first.",
-      );
+      toast({
+        title: "No zones found",
+        description: "Press D to enable debug mode and adjust zones first.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const relativeZones: Record<string, Zone> = JSON.parse(storedZones);
+    let relativeZones: Record<string, Zone>;
+    try {
+      relativeZones = JSON.parse(storedZones) as Record<string, Zone>;
+    } catch {
+      toast({
+        title: "Saved zones are invalid",
+        description: "Adjust the zones again, then save them.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Calculate absolute positions (matching the composition layout)
     const outerPadding = 100;
     const sidebarWidth = 73;
     const screenPadding = 83;
@@ -145,22 +149,27 @@ export function ComponentLibraryView({
       };
     });
 
-    // Log coordinates
-    console.log("=== ZONE COORDINATES TO UPDATE ===");
-    console.log(
-      "Copy these values and let me know - I'll update the composition.tsx:",
-    );
-    console.log("");
-    Object.entries(absoluteZones).forEach(([key, zone]) => {
-      console.log(
-        `  ${key}: { x: ${Math.round(zone.x)}, y: ${Math.round(zone.y)}, width: ${Math.round(zone.width)}, height: ${Math.round(zone.height)} },`,
-      );
-    });
-    console.log("===================================");
+    const coordinateText = Object.entries(absoluteZones)
+      .map(
+        ([key, zone]) =>
+          `${key}: { x: ${Math.round(zone.x)}, y: ${Math.round(zone.y)}, width: ${Math.round(zone.width)}, height: ${Math.round(zone.height)} },`,
+      )
+      .join("\n");
 
-    alert(
-      `✅ Zone coordinates logged to console!\n\nShare them with me and I'll update the composition.tsx automatically.`,
-    );
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(coordinateText);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+
+    toast({
+      title: copied ? "Zone coordinates copied" : "Zone coordinates ready",
+      description: copied
+        ? "Paste them into the composition zone map."
+        : "Clipboard access is unavailable in this browser context.",
+    });
   }, [component.width]);
 
   const fmtSec = (frames: number) => {
@@ -191,7 +200,7 @@ export function ComponentLibraryView({
                 onClick={handleSaveZones}
                 className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded transition-colors"
               >
-                <Save className="w-4 h-4" />
+                <IconDeviceFloppy className="w-4 h-4" />
                 <span className="text-sm font-semibold">Save Zones</span>
               </button>
             </div>
@@ -232,7 +241,7 @@ export function ComponentLibraryView({
               controls={false}
               loop={false}
               autoPlay={false}
-              errorFallback={(error) => (
+              errorFallback={({ error }) => (
                 <div style={{ color: "red", padding: 20 }}>
                   <h2>Remotion Error:</h2>
                   <pre>{error.message}</pre>

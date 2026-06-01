@@ -1,5 +1,8 @@
 export type EasingKey =
   | "linear"
+  | "ease-in"
+  | "ease-out"
+  | "ease-in-out"
   | "power1.in"
   | "power1.out"
   | "power1.inOut"
@@ -99,6 +102,21 @@ export interface CommonPropTemplate {
   defaultFrom: string;
   defaultTo: string;
   isCustom?: boolean;
+}
+
+export interface AnimationPropertyShorthand {
+  property: string;
+  from: number | string;
+  to: number | string;
+  unit?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface AnimationShorthand {
+  duration: number;
+  easing?: EasingKey | string;
+  properties: AnimationPropertyShorthand[];
 }
 
 /** Preset list shown in the "Add Property" picker inside TrackPropertiesPanel */

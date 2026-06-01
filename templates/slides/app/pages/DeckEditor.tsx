@@ -6,6 +6,7 @@ import {
   lazy,
   Suspense,
 } from "react";
+import type { ComponentType } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
 import {
   DndContext,
@@ -66,9 +67,11 @@ import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { nanoid } from "nanoid";
 import { TAB_ID } from "@/lib/tab-id";
-const Pinpoint = lazy(() =>
+import type { PinpointProps } from "@agent-native/pinpoint/react";
+
+const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint,
+    default: m.Pinpoint as ComponentType<PinpointProps>,
   })),
 );
 

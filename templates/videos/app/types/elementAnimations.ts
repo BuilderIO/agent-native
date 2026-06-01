@@ -13,6 +13,7 @@ export interface AnimationKeyframe {
 export interface AnimatedPropertyConfig {
   property: string; // e.g., "scale", "translateY", "brightness"
   keyframes: AnimationKeyframe[];
+  to?: number | string; // Legacy persisted animations may still store a direct target
   unit: string; // e.g., "px", "x", "%", ""
   easing?: string; // e.g., "linear", "ease-out"
   min?: number;

@@ -27,18 +27,6 @@ async function ctxFromEvent(event: any) {
   return { email: ctx.email, orgId: ctx.orgId ?? null };
 }
 
-/**
- * Build the variable map used when dry-running a panel's SQL. Variables
- * declared on the dashboard take priority, then each filter's `default`
- * fills in anything missing — so a parametric dashboard (e.g. one with
- * `{{dateStart}}`) validates against a real value instead of blowing up
- * on the empty string the interpolator would otherwise produce.
- *
- * date-range filters expand into `<id>Start` / `<id>End` to match the
- * runtime expansion in DashboardFilterBar's resolveFilterVars; without
- * this, any panel that uses `{{dateStart}}` / `{{dateEnd}}` fails the
- * dry-run with a literal "" cast error.
- */
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -55,6 +43,18 @@ function resolveDateDefault(raw: string | undefined): string {
   return raw;
 }
 
+/**
+ * Build the variable map used when dry-running a panel's SQL. Variables
+ * declared on the dashboard take priority, then each filter's `default`
+ * fills in anything missing — so a parametric dashboard (e.g. one with
+ * `{{dateStart}}`) validates against a real value instead of blowing up
+ * on the empty string the interpolator would otherwise produce.
+ *
+ * date-range filters expand into `<id>Start` / `<id>End` to match the
+ * runtime expansion in DashboardFilterBar's resolveFilterVars; without
+ * this, any panel that uses `{{dateStart}}` / `{{dateEnd}}` fails the
+ * dry-run with a literal "" cast error.
+ */
 function buildDryRunVars(
   config: Record<string, unknown>,
 ): Record<string, string> {

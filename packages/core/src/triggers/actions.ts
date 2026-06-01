@@ -18,8 +18,11 @@ import {
   resourceGetByPath,
   SHARED_OWNER,
 } from "../resources/store.js";
-import { parseTriggerFrontmatter, buildTriggerContent } from "./dispatcher.js";
-import { refreshEventSubscriptions } from "./dispatcher.js";
+import {
+  parseTriggerFrontmatter,
+  buildTriggerContent,
+  refreshEventSubscriptions,
+} from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
 
 /* ------------------------------------------------------------------ */

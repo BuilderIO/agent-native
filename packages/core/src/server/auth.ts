@@ -1796,17 +1796,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  // 1. ACCESS_TOKEN check (programmatic/agent access)
-  const accessTokens = getAccessTokens();
-  if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSession(event);
-    if (cookieSession) return cookieSession;
-  }
-
-  // 2. MCP App embed session. This is a short-lived browser session minted
+  // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
-  // MCP bearer token as a browser cookie.
+  // MCP bearer token as a browser cookie. Resolve it FIRST: the token is
+  // HMAC-verified and carries its own identity + org scope, and is the most
+  // specific intent for an embed request. Checking it before the legacy
+  // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
+  // configured) from shadowing the embed identity.
   const embedSession = await resolveEmbedSessionFromRequest(event);
   if (embedSession) {
     return {
@@ -1814,6 +1811,13 @@ async function resolveSessionUncached(
       token: embedSession.token,
       ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
     };
+  }
+
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
+    const cookieSession = await getLegacyCookieSession(event);
+    if (cookieSession) return cookieSession;
   }
 
   // 3. BYOA custom getSession

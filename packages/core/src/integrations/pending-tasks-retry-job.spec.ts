@@ -88,7 +88,7 @@ describe("pending task retry job", () => {
     expect(executeMock).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        args: [Date.now() - 90_000, Date.now() - 75_000],
+        args: [Date.now() - 90_000, Date.now() - 90_000, Date.now() - 75_000],
       }),
     );
     vi.useRealTimers();

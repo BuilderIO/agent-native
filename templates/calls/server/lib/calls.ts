@@ -1,12 +1,21 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { H3Event } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { readAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import type { TranscriptSegment } from "../../shared/api.js";
 
 type CallShareRole = "viewer" | "editor" | "admin";
+type WorkspaceRole = "viewer" | "creator-lite" | "creator" | "admin";
+
+const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  viewer: 0,
+  "creator-lite": 1,
+  creator: 2,
+  admin: 3,
+};
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
@@ -53,6 +62,69 @@ export function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function isWorkspaceRole(
+  value: string | null | undefined,
+): value is WorkspaceRole {
+  return (
+    value === "viewer" ||
+    value === "creator-lite" ||
+    value === "creator" ||
+    value === "admin"
+  );
+}
+
+export async function assertWorkspaceAccess(
+  workspaceId: string,
+  minRole: WorkspaceRole = "viewer",
+): Promise<typeof schema.workspaces.$inferSelect> {
+  const db = getDb();
+  const email = getCurrentOwnerEmail();
+  const [workspace] = await db
+    .select()
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, workspaceId))
+    .limit(1);
+  if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`);
+
+  if (workspace.ownerEmail === email) return workspace;
+
+  const [member] = await db
+    .select({ role: schema.workspaceMembers.role })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, workspaceId),
+        eq(schema.workspaceMembers.email, email),
+      ),
+    )
+    .limit(1);
+
+  const role = isWorkspaceRole(member?.role) ? member.role : null;
+  if (!role || WORKSPACE_ROLE_RANK[role] < WORKSPACE_ROLE_RANK[minRole]) {
+    throw new Error("You do not have access to this workspace.");
+  }
+  return workspace;
+}
+
+export async function resolveWorkspaceIdForAction(
+  options: {
+    workspaceId?: string | null;
+    useCurrentWorkspaceState?: boolean;
+    minRole?: WorkspaceRole;
+  } = {},
+): Promise<string> {
+  let workspaceId = options.workspaceId ?? null;
+  if (!workspaceId && options.useCurrentWorkspaceState !== false) {
+    const current = (await readAppState("current-workspace")) as {
+      id?: string;
+    } | null;
+    workspaceId = current?.id ?? null;
+  }
+  if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+  await assertWorkspaceAccess(workspaceId, options.minRole ?? "viewer");
+  return workspaceId;
 }
 
 /**

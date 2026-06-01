@@ -3,7 +3,7 @@
 /**
  * Component Generator CLI
  *
- * Generates a new Remotion composition with animated elements and boilerplate
+ * Generates a Remotion composition with animated elements.
  *
  * Usage:
  *   npm run generate:component MyDashboard
@@ -34,13 +34,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import { initializeDefaultAnimations, AnimationPresets } from "@/remotion/utils/animationHelpers";
 import { useCursorHistory } from "@/remotion/hooks/useCursorHistory";
-import { createInteractiveElements, findClickInElement } from "@/remotion/utils/interactiveElements";
-import { useHoverAnimationSmooth } from "@/remotion/hooks/useHoverAnimationSmooth";
-import { useCursorTypeFromHover } from "@/remotion/hooks/useCursorTypeFromHover";
 ${elements.map((el) => `import { ${name}${el} } from "./${name}${el}";`).join("\n")}
 import { FALLBACK_TRACKS } from "./${name}Config";
 
-// ⭐ CRITICAL: Initialize animations at module level (before component renders)
 initializeDefaultAnimations("${name.toLowerCase()}", [
 ${elements
   .map(
@@ -54,14 +50,12 @@ export interface ${name}Props {
   tracks?: AnimationTrack[];
 }
 
-export const ${name}: React.FC<${name}Props> = ({ tracks = FALLBACK_TRACKS }) => {
+export function ${name}({ tracks = FALLBACK_TRACKS }: ${name}Props) {
   const { setCurrentElement, getAnimationsForElement } = useCurrentElement();
 
-  // Get cursor track and history
   const cursorTrack = findTrack(tracks, "cursor", FALLBACK_TRACKS[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  // Extract click start frames for AnimatedElement
   const clickStartFrames = useMemo(() => {
     const prop = cursorTrack?.animatedProps?.find(p => p.property === "isClicking");
     return (prop?.keyframes ?? [])
@@ -69,47 +63,8 @@ export const ${name}: React.FC<${name}Props> = ({ tracks = FALLBACK_TRACKS }) =>
       .map(kf => kf.frame);
   }, [cursorTrack]);
 
-  // ⭐ CRITICAL: Register all interactive UI elements
-  // TODO: Add all buttons, inputs, links, cards, etc. as interactive elements
-  // This makes them discoverable and ready for cursor animations
-  /*
-  const INTERACTIVE_ELEMENTS = createInteractiveElements([
-    { id: "button1", type: "button", label: "Primary CTA", zone: { x: 100, y: 400, width: 200, height: 60 } },
-    { id: "input1", type: "input", label: "Email Input", zone: { x: 350, y: 400, width: 300, height: 60 } },
-    { id: "link1", type: "link", label: "Learn More", zone: { x: 500, y: 500, width: 120, height: 30 } },
-  ]);
+  const autoCursorType = undefined;
 
-  // Register hover zones for each interactive element
-  const button1Hover = useHoverAnimationSmooth(
-    cursorHistory,
-    INTERACTIVE_ELEMENTS[0].zone,
-    { cursorType: INTERACTIVE_ELEMENTS[0].cursorType }
-  );
-
-  const input1Hover = useHoverAnimationSmooth(
-    cursorHistory,
-    INTERACTIVE_ELEMENTS[1].zone,
-    { cursorType: INTERACTIVE_ELEMENTS[1].cursorType }
-  );
-
-  // Aggregate cursor types (last wins for z-index priority)
-  const autoCursorType = useCursorTypeFromHover([
-    button1Hover,
-    input1Hover,
-  ]);
-
-  // Detect clicks on interactive elements
-  const button1ClickFrame = findClickInElement(
-    cursorTrack,
-    INTERACTIVE_ELEMENTS[0].zone,
-    { startFrame: 50, endFrame: 150 }
-  );
-  const wasButton1Clicked = button1ClickFrame ? frame >= button1ClickFrame : false;
-  */
-
-  const autoCursorType = undefined; // TODO: Implement interactive elements registration above
-
-  // Track which element is hovered (for Properties panel)
   const [hoveredElement, setHoveredElement] = useState<string | null>(null);
 
   const handleHoverChange = (elementId: string, hovered: boolean) => {
@@ -120,7 +75,6 @@ export const ${name}: React.FC<${name}Props> = ({ tracks = FALLBACK_TRACKS }) =>
     }
   };
 
-  // Update Properties panel when hover changes
   useEffect(() => {
     if (hoveredElement) {
       const elementMap: Record<string, { type: string; label: string }> = {
@@ -142,11 +96,8 @@ ${elements.map((el) => `        "${el.toLowerCase()}": { type: "${el}", label: "
 
   return (
     <CameraHost tracks={tracks} autoCursorType={autoCursorType}>
-      {/* ⭐ CRITICAL: CameraHost renders cursor from track automatically */}
-      {/* autoCursorType from hover zones overrides track type for realistic cursor behavior */}
       <AbsoluteFill style={{ background: "#0D1519" }}>
 
-        {/* Add your animated elements here */}
 ${elements
   .map(
     (el, i) => `
@@ -174,23 +125,22 @@ ${elements
       </AbsoluteFill>
     </CameraHost>
   );
-};
+}
 `;
 
 const TEMPLATE_ELEMENT = (compositionName: string, elementName: string) => `/**
  * ${compositionName} - ${elementName} Component
  */
 
-import React from "react";
 import type { AnimatedStyles } from "@/remotion/components/AnimatedElement";
 
 export interface ${compositionName}${elementName}Props {
   animatedStyles: AnimatedStyles;
 }
 
-export const ${compositionName}${elementName}: React.FC<${compositionName}${elementName}Props> = ({
+export function ${compositionName}${elementName}({
   animatedStyles,
-}) => {
+}: ${compositionName}${elementName}Props) {
   return (
     <div
       style={{
@@ -214,11 +164,10 @@ export const ${compositionName}${elementName}: React.FC<${compositionName}${elem
         color: "white",
       }}
     >
-      {/* TODO: Customize your ${elementName} content */}
       ${elementName}
     </div>
   );
-};
+}
 `;
 
 const TEMPLATE_CONFIG = (name: string) => `/**
@@ -306,18 +255,16 @@ ${elements.map((el) => `- **${el}**: Animated component with hover and click int
 
 ## Customization
 
-1. **Edit element appearance**: Modify \`${name}*.tsx\` component files
-2. **Add animations**: Use the Properties panel in the Video Studio UI
-3. **⭐ Customize cursor path**: Edit cursor track in \`${name}Config.ts\` (**NEVER hardcode cursor movement in component!**)
-4. **Add more elements**: Create new components and register in \`${name}.tsx\`
+1. **Edit element appearance**: Modify \`${name}*.tsx\` component files.
+2. **Add animations**: Use the Properties panel in the Video Studio UI.
+3. **Customize cursor path**: Edit the cursor track in \`${name}Config.ts\`.
+4. **Add more elements**: Create new components and register them in \`${name}.tsx\`.
 
-## 🎯 CRITICAL: Cursor Animation Pattern
+## Cursor Animation Pattern
 
-**Always define cursor animations as tracks**, never hardcode them:
+Define cursor animations as tracks so the editor, renderer, and generated output stay in sync.
 
-✅ **CORRECT** (cursor defined in config):
 \`\`\`typescript
-// In ${name}Config.ts
 {
   id: "cursor",
   animatedProps: [
@@ -327,17 +274,9 @@ ${elements.map((el) => `- **${el}**: Animated component with hover and click int
   ]
 }
 
-// In ${name}.tsx
 <CameraHost tracks={tracks}>
   {/* Cursor renders automatically from track */}
 </CameraHost>
-\`\`\`
-
-❌ **WRONG** (hardcoded in component):
-\`\`\`typescript
-// DON'T DO THIS
-const cursorX = interpolate(frame, [0, 100], [0, 1920]);
-<Cursor x={cursorX} y={cursorY} />
 \`\`\`
 
 ## File Structure
@@ -360,14 +299,14 @@ import { ${name} } from "@/remotion/compositions/${name}";
 {
   id: "${name.toLowerCase()}",
   title: "${name}",
-  description: "TODO: Add description",
+  description: "${name} composition",
   component: ${name},
   durationInFrames: 300,
   fps: 30,
   width: 1920,
   height: 1080,
   defaultProps: {} satisfies ${name}Props,
-  tracks: FALLBACK_TRACKS, // Import from ${name}Config
+  tracks: FALLBACK_TRACKS,
 }
 \`\`\`
 `;
@@ -375,42 +314,42 @@ import { ${name} } from "@/remotion/compositions/${name}";
 function generateComponent(options: GeneratorOptions): void {
   const { name, elements, outputDir } = options;
 
-  console.log(`\n🎬 Generating animated composition: ${name}`);
-  console.log(`📦 Elements: ${elements.join(", ")}\n`);
+  console.log(`\nGenerating animated composition: ${name}`);
+  console.log(`Elements: ${elements.join(", ")}\n`);
 
   // Create output directory
   const compDir = path.join(outputDir, name);
   if (!fs.existsSync(compDir)) {
     fs.mkdirSync(compDir, { recursive: true });
   } else {
-    console.error(`❌ Directory already exists: ${compDir}`);
+    console.error(`Directory already exists: ${compDir}`);
     throw new Error("Script failed");
   }
 
   // Generate main composition file
   const compositionPath = path.join(compDir, `${name}.tsx`);
   fs.writeFileSync(compositionPath, TEMPLATE_COMPOSITION(name, elements));
-  console.log(`✅ Created ${compositionPath}`);
+  console.log(`Created ${compositionPath}`);
 
   // Generate config file
   const configPath = path.join(compDir, `${name}Config.ts`);
   fs.writeFileSync(configPath, TEMPLATE_CONFIG(name));
-  console.log(`✅ Created ${configPath}`);
+  console.log(`Created ${configPath}`);
 
   // Generate element components
   elements.forEach((element) => {
     const elementPath = path.join(compDir, `${name}${element}.tsx`);
     fs.writeFileSync(elementPath, TEMPLATE_ELEMENT(name, element));
-    console.log(`✅ Created ${elementPath}`);
+    console.log(`Created ${elementPath}`);
   });
 
   // Generate README
   const readmePath = path.join(compDir, "README.md");
   fs.writeFileSync(readmePath, TEMPLATE_README(name, elements));
-  console.log(`✅ Created ${readmePath}`);
+  console.log(`Created ${readmePath}`);
 
   console.log(`\nSuccessfully generated composition!`);
-  console.log(`\n📝 Next steps:`);
+  console.log(`\nNext steps:`);
   console.log(`   1. Customize element components in ${compDir}/`);
   console.log(`   2. Add to registry in app/remotion/registry.ts`);
   console.log(`   3. Open in Video Studio UI to configure animations\n`);
@@ -438,7 +377,7 @@ function optionsFromArgs(args: {
 function parseCliArgs(args: string[]): GeneratorOptions | undefined {
   if (args.length === 0 || args[0] === "--help") {
     console.log(`
-📦 Animated Component Generator
+Animated Component Generator
 
 Usage:
   npm run generate:component <ComponentName> [options]

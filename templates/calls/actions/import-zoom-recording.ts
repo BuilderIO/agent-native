@@ -5,7 +5,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
@@ -58,7 +58,30 @@ export default defineAction({
     }
 
     const accessToken = await decryptToken(conn.accessTokenEncrypted);
-    const workspaceId = args.workspaceId || (await resolveDefaultWorkspaceId());
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+      minRole: "creator-lite",
+    });
+    if (args.folderId) {
+      const [folder] = await db
+        .select({ workspaceId: schema.folders.workspaceId })
+        .from(schema.folders)
+        .where(eq(schema.folders.id, args.folderId))
+        .limit(1);
+      if (!folder || folder.workspaceId !== workspaceId) {
+        throw new Error("Folder does not belong to this workspace.");
+      }
+    }
+    if (args.accountId) {
+      const [account] = await db
+        .select({ workspaceId: schema.accounts.workspaceId })
+        .from(schema.accounts)
+        .where(eq(schema.accounts.id, args.accountId))
+        .limit(1);
+      if (!account || account.workspaceId !== workspaceId) {
+        throw new Error("Account does not belong to this workspace.");
+      }
+    }
 
     const target = args.zoomRecordingUuid
       ? encodeURIComponent(encodeURIComponent(args.zoomRecordingUuid))

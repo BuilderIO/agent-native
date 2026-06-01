@@ -26,7 +26,7 @@ const config = async () => {
     m.config();
   } catch {}
 };
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import pLimit from "p-limit";
 import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";

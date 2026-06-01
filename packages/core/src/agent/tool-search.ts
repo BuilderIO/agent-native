@@ -55,12 +55,12 @@ export function createToolSearchEntry(
           limit: {
             type: "number",
             description: `Maximum results to return. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}.`,
-          } as any,
+          },
           includeSchemas: {
             type: "boolean",
             description:
               "When true, include each matching tool's full input schema. Default false.",
-          } as any,
+          },
         },
         required: ["query"],
       },

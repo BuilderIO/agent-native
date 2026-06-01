@@ -66,16 +66,6 @@ export default function CompositionView({
   const frameFromUrl = searchParams.get("frame");
   const initialFrame = frameFromUrl ? parseInt(frameFromUrl, 10) : 0;
 
-  // Debug log
-  useEffect(() => {
-    console.log(
-      "CompositionView - initialFrame from URL:",
-      initialFrame,
-      "frameFromUrl:",
-      frameFromUrl,
-    );
-  }, [initialFrame, frameFromUrl]);
-
   const { isDevMode } = useDevMode();
   useSession();
 
@@ -169,7 +159,6 @@ export default function CompositionView({
     registerSeek(() => handleTimelineSeek);
   }, [registerSeek, handleTimelineSeek]);
 
-  // IconDeviceFloppy as default handler - uses both composition and timeline contexts
   // Core save logic (reusable for both manual and auto-save)
   const performSave = useCallback(
     async (silent = false) => {
@@ -211,8 +200,6 @@ export default function CompositionView({
           width: composition.width,
           height: composition.height,
         };
-
-        console.log("Saving as default:", update);
 
         const saveToDatabase = async (signal: AbortSignal) => {
           const response = await fetch(

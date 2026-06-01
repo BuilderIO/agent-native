@@ -18,7 +18,7 @@ import {
   parseSpaceIds,
   stringifySpaceIds,
   parseJson,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
@@ -58,31 +58,9 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
 
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) {
-      try {
-        workspaceId = await resolveDefaultWorkspaceId();
-      } catch {
-        workspaceId = null;
-      }
-    }
-    if (!workspaceId) {
-      return {
-        workspaceId: null,
-        totalCalls: 0,
-        minutesThisWeek: 0,
-        minutesThisMonth: 0,
-        totalViews: 0,
-        topCalls: [],
-        trackerTrends: [],
-      };
-    }
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
 
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -95,7 +73,12 @@ export default defineAction({
     const calls = await db
       .select()
       .from(schema.calls)
-      .where(eq(schema.calls.workspaceId, workspaceId));
+      .where(
+        and(
+          eq(schema.calls.workspaceId, workspaceId),
+          accessFilter(schema.calls, schema.callShares),
+        ),
+      );
     const callIds = calls.map((c) => c.id);
     const titleById = new Map(calls.map((c) => [c.id, c.title] as const));
 

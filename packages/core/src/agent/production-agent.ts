@@ -1705,6 +1705,13 @@ export async function runAgentLoop(opts: {
       break;
     }
 
+    // Reached only when the model made tool calls (toolCallParts.length > 0),
+    // i.e. it's about to do more work and produce a *new* final answer. Give
+    // that next final-answer cycle a fresh guard-retry budget; otherwise
+    // finalGuardRetries stays at 1 from a prior cycle and the guard is
+    // permanently disabled for the rest of a long multi-step run.
+    finalGuardRetries = 0;
+
     flushBufferedAssistantText();
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
@@ -1838,6 +1845,21 @@ export async function runAgentLoop(opts: {
               reject(new Error("Tool call timed out after 60 seconds")),
             );
           }),
+          // Stop waiting on the tool when the run itself is aborted (e.g. the
+          // run-manager soft timeout, or a user cancel). Without this leg the
+          // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
+          // the run signal has already fired.
+          new Promise<never>((_, reject) => {
+            if (signal.aborted) {
+              reject(new Error("Run aborted"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("Run aborted")),
+              { once: true },
+            );
+          }),
         ]);
         const mcpResult = isMcpActionResult(raw) ? raw : null;
         const rawForAgent = mcpResult ? mcpResult.text : raw;
@@ -1949,7 +1971,12 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): ParallelBatchKind | null => {
       const entry = actions[toolCall.name];
-      if (!entry || entry.readOnly === true) return "read";
+      // Unknown tool name → serialize (null), don't fold it into the read-only
+      // parallel batch. Misclassifying it as "read" lets it run via Promise.all
+      // alongside genuine reads, which can reorder it ahead of a later mutating
+      // call and break the model's intended sequencing.
+      if (!entry) return null;
+      if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
     };

@@ -10,10 +10,8 @@ import type {
 } from "@/types/elementAnimations";
 import type { CursorFrame } from "@/remotion/hooks/useCursorHistory";
 import type { AnimationTrack } from "@/types";
-import {
-  validateAnimation,
-  getAnimationValue,
-} from "@/remotion/utils/animationHelpers";
+import { validateAnimation } from "@/remotion/utils/animationHelpers";
+import { getAnimationValue } from "@/types/elementAnimations";
 
 /**
  * Create mock cursor history for testing hover states
@@ -142,7 +140,8 @@ export function testAnimationValidity(animation: ElementAnimation): {
   passed: boolean;
   errors: string[];
 } {
-  return validateAnimation(animation);
+  const result = validateAnimation(animation);
+  return { passed: result.valid, errors: result.errors };
 }
 
 /**

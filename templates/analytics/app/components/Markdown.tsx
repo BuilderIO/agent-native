@@ -19,12 +19,6 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/**
- * Sanitize a URL for use in an href. Rejects dangerous protocols
- * (javascript:, data:, vbscript:, file:) and empty strings. Returns a
- * safe-to-embed value — always HTML-escape the result when inserting
- * into an attribute.
- */
 function decodeHtmlEntities(value: string): string {
   let decoded = value;
   for (let i = 0; i < 3; i++) {
@@ -45,6 +39,12 @@ function decodeHtmlEntities(value: string): string {
   return decoded;
 }
 
+/**
+ * Sanitize a URL for use in an href. Rejects dangerous protocols
+ * (javascript:, data:, vbscript:, file:) and empty strings. Returns a
+ * safe-to-embed value — always HTML-escape the result when inserting
+ * into an attribute.
+ */
 function sanitizeUrl(url: string, kind: "link" | "image" = "link"): string {
   const trimmed = url.trim();
   if (!trimmed) return "#";

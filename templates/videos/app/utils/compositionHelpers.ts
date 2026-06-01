@@ -5,7 +5,7 @@
  * with all features: camera, cursor, interactions, multi-keyframe selection
  */
 
-import type { AnimationTrack, AnimatedProp } from "@/types";
+import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
 
 /**
  * Create a camera track with default values
@@ -44,7 +44,7 @@ export function createCursorTrack(
   options: {
     centerX?: number;
     centerY?: number;
-    easing?: string;
+    easing?: EasingKey;
   } = {},
 ): AnimationTrack {
   const { centerX = 960, centerY = 540, easing = "expo.inOut" } = options;
@@ -92,7 +92,7 @@ export function createAnimationTrack(
     to: string;
     unit: string;
   }>,
-  easing: string = "spring",
+  easing: EasingKey = "spring",
 ): AnimationTrack {
   return {
     id,
@@ -224,7 +224,7 @@ export function addKeyframe(
   prop: AnimatedProp,
   frame: number,
   value: string,
-  easing?: string,
+  easing?: EasingKey,
 ): AnimatedProp {
   const keyframes = prop.keyframes || [];
 
@@ -251,7 +251,7 @@ export function addKeyframe(
  */
 export function addKeyframes(
   prop: AnimatedProp,
-  keyframes: Array<{ frame: number; value: string; easing?: string }>,
+  keyframes: Array<{ frame: number; value: string; easing?: EasingKey }>,
 ): AnimatedProp {
   let result = prop;
   for (const kf of keyframes) {

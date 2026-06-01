@@ -55,6 +55,7 @@ describe("processRecurringJobs", () => {
         path: "jobs/daily-report.md",
         content: `---
 schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
 ---
@@ -91,6 +92,7 @@ Summarize the inbox.`,
         path: "jobs/shared-daily-report.md",
         content: `---
 schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
 runAs: creator

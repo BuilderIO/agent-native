@@ -118,7 +118,11 @@ async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (run_id, seq)
         )
       `);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

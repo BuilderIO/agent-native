@@ -14,8 +14,7 @@ import { agentNativePath } from "@agent-native/core/client";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
-
-// ─── Persistence helpers ──────────────────────────────────────────────────────
+import { debug } from "@/utils/debug";
 
 const PROPS_KEY = (id: string) => `videos-props:${id}`;
 const SETTINGS_KEY = (id: string) => `videos-comp-settings:${id}`;
@@ -55,8 +54,6 @@ function saveProps(compositionId: string, props: Record<string, any>) {
   } catch {}
 }
 
-// ─── Context type ─────────────────────────────────────────────────────────────
-
 type CompositionContextType = {
   compositionId: string;
   isNew: boolean;
@@ -72,8 +69,6 @@ type CompositionContextType = {
 };
 
 const CompositionContext = createContext<CompositionContextType | null>(null);
-
-// ─── Provider ─────────────────────────────────────────────────────────────────
 
 type CompositionProviderProps = {
   children: ReactNode;
@@ -96,17 +91,12 @@ export function CompositionProvider({
   const navigate = useNavigate();
 
   const isNew = compositionId === "new";
-  // Bumped whenever the singleton `compositions` array is mutated in place
-  // (delete, rename, etc.). Included in dependent memos so React recomputes
-  // them — without this, mutating the singleton would never propagate to
-  // consumers because no React state is changing.
   const [registryVersion, setRegistryVersion] = useState(0);
   const selected = useMemo(
     () => compositions.find((c) => c.id === compositionId),
     [compositionId, registryVersion],
   );
 
-  // ── Composition settings (duration + fps) ─────────────────────────────────
   const [compSettingsOverrides, setCompSettingsOverrides] = useState<
     Record<string, CompSettings>
   >(() => {
@@ -140,7 +130,6 @@ export function CompositionProvider({
     [selected],
   );
 
-  // Build the effective composition — registry defaults merged with user overrides
   const effectiveComposition = useMemo(() => {
     if (!selected) return undefined;
     const settings = compSettingsOverrides[selected.id];
@@ -154,24 +143,23 @@ export function CompositionProvider({
       height: settings.height,
     };
 
-    // Debug log to help diagnose FPS timing issues
     if (selected.fps !== settings.fps) {
-      console.log(`[Videos] FPS mismatch detected for ${selected.id}:`);
-      console.log(
-        `  Registry: ${selected.fps} fps, ${selected.durationInFrames} frames`,
-      );
-      console.log(
-        `  Settings: ${settings.fps} fps, ${settings.durationInFrames} frames`,
-      );
-      console.log(
-        `  This may cause timing issues if keyframes were designed for ${selected.fps} fps`,
-      );
+      debug.verbose("FPS override differs from registry", {
+        compositionId: selected.id,
+        registry: {
+          fps: selected.fps,
+          durationInFrames: selected.durationInFrames,
+        },
+        settings: {
+          fps: settings.fps,
+          durationInFrames: settings.durationInFrames,
+        },
+      });
     }
 
     return effective;
   }, [selected, compSettingsOverrides]);
 
-  // ── Composition props ─────────────────────────────────────────────────────
   const [propsOverrides, setPropsOverrides] = useState<
     Record<string, Record<string, any>>
   >(() => {
@@ -186,12 +174,10 @@ export function CompositionProvider({
     ? (propsOverrides[selected.id] ?? selected.defaultProps)
     : {};
 
-  // Save props to localStorage when changed (skip first load)
   const prevPropsRef = useRef<Record<string, Record<string, any>>>({});
   const propsInitialLoadRef = useRef(true);
 
   useEffect(() => {
-    // Skip the very first load
     if (propsInitialLoadRef.current) {
       propsInitialLoadRef.current = false;
       prevPropsRef.current = propsOverrides;
@@ -200,14 +186,13 @@ export function CompositionProvider({
 
     for (const id of Object.keys(propsOverrides)) {
       if (propsOverrides[id] !== prevPropsRef.current[id]) {
-        console.log("[Videos] 💾 Saving props to localStorage (user edit)");
+        debug.verbose("Saving props to localStorage", { compositionId: id });
         saveProps(id, propsOverrides[id]);
       }
     }
     prevPropsRef.current = propsOverrides;
   }, [propsOverrides]);
 
-  // Sync changes from other tabs via storage event
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (!selected?.id) return;
@@ -218,7 +203,9 @@ export function CompositionProvider({
       if (e.key === propsKey && e.newValue) {
         const newProps = loadProps(selected.id, selected.defaultProps);
         setPropsOverrides((prev) => ({ ...prev, [selected.id]: newProps }));
-        console.log("[Videos] Synced props from another tab");
+        debug.verbose("Synced props from another tab", {
+          compositionId: selected.id,
+        });
       } else if (e.key === settingsKey && e.newValue) {
         const newSettings = loadCompSettings(selected.id, {
           durationInFrames: selected.durationInFrames,
@@ -230,7 +217,9 @@ export function CompositionProvider({
           ...prev,
           [selected.id]: newSettings,
         }));
-        console.log("[Videos] Synced composition settings from another tab");
+        debug.verbose("Synced composition settings from another tab", {
+          compositionId: selected.id,
+        });
       }
     };
 
@@ -238,7 +227,6 @@ export function CompositionProvider({
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [selected]);
 
-  // ─── Collab: push props/settings changes ──────────────────────────────────
   const collabPropsPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -246,14 +234,15 @@ export function CompositionProvider({
   useEffect(() => {
     if (!selected || !onCollabPush) return;
 
-    // Skip the very first load
     if (propsInitialLoadRef.current) return;
 
     if (collabPropsPushTimerRef.current)
       clearTimeout(collabPropsPushTimerRef.current);
     collabPropsPushTimerRef.current = setTimeout(() => {
       const currentSettings = compSettingsOverrides[selected.id];
-      console.log("[Videos] Pushing props/settings to collab layer");
+      debug.verbose("Pushing props/settings to collab layer", {
+        compositionId: selected.id,
+      });
       onCollabPush({
         props: propsOverrides[selected.id],
         settings: currentSettings,
@@ -266,7 +255,6 @@ export function CompositionProvider({
     };
   }, [propsOverrides, compSettingsOverrides, selected, onCollabPush]);
 
-  // ─── Collab: apply remote props/settings ──────────────────────────────────
   const prevCollabPropsRef = useRef<CompositionCollabData | null>(null);
 
   useEffect(() => {
@@ -274,12 +262,13 @@ export function CompositionProvider({
     if (collabData === prevCollabPropsRef.current) return;
     prevCollabPropsRef.current = collabData;
 
-    // Apply remote props
     if (collabData.props) {
       const remoteJson = JSON.stringify(collabData.props);
       const localJson = JSON.stringify(propsOverrides[selected.id]);
       if (remoteJson !== localJson) {
-        console.log("[Videos] Applying remote props from collab layer");
+        debug.verbose("Applying remote props from collab layer", {
+          compositionId: selected.id,
+        });
         setPropsOverrides((prev) => ({
           ...prev,
           [selected.id]: collabData.props!,
@@ -287,12 +276,13 @@ export function CompositionProvider({
       }
     }
 
-    // Apply remote settings
     if (collabData.settings) {
       const remoteJson = JSON.stringify(collabData.settings);
       const localJson = JSON.stringify(compSettingsOverrides[selected.id]);
       if (remoteJson !== localJson) {
-        console.log("[Videos] Applying remote settings from collab layer");
+        debug.verbose("Applying remote settings from collab layer", {
+          compositionId: selected.id,
+        });
         setCompSettingsOverrides((prev) => ({
           ...prev,
           [selected.id]: collabData.settings as CompSettings,
@@ -307,7 +297,6 @@ export function CompositionProvider({
     compSettingsOverrides,
   ]);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handlePropsChange = useCallback(
     (newProps: Record<string, any>) => {
       if (!selected) return;
@@ -349,10 +338,7 @@ export function CompositionProvider({
       }
 
       // DB delete succeeded; now safe to update the in-memory registry.
-      // compositions is a module-singleton imported directly by Sidebar etc.,
-      // so mutating it doesn't on its own trigger a React re-render. Bump
-      // registryVersion so the dependent memos (selected, the context value)
-      // recompute and consumers re-read the now-mutated array.
+      // Bump registryVersion so React observes the mutated singleton.
       const idx = compositions.findIndex((c) => c.id === id);
       if (idx !== -1) compositions.splice(idx, 1);
       setRegistryVersion((v) => v + 1);

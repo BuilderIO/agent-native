@@ -2,12 +2,17 @@ import {
   getServiceAccountAccessToken,
   getServiceAccountEmail,
   getStartPageToken,
+  googleDocsAdapter,
   listChanges,
   listDocComments,
 } from "./adapters/google-docs.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import { createThread, getThread } from "../chat-threads/store.js";
+import {
+  createThread,
+  getThread,
+  updateThreadData,
+} from "../chat-threads/store.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
@@ -22,8 +27,6 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
-import { updateThreadData } from "../chat-threads/store.js";
-import { googleDocsAdapter } from "./adapters/google-docs.js";
 import type { IncomingMessage } from "./types.js";
 
 const PLATFORM = "google-docs";

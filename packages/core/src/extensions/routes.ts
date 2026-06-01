@@ -537,7 +537,11 @@ async function handleProxy(
   const rawBody = body.body;
 
   let resolvedUrl = rawUrl;
-  let resolvedHeaders = JSON.stringify(rawHeaders);
+  // Resolve secret references per header value rather than over a single
+  // JSON.stringify(headers) blob. A secret value containing a double-quote
+  // would corrupt that JSON, the later JSON.parse would throw, and the request
+  // would silently fall back to the *unresolved* headers (placeholders intact).
+  const parsedHeaders: Record<string, string> = {};
   let resolvedBody = rawBody;
   const allSecretValues: string[] = [];
   const allResolvedKeys: ResolvedKeyReference[] = [];
@@ -551,13 +555,15 @@ async function handleProxy(
     allSecretValues.push(...urlResult.secretValues);
     allResolvedKeys.push(...(urlResult.resolvedKeys ?? []));
 
-    const headerResult = await resolveKeyReferencesWithRequestScopes(
-      resolvedHeaders,
-      userEmail,
-    );
-    resolvedHeaders = headerResult.resolved;
-    allSecretValues.push(...headerResult.secretValues);
-    allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
+    for (const [hk, hv] of Object.entries(rawHeaders)) {
+      const headerResult = await resolveKeyReferencesWithRequestScopes(
+        typeof hv === "string" ? hv : String(hv),
+        userEmail,
+      );
+      parsedHeaders[hk] = headerResult.resolved;
+      allSecretValues.push(...headerResult.secretValues);
+      allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
+    }
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferencesWithRequestScopes(
@@ -595,12 +601,7 @@ async function handleProxy(
     }
   }
 
-  let headers: Record<string, string>;
-  try {
-    headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
-  } catch {
-    headers = sanitizeOutboundHeaders(rawHeaders);
-  }
+  const headers = sanitizeOutboundHeaders(parsedHeaders);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);

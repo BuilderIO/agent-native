@@ -71,7 +71,7 @@ export default defineAction({
           ownerEmail,
           orgId: getRequestOrgId(),
         });
-      } catch (err) {
+      } catch {
         // PK conflict means the id is taken by another tenant we couldn't
         // see via resolveAccess. Reject rather than overwrite their row.
         throw new ForbiddenError(

@@ -493,7 +493,6 @@ describe("writeConfigs", () => {
 
   it("writes a Codex TOML block with HTTP url + auth header", () => {
     const root = tmpDir();
-    const codexFile = path.join(root, "config.toml");
     const HOME = process.env.HOME;
     // Point HOME at our tmp dir so ~/.codex/config.toml lands under it.
     const codexHome = tmpDir();
@@ -531,7 +530,6 @@ describe("writeConfigs", () => {
       expect(toml2).toContain("Bearer tok-2");
     } finally {
       process.env.HOME = HOME;
-      void codexFile;
     }
   });
 

@@ -16,8 +16,6 @@ export function Layout({ children }: LayoutProps) {
     return <>{children}</>;
   }
 
-  const isExtensionsRoute = location.pathname.startsWith("/extensions/");
-
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -34,15 +32,7 @@ export function Layout({ children }: LayoutProps) {
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             <Header />
-            <main
-              className={
-                isExtensionsRoute
-                  ? "flex-1 overflow-y-auto"
-                  : "flex-1 overflow-y-auto"
-              }
-            >
-              {children}
-            </main>
+            <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
         </AgentSidebar>
       </div>

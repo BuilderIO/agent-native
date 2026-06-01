@@ -61,7 +61,11 @@ async function ensureTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
         ),
       );
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

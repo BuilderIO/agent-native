@@ -208,7 +208,7 @@ export function isMac(): boolean {
 
 export function formatShortcut(key: string): string {
   const isMacPlatform = isMac();
-  const mod = isMac() ? "⌘" : "Ctrl";
+  const mod = isMacPlatform ? "⌘" : "Ctrl";
   return key
     .split("+")
     .map((part) => {

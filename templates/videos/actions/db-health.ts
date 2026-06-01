@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { sql } from "drizzle-orm";
-import { getDb } from "../server/db/index.js";
+import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
 
 export default defineAction({
@@ -12,8 +11,8 @@ export default defineAction({
       process.env.DATABASE_URL || "file:./data/app.db"
     ).startsWith("file:");
     try {
-      const db = getDb();
-      await db.execute(sql`SELECT 1`);
+      const exec = getDbExec();
+      await exec.execute("SELECT 1");
       return { ok: true, local: isLocal };
     } catch (e) {
       return {

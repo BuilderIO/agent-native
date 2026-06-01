@@ -15,7 +15,7 @@ function normalizeBasePath(value: string | undefined): string {
   return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
-function appBasePathForRequest(request: Request): string {
+function appBasePathForRequest(): string {
   return normalizeBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
@@ -30,7 +30,7 @@ export async function loader({
   }
 
   const url = new URL(
-    `${appBasePathForRequest(request)}/api/share/${params.token}`,
+    `${appBasePathForRequest()}/api/share/${params.token}`,
     request.url,
   );
   const res = await fetch(url, { headers: { accept: "application/json" } });

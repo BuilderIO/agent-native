@@ -880,7 +880,7 @@ async function affectedAllAppTargets() {
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return {
-    label: apps.length > 0 ? "All workspace apps" : "All workspace apps",
+    label: "All workspace apps",
     count: apps.length,
     apps,
   };

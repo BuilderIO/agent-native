@@ -223,7 +223,7 @@ export const CursorPositioningOverlay: React.FC<
             bottom: 56, // Exclude control bar at bottom
             cursor: isDragging ? "grabbing" : "crosshair",
             zIndex: 10,
-            pointerEvents: isPlaying ? "none" : "auto",
+            pointerEvents: "auto",
           }}
         >
           {/* Invisible overlay for click-and-drag */}

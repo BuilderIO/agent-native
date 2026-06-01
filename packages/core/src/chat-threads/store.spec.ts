@@ -15,6 +15,7 @@ vi.mock("./emitter.js", () => ({
 import {
   forkThread,
   renameThread,
+  searchThreads,
   setThreadArchived,
   setThreadPinned,
   setThreadQueuedMessages,
@@ -217,6 +218,32 @@ describe("chat thread store", () => {
     expect(row!.archived_at).toBeUndefined();
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("searches thread text with literal LIKE metacharacters", async () => {
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    await searchThreads("user@example.com", "100%_done");
+
+    const searchCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return /SELECT .* FROM chat_threads WHERE/i.test(sql);
+    });
+    expect(searchCall).toBeTruthy();
+    const query = searchCall![0] as { sql: string; args: unknown[] };
+    expect(query.sql).toContain("LIKE ? ESCAPE '\\'");
+    expect(query.args.slice(1, 4)).toEqual([
+      "%100\\%\\_done%",
+      "%100\\%\\_done%",
+      "%100\\%\\_done%",
+    ]);
   });
 
   it("renames threads with a durable title override", async () => {

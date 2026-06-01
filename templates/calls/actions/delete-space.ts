@@ -10,9 +10,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertWorkspaceAccess,
   getCurrentOwnerEmail,
   nanoid,
   parseSpaceIds,
@@ -31,6 +32,10 @@ const cliBoolean = z.preprocess((value) => {
   if (value === "false") return false;
   return value;
 }, z.boolean());
+
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
 
 export default defineAction({
   description:
@@ -53,12 +58,18 @@ export default defineAction({
       .where(eq(schema.spaces.id, args.id))
       .limit(1);
     if (!existing) throw new Error(`Space not found: ${args.id}`);
+    await assertWorkspaceAccess(existing.workspaceId, "admin");
 
-    const needle = `%"${args.id.replace(/%/g, "")}"%`;
+    const needle = `%"${escapeLike(args.id)}"%`;
     const affected = await db
       .select()
       .from(schema.calls)
-      .where(sql`${schema.calls.spaceIds} LIKE ${needle}`);
+      .where(
+        and(
+          eq(schema.calls.workspaceId, existing.workspaceId),
+          sql`${schema.calls.spaceIds} LIKE ${needle} ESCAPE '\\'`,
+        ),
+      );
 
     if (affected.length > 0 && !args.force) {
       throw new Error(

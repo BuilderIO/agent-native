@@ -100,7 +100,7 @@ export async function createBooking(
             credentialId: booking.location.credentialId,
           });
         }
-      } catch (err) {
+      } catch {
         // Continue without the video link; the host can fix on the booking detail page
       }
     }

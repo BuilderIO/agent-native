@@ -9,6 +9,14 @@ import type { StoreWriteOptions } from "../settings/store.js";
 
 let _initPromise: Promise<void> | undefined;
 
+// Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
+// literal prefix is matched verbatim. Used with `ESCAPE '\'` in prefix queries
+// below; without this, a prefix such as `user_settings` would treat `_` as a
+// single-char wildcard and over-match (e.g. delete `userXsettings`).
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -22,7 +30,11 @@ async function ensureTable(): Promise<void> {
           PRIMARY KEY (session_id, key)
         )
       `);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
@@ -88,8 +100,8 @@ export async function appStateList(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key LIKE ?`,
-    args: [sessionId, keyPrefix + "%"],
+    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
   return rows.map((row) => ({
     key: row.key as string,
@@ -107,15 +119,15 @@ export async function appStateDeleteByPrefix(
 
   // Get keys first so we can emit events
   const { rows } = await client.execute({
-    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ?`,
-    args: [sessionId, keyPrefix + "%"],
+    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
 
   if (rows.length === 0) return 0;
 
   const result = await client.execute({
-    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ?`,
-    args: [sessionId, keyPrefix + "%"],
+    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '\\'`,
+    args: [sessionId, escapeLike(keyPrefix) + "%"],
   });
 
   for (const row of rows) {

@@ -58,12 +58,11 @@ export async function trackMetricViewed(
 }
 
 /**
- * Extract user ID from a Firebase ID token.
- * For now, returns null - will be implemented when we have user auth.
+ * Extract user ID from a Firebase ID token by decoding its JWT payload.
+ * Returns null if the token can't be parsed.
  */
 async function getUserIdFromToken(token: string): Promise<string | null> {
   try {
-    // Parse JWT to get user ID
     const payload = JSON.parse(atob(token.split(".")[1]));
     return payload.user_id || payload.sub || null;
   } catch {
@@ -97,5 +96,4 @@ export function useTrackMetrics(metrics: string[], dashboardId: string): void {
   }, [metrics.join(","), dashboardId]);
 }
 
-// Import React for the hook
 import React from "react";

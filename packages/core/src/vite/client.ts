@@ -1013,11 +1013,6 @@ function rolldownInputFix(): Plugin {
 }
 
 /**
- * Expose the resolved Vite dev server port as process.env.PORT so that
- * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
- * hit the right address even when Vite auto-increments the port.
- */
-/**
  * Replace caller-specified packages with an empty proxy stub during SSR
  * builds. For apps whose heavy browser-only deps would otherwise bloat the
  * edge worker past CF Pages' 25 MiB Functions limit.
@@ -1060,6 +1055,11 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
   };
 }
 
+/**
+ * Expose the resolved Vite dev server port as process.env.PORT so that
+ * in-process scripts (which use localFetch → http://localhost:${PORT}/api/...)
+ * hit the right address even when Vite auto-increments the port.
+ */
 function portExposer(): Plugin {
   return {
     name: "agent-native-port-exposer",

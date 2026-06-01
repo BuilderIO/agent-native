@@ -213,7 +213,7 @@ export default function ExplorerPage() {
       {/* SQL preview */}
       {sql && <SqlPreview sql={sql} />}
 
-      {/* IconDeviceFloppy dialog */}
+      {/* Save dialog */}
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

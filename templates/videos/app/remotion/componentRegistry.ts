@@ -1,20 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * COMPONENT LIBRARY REGISTRY
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * This file defines all reusable UI components that can be imported into
- * compositions. Each component has a 5-second preview with cursor interactions.
- *
- * Components are designed to be:
- * - Importable in Studio compositions
- * - Testable with cursor interactions
- * - Documented with props and animations
- * - Reusable across multiple compositions
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import type React from "react";
 import type { AnimationTrack } from "@/types";
 import {
@@ -29,10 +12,6 @@ import {
 } from "./library-components";
 import { createCameraTrack, createCursorTrack } from "./trackHelpers";
 
-/**
- * Standard 5-second component preview cursor track (150 frames @ 30fps).
- * Timeline: arrive at 0.5s, hover, click at 2s, exit at 3.5s
- */
 function makePreviewCursorTrack(
   cx: number,
   cy: number,
@@ -43,8 +22,8 @@ function makePreviewCursorTrack(
 
   track.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
-    { frame: 15, value: String(cx) }, // Arrive at 0.5s
-    { frame: 90, value: String(cx) }, // Stay
+    { frame: 15, value: String(cx) },
+    { frame: 90, value: String(cx) },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
@@ -72,13 +51,9 @@ function makePreviewCursorTrack(
       { frame: 150, value: "0" },
     ];
   }
-  // type stays "default" — autoCursorType handles pointer-on-hover automatically
   return track;
 }
 
-/**
- * Defines a prop for UI documentation
- */
 export interface PropDefinition {
   name: string;
   type: string;
@@ -86,24 +61,6 @@ export interface PropDefinition {
   description?: string;
 }
 
-/**
- * Component categories following atomic design principles:
- *
- * - **Atoms**: Basic building blocks that can't be broken down further
- *   Examples: Button, Input, Icon, Label, Badge
- *
- * - **Molecules**: Simple combinations of atoms functioning together
- *   Examples: Search bar (input + button), Form field (label + input), Card header
- *
- * - **Organisms**: Complex UI components made of molecules and/or atoms
- *   Examples: Navigation bar, Form, Card, Modal, Sidebar
- *
- * - **Templates**: Page-level layouts that define structure
- *   Examples: Dashboard layout, Article layout, Admin panel layout
- *
- * - **Pages**: Specific instances of templates with real content
- *   Examples: Home page, Profile page, Settings page
- */
 export type ComponentCategory =
   | "Atoms"
   | "Molecules"
@@ -111,39 +68,21 @@ export type ComponentCategory =
   | "Templates"
   | "Pages";
 
-/**
- * Component library entry - defines a reusable component with its metadata
- */
 export interface LibraryComponentEntry {
-  /** Unique identifier for the component */
   id: string;
-  /** Display name */
   title: string;
-  /** Short description of what the component does */
   description: string;
-  /** Atomic design category */
   category: ComponentCategory;
-  /** The React component to render */
   component: React.ComponentType<any>;
-  /** Default props passed to the component */
   defaultProps: Record<string, any>;
-  /** Prop definitions for documentation */
   propTypes: PropDefinition[];
-  /** Default tracks (cursor + animations) for the 5-second preview */
   tracks: AnimationTrack[];
-  /** Fixed at 150 frames (5 seconds @ 30fps) */
   durationInFrames: number;
-  /** Frame rate */
   fps: number;
-  /** Canvas width */
   width: number;
-  /** Canvas height */
   height: number;
 }
 
-/**
- * Component library registry - all available components
- */
 export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "card",
@@ -247,7 +186,6 @@ export const libraryComponents: LibraryComponentEntry[] = [
     component: SecondaryButton,
     defaultProps: {
       label: "Share",
-      icon: "🔗",
       x: 860,
       y: 524,
       backgroundColor: "#2a2a2a",

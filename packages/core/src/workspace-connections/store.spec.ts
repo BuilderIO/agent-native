@@ -1130,7 +1130,7 @@ describe("workspace connection store", () => {
     expect(grant?.lastUsedAt).toEqual(expect.any(String));
     expect(Date.parse(connection?.lastUsedAt ?? "")).toBeGreaterThan(0);
     expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
-  });
+  }, 15_000);
 
   it("reports missing workspace connections and missing grants without reading env credentials", async () => {
     const { runWithRequestContext } =

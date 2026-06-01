@@ -16,6 +16,14 @@ import crypto from "crypto";
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
 
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function prefixLike(value: string): string {
+  return `${escapeLike(value)}%`;
+}
+
 export interface Resource {
   id: string;
   path: string;
@@ -497,8 +505,8 @@ async function selectGrantedWorkspaceResourceRows(input: {
     args.push(input.path);
   }
   if (input.pathPrefix) {
-    conditions.push("wr.path LIKE ?");
-    args.push(`${input.pathPrefix}%`);
+    conditions.push("wr.path LIKE ? ESCAPE '\\'");
+    args.push(prefixLike(input.pathPrefix));
   }
 
   if (orgId) {
@@ -796,7 +804,6 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
   ) {
     return;
   }
-  _personalSeeded.add(owner);
   await ensureTable();
 
   const client = getDbExec();
@@ -878,6 +885,12 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
       now,
     ],
   });
+
+  // Mark seeded only after all seeds succeed. If any await above throws (e.g. a
+  // transient DB error), the owner is NOT cached as seeded, so the next request
+  // retries instead of permanently skipping seeding. Seeds use INSERT OR IGNORE
+  // / ON CONFLICT DO NOTHING, so a concurrent re-run is harmless.
+  _personalSeeded.add(owner);
 }
 
 function rowToResource(row: any): Resource {
@@ -1122,8 +1135,8 @@ export async function resourceList(
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
-      args: [owner, pathPrefix + "%"],
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
+      args: [owner, prefixLike(pathPrefix)],
     });
     const resources = rows.map(rowToMeta);
     if (owner !== WORKSPACE_OWNER) return resources;
@@ -1162,18 +1175,18 @@ export async function resourceListAccessible(
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
             UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
             UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ?${visibilitySql}`,
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
       args: [
         userEmail,
-        pathPrefix + "%",
+        prefixLike(pathPrefix),
         SHARED_OWNER,
-        pathPrefix + "%",
+        prefixLike(pathPrefix),
         WORKSPACE_OWNER,
-        pathPrefix + "%",
+        prefixLike(pathPrefix),
       ],
     });
     const resources = rows.map(rowToMeta);
@@ -1282,8 +1295,8 @@ export async function resourceListAllOwners(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT * FROM resources WHERE path LIKE ?`,
-    args: [pathPrefix + "%"],
+    sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '\\'`,
+    args: [prefixLike(pathPrefix)],
   });
   return rows.map(rowToResource);
 }

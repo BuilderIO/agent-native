@@ -40,8 +40,6 @@ export function MermaidRenderer({
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
 
-  console.log(`shomix - ${definition}`);
-
   useEffect(() => {
     if (!definition.trim()) return;
     initMermaid();

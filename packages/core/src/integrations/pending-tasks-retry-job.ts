@@ -73,10 +73,14 @@ export async function retryStuckPendingTasks(
       sql: `
         SELECT id, status, attempts
           FROM integration_pending_tasks
-         WHERE (status = 'pending' AND created_at <= ?)
+         WHERE (status = 'pending' AND created_at <= ? AND updated_at <= ?)
             OR (status = 'processing' AND updated_at <= ?)
       `,
-      args: [pendingCutoff, processingCutoff],
+      // `updated_at` is initialized to `created_at` on insert, so a genuinely
+      // stuck pending row still matches on the first sweep. The retry path
+      // below touches `updated_at`, which (with this predicate) keeps the row
+      // from being re-selected — and re-firing the processor — on every tick.
+      args: [pendingCutoff, pendingCutoff, processingCutoff],
     });
     stuckRows = rows.map((r) => ({
       id: r.id as string,

@@ -34,6 +34,10 @@ const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 let _resendUnverifiedWarned = false;
 let _sendgridUnverifiedWarned = false;
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 /**
  * Returns true when the deployment is running in production mode and the
  * operator has NOT explicitly opted into accepting unverified webhooks for
@@ -731,9 +735,9 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
           FROM integration_pending_tasks
          WHERE platform = ?
            AND created_at >= ?
-           AND payload LIKE ?
+           AND payload LIKE ? ESCAPE '\\'
       `,
-      args: ["email", cutoff, `%"senderId":"${senderEmail}"%`],
+      args: ["email", cutoff, `%"senderId":"${escapeLike(senderEmail)}"%`],
     });
     const count = Number(
       (rows[0] as Record<string, unknown> | undefined)?.c ?? 0,

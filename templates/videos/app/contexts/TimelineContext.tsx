@@ -10,21 +10,11 @@ import { useTimelineState } from "@/state";
 import type { AnimationTrack } from "@/types";
 import { useComposition } from "./CompositionContext";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
-
-// ─── Persistence helpers ──────────────────────────────────────────────────────
+import { debug } from "@/utils/debug";
 
 const TRACKS_KEY = (id: string) => `videos-tracks:${id}`;
 const VERSION_KEY = (id: string) => `videos-tracks-version:${id}`;
 
-/**
- * Merge stored animatedProps onto the registry defaults.
- * - Registry props always win on metadata (codeSnippet, programmatic, unit, isCustom)
- * - User's from/to values are preserved for matching properties
- * - If user has NO stored data, use all registry defaults
- * - If user HAS stored data, only include registry props that exist in stored (respects deletions)
- * - New registry props are only added if stored data is empty (first load)
- * - Custom props the user added (not in registry) are kept at the end
- */
 function mergeAnimatedProps(
   stored: AnimationTrack["animatedProps"],
   defaults: AnimationTrack["animatedProps"],
@@ -35,22 +25,19 @@ function mergeAnimatedProps(
   // First load (no stored data) → use all registry defaults
   if (sto.length === 0) return def;
 
-  // User has data → only merge props that exist in BOTH stored and defaults
-  // This respects user deletions while keeping metadata in sync
   const merged = sto.map((storedProp) => {
     const defProp = def.find((d) => d.property === storedProp.property);
     if (defProp) {
-      // Registry prop: keep user's from/to/keyframes/easing, but pull in registry metadata
-      // If stored keyframes is empty/undefined, use registry keyframes (allows adding keyframes via code)
       const useRegistryKeyframes =
         (!storedProp.keyframes || storedProp.keyframes.length === 0) &&
         defProp.keyframes &&
         defProp.keyframes.length > 0;
 
       if (useRegistryKeyframes) {
-        console.log(
-          `[Videos] 🔄 Using registry keyframes for "${storedProp.property}" (${defProp.keyframes!.length} keyframes from code)`,
-        );
+        debug.verbose("Using registry keyframes", {
+          property: storedProp.property,
+          keyframes: defProp.keyframes!.length,
+        });
       }
 
       return {
@@ -63,34 +50,22 @@ function mergeAnimatedProps(
         easing: storedProp.easing,
       };
     }
-    // Custom prop (not in registry): keep as-is
     return storedProp;
   });
 
-  // Add missing properties from registry that aren't in stored data
-  // This ensures new required properties (like isClicking) get added to existing tracks
   const storedPropNames = new Set(sto.map((p) => p.property));
   const missingProps = def.filter((p) => !storedPropNames.has(p.property));
 
   if (missingProps.length > 0) {
-    console.log(
-      `[Videos] Added ${missingProps.length} missing properties:`,
-      missingProps.map((p) => p.property),
-    );
+    debug.verbose("Added missing animated props", {
+      count: missingProps.length,
+      properties: missingProps.map((p) => p.property),
+    });
   }
 
   return [...merged, ...missingProps];
 }
 
-/**
- * Load saved tracks from localStorage, merged on top of the code-defined
- * defaults so that new/removed tracks always stay in sync with the registry.
- * animatedProps are merged deeply so new registry props and metadata always appear.
- *
- * VERSION CONTROL:
- * If registryVersion > storedVersion, localStorage is automatically cleared and
- * fresh registry defaults are returned. This prevents stale data issues.
- */
 function loadTracks(
   compositionId: string,
   defaults: AnimationTrack[],
@@ -98,17 +73,15 @@ function loadTracks(
   durationInFrames?: number,
 ): AnimationTrack[] {
   try {
-    // Check version first
     const storedVersionRaw = localStorage.getItem(VERSION_KEY(compositionId));
     const storedVersion = storedVersionRaw ? parseInt(storedVersionRaw, 10) : 0;
 
-    // If registry is newer, clear ALL localStorage and use fresh defaults
     if (registryVersion > storedVersion) {
-      console.log(
-        `[Videos] 🔄 Registry version ${registryVersion} > localStorage version ${storedVersion}\n` +
-          `Auto-clearing ALL stale data for "${compositionId}" (tracks, props, settings).`,
-      );
-      // Clear everything to ensure complete sync
+      debug.verbose("Clearing stale composition data", {
+        compositionId,
+        registryVersion,
+        storedVersion,
+      });
       localStorage.removeItem(TRACKS_KEY(compositionId));
       localStorage.removeItem(`videos-props:${compositionId}`);
       localStorage.removeItem(`videos-comp-settings:${compositionId}`);
@@ -118,13 +91,11 @@ function loadTracks(
 
     const raw = localStorage.getItem(TRACKS_KEY(compositionId));
     if (!raw) {
-      // First time loading - save version
       localStorage.setItem(VERSION_KEY(compositionId), String(registryVersion));
       return applyCameraTrackCorrection(defaults, durationInFrames);
     }
     const stored = JSON.parse(raw) as AnimationTrack[];
 
-    // Deduplicate stored tracks by id (keep first occurrence)
     const seenIds = new Set<string>();
     const deduped = stored.filter((track) => {
       if (seenIds.has(track.id)) return false;
@@ -132,35 +103,28 @@ function loadTracks(
       return true;
     });
 
-    // If we found duplicates, save the cleaned version back to localStorage
     if (deduped.length !== stored.length) {
-      console.log(
-        `[Videos] Cleaned ${stored.length - deduped.length} duplicate track(s) from localStorage`,
-      );
+      debug.verbose("Cleaned duplicate tracks from localStorage", {
+        removed: stored.length - deduped.length,
+      });
       localStorage.setItem(TRACKS_KEY(compositionId), JSON.stringify(deduped));
     }
 
     const merged = defaults.map((def) => {
       const sto = deduped.find((s) => s.id === def.id);
       if (!sto) return def;
-      // Keep user's timing/easing/label edits, but deep-merge animatedProps
       return {
         ...sto,
         animatedProps: mergeAnimatedProps(sto.animatedProps, def.animatedProps),
       };
     });
 
-    // Apply camera track correction here (before returning) to avoid triggering save
     return applyCameraTrackCorrection(merged, durationInFrames);
   } catch {
     return applyCameraTrackCorrection(defaults, durationInFrames);
   }
 }
 
-/**
- * Ensures camera track always spans the full composition duration.
- * Done during load to avoid triggering the save effect.
- */
 function applyCameraTrackCorrection(
   tracks: AnimationTrack[],
   durationInFrames?: number,
@@ -190,8 +154,6 @@ function saveTracks(
   } catch {}
 }
 
-// ─── Context type ─────────────────────────────────────────────────────────────
-
 type TimelineContextType = {
   tracks: AnimationTrack[];
   selectedTrackId: string | null;
@@ -203,8 +165,6 @@ type TimelineContextType = {
 };
 
 const TimelineContext = createContext<TimelineContextType | null>(null);
-
-// ─── Provider ─────────────────────────────────────────────────────────────────
 
 type TimelineProviderProps = {
   children: ReactNode;
@@ -222,15 +182,11 @@ export function TimelineProvider({
   collabData,
   collabSynced,
 }: TimelineProviderProps) {
-  // Safety check for HMR issues - if context is missing, show helpful error
   let compositionContext;
   try {
     compositionContext = useComposition();
   } catch (error) {
-    console.error(
-      "[Videos] ⚠️ HMR context error detected. Please refresh the page.",
-    );
-    // Return minimal provider to prevent cascade errors
+    debug.error("HMR context error detected. Please refresh the page.", error);
     return (
       <TimelineContext.Provider value={null}>
         {children}
@@ -243,7 +199,6 @@ export function TimelineProvider({
   const timeline = useTimelineState([]);
   const prevFpsRef = useRef<Record<string, number>>({});
 
-  // Get the default tracks and current fps from composition
   const defaultTracks = selected?.tracks ?? [];
   const registryVersion = selected?.version ?? 1;
   const durationInFrames =
@@ -252,7 +207,6 @@ export function TimelineProvider({
     90;
   const fps = effectiveComposition?.fps ?? compSettings?.fps ?? 30;
 
-  // When composition changes: load saved tracks (merged with code defaults)
   useEffect(() => {
     if (!compositionId) {
       timeline.setTracks([]);
@@ -265,7 +219,6 @@ export function TimelineProvider({
       durationInFrames,
     );
 
-    // 🔍 Validation: Warn if keyframes in registry are being ignored by localStorage
     const hasRegistryKeyframes = defaultTracks.some((t) =>
       t.animatedProps?.some((p) => p.keyframes && p.keyframes.length > 0),
     );
@@ -274,18 +227,15 @@ export function TimelineProvider({
     );
 
     if (hasRegistryKeyframes && !hasMergedKeyframes) {
-      console.warn(
-        `[Videos] ⚠️ Registry has keyframes but they're not showing in the timeline!\n` +
-          `Composition: ${compositionId}\n` +
-          `Fix: Run in console: localStorage.removeItem('videos-tracks:${compositionId}'); location.reload();`,
-      );
+      debug.warn("Registry keyframes are missing from merged tracks", {
+        compositionId,
+      });
     }
 
     timeline.setTracks(merged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositionId]);
 
-  // Save tracks to localStorage when changed (skip first load to avoid immediate save)
   const prevTracksRef = useRef<AnimationTrack[]>([]);
   const tracksInitialLoadRef = useRef(true);
 
@@ -293,39 +243,36 @@ export function TimelineProvider({
     if (!compositionId) return;
     if (timeline.tracks === prevTracksRef.current) return;
 
-    // Skip the very first load after composition changes
     if (tracksInitialLoadRef.current) {
       tracksInitialLoadRef.current = false;
       prevTracksRef.current = timeline.tracks;
       return;
     }
 
-    // Save to localStorage (user made a change)
-    console.log("[Videos] 💾 Saving tracks to localStorage (user edit)");
+    debug.verbose("Saving tracks to localStorage", { compositionId });
     saveTracks(compositionId, timeline.tracks, registryVersion);
     prevTracksRef.current = timeline.tracks;
   }, [compositionId, timeline.tracks, registryVersion]);
 
-  // Reset initial load flag when composition changes
   useEffect(() => {
     tracksInitialLoadRef.current = true;
   }, [compositionId]);
 
-  // Camera track duration is corrected inside loadTracks on initial load
-  // But we still need to update it when user changes duration in settings
   const prevDurationRef = useRef(durationInFrames);
 
   useEffect(() => {
     if (!compositionId) return;
 
-    // Only update if duration actually changed (user modified it)
     if (
       prevDurationRef.current !== durationInFrames &&
       prevDurationRef.current !== undefined
     ) {
       const cameraTrack = timeline.tracks.find((t) => t.id === "camera");
       if (cameraTrack) {
-        console.log("[Videos] 📹 User changed duration, updating camera track");
+        debug.verbose("Updating camera track duration", {
+          compositionId,
+          durationInFrames,
+        });
         timeline.updateTrack("camera", {
           startFrame: 0,
           endFrame: durationInFrames,
@@ -336,7 +283,6 @@ export function TimelineProvider({
     prevDurationRef.current = durationInFrames;
   }, [compositionId, durationInFrames, timeline]);
 
-  // Sync changes from other tabs via storage event
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (!compositionId) return;
@@ -350,7 +296,7 @@ export function TimelineProvider({
           registryVersion,
         );
         timeline.setTracks(newTracks);
-        console.log("[Videos] Synced tracks from another tab");
+        debug.verbose("Synced tracks from another tab", { compositionId });
       }
     };
 
@@ -358,22 +304,18 @@ export function TimelineProvider({
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [compositionId, defaultTracks, registryVersion, timeline]);
 
-  // Scale all track timings when FPS changes
   useEffect(() => {
     if (!compositionId) return;
 
     const previousFps = prevFpsRef.current[compositionId];
 
-    // Only scale if FPS actually changed and we have a previous value
     if (previousFps && fps !== previousFps) {
       const fpsRatio = fps / previousFps;
 
-      // Scale all tracks (including camera)
       const scaledTracks = timeline.tracks.map((track) => {
         const scaledStart = Math.round(track.startFrame * fpsRatio);
         const scaledEnd = Math.round(track.endFrame * fpsRatio);
 
-        // Scale keyframes if they exist
         const scaledProps = track.animatedProps?.map((prop) => {
           if (!prop.keyframes || prop.keyframes.length === 0) return prop;
 
@@ -396,24 +338,20 @@ export function TimelineProvider({
       timeline.setTracks(scaledTracks);
     }
 
-    // Update previous FPS for next comparison
     prevFpsRef.current[compositionId] = fps;
   }, [compositionId, fps, timeline]);
 
-  // ─── Collab: push local changes to the collab layer ─────────────────────────
   const collabPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!compositionId || !onCollabPush) return;
     if (timeline.tracks === prevTracksRef.current) return;
 
-    // Skip the very first load (collab push happens after user edits)
     if (tracksInitialLoadRef.current) return;
 
-    // Debounce collab pushes to avoid flooding the server
     if (collabPushTimerRef.current) clearTimeout(collabPushTimerRef.current);
     collabPushTimerRef.current = setTimeout(() => {
-      console.log("[Videos] Pushing tracks to collab layer");
+      debug.verbose("Pushing tracks to collab layer", { compositionId });
       onCollabPush({ tracks: timeline.tracks });
     }, 500);
 
@@ -422,23 +360,20 @@ export function TimelineProvider({
     };
   }, [compositionId, timeline.tracks, onCollabPush]);
 
-  // ─── Collab: apply remote changes from the collab layer ─────────────────────
   const prevCollabDataRef = useRef<CompositionCollabData | null>(null);
 
   useEffect(() => {
     if (!compositionId || !collabSynced || !collabData) return;
-    // Only apply if collabData actually changed (not from our own push)
     if (collabData === prevCollabDataRef.current) return;
     prevCollabDataRef.current = collabData;
 
-    // If remote data has tracks, apply them
     if (collabData.tracks && Array.isArray(collabData.tracks)) {
-      // Only apply if tracks are materially different (avoid loops)
       const remoteJson = JSON.stringify(collabData.tracks);
       const localJson = JSON.stringify(timeline.tracks);
       if (remoteJson !== localJson) {
-        console.log("[Videos] Applying remote tracks from collab layer");
-        // Merge with defaults to get proper metadata
+        debug.verbose("Applying remote tracks from collab layer", {
+          compositionId,
+        });
         const merged = loadTracks(
           compositionId,
           collabData.tracks as AnimationTrack[],
@@ -446,7 +381,6 @@ export function TimelineProvider({
           durationInFrames,
         );
         timeline.setTracks(merged);
-        // Also update localStorage so it stays in sync
         saveTracks(compositionId, merged, registryVersion);
       }
     }
@@ -478,8 +412,6 @@ export function TimelineProvider({
     </TimelineContext.Provider>
   );
 }
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useTimeline() {
   const context = useContext(TimelineContext);

@@ -2150,8 +2150,8 @@ export function SettingsPanel({
     trackingSource: "settings_panel_builder_card",
   });
 
-  // Detect whether the app registered any secrets — controls whether the
-  // "API Keys & Connections" section renders at all.
+  // When opened via a `#secrets:<KEY>` hash, focus that specific secret input
+  // inside the "API Keys & Connections" section.
   const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
     undefined,
   );

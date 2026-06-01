@@ -147,8 +147,6 @@ interface PanelEditorDialogProps {
   existingPanelTitles: string[];
 }
 
-interface PanelEditorContentProps extends PanelEditorDialogProps {}
-
 function EditorFooter({
   children,
   className = "",
@@ -172,7 +170,7 @@ function PanelEditorContent({
   onSave,
   dashboardId,
   existingPanelTitles,
-}: PanelEditorContentProps) {
+}: PanelEditorDialogProps) {
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

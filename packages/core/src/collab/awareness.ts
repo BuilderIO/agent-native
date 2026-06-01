@@ -68,7 +68,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     state?: string;
   };
 
-  if (!clientId || !state) {
+  if (clientId == null || !state) {
+    // `!clientId` would wrongly reject clientId === 0, which is a valid
+    // (if rare) Yjs client id. Only reject missing/null ids here.
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
   }

@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -27,13 +30,24 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) {
+      return { runId: null as string | null, linkedAt: null };
+    }
+    const orgId = getRequestOrgId();
     const db = getDb();
+    const scopeConditions = [
+      eq(schema.workbenchRunPrLinks.ownerEmail, userEmail),
+    ];
+    if (orgId) {
+      scopeConditions.push(eq(schema.workbenchRunPrLinks.orgId, orgId));
+    }
     const rows = await db
       .select()
       .from(schema.workbenchRunPrLinks)
       .where(
         and(
-          accessFilter(schema.workbenchRunPrLinks, schema.workbenchRunPrLinks),
+          ...scopeConditions,
           eq(schema.workbenchRunPrLinks.prOwner, args.owner),
           eq(schema.workbenchRunPrLinks.prRepo, args.repo),
           eq(schema.workbenchRunPrLinks.prNumber, args.number),

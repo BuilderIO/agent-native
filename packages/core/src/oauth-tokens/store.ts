@@ -39,7 +39,11 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

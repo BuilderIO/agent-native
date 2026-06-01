@@ -473,7 +473,11 @@ function zodDefToJsonSchema(def: any): any {
           const desc = fieldSchema?.description;
           if (desc && !prop.description) prop.description = desc;
           properties[key] = prop;
-          if (fieldDef.type !== "optional" && fieldDef.type !== "default") {
+          if (
+            fieldDef.type !== "optional" &&
+            fieldDef.type !== "default" &&
+            fieldDef.type !== "nullable"
+          ) {
             required.push(key);
           }
         }
@@ -548,7 +552,10 @@ function zodDefToJsonSchema(def: any): any {
 
   if (type === "nullable") {
     if (def.innerType?._zod?.def) {
-      return zodDefToJsonSchema(def.innerType._zod.def);
+      const inner = zodDefToJsonSchema(def.innerType._zod.def);
+      // Surface null as a valid value so the model knows it may pass null
+      // (and doesn't treat the field as a non-nullable required string).
+      return { anyOf: [inner, { type: "null" }] };
     }
   }
 
@@ -559,9 +566,23 @@ function zodDefToJsonSchema(def: any): any {
         (o: any) => o?._zod?.def?.type === "literal",
       );
       if (allLiterals) {
+        const values = def.options.map((o: any) => o._zod.def.value);
+        const jsonTypeOf = (v: any) =>
+          typeof v === "number"
+            ? "number"
+            : typeof v === "boolean"
+              ? "boolean"
+              : "string";
+        const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
+        if (uniqueTypes.length === 1) {
+          // Homogeneous literal union (e.g. all numbers) — derive the JSON
+          // type instead of hardcoding "string", which would contradict the
+          // enum values and make the model coerce/round-trip them wrongly.
+          return { type: uniqueTypes[0], enum: values };
+        }
+        // Mixed literal types: emit anyOf so each branch stays self-consistent.
         return {
-          type: "string",
-          enum: def.options.map((o: any) => o._zod.def.value),
+          anyOf: values.map((v: any) => ({ type: jsonTypeOf(v), enum: [v] })),
         };
       }
       return {

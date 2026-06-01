@@ -1,10 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
-import { and } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getGitHubConnection } from "../server/lib/github-connection.js";
@@ -98,10 +97,19 @@ export default defineAction({
     }
 
     const db = getDb();
+    const repoScope = [eq(schema.workbenchRepos.ownerEmail, userEmail)];
+    if (orgId) {
+      repoScope.push(
+        and(
+          eq(schema.workbenchRepos.visibility, "org"),
+          eq(schema.workbenchRepos.orgId, orgId),
+        )!,
+      );
+    }
     const repos = await db
       .select()
       .from(schema.workbenchRepos)
-      .where(and(accessFilter(schema.workbenchRepos, schema.workbenchRepos)));
+      .where(or(...repoScope));
 
     if (repos.length === 0) {
       return {

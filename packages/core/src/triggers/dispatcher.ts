@@ -6,7 +6,7 @@
  * loop) when matching events fire.
  */
 
-import { subscribe } from "../event-bus/index.js";
+import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import { resourceListAllOwners, resourcePut } from "../resources/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -154,8 +154,18 @@ export interface TriggerDispatcherDeps {
   appId?: string;
 }
 
-// Track active subscriptions to avoid double-subscribing
-const _subscribedEvents = new Set<string>();
+// Track active subscriptions (eventName -> subscription id) to avoid
+// double-subscribing AND so subscriptions for events that no longer have any
+// enabled trigger can be torn down — otherwise deleted/disabled triggers leave
+// phantom bus listeners that fire handleEvent forever.
+const _eventSubscriptions = new Map<string, string>();
+// In-flight agentic dispatches keyed by `${owner}:${path}`. Guards against the
+// check-then-write TOCTOU window in handleEvent: two near-simultaneous fires of
+// the same event both pass the `lastStatus !== "running"` check (which has
+// several awaits before the DB is marked running) and would otherwise launch
+// two concurrent agent runs for one trigger. Sufficient for single-process
+// deployments; multi-instance would need a conditional DB update.
+const _dispatchingTriggers = new Set<string>();
 let _deps: TriggerDispatcherDeps | null = null;
 
 /**
@@ -186,12 +196,20 @@ export async function refreshEventSubscriptions(): Promise<void> {
       }
     }
 
+    // Tear down subscriptions whose event no longer has any enabled trigger.
+    for (const [eventName, subId] of [..._eventSubscriptions]) {
+      if (!eventNames.has(eventName)) {
+        unsubscribe(subId);
+        _eventSubscriptions.delete(eventName);
+      }
+    }
+
     for (const eventName of eventNames) {
-      if (!_subscribedEvents.has(eventName)) {
-        subscribe(eventName, (payload, eventMeta) =>
+      if (!_eventSubscriptions.has(eventName)) {
+        const subId = subscribe(eventName, (payload, eventMeta) =>
           handleEvent(eventName, payload, eventMeta),
         );
-        _subscribedEvents.add(eventName);
+        _eventSubscriptions.set(eventName, subId);
       }
     }
   } catch (err) {
@@ -248,9 +266,25 @@ async function handleEvent(
       const matches = await evaluateCondition(meta.condition, payload, apiKey);
       if (!matches) continue;
 
-      // Dispatch
+      // Dispatch. Guard against concurrent duplicate dispatch of the same
+      // trigger (TOCTOU on lastStatus) with an in-process lock keyed on the
+      // trigger's identity.
+      const dispatchKey = `${resource.owner}:${resource.path}`;
+      if (_dispatchingTriggers.has(dispatchKey)) continue;
       if (meta.mode === "agentic") {
-        await dispatchAgentic(resource, meta, body, payload, eventMeta, apiKey);
+        _dispatchingTriggers.add(dispatchKey);
+        try {
+          await dispatchAgentic(
+            resource,
+            meta,
+            body,
+            payload,
+            eventMeta,
+            apiKey,
+          );
+        } finally {
+          _dispatchingTriggers.delete(dispatchKey);
+        }
       } else {
         console.warn(
           `[triggers] Deterministic mode not yet implemented for "${resource.path}" — skipping`,

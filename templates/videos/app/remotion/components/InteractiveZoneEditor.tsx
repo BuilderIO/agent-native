@@ -1,19 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * INTERACTIVE ZONE EDITOR
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Visual editor for adjusting hover detection zones via drag-and-drop.
- *
- * Features:
- * - Click and drag zones to reposition
- * - Drag corners/edges to resize
- * - Real-time coordinate display
- * - Copy zone values for code
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 
 export interface Zone {
@@ -117,21 +101,17 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
       newZone.x = originalZone.x + deltaX;
       newZone.y = originalZone.y + deltaY;
     } else if (dragMode === "resize-se") {
-      // Southeast corner - increase width/height
       newZone.width = Math.max(20, originalZone.width + deltaX);
       newZone.height = Math.max(20, originalZone.height + deltaY);
     } else if (dragMode === "resize-sw") {
-      // Southwest corner - move x, increase width (opposite), increase height
       newZone.x = originalZone.x + deltaX;
       newZone.width = Math.max(20, originalZone.width - deltaX);
       newZone.height = Math.max(20, originalZone.height + deltaY);
     } else if (dragMode === "resize-ne") {
-      // Northeast corner - increase width, move y, increase height (opposite)
       newZone.width = Math.max(20, originalZone.width + deltaX);
       newZone.y = originalZone.y + deltaY;
       newZone.height = Math.max(20, originalZone.height - deltaY);
     } else if (dragMode === "resize-nw") {
-      // Northwest corner - move both x/y, decrease both width/height
       newZone.x = originalZone.x + deltaX;
       newZone.y = originalZone.y + deltaY;
       newZone.width = Math.max(20, originalZone.width - deltaX);
@@ -142,19 +122,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (selectedZone && originalZone) {
-      // Log final zone values for easy copying
-      const zoneConfig = zones.find((z) => z.label === selectedZone);
-      if (zoneConfig) {
-        console.log(`${selectedZone} zone:`, {
-          x: Math.round(zoneConfig.zone.x),
-          y: Math.round(zoneConfig.zone.y),
-          width: Math.round(zoneConfig.zone.width),
-          height: Math.round(zoneConfig.zone.height),
-        });
-      }
-    }
-
     setDragMode(null);
     setDragStart(null);
     setOriginalZone(null);
@@ -191,7 +158,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
             onMouseEnter={() => setHoveredZone(label)}
             onMouseLeave={() => setHoveredZone(null)}
           >
-            {/* Main zone area - drag to move */}
             <div
               onMouseDown={(e) => handleMouseDown(e, label, "move")}
               style={{
@@ -235,10 +201,8 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
               </div>
             </div>
 
-            {/* Resize handles */}
             {(isSelected || isHovered) && (
               <>
-                {/* Southeast corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-se")}
                   style={{
@@ -254,7 +218,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                   }}
                 />
 
-                {/* Southwest corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-sw")}
                   style={{
@@ -270,7 +233,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                   }}
                 />
 
-                {/* Northeast corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-ne")}
                   style={{
@@ -286,7 +248,6 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                   }}
                 />
 
-                {/* Northwest corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-nw")}
                   style={{

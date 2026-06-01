@@ -3,8 +3,7 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { gmailGetMessage } from "../server/lib/google-api.js";
-import { isConnected } from "../server/lib/google-auth.js";
-import { gmailToEmailMessage } from "../server/lib/google-auth.js";
+import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
 import { z } from "zod";
 
 export default defineAction({

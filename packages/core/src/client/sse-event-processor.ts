@@ -320,10 +320,14 @@ export function processEvent(
   }
 
   if (ev.type === "tool_done") {
+    // Normalize identically to tool_start (which stores `ev.tool ?? "unknown"`)
+    // so a tool_done frame with an undefined tool name still matches its
+    // pending tool-call entry instead of leaving it forever unresolved.
+    const doneTool = ev.tool ?? "unknown";
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
-          detail: { tool: ev.tool ?? "unknown", result: ev.result },
+          detail: { tool: doneTool, result: ev.result },
         }),
       );
     }
@@ -331,7 +335,7 @@ export function processEvent(
       const part = content[i];
       if (
         part.type === "tool-call" &&
-        part.toolName === ev.tool &&
+        part.toolName === doneTool &&
         part.result === undefined
       ) {
         part.result = ev.result ?? "";
@@ -716,6 +720,11 @@ export async function readSSEStreamRaw(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  // Tracks whether the most recent content state was already pushed via
+  // onUpdate inside the loop, so the post-loop flush below doesn't emit the
+  // identical content a second time when the stream closes without a terminal
+  // event.
+  let emittedLatestContent = false;
 
   try {
     while (true) {
@@ -778,6 +787,7 @@ export async function readSSEStreamRaw(
 
       if (updated) {
         onUpdate([...content]);
+        emittedLatestContent = true;
       }
       if (
         !sawDataEvent &&
@@ -793,6 +803,6 @@ export async function readSSEStreamRaw(
       // See readSSEStream: cancellation may race lock release in browsers.
     }
   }
-  if (content.length > 0) onUpdate([...content]);
+  if (content.length > 0 && !emittedLatestContent) onUpdate([...content]);
   throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

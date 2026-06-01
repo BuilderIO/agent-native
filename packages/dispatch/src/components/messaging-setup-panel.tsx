@@ -542,7 +542,7 @@ export function MessagingSetupPanel() {
                             <StatusPill tone="success" label="Saved" />
                           ) : (
                             <StatusPill
-                              tone={envKey.required ? "neutral" : "neutral"}
+                              tone="neutral"
                               label={envKey.required ? "Missing" : "Not set"}
                             />
                           )}

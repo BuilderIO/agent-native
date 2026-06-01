@@ -39,6 +39,9 @@ const EASING_OPTIONS = EASING_OPTIONS_LIB;
 
 const EASING_COLORS: Record<EasingKey, string> = {
   linear: "#94a3b8",
+  "ease-in": "#3b82f6",
+  "ease-out": "#3b82f6",
+  "ease-in-out": "#2563eb",
   spring: "#fbbf24",
   // Power eases - blue tones
   "power1.in": "#60a5fa",

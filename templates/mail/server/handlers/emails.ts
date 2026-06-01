@@ -1985,10 +1985,6 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
 }
 
 /**
- * Convert a compose body to HTML, properly formatting reply/forward quotes
- * with Gmail-compatible blockquote structure so email clients can clip them.
- */
-/**
  * Build a tracking context for an outgoing message. Returns undefined when
  * both open- and click-tracking are disabled so the caller skips injection
  * entirely.

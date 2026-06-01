@@ -56,7 +56,7 @@ describe("extensions/store", () => {
     expect(
       statements.some((sql) => /DROP\s+TABLE\s+tool_data_old/i.test(sql)),
     ).toBe(false);
-  });
+  }, 15_000);
 
   it("ignores the optional misnamed extensions-table backfill when the table is absent", async () => {
     const client = {

@@ -149,7 +149,7 @@ export async function aggregateBusy(input: {
         end: input.rangeEnd,
       });
       busy.push(...result);
-    } catch (err) {
+    } catch {
       // Silently degrade — booking UI shows "couldn't verify availability" banner
       // Consumer logs via their own error handler
     }

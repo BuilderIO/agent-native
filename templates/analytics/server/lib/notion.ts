@@ -206,7 +206,6 @@ export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
   return entries;
 }
 
-// Get database schema (property names and types)
 // --- Page block fetching ---
 
 export interface RichText {

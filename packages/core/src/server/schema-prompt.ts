@@ -257,7 +257,7 @@ export async function loadSchemaPromptBlock(opts: {
     const res = await getSchema();
     tables = res.tables;
     dialect = res.dialect;
-  } catch (err) {
+  } catch {
     // DB not ready, or introspection blew up — don't take the chat down.
     return "";
   }

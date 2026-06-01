@@ -15,7 +15,7 @@ import {
   parseSpaceIds,
   stringifySpaceIds,
   parseJson,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
@@ -39,14 +39,9 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
 
     const rows = await db
       .select()

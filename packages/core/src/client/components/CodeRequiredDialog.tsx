@@ -401,13 +401,6 @@ const s: Record<string, React.CSSProperties> = {
     color: "#6b7280",
     lineHeight: "1.5",
   },
-  code: {
-    background: "#f3f4f6",
-    padding: "1px 5px",
-    borderRadius: "4px",
-    fontSize: "11px",
-    fontFamily: "monospace",
-  },
   badge: {
     position: "absolute",
     top: "10px",

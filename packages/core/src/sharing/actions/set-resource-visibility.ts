@@ -39,7 +39,16 @@ export default defineAction({
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
     const currentOrgId = getRequestOrgId();
-    if (args.visibility === "org" && currentOrgId && !access.resource?.orgId) {
+    // Only the resource owner may bind an org to a previously unscoped resource.
+    // If a non-owner admin did this, the resource would adopt the admin's org
+    // and ownerMatchesActiveScope would then lock the real owner out of their
+    // own resource. Non-owner admins can still flip visibility once orgId is set.
+    if (
+      args.visibility === "org" &&
+      currentOrgId &&
+      !access.resource?.orgId &&
+      access.role === "owner"
+    ) {
       update.orgId = currentOrgId;
     }
     await db

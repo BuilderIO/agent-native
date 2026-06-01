@@ -99,7 +99,6 @@ export function SnoozeModal({
   const [nlInput, setNlInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [parsedDate, setParsedDate] = useState<Date | null>(null);
-  const [parsedLabel, setParsedLabel] = useState<string | null>(null);
   const [parsedFormatted, setParsedFormatted] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,7 +113,6 @@ export function SnoozeModal({
       setNlInput("");
       setSelectedIndex(0);
       setParsedDate(null);
-      setParsedLabel(null);
       setParsedFormatted(null);
       setTimeout(() => inputRef.current?.focus(), 30);
     }
@@ -125,7 +123,6 @@ export function SnoozeModal({
     setSelectedIndex(0);
     if (!nlInput.trim()) {
       setParsedDate(null);
-      setParsedLabel(null);
       setParsedFormatted(null);
       return;
     }
@@ -137,12 +134,10 @@ export function SnoozeModal({
         .catch(() => null);
       if (result?.timestamp && result.formatted) {
         setParsedDate(new Date(result.timestamp));
-        setParsedLabel(result.formatted);
         setParsedFormatted(result.formatted);
         setSelectedIndex(0);
       } else {
         setParsedDate(null);
-        setParsedLabel(null);
         setParsedFormatted(null);
       }
     }, 180);

@@ -257,13 +257,7 @@ Options:
           }
         }
       });
-      const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-      printTable(
-        rows.length > 0 ? rows : keys.length > 0 ? rows : [],
-        pgSqlText,
-        parsed.format,
-      );
+      printTable(rows, pgSqlText, parsed.format);
     } finally {
       await pgSql.end();
     }

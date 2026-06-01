@@ -49,7 +49,11 @@ export async function ensureSlotTables(): Promise<void> {
       );
       await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

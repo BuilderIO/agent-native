@@ -92,7 +92,7 @@ export default function IndexPage() {
       fat: acc.fat + (meal.fat || 0),
     }),
     { calories: 0, protein: 0, carbs: 0, fat: 0 },
-  ) || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  );
 
   const exerciseTotals = exercises.reduce(
     (acc, exercise) => ({
