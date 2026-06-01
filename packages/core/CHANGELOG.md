@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.9
+
+### Patch Changes
+
+- 221efac: Fix skill installation edge cases and Notion sync refresh behavior.
+
 ## 0.32.8
 
 ### Patch Changes
