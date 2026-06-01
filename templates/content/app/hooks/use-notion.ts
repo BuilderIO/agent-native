@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appApiPath } from "@agent-native/core/client";
 import type {
   CreateNotionPageRequest,
+  Document,
   DocumentSyncStatus,
   LinkNotionPageRequest,
   NotionConnectionStatus,
@@ -40,7 +42,9 @@ export function useDocumentSyncStatus(
   documentId: string | null,
   options?: { autoSync?: boolean },
 ) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const lastObservedSyncedAtRef = useRef<string | null>(null);
+  const query = useQuery({
     queryKey: ["document-sync", documentId],
     queryFn: () =>
       fetchJson<DocumentSyncStatus>(
@@ -57,6 +61,38 @@ export function useDocumentSyncStatus(
     // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
     refetchInterval: options?.autoSync ? 2_000 : 30_000,
   });
+
+  useEffect(() => {
+    if (!documentId || !query.data?.lastSyncedAt) return;
+    if (lastObservedSyncedAtRef.current === query.data.lastSyncedAt) return;
+
+    lastObservedSyncedAtRef.current = query.data.lastSyncedAt;
+
+    const cachedDocument = queryClient.getQueryData<Document>([
+      "action",
+      "get-document",
+      { id: documentId },
+    ]);
+    const syncedLocalUpdatedAt = query.data.lastPushedLocalUpdatedAt;
+
+    if (
+      cachedDocument?.updatedAt &&
+      syncedLocalUpdatedAt &&
+      syncedLocalUpdatedAt > cachedDocument.updatedAt
+    ) {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-document", { id: documentId }],
+      });
+      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+    }
+  }, [
+    documentId,
+    query.data?.lastPushedLocalUpdatedAt,
+    query.data?.lastSyncedAt,
+    queryClient,
+  ]);
+
+  return query;
 }
 
 export function useDisconnectNotion() {

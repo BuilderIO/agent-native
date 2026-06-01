@@ -190,6 +190,10 @@ export function normalizeUrl(raw: string): string {
 export function resolveClients(client: string): ClientId[] {
   const c = (client ?? "all").toLowerCase();
   if (c === "all" || c === "") return [...CLIENTS];
+  if (c.includes(",")) {
+    const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
+    if (clients.length > 0) return clients;
+  }
   if ((CLIENTS as string[]).includes(c)) return [c as ClientId];
   throw new Error(
     `Unknown --client "${client}". Use: all, ${CLIENTS.join(", ")}`,
