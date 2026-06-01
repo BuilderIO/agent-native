@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/migrate",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "Migration Workbench engine for moving existing apps to agent-native with verifiable, resumable migration runs.",
   "license": "MIT",
