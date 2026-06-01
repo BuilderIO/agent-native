@@ -78,6 +78,12 @@ export function EmbeddedExtension({
     role: "viewer",
     isAuthor: false,
   });
+  // (audit H4) Latch the render binding once per iframe instance. The shell
+  // posts the server-resolved binding BEFORE user content runs; any later
+  // agent-native-extension-binding message is attacker-controllable (it
+  // originates inside the same sandboxed realm as user code) and must be
+  // ignored so a viewer cannot self-escalate to owner.
+  const bindingLatchedRef = useRef(false);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -114,6 +120,14 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
+  // Reset role + binding latch to deny-by-default whenever the iframe is
+  // recreated (its key changes). The new render's first binding announcement
+  // re-establishes the role.
+  useEffect(() => {
+    bridgeContextRef.current = { role: "viewer", isAuthor: false };
+    bindingLatchedRef.current = false;
+  }, [extensionId, extension?.updatedAt]);
+
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -140,6 +154,11 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        // Only the FIRST announcement (sent by the shell before user content
+        // runs) is trusted. Ignore re-announcements — a malicious extension
+        // body could otherwise postMessage a forged owner binding to escalate.
+        if (bindingLatchedRef.current) return;
+        bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
         const role: ExtensionBridgeRole =
           binding.role === "owner" ||

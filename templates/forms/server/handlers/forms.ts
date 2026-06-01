@@ -1,7 +1,6 @@
 import {
   defineEventHandler,
   getRequestURL,
-  getRouterParam,
   setResponseStatus,
   type H3Event,
 } from "h3";

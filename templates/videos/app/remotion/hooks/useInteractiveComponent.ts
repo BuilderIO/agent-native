@@ -109,7 +109,7 @@
  * @see BlankComposition - Example usage
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useCurrentFrame } from "remotion";
 import { useHoverAnimationSmooth } from "./useHoverAnimationSmooth";
 import { useRegisterInteractiveElement } from "./useRegisterInteractiveElement";

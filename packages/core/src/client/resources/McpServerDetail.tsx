@@ -18,7 +18,6 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import {
-  testMcpServerUrl,
   type McpServer,
   type TestMcpUrlResult,
 } from "./use-mcp-servers.js";

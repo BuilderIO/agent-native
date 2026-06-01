@@ -5,11 +5,9 @@ import type {
 } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
-  getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
-  hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 import { getDbExec } from "@agent-native/core/db";

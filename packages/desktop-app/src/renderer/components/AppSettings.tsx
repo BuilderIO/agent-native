@@ -25,7 +25,7 @@ import {
   IconAlertCircle,
   IconKeyboard,
 } from "@tabler/icons-react";
-import type { AppConfig } from "@shared/app-registry";
+import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import type { UpdateStatus } from "@shared/ipc-channels";
 import {
   generateAppId,
@@ -43,12 +43,6 @@ import {
 } from "@shared/desktop-shortcuts";
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
-
-interface FrameSettings {
-  enabled: boolean;
-  mode: "dev" | "prod";
-  prodUrl?: string;
-}
 
 interface AppSettingsProps {
   apps: AppConfig[];

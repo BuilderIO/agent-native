@@ -11,7 +11,6 @@ import { getDocAwareness, type AwarenessEntry } from "./awareness.js";
 import {
   AGENT_CLIENT_ID,
   DEFAULT_AGENT_IDENTITY,
-  type AgentIdentity,
 } from "./agent-identity.js";
 import { searchAndReplace } from "./ydoc-manager.js";
 

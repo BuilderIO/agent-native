@@ -9,7 +9,6 @@ import {
   IconPlus,
   IconPencil,
   IconTrash,
-  IconCheck,
   IconX,
 } from "@tabler/icons-react";
 import {

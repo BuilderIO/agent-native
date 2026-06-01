@@ -1,14 +1,5 @@
-/**
- * List dictations with optional search/filter.
- *
- * Usage:
- *   pnpm action list-dictations
- *   pnpm action list-dictations --search="meeting notes"
- *   pnpm action list-dictations --language=en --sort=oldest
- */
-
 import { defineAction } from "@agent-native/core";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
@@ -41,7 +32,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    const whereClauses = [eq(schema.dictations.ownerEmail, ownerEmail)];
+    const whereClauses: SQL[] = [eq(schema.dictations.ownerEmail, ownerEmail)];
 
     if (args.search) {
       const pat = `%${escapeLike(args.search)}%`;

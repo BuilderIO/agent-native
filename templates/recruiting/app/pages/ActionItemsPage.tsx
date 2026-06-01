@@ -12,7 +12,6 @@ import {
   IconAlertTriangle,
   IconClockHour4,
   IconCheck,
-  IconSend,
   IconChevronDown,
   IconChevronUp,
   IconHourglass,

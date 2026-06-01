@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   IconBrandApple,
   IconBrandWindows,
-  IconDownload,
   IconPlayerRecord,
 } from "@tabler/icons-react";
 import { appBasePath, appPath } from "@agent-native/core/client";

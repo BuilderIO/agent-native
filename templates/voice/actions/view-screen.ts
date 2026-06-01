@@ -1,14 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads `navigation` application state and fetches relevant context
- * (dictation history, snippets, style settings, stats). Returns a
- * single JSON snapshot the agent can reason over.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { desc, eq } from "drizzle-orm";
@@ -46,7 +35,6 @@ export default defineAction({
     switch (nav.view) {
       case "dictation":
       case "home": {
-        // Show recent dictations
         const dictations = await db
           .select()
           .from(schema.dictations)

@@ -4,7 +4,7 @@ import path from "path";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
   safeGeneratedFilename,
@@ -306,16 +306,18 @@ function parseSlideHtml(
  *
  * Hand-rolled SSRF allow-list checks have repeatedly missed cases (Alibaba
  * cloud-metadata, IPv6 IMDS, decimal/octal IPv4, DNS rebinding, etc.).
- * Route every URL through the central `isBlockedToolUrl` helper, which
- * already handles all those forms. Also enforce that the response is
- * actually an image so a 200 OK from an internal HTML / JSON endpoint
- * can't smuggle bytes into the .pptx.
+ * Route every URL through the central `ssrfSafeFetch` helper, which validates
+ * DNS and every redirect hop. Also enforce that the response is actually an
+ * image so a 200 OK from an internal HTML / JSON endpoint can't smuggle bytes
+ * into the .pptx.
  */
-async function fetchImageAsBase64(url: string): Promise<string | null> {
+export async function fetchImageAsBase64(url: string): Promise<string | null> {
   try {
-    if (isBlockedToolUrl(url)) return null;
-
-    const response = await fetch(url);
+    const response = await ssrfSafeFetch(
+      url,
+      { signal: AbortSignal.timeout(10_000) },
+      { maxRedirects: 3 },
+    );
     if (!response.ok) return null;
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.toLowerCase().startsWith("image/")) {

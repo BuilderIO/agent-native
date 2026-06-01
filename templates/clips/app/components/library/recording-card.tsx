@@ -27,6 +27,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -48,14 +49,6 @@ function formatRelative(iso: string): string {
   if (abs < 2629800) return rtf.format(Math.round(diff / 604800), "week");
   if (abs < 31557600) return rtf.format(Math.round(diff / 2629800), "month");
   return rtf.format(Math.round(diff / 31557600), "year");
-}
-
-function isStorageSetupFailureReason(
-  reason: string | null | undefined,
-): boolean {
-  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
-    reason ?? "",
-  );
 }
 
 function PrivacyIcon({

@@ -63,7 +63,14 @@ type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
  * couldn't survive serverless cold starts.
  */
 function buildEventDedupKey(incoming: IncomingMessage): string {
-  return `${incoming.platform}:${incoming.externalThreadId}:${incoming.timestamp}`;
+  // Prefer the platform's own unique per-message id so two DISTINCT messages
+  // in the same conversation that land within the same second (Telegram/
+  // WhatsApp timestamps are second-resolution) don't collide. Platforms resend
+  // the same id on retry, so true duplicate deliveries are still deduped.
+  const ctx = incoming.platformContext as Record<string, unknown> | undefined;
+  const messageId =
+    ctx?.messageId ?? ctx?.eventId ?? ctx?.messageTs ?? incoming.timestamp;
+  return `${incoming.platform}:${incoming.externalThreadId}:${String(messageId)}`;
 }
 
 export interface WebhookHandlerOptions {
@@ -368,6 +375,11 @@ export function resolveBaseUrl(event: H3Event): string {
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
   if (fromEnv) return withConfiguredAppBasePath(fromEnv);
+  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
+    throw new Error(
+      "Integration self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in production/shared deployments.",
+    );
+  }
 
   try {
     const headers = (event as any).node?.req?.headers ?? (event as any).headers;

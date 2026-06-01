@@ -5,11 +5,9 @@ import {
   jiraGetMyself,
 } from "./jira-api.js";
 import {
-  getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
-  hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 

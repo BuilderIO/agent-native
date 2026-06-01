@@ -86,6 +86,10 @@ let _lastActionMarkerTs = 0;
  */
 let _lastScreenRefreshTs = 0;
 let _screenRefreshInitialized = false;
+// Per-session high-water marks for `__screen_refresh__`. Each user's row is
+// tracked independently so a refresh triggered by one user only remounts that
+// user's screen (owner-scoped), never every authenticated poller.
+const _lastScreenRefreshTsBySession = new Map<string, number>();
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 let _localEmittersWired = false;
 
@@ -395,14 +399,17 @@ async function seedVersionFromDb(): Promise<void> {
       readActionMarkerMaxUpdatedAt(db),
       db
         .execute({
-          sql: "SELECT updated_at FROM application_state WHERE key = ?",
+          sql: "SELECT session_id, updated_at FROM application_state WHERE key = ?",
           args: [SCREEN_REFRESH_KEY],
         })
-        .catch(() => ({ rows: [] })),
+        .catch(() => ({ rows: [] as Record<string, unknown>[] })),
     ]);
 
     const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
-    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
+    let refreshTs = 0;
+    for (const row of refreshResult.rows) {
+      refreshTs = Math.max(refreshTs, timestampValue(row.updated_at));
+    }
 
     // Seed version — never decrease an already-set value
     _version = Math.max(
@@ -425,6 +432,15 @@ async function seedVersionFromDb(): Promise<void> {
     // marker on cold start, or the first poll after the action will miss it.
     _lastActionMarkerTs = 0;
     _lastScreenRefreshTs = refreshTs;
+    _lastScreenRefreshTsBySession.clear();
+    for (const row of refreshResult.rows) {
+      if (typeof row.session_id === "string") {
+        _lastScreenRefreshTsBySession.set(
+          row.session_id,
+          timestampValue(row.updated_at),
+        );
+      }
+    }
     _screenRefreshInitialized = true;
   } catch {
     // Tables may not exist yet — ignore
@@ -504,28 +520,51 @@ async function checkExternalDbChanges(): Promise<void> {
     // updated_at bumps, emit a distinct event so the client invalidates
     // all queries (not just the ones matching its default queryKey prefix).
     const refreshResult = await db.execute({
-      sql: "SELECT updated_at, value FROM application_state WHERE key = ?",
+      sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
       args: [SCREEN_REFRESH_KEY],
     });
-    const refreshTs = timestampValue(refreshResult.rows[0]?.updated_at);
+    const refreshTs = refreshResult.rows.reduce(
+      (max, row) => Math.max(max, timestampValue(row.updated_at)),
+      0,
+    );
     if (!_screenRefreshInitialized) {
       _lastScreenRefreshTs = refreshTs;
+      for (const row of refreshResult.rows) {
+        if (typeof row.session_id === "string") {
+          _lastScreenRefreshTsBySession.set(
+            row.session_id,
+            timestampValue(row.updated_at),
+          );
+        }
+      }
       _screenRefreshInitialized = true;
     } else if (refreshTs > _lastScreenRefreshTs) {
-      let scope: string | undefined;
-      try {
-        const raw = refreshResult.rows[0]?.value;
-        if (typeof raw === "string") {
-          const parsed = JSON.parse(raw);
-          if (typeof parsed?.scope === "string") scope = parsed.scope;
-        }
-      } catch {}
-      recordChange({
-        source: "screen-refresh",
-        type: "change",
-        key: SCREEN_REFRESH_KEY,
-        ...(scope ? { scope } : {}),
-      });
+      // Emit a per-user event only for the session(s) whose row actually
+      // advanced, scoped with `owner` so canSeeChangeForUser delivers it only
+      // to that user — not every authenticated poller.
+      for (const row of refreshResult.rows) {
+        const owner =
+          typeof row.session_id === "string" ? row.session_id : undefined;
+        if (!owner) continue;
+        const rowTs = timestampValue(row.updated_at);
+        if (rowTs <= (_lastScreenRefreshTsBySession.get(owner) ?? 0)) continue;
+        let scope: string | undefined;
+        try {
+          const raw = row.value;
+          if (typeof raw === "string") {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed?.scope === "string") scope = parsed.scope;
+          }
+        } catch {}
+        recordChange({
+          source: "screen-refresh",
+          type: "change",
+          key: SCREEN_REFRESH_KEY,
+          owner,
+          ...(scope ? { scope } : {}),
+        });
+        _lastScreenRefreshTsBySession.set(owner, rowTs);
+      }
       _lastScreenRefreshTs = refreshTs;
     }
 

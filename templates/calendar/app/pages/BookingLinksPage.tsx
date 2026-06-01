@@ -100,7 +100,6 @@ import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
-import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import BookingsList from "./BookingsList";
@@ -513,7 +512,6 @@ export default function BookingLinksPage({
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
   const [usernameInput, setUsernameInput] = useState("");
-  const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const zoomStatus = useZoomStatus();

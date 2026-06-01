@@ -55,12 +55,9 @@ import {
   IconLayoutGrid,
   IconCheck,
   IconPlus,
-  IconFolder,
   IconX,
-  IconClockHour3,
   IconDotsVertical,
   IconHistory,
-  IconTrash,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconExternalLink,
@@ -203,9 +200,6 @@ function useCliSelection(keyPrefix: string) {
   };
   return [selected, select] as const;
 }
-
-// Detect dev mode at build time (Vite replaces this)
-const IS_DEV: boolean = import.meta.env?.DEV === true;
 
 // ─── Settings panel components moved to ./settings/ ────────────────────────
 

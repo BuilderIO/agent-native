@@ -18,20 +18,14 @@ import {
   IconCheck,
   IconPencil,
 } from "@tabler/icons-react";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { cn, shortcutLabel } from "@/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  copiedStyle,
-  setCopiedStyle,
-  getBrandPalette,
-  setBrandPalette,
-  type CopiedStyle,
-} from "./style-clipboard";
+import { getBrandPalette, setBrandPalette } from "./style-clipboard";
 import {
   Tooltip,
   TooltipContent,

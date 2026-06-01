@@ -221,13 +221,6 @@ function capturePolicyBlockMessage(source: CaptureSource): string | null {
   return null;
 }
 
-function isHardScreenPermissionError(err: unknown): boolean {
-  const combined = `${errorName(err)} ${errorMessage(err)}`;
-  return /permission denied by system|blocked by system|system settings|screen recording|screen capture|screen & system audio|privacy|could not start video source|notreadableerror/i.test(
-    combined,
-  );
-}
-
 function isScreenPickerDismissal(err: unknown): boolean {
   const name = errorName(err);
   const message = errorMessage(err);

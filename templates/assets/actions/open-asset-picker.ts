@@ -57,12 +57,12 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   if (args.presetId?.trim()) params.set("presetId", args.presetId.trim());
   if (args.count && args.count !== 3) params.set("count", String(args.count));
   if (args.autoGenerate) params.set("autoGenerate", "1");
-  return `/picker?${params.toString()}`;
+  return `/library?${params.toString()}`;
 }
 
 export default defineAction({
   description:
-    'Open the Assets picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the picker opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
+    'Open the image Library picker inline so a person can browse, search, generate, and select an image or video asset. When the user asks to create a specific image and choose the best one, pass prompt, autoGenerate: true, and count: 3 so the Library opens with generated candidates. If the host can only open a browser link (e.g. a CLI or code editor), surface that link: after the user picks, the page auto-copies a short paste-back summary — or the user can simply tell you which candidate they want (e.g. "use image A"). Use search-assets, generate-image, generate-video, and export-asset for unattended flows.',
   schema,
   http: { method: "GET" },
   readOnly: true,
@@ -71,18 +71,18 @@ export default defineAction({
     expose: true,
     readOnly: true,
     requiresAuth: true,
-    title: "Open Assets picker",
+    title: "Open Assets Library picker",
     description:
-      "Open the real Assets app picker for image or video selection.",
+      "Open the real Assets app Library picker for image or video selection.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Assets picker",
+      title: "Assets Library picker",
       description:
         "Browse, search, generate, and select image or video assets from the real Assets app.",
       iframeTitle: "Agent-Native Assets",
-      openLabel: "Open Assets picker",
+      openLabel: "Open Assets Library picker",
       height: 760,
       connectDomains: ["https://cdn.builder.io"],
       resourceDomains: ["https://cdn.builder.io"],
@@ -95,7 +95,7 @@ export default defineAction({
         : null;
     return {
       url: typeof url === "string" && url ? url : pickerPath(args),
-      label: "Open Assets picker",
+      label: "Open Assets Library picker",
       view: "picker",
     };
   },

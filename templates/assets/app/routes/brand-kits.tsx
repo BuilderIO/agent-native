@@ -54,7 +54,7 @@ export default function LibrariesPage() {
       {
         onSuccess: (library: any) => {
           setCreatingPresetId(null);
-          navigate(`/library/${library.id}`);
+          navigate(`/brand-kits/${library.id}`);
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
@@ -66,14 +66,14 @@ export default function LibrariesPage() {
 
   return (
     <PageShell
-      title="Libraries"
+      title="Brand Kits"
       description="Organize references, generated assets, folders, and reusable style guidance."
     >
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">
-              Your libraries
+              Your brand kits
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Brand references, product imagery, videos, diagrams, and generated
@@ -86,7 +86,7 @@ export default function LibrariesPage() {
             className="gap-2"
           >
             <IconPhotoPlus className="h-4 w-4" />
-            New library
+            New brand kit
           </Button>
         </div>
 
@@ -95,7 +95,7 @@ export default function LibrariesPage() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search libraries"
+            placeholder="Search brand kits"
             className="h-full flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
@@ -115,7 +115,7 @@ export default function LibrariesPage() {
               <LibraryCard
                 key={library.id}
                 library={library}
-                to={`/library/${library.id}`}
+                to={`/brand-kits/${library.id}`}
                 onEdit={() => setEditing(library)}
                 showInstructions={false}
               />
@@ -125,7 +125,7 @@ export default function LibrariesPage() {
           <div className="rounded-lg border border-dashed bg-muted/20 p-6">
             <div className="mx-auto max-w-2xl text-center">
               <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
-              <h3 className="mt-4 text-base font-semibold">No libraries yet</h3>
+              <h3 className="mt-4 text-base font-semibold">No brand kits yet</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 Start with a default style library or create your own references
                 and style guidance.
@@ -141,7 +141,7 @@ export default function LibrariesPage() {
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button onClick={() => setOpen(true)} className="gap-2">
                 <IconPhotoPlus className="h-4 w-4" />
-                New library
+                New brand kit
               </Button>
               <Button asChild variant="outline">
                 <Link to="/">Create asset</Link>
@@ -154,7 +154,7 @@ export default function LibrariesPage() {
       <CreateLibraryDialog
         open={open}
         onOpenChange={setOpen}
-        onCreated={(library) => navigate(`/library/${library.id}`)}
+        onCreated={(library) => navigate(`/brand-kits/${library.id}`)}
       />
       <EditLibraryDialog
         library={editing}

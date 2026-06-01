@@ -31,9 +31,9 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
-  const isPicker = location.pathname === "/picker";
+  const isPicker = location.pathname === "/library";
   const hideHeader =
-    location.pathname === "/picker" ||
+    location.pathname === "/library" ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =

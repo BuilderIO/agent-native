@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the Assets UI. Views: create, picker, libraries, library, asset, generation-session, generation-run, extensions, audit, settings. Use libraryId, assetId, sessionId, runId, or extensionId where appropriate.",
+    'Navigate the Assets UI. Views (internal keys, with the surface they open): create, picker (the image Library browser), libraries (the Brand Kits list), library (a single Brand Kit), asset, generation-session, generation-run, extensions, audit, settings. Use libraryId, assetId, sessionId, runId, or extensionId where appropriate.',
   schema: z.object({
     view: z
       .enum([

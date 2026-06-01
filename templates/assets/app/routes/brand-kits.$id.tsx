@@ -668,7 +668,7 @@ export default function LibraryPage() {
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
       toast.success("Library archived.");
-      navigate("/libraries");
+      navigate("/brand-kits");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not archive library.",

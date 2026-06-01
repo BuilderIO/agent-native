@@ -692,7 +692,6 @@ export function EmailThread({
     if (settings?.email) emails.add(settings.email.toLowerCase());
     return emails;
   }, [allAccounts, settings?.email]);
-  const myEmail = settings?.email?.toLowerCase() ?? "";
 
   // Inline reply: find any inline draft belonging to this thread
   const inlineReplyRef = useRef<InlineReplyHandle>(null);

@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
-  IconUpload,
   IconWorld,
   IconPalette,
   IconLoader2,

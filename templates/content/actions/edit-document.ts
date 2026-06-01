@@ -30,7 +30,6 @@ export default defineAction({
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
-    // Parse edits from either --find/--replace or --edits JSON
     let edits: TextEdit[];
 
     if (args.edits) {
@@ -38,8 +37,10 @@ export default defineAction({
         edits = JSON.parse(args.edits);
         if (!Array.isArray(edits))
           throw new Error("--edits must be a JSON array");
-      } catch (e: any) {
-        throw new Error(`Invalid --edits JSON: ${e.message}`);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to parse JSON";
+        throw new Error(`Invalid --edits JSON: ${message}`);
       }
     } else if (args.find !== undefined) {
       if (!args.find) throw new Error("--find cannot be empty");
@@ -48,7 +49,6 @@ export default defineAction({
       throw new Error("Either --find or --edits is required");
     }
 
-    // Validate edits
     for (const edit of edits) {
       if (!edit.find)
         throw new Error("Each edit must have a non-empty 'find' field");
@@ -95,10 +95,6 @@ export default defineAction({
     }
 
     if (changeCount === 0) {
-      console.log(
-        "No edits applied — none of the find texts were found in the document.",
-      );
-      for (const r of results) console.log(`  - ${r}`);
       return { applied: 0, total: edits.length, results };
     }
 
@@ -110,13 +106,7 @@ export default defineAction({
       .set({ content, updatedAt: new Date().toISOString() })
       .where(eq(schema.documents.id, id));
 
-    // Trigger UI refresh (list/tree); the editor body syncs via the action bump.
     await writeAppState("refresh-signal", { ts: Date.now() });
-
-    console.log(
-      `Edited document ${id}: ${changeCount}/${edits.length} applied`,
-    );
-    for (const r of results) console.log(`  - ${r}`);
 
     return {
       applied: changeCount,

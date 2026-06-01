@@ -89,7 +89,6 @@ import {
 } from "./desktop-sso.js";
 import {
   isElectron as isElectronRequest,
-  getOrigin,
   getAppBasePath,
   getAppUrl,
   encodeOAuthState,

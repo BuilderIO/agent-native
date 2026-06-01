@@ -422,7 +422,6 @@ export function MessagingSetupPanel() {
                   label: key,
                   required: true,
                 }));
-          const canEnable = configured;
 
           return (
             <section

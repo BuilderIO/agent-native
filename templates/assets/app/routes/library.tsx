@@ -934,7 +934,7 @@ export default function AssetPicker() {
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="min-w-0 truncate text-sm font-semibold">
-          {embedded ? "Assets" : "Assets picker"}
+          {embedded ? "Assets" : "Library"}
         </div>
         {embedded && (
           <div className="flex shrink-0 items-center gap-2">
@@ -1180,7 +1180,7 @@ export default function AssetPicker() {
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">
-              <Link to="/libraries">Create a library</Link>
+              <Link to="/brand-kits">Create a brand kit</Link>
             </Button>
           </div>
         )}

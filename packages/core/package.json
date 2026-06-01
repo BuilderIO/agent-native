@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=22"
   },
-  "description": "Framework for agent-native application development — where AI agents and UI share state via files",
+  "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,6 +34,7 @@
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
+    "./brand-kit": "./dist/brand-kit/index.js",
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",

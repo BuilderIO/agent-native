@@ -41,7 +41,6 @@ export default defineAction({
       authorName: name,
     });
 
-    console.log(`Comment added (thread: ${threadId})`);
     return { id, threadId };
   },
 });
