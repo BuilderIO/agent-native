@@ -1187,13 +1187,26 @@ export function copyDir(
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory() || entry.isSymbolicLink()) {
-      const stat = fs.statSync(srcPath);
+    if (entry.isSymbolicLink()) {
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(srcPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.warn(
+            `[deploy] Skipping broken symlink while copying ${srcPath}`,
+          );
+          continue;
+        }
+        throw error;
+      }
       if (stat.isDirectory()) {
         copyDir(srcPath, destPath, nextAncestorRealPaths);
       } else {
         fs.copyFileSync(srcPath, destPath);
       }
+    } else if (entry.isDirectory()) {
+      copyDir(srcPath, destPath, nextAncestorRealPaths);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -1215,11 +1228,16 @@ const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
+const SERVERLESS_FFMPEG_STATIC_ARCH = "x64";
 
 export function shouldBundleFfmpegStaticForServerless(
   hostPlatform: NodeJS.Platform = process.platform,
+  hostArch: NodeJS.Architecture = process.arch,
 ): boolean {
-  return hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM;
+  return (
+    hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM &&
+    hostArch === SERVERLESS_FFMPEG_STATIC_ARCH
+  );
 }
 
 function nodeModulesAncestors(startDir: string): string[] {
@@ -1350,7 +1368,7 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   if (!shouldBundleFfmpegStaticForServerless()) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
       console.warn(
-        `[deploy] ffmpeg-static installs a ${process.platform} binary, but serverless bundles run on ${SERVERLESS_FFMPEG_STATIC_PLATFORM}; ` +
+        `[deploy] ffmpeg-static installs a ${process.platform}-${process.arch} binary, but serverless bundles target ${SERVERLESS_FFMPEG_STATIC_PLATFORM}-${SERVERLESS_FFMPEG_STATIC_ARCH}; ` +
           "server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
       );
     }

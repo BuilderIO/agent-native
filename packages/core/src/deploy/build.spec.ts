@@ -596,6 +596,18 @@ describe("copyDir", () => {
       fs.readFileSync(path.join(dest, "linked-dir", "asset.txt"), "utf8"),
     ).toBe("asset");
   });
+
+  it("skips broken symlinks instead of crashing the copy", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-copy-dir-test-"));
+    dirs.push(cwd);
+    const src = path.join(cwd, "src");
+    const dest = path.join(cwd, "dest");
+    fs.mkdirSync(src, { recursive: true });
+    fs.symlinkSync(path.join(cwd, "missing-target"), path.join(src, "broken"));
+
+    expect(() => copyDir(src, dest)).not.toThrow();
+    expect(fs.existsSync(path.join(dest, "broken"))).toBe(false);
+  });
 });
 
 describe("findInstalledFfmpegStaticPackage", () => {
@@ -645,9 +657,10 @@ describe("findInstalledFfmpegStaticPackage", () => {
   });
 
   it("only bundles host ffmpeg-static binaries for matching Linux serverless targets", () => {
-    expect(shouldBundleFfmpegStaticForServerless("linux")).toBe(true);
-    expect(shouldBundleFfmpegStaticForServerless("darwin")).toBe(false);
-    expect(shouldBundleFfmpegStaticForServerless("win32")).toBe(false);
+    expect(shouldBundleFfmpegStaticForServerless("linux", "x64")).toBe(true);
+    expect(shouldBundleFfmpegStaticForServerless("linux", "arm64")).toBe(false);
+    expect(shouldBundleFfmpegStaticForServerless("darwin", "x64")).toBe(false);
+    expect(shouldBundleFfmpegStaticForServerless("win32", "x64")).toBe(false);
   });
 });
 

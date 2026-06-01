@@ -2345,12 +2345,11 @@ export function App() {
             await invoke("set_recording_state", { active: false }).catch(
               () => {},
             );
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 0);
-            });
-            if (!cancelled) {
-              await startRecording({ ignoreActiveRecorder: true });
-            }
+            // Starting a new browser capture must come from a fresh click in
+            // this webview. The toolbar click arrives here through async Tauri
+            // IPC, so reopen the popover and let the next Start click provide
+            // the required user activation.
+            invoke("show_popover").catch(() => {});
           }
         }
       }),
