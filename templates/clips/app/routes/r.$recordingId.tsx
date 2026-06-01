@@ -657,13 +657,6 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
-          {canDelete ? (
-            <DeleteRecordingMenu
-              recordingId={recording.id}
-              onDeleted={() => navigate("/library", { replace: true })}
-            />
-          ) : null}
-
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
@@ -678,6 +671,13 @@ export default function RecordingPage() {
               Share
             </Button>
           </ShareRecordingPopover>
+
+          {canDelete ? (
+            <DeleteRecordingMenu
+              recordingId={recording.id}
+              onDeleted={() => navigate("/library", { replace: true })}
+            />
+          ) : null}
         </header>
 
         <div
