@@ -81,18 +81,14 @@ Hosted is the default install path. Local launch is explicit for customization,
 offline work, or privacy-sensitive use.
 
 ```bash
-# Public Skills CLI installs the exported instructions.
-npx skills add BuilderIO/agent-native --skill assets
-npx skills add BuilderIO/agent-native --skill design-exploration
-
-# Local MCP clients also need the hosted connector once.
-npx @agent-native/core@latest connect https://assets.agent-native.com
-npx @agent-native/core@latest connect https://design.agent-native.com
-
-# Convenience installers do both steps for local clients.
+# Happy path: exported instructions plus hosted MCP connector.
 npx @agent-native/core@latest skills add assets
 npx @agent-native/core@latest skills add images
 npx @agent-native/core@latest skills add design-exploration
+
+# Open Skills CLI: exported instructions only.
+npx skills add BuilderIO/agent-native --skill assets
+npx skills add BuilderIO/agent-native --skill design-exploration
 
 # Register a hosted MCP connector for local agent clients.
 agent-native app-skill ensure --manifest templates/assets/agent-native.app-skill.json
@@ -118,8 +114,10 @@ settings flow.
 
 The Vercel Labs `skills` adapter is a portable `skills/<name>/SKILL.md` bundle
 for `npx skills add ...`, but the raw `skills` CLI installs instructions only.
-`BuilderIO/agent-native` is a real GitHub repository source; `skills.sh` is a
-discovery and leaderboard directory, not an npm-style package namespace.
+Keep the Agent Native CLI as the default docs path for local agents because it
+also registers the MCP connector. `BuilderIO/agent-native` is a real GitHub
+repository source for the open Skills CLI; `skills.sh` is a discovery and
+leaderboard directory, not an npm-style package namespace.
 
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested

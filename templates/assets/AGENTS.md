@@ -42,12 +42,13 @@ Read the relevant skill before deeper work:
 
 ## App-Backed Skill Distribution
 
-- The public Skills CLI install path is
-  `npx skills add BuilderIO/agent-native --skill assets`. It installs the
-  exported Assets skill instructions. Local MCP clients also need
-  `npx @agent-native/core@latest connect https://assets.agent-native.com`, or
-  the combined convenience command
-  `npx @agent-native/core@latest skills add assets`.
+- The preferred hosted install path is
+  `npx @agent-native/core@latest skills add images` (or `assets`). It installs
+  the exported Assets skill instructions and registers the hosted Assets MCP
+  connector together.
+- The open Skills CLI path
+  `npx skills add BuilderIO/agent-native --skill assets` installs the
+  exported instructions only.
 - For human-in-the-loop image creation, call `open-asset-picker` with `prompt`,
   `autoGenerate: true`, and `count: 3` so the picker opens with candidates to
   preview, tweak by preset/aspect/count, and choose.
