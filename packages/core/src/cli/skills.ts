@@ -520,9 +520,11 @@ async function resolveSkillsClients(
     }),
   );
   if (selected.length === 0) return null;
-  try {
-    writeConnectClientPreferences(selected);
-  } catch {}
+  if (!parsed.dryRun) {
+    try {
+      writeConnectClientPreferences(selected);
+    } catch {}
+  }
   return selected;
 }
 
@@ -857,28 +859,32 @@ export async function addAgentNativeSkill(
   try {
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
-        throw new Error(
-          "Skill instructions can only be installed for Codex or Claude Code clients. Use --mcp-only for MCP-only clients.",
-        );
-      }
-      instructionSource = installTarget.materializeInstructions(tmpRoot);
-      const args = [
-        "--yes",
-        "skills@latest",
-        "add",
-        instructionSource,
-        "--copy",
-        ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
-        ...skillsAgents.flatMap((agent) => ["-a", agent]),
-        ...(parsed.scope === "user" ? ["-g"] : []),
-        ...(parsed.yes || knownTarget ? ["-y"] : []),
-      ];
-      commands.push(commandString("npx", args));
-      if (!parsed.dryRun) {
-        const code = await (options.runCommand ?? runCommand)("npx", args, {
-          stdio: "silent",
-        });
-        if (code !== 0) throw new Error(`npx skills add exited with ${code}.`);
+        if (!parsed.mcp) {
+          throw new Error(
+            "Skill instructions can only be installed for Codex or Claude Code clients. Use an MCP-capable client or omit --instructions-only.",
+          );
+        }
+      } else {
+        instructionSource = installTarget.materializeInstructions(tmpRoot);
+        const args = [
+          "--yes",
+          "skills@latest",
+          "add",
+          instructionSource,
+          "--copy",
+          ...installTarget.skillNames.flatMap((skill) => ["--skill", skill]),
+          ...skillsAgents.flatMap((agent) => ["-a", agent]),
+          ...(parsed.scope === "user" ? ["-g"] : []),
+          ...(parsed.yes || knownTarget ? ["-y"] : []),
+        ];
+        commands.push(commandString("npx", args));
+        if (!parsed.dryRun) {
+          const code = await (options.runCommand ?? runCommand)("npx", args, {
+            stdio: "silent",
+          });
+          if (code !== 0)
+            throw new Error(`npx skills add exited with ${code}.`);
+        }
       }
     }
 

@@ -659,13 +659,15 @@ export async function createAndLinkNotionPage(
     remotePageId: newPage.id,
     state: "linked",
     lastPushedLocalUpdatedAt: document.updatedAt,
-    lastKnownRemoteUpdatedAt: null,
     lastSyncedContentHash: hashContent(document.content),
     warnings: [],
     hasConflict: false,
   });
 
-  return refreshDocumentSyncStatus(owner, documentId);
+  // Establish the same pulled baseline as linking an existing page. Without a
+  // `lastPulledRemoteUpdatedAt`, later Notion edits are never considered remote
+  // changes, so create-and-link can look like inbound sync is broken.
+  return pullDocumentFromNotion(owner, documentId, true);
 }
 
 export async function listNotionLinks(owner: string) {

@@ -208,41 +208,61 @@ describe("agent-native skills", () => {
   it("skips the client prompt when --client is explicit", async () => {
     const root = tmpDir();
     const promptClients = vi.fn(async () => ["codex" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await runSkills(["add", "assets", "--client", "claude-code"], {
-      baseDir: root,
-      isInteractive: () => true,
-      promptClients,
-      runCommand: async () => 0,
-    });
+    await runSkills(
+      ["add", "assets", "--client", "claude-code", "--scope", "project"],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptClients,
+        runCommand: async () => 0,
+      },
+    );
 
     expect(promptClients).not.toHaveBeenCalled();
   });
 
   it("prompts for skills when interactive add has no target", async () => {
     const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
     const commands: { args: string[] }[] = [];
     const promptSkills = vi.fn(async () => ["assets", "design-exploration"]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await runSkills(["add"], {
-      baseDir: root,
-      isInteractive: () => true,
-      promptClients: async () => ["codex"],
-      promptSkills,
-      runCommand: async (_cmd, args) => {
-        commands.push({ args });
-        return 0;
-      },
-    });
+    try {
+      await runSkills(["add"], {
+        baseDir: root,
+        isInteractive: () => true,
+        promptClients: async () => ["codex"],
+        promptSkills,
+        runCommand: async (_cmd, args) => {
+          commands.push({ args });
+          return 0;
+        },
+      });
 
-    expect(promptSkills).toHaveBeenCalledTimes(1);
-    expect(commands).toHaveLength(2);
-    expect(commands[0].args).toEqual(
-      expect.arrayContaining(["--skill", "assets"]),
-    );
-    expect(commands[1].args).toEqual(
-      expect.arrayContaining(["--skill", "design-exploration"]),
-    );
+      expect(promptSkills).toHaveBeenCalledTimes(1);
+      expect(commands).toHaveLength(2);
+      expect(commands[0].args).toEqual(
+        expect.arrayContaining(["--skill", "assets"]),
+      );
+      expect(commands[1].args).toEqual(
+        expect.arrayContaining(["--skill", "design-exploration"]),
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
   });
 
   it("supports dry-run without writing local agent config", async () => {
