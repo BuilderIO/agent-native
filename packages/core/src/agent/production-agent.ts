@@ -1863,6 +1863,14 @@ export async function runAgentLoop(opts: {
         ]);
         const mcpResult = isMcpActionResult(raw) ? raw : null;
         const rawForAgent = mcpResult ? mcpResult.text : raw;
+        if (
+          mcpResult &&
+          mcpResult.raw &&
+          typeof mcpResult.raw === "object" &&
+          (mcpResult.raw as Record<string, unknown>).isError === true
+        ) {
+          isError = true;
+        }
         mcpApp = mcpResult?.mcpApp;
         // Demo mode: the agent must see the same fake data the UI shows, so
         // it can't read out a real name/email on a live screen share. Redact

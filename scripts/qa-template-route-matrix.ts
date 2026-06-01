@@ -60,11 +60,11 @@ assertFilesExist("videos", [
   "c.$compositionId.tsx",
   "components.tsx",
   "design-systems.tsx",
-  "team.tsx",
   "extensions.tsx",
   "extensions._index.tsx",
   "extensions.$id.tsx",
   "extensions.$id.$slug.tsx",
+  "team.tsx",
   "$.tsx",
 ]);
 
@@ -73,13 +73,13 @@ assertFilesExist("slides", [
   "deck.$id.tsx",
   "deck.$id_.present.tsx",
   "design-systems.tsx",
-  "share.$token.tsx",
-  "slide.tsx",
-  "team.tsx",
   "extensions.tsx",
   "extensions._index.tsx",
   "extensions.$id.tsx",
   "extensions.$id.$slug.tsx",
+  "share.$token.tsx",
+  "slide.tsx",
+  "team.tsx",
 ]);
 
 assertFilesExist("clips", [
@@ -89,16 +89,16 @@ assertFilesExist("clips", [
   "_app.library.folder.$folderId.tsx",
   "_app.spaces.$spaceId.tsx",
   "_app.spaces.$spaceId.folder.$folderId.tsx",
+  "_app.extensions.tsx",
+  "_app.extensions._index.tsx",
+  "_app.extensions.$id.tsx",
+  "_app.extensions.$id.$slug.tsx",
   "download.tsx",
   "embed.$shareId.tsx",
   "invite.$token.tsx",
   "r.$recordingId.tsx",
   "record.tsx",
   "share.$shareId.tsx",
-  "_app.extensions.tsx",
-  "_app.extensions._index.tsx",
-  "_app.extensions.$id.tsx",
-  "_app.extensions.$id.$slug.tsx",
 ]);
 
 assertFilesExist("calls", [
@@ -129,12 +129,12 @@ assertFilesExist("design", [
   "design-systems.tsx",
   "design-systems_.setup.tsx",
   "examples.tsx",
-  "observability.tsx",
-  "present.$id.tsx",
   "extensions.tsx",
   "extensions._index.tsx",
   "extensions.$id.tsx",
   "extensions.$id.$slug.tsx",
+  "observability.tsx",
+  "present.$id.tsx",
 ]);
 
 assertMatches(
@@ -209,5 +209,14 @@ assertPublicPaths("templates/calls/server/plugins/auth.ts", [
   "/api/call-thumbnail",
   "/api/snippet-media",
 ]);
+
+const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
+  scripts?: Record<string, string>;
+};
+assert.equal(
+  videosPackage.scripts?.typecheck,
+  "echo 'skipping typecheck (pre-existing errors)'",
+  "videos typecheck skip must stay explicit and intentional until the template is cleaned up",
+);
 
 console.log("qa-template-route-matrix: clean");
