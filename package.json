@@ -22,6 +22,7 @@
     "typecheck": "pnpm -r --reporter-hide-prefix typecheck",
     "fmt": "prettier --write --log-level warn .",
     "fmt:check": "prettier --check --log-level warn .",
+    "fix:imports": "prettier --write --plugin prettier-plugin-organize-imports --log-level warn .",
     "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/migrate test && pnpm --filter @agent-native/docs test && pnpm --filter dispatch test && pnpm test:brain-evals",
     "test:brain-evals": "pnpm --filter brain eval:ci",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
@@ -66,6 +67,7 @@
     "@libsql/linux-x64-gnu": "^0.5.29",
     "concurrently": "^9.1.0",
     "prettier": "^3.6.2",
+    "prettier-plugin-organize-imports": "4.3.0",
     "tsx": "^4.20.3",
     "wrangler": "^4.80.0"
   },
