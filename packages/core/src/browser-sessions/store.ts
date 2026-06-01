@@ -88,7 +88,12 @@ async function ensureTables(): Promise<void> {
           ON ${REQUEST_TABLE} (owner_email, session_id, status, created_at)
         `),
       );
-    })();
+    })().catch((err) => {
+      // Don't cache a transient init failure — otherwise every browser-session
+      // call re-awaits the same rejected promise until the process restarts.
+      initPromise = undefined;
+      throw err;
+    });
   }
   return initPromise;
 }

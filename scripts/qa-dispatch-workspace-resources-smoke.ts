@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Locator, type Page } from "playwright";
+import type { Browser, Locator, Page } from "playwright";
 
 interface RunningDispatch {
   baseUrl: string;
@@ -14,6 +15,12 @@ interface RunningDispatch {
 }
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+const requireFromCore = createRequire(
+  path.join(repoRoot, "packages/core/package.json"),
+);
+const { chromium } = requireFromCore(
+  "playwright",
+) as typeof import("playwright");
 const templateDir = path.join(repoRoot, "templates", "dispatch");
 const tmpRoot = fs.mkdtempSync(
   path.join(os.tmpdir(), "an-dispatch-workspace-smoke-"),

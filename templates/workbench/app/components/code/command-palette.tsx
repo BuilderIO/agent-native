@@ -31,11 +31,11 @@ interface CommandPaletteProps {
 /**
  * Cmd+K / Cmd+P quick file switcher.
  *
- * The palette eagerly loads two levels of the workspace tree on open
- * (depth=2 keeps the response small for medium repos), then cmdk's
+ * The palette eagerly loads three levels of the workspace tree on open
+ * (depth=3 keeps the response small for medium repos), then cmdk's
  * built-in fuzzy match filters as the user types. When typing a query
  * that matches no top-level paths, falls back to substring search
- * across files in case the file lives deeper than depth=2 — that
+ * across files in case the file lives deeper than depth=3 — that
  * second query only fires for queries >= 2 chars to avoid flooding
  * the server on every keystroke.
  */

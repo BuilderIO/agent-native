@@ -324,6 +324,14 @@ export function useDbSync(
       };
       source.onerror = () => {
         sseConnected = false;
+        // When the browser gives up permanently (HTTP error → readyState
+        // CLOSED), it won't auto-reconnect. Drop the ref so a later
+        // connectEvents() (on focus/visibility) can establish a fresh stream;
+        // otherwise the non-null closed `eventSource` blocks reconnection and
+        // we'd be stuck on polling-only forever.
+        if (source.readyState === EventSource.CLOSED) {
+          eventSource = null;
+        }
         schedulePoll();
       };
       source.onmessage = (message) => {
@@ -535,6 +543,14 @@ export function useScreenRefreshKey(
       };
       source.onerror = () => {
         sseConnected = false;
+        // When the browser gives up permanently (HTTP error → readyState
+        // CLOSED), it won't auto-reconnect. Drop the ref so a later
+        // connectEvents() (on focus/visibility) can establish a fresh stream;
+        // otherwise the non-null closed `eventSource` blocks reconnection and
+        // we'd be stuck on polling-only forever.
+        if (source.readyState === EventSource.CLOSED) {
+          eventSource = null;
+        }
         schedulePoll();
       };
       source.onmessage = (message) => {

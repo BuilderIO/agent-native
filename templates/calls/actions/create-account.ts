@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { nanoid, resolveDefaultWorkspaceId } from "../server/lib/calls.js";
+import { nanoid, resolveWorkspaceIdForAction } from "../server/lib/calls.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
@@ -19,7 +19,10 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const id = nanoid();
-    const workspaceId = args.workspaceId || (await resolveDefaultWorkspaceId());
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+      minRole: "creator-lite",
+    });
     await db.insert(schema.accounts).values({
       id,
       workspaceId,

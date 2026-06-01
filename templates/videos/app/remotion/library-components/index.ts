@@ -1,17 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * LIBRARY COMPONENTS - Barrel Export
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Export all reusable UI components from the library.
- * These components can be imported into Studio compositions.
- *
- * Usage in compositions:
- *   import { Card } from "@/remotion/library-components";
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 // Organisms
 export { Card, type CardProps } from "./Card";
 export { CodePanel, type CodePanelProps } from "./CodePanel";

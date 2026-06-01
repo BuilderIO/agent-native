@@ -135,9 +135,6 @@ function dispatchAgentChatRunning(isRunning: boolean): void {
 
 /**
  * Send a message to the agent chat via postMessage.
- */
-/**
- * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
  */
 export function sendToAgentChat(opts: AgentChatMessage): string {

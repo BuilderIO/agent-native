@@ -1523,8 +1523,11 @@ export async function createMCPServerForRequest(
             );
             if (resource) {
               found = { actionName: name, resource };
+              break;
             }
-            break;
+            // resolveMcpAppResourceSafely returned null (e.g. an async resolver
+            // threw) — keep scanning the remaining candidates rather than
+            // aborting and reporting the resource as missing.
           }
           if (!found) {
             throw new Error(`MCP App resource not found: ${uri}`);

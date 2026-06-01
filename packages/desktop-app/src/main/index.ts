@@ -1934,7 +1934,7 @@ function reconcileInterruptedCodeAgentRun(
     updatedAt: now,
     status: approvalInterrupted ? "needs-approval" : "paused",
     phase: approvalInterrupted ? "approval-required" : "stopped",
-    needsApproval: approvalInterrupted ? true : false,
+    needsApproval: approvalInterrupted,
     progress: approvalInterrupted
       ? {
           label: "Approval required",

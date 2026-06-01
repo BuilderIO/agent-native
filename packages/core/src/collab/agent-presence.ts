@@ -158,9 +158,6 @@ export async function agentApplyEditsIncrementally(
  * as a separate poll event to connected clients.
  *
  * Enters the document before patching and leaves in a finally block.
- *
- * NOTE: `applyPatchOps` may not exist yet (Phase 1 creates it).
- * This will compile once Phase 1 finishes.
  */
 export async function agentApplyPatchesIncrementally(
   docId: string,
@@ -179,7 +176,8 @@ export async function agentApplyPatchesIncrementally(
   agentEnterDocument(docId);
 
   try {
-    // Dynamic import — applyPatchOps is being added by Phase 1.
+    // Resolve applyPatchOps dynamically so a build that strips it (or a partial
+    // upgrade) fails loudly here rather than at module load time.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let applyPatchOps: any;
     try {

@@ -34,6 +34,7 @@ import {
   processA2AContinuationById,
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
+import { failA2AContinuation } from "./a2a-continuations-store.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
@@ -1347,9 +1348,24 @@ export function createIntegrationsPlugin(
           }
         }
 
-        await processA2AContinuationById(continuationId, {
-          adapters: adapterMap,
-        });
+        try {
+          await processA2AContinuationById(continuationId, {
+            adapters: adapterMap,
+          });
+        } catch (err: any) {
+          // Mark the continuation failed so it isn't left dangling, and surface
+          // a 500 to the caller instead of leaking an unhandled rejection.
+          await failA2AContinuation(
+            continuationId,
+            err?.message?.slice(0, 500) || "continuation processing failed",
+          ).catch(() => {});
+          console.error(
+            "[integrations] process-a2a-continuation failure:",
+            err,
+          );
+          setResponseStatus(event, 500);
+          return { error: "Failed to process A2A continuation" };
+        }
         return { ok: true, continuationId };
       }),
     );

@@ -143,7 +143,7 @@ function extractMeetingLink(event: CalendarEvent): {
     }
   }
 
-  // IconCheck hangoutLink
+  // Fall back to the legacy hangoutLink (Google Meet)
   if (event.hangoutLink) {
     return { url: event.hangoutLink, type: "meet" };
   }

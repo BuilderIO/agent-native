@@ -49,7 +49,7 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
-export function meta({ params }: { params: { recordingId?: string } }) {
+export function meta() {
   return [{ title: "Clip recording · Clips" }];
 }
 

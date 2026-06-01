@@ -95,7 +95,7 @@ export default defineAction({
 
     // Fetch attendee counts
     const ids = rows.map((r) => r.id);
-    let attendeeCounts: Record<string, number> = {};
+    const attendeeCounts: Record<string, number> = {};
     if (ids.length) {
       for (const id of ids) {
         const countRows = await db

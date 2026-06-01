@@ -38,7 +38,6 @@ import {
   getCallOrThrow,
   getCurrentOwnerEmail,
   nanoid,
-  parseJson,
 } from "../server/lib/calls.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -557,6 +556,3 @@ async function materializeParticipants(
 }
 
 export { upsertTranscriptRow };
-
-// Tree-shake guard
-void parseJson;

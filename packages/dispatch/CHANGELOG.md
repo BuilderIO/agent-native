@@ -1,5 +1,24 @@
 # @agent-native/dispatch
 
+## 0.8.25
+
+### Patch Changes
+
+- 853ab71: Escape application-state and resource prefix queries so literal `%` and `_` characters do not over-match keys. Also make core store initialization retry after transient failures instead of caching rejected promises, and keep run SSE polling moving past corrupt persisted events.
+
+  Search and rate-limit LIKE filters now treat user text literally, including chat-thread/debug searches and inbound-email sender matching.
+
+## 0.8.24
+
+### Patch Changes
+
+- d4013f0: Remove compiler-verified dead code (unused imports, unused non-exported types,
+  and side-effect-free unused locals) across the framework. No behavior or public
+  API changes — only declarations the TypeScript compiler proves are unreferenced.
+- d4013f0: Fix Messaging enable/disable and webhook setup fetches to use `agentNativePath()`, so they work under a base-path (workspace) mount instead of 404ing at the gateway root.
+- d4013f0: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
+  SSRF-safe URL fetch paths.
+
 ## 0.8.23
 
 ### Patch Changes

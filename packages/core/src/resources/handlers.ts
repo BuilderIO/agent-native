@@ -44,7 +44,6 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return SHARED_OWNER;
   const session = await getSession(event);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;
@@ -57,7 +56,6 @@ function canReadOwner(owner: string, email: string): boolean {
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;

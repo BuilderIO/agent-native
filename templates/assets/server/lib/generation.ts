@@ -951,11 +951,7 @@ export async function selectReferences(input: {
   return loadReferenceData(
     selected.map((item) => item.asset),
     (asset) =>
-      asset.id === input.subjectAssetId
-        ? "subject_reference"
-        : asset.id === input.sourceAssetId
-          ? undefined
-          : undefined,
+      asset.id === input.subjectAssetId ? "subject_reference" : undefined,
     (asset) => {
       if (asset.id === input.subjectAssetId) return "subject";
       if (asset.id === input.sourceAssetId) return "source";

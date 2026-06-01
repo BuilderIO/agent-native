@@ -276,7 +276,7 @@ export class A2AClient {
       try {
         current = await this.getTask(submitted.id);
         opts?.onUpdate?.(current);
-      } catch (err) {
+      } catch {
         // Transient fetch failure — keep polling until the deadline.
         continue;
       }

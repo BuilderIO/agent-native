@@ -4,7 +4,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
 import { resolveRecallApiKey } from "../server/lib/recall.js";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -51,7 +51,10 @@ export default defineAction({
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
-    const workspaceId = args.workspaceId || (await resolveDefaultWorkspaceId());
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+      minRole: "creator-lite",
+    });
     const publicUrl = getPublicUrl();
 
     const body: Record<string, unknown> = {

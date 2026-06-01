@@ -5948,6 +5948,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
+              // Server clock so the client computes "stuck" elapsed time
+              // server-relative, immune to client clock skew.
+              serverNow: Date.now(),
             };
           }
 

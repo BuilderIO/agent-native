@@ -1,112 +1,7 @@
 /**
- * useInteractiveComponent - REQUIRED for all interactive elements in Video Studio
- *
- * 🎯 CORE PRINCIPLE: PARAMETER-DRIVEN ANIMATION SYSTEM
- * ═══════════════════════════════════════════════════════════
- * Components have THREE states that should gracefully animate between each other:
- *
- * 1. REST STATE (Initial): Component's default props (backgroundColor, scale, etc.)
- * 2. HOVER STATE: Animated properties that apply when hovering
- * 3. CLICK STATE: Animated properties that apply when clicking (OVERRIDES hover)
- *
- * Transitions: REST → HOVER → CLICK, with smooth interpolation at each step.
- * - Colors: ALWAYS blend from static prop value → animation target (never use "from" keyframes)
- * - Other props: Use keyframe interpolation based on elapsed frames / duration
- * - Click priority: When clicking, ONLY click animations apply (no hover blending)
- *
- * THIS HOOK MAKES COMPONENTS:
- * ✓ Selectable when hovered (shows in Cursor Interactions panel)
- * ✓ Animatable without hardcoding (safe fallbacks)
- * ✓ Ready for hover/click animations
- * ✓ Integrated with cursor system
- *
- * HANDLES ALL THE BOILERPLATE:
- * 1. Hover/click detection using cursor history
- * 2. Element registration (makes it appear in sidebar)
- * 3. Animation storage (persists user-configured animations)
- * 4. Cursor type aggregation (pointer on hover, etc.)
- * 5. Safe animation value extraction with proper priority (click > hover)
- *
- * 🎯 CRITICAL: DURATION-BASED ANIMATION PATTERN
- * This hook uses frame tracking to ensure animations complete in EXACTLY
- * the duration specified in the UI. Progress = min(1, elapsedFrames / animation.duration)
- *
- * DO NOT use cursor history length or fixed frame counts for animation progress!
- * Always calculate elapsed frames since interaction started and divide by animation.duration.
- *
- * CRITICAL USAGE PATTERN:
- *
- * Step 1: Call useInteractiveComponent
- * ```tsx
- * const interactive = useInteractiveComponent({
- *   compositionId: "my-comp",
- *   id: "my-button",
- *   elementType: "Button",
- *   label: "My Button",
- *   zone: { x: 100, y: 100, width: 200, height: 60 },
- *   cursorHistory,
- *   tracks,
- *   interactiveElementType: "button",
- * });
- * ```
- *
- * Step 2: Register with cursor system
- * ```tsx
- * React.useEffect(() => {
- *   registerForCursor(interactive);
- * }, [interactive.hover.isHovering, interactive.click.isClicking]);
- * ```
- *
- * Step 3: Extract animation values from animatedProperties with SAFE FALLBACKS
- * ```tsx
- * const scale = (interactive.animatedProperties?.scale as number) ?? 1;  // Default: 1
- * const lift = (interactive.animatedProperties?.lift as number) ?? 0;     // Default: 0
- * const glow = (interactive.animatedProperties?.glow as number) ?? 0;     // Default: 0
- * const blur = (interactive.animatedProperties?.blur as number) ?? 0;     // Default: 0
- * const color = (interactive.animatedProperties?.color as number) ?? 0;    // Default: 0
- * ```
- *
- * Step 4: Apply animated properties using AnimatedElement (RECOMMENDED)
- * ```tsx
- * import { AnimatedElement } from "@/remotion/components/AnimatedElement";
- *
- * <AnimatedElement interactive={interactive} as="button">
- *   My Button
- * </AnimatedElement>
- * ```
- *
- * AnimatedElement automatically applies ALL animated properties including:
- * - scale, translateX/Y/Z, rotate, etc. → transform
- * - backgroundColor, color, borderColor → CSS properties
- * - blur, brightness, contrast, etc. → filter
- * - ANY custom CSS property you add via the UI!
- *
- * Alternative (manual extraction for custom logic):
- * ```tsx
- * const scale = (interactive.animatedProperties?.scale as number) ?? 1;
- * const lift = (interactive.animatedProperties?.lift as number) ?? 0;
- * const backgroundColor = interactive.animatedProperties?.backgroundColor ?? "transparent";
- *
- * <div style={{
- *   transform: `scale(${scale}) translateY(${-lift}px)`,
- *   backgroundColor,
- * }}>
- *   My Button
- * </div>
- * ```
- *
- * WHY SAFE FALLBACKS (?? 0):
- * - Components work BEFORE animations are configured
- * - No errors when hovering over new elements
- * - Graceful degradation
- * - User can add animations through UI later
- *
- * IMPORTANT: The hook automatically combines hover AND click animations!
- * You don't need to extract them separately - just use animatedProperties.
- *
- * @see InteractiveButton - Example implementation
- * @see InteractiveCard - Example implementation
- * @see BlankComposition - Example usage
+ * Tracks hover/click state for Remotion UI elements and resolves the active
+ * animation values. Progress is duration-based so configured timings stay
+ * stable across playback speeds.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -124,6 +19,7 @@ import type { HoverZone } from "./useHoverAnimation";
 import type { ElementAnimation } from "@/types/elementAnimations";
 import { getAnimationValue } from "@/types/elementAnimations";
 import { getEasingFunction, type EasingKey } from "@/remotion/easingFunctions";
+import type { AnimationTrack } from "@/types";
 
 /**
  * Shorthand for defining animation properties
@@ -164,6 +60,9 @@ export interface UseInteractiveComponentOptions {
 
   /** Pre-calculated cursor history */
   cursorHistory: CursorFrame[];
+
+  /** All composition tracks, accepted for generated component compatibility */
+  tracks?: AnimationTrack[];
 
   /** Optional hover animation (auto-registered on mount) */
   hoverAnimation?: AnimationShorthand | ElementAnimation;
@@ -325,9 +224,8 @@ export function useInteractiveComponent(
   // Step 3: Register element (sidebar visibility) with cursor type
   useRegisterInteractiveElement(elementInfo, hoverState);
 
-  // Step 3.5: Track hover/click start/end frames for duration-based animations
-  // 🎯 CRITICAL PATTERN: Frame tracking ensures animations respect UI-configured duration
-  // AND allows smooth animate-out when interactions end
+  // Frame tracking keeps animation durations tied to UI configuration and
+  // allows smooth animate-out when interactions end.
   const frame = useCurrentFrame();
   const hoverStartFrameRef = useRef<number | null>(null);
   const hoverEndFrameRef = useRef<number | null>(null);
@@ -339,10 +237,7 @@ export function useInteractiveComponent(
   const prevClickStateRef = useRef<boolean>(false);
   const prevFrameRef = useRef<number>(frame);
 
-  // CRITICAL: Detect timeline scrubbing (frame jump backwards)
-  // When user scrubs backwards, refs from "future" frames are stale and must be reset
   if (frame < prevFrameRef.current) {
-    // Frame jumped backwards - reset all refs to allow recalculation
     hoverStartFrameRef.current = null;
     hoverEndFrameRef.current = null;
     hoverMaxProgressRef.current = 0;
@@ -451,10 +346,6 @@ export function useInteractiveComponent(
     addAnimation,
   ]);
 
-  // Step 5: Compute animated property values from stored animations
-  // 🎯 CRITICAL: This computation respects animation.duration from UI
-  // PRIORITY: Click animations override hover animations (no blending!)
-  // NOTE: We need to calculate this BEFORE hoverAnimProgress so we can use the progress values
   const storedAnimations = getAnimationsForElement(compositionId, elementType);
   const storedHoverAnimation = storedAnimations.find(
     (a) => a.triggerType === "hover",
@@ -463,8 +354,7 @@ export function useInteractiveComponent(
     (a) => a.triggerType === "click",
   );
 
-  // 🎯 Progress values respect UI-configured durations AND easing
-  // Supports BOTH animate-in (0→1) AND animate-out (maxProgress→0) for smooth transitions
+  // Progress supports both animate-in and animate-out transitions.
   const hoverAnimProgress = storedHoverAnimation
     ? (() => {
         if (hoverState.isHovering) {
@@ -684,12 +574,12 @@ export function useInteractiveComponent(
   return {
     id,
     hover: {
-      isHovering: hoverState.isHovering, // Raw interaction state (for UI feedback)
-      progress: hoverAnimProgress, // 🎯 Duration-based: completes in animation.duration frames
+      isHovering: hoverState.isHovering,
+      progress: hoverAnimProgress,
     },
     click: {
-      isClicking: hoverState.isClicking, // Raw interaction state (for UI feedback)
-      progress: clickAnimProgress, // 🎯 Duration-based: completes in animation.duration frames
+      isClicking: hoverState.isClicking,
+      progress: clickAnimProgress,
     },
     combinedProgress: Math.max(hoverAnimProgress, clickAnimProgress),
     cursorType: resolvedCursorType,
@@ -703,9 +593,6 @@ export function useInteractiveComponent(
   };
 }
 
-/**
- * Helper to create multiple interactive components at once
- */
 export function useInteractiveComponents(
   components: UseInteractiveComponentOptions[],
 ): Record<string, InteractiveComponentState> {
@@ -719,32 +606,9 @@ export function useInteractiveComponents(
   return result;
 }
 
-/**
- * THREE-STATE ANIMATION MODEL
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * All interactive components follow a three-state model:
- *
- *   STANDARD ──[hover in]──▶ HOVER ──[click in]──▶ CLICK
- *                                ◀──[hover out]──         ◀──[click out]──
- *
- * KEY RULES:
- *   1. hoverAnimation defines: standard → hover (what changes on hover)
- *   2. clickAnimation defines: hover → click (what changes on click)
- *      - The `from` value is IGNORED when hovering — the system automatically
- *        blends click relative to the current hover value
- *      - Only `to` matters: it defines the peak click state
- *   3. Click animate-out returns to HOVER state (not standard)
- *   4. Hover animate-out returns to STANDARD state
- *
- * EXAMPLE — Button scale animation:
- *   hoverAnimation: { scale: 1 → 1.05 }  (standard to hover)
- *   clickAnimation:  { scale: _ → 0.95 }  (hover to click — from is ignored!)
- *   Result: standard(1.0) → hover(1.05) → click(0.95) → hover(1.05) → standard(1.0)
- */
+// Click animations blend from the current hover value; their `from` values are
+// retained only for schema consistency.
 export const AnimationPresets = {
-  // ─── HOVER ANIMATIONS ─────────────────────────────────────────────────────
-
   /** Scale up on hover */
   scaleHover: (amount = 0.15): AnimationShorthand => ({
     duration: 6,
@@ -780,17 +644,11 @@ export const AnimationPresets = {
     ],
   }),
 
-  // ─── CLICK ANIMATIONS ─────────────────────────────────────────────────────
-  // NOTE: The `from` value in click animations is IGNORED when hovering.
-  // The system blends click relative to the current hover value automatically.
-  // Only `to` matters — it defines the peak click state.
-
-  /** Press effect — scale down on click (returns to hover scale, not default) */
+  /** Scale down on click; returns to hover scale, not default scale. */
   pressClick: (amount = 0.95): AnimationShorthand => ({
     duration: 12,
     easing: "expo.out",
     properties: [
-      // `from` is ignored — system uses hover value as starting point
       { property: "scale", from: 1, to: amount, unit: "" },
       { property: "brightness", from: 1, to: 1.2, unit: "" },
     ],

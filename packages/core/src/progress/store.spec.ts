@@ -78,7 +78,7 @@ describe("progress store", () => {
       },
     );
 
-    await listRuns("alice@example.com", { activeOnly: true, limit: 10 });
+    await listRuns("stale@example.com", { activeOnly: true, limit: 10 });
 
     const update = execCalls.find((c) =>
       /^\s*UPDATE progress_runs\b/i.test(c.sql),
@@ -90,7 +90,7 @@ describe("progress store", () => {
       "Stopped after 5 minutes without progress.",
       now,
       now,
-      "alice@example.com",
+      "stale@example.com",
       now - DEFAULT_PROGRESS_RUN_STALE_MS,
     ]);
   });
