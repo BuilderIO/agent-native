@@ -76,7 +76,6 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
     y: 0,
     values: {},
   });
-  const lockPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const cameraTrack = tracks.find((t) => t.id === "camera");
 

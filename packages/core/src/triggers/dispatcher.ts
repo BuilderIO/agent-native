@@ -6,7 +6,6 @@
  * loop) when matching events fire.
  */
 
-import { randomUUID } from "node:crypto";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import { resourceListAllOwners, resourcePut } from "../resources/store.js";
