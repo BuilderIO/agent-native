@@ -25,7 +25,7 @@ import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -36,8 +36,9 @@ import { VideoNode } from "./extensions/VideoNode";
 import { AudioNode } from "./extensions/AudioNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
-  notionEditorExtensions,
+  type NotionPageLink,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import { DragHandle } from "./extensions/DragHandle";
@@ -723,7 +724,11 @@ interface VisualEditorProps {
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  notionPageLinks?: NotionPageLink[];
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
+
+export type { NotionPageLink };
 
 export function shouldSeedCollaborativeContent({
   content,
@@ -809,6 +814,8 @@ interface VisualEditorExtensionOptions {
   user?: { name: string; color: string; email?: string } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
 
 function hasAncestorType(
@@ -1130,6 +1137,8 @@ export function createVisualEditorExtensions({
   user,
   onImageComment,
   onJoinTitle,
+  resolveNotionPageLink,
+  onOpenNotionPageLink,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return [
     StarterKit.configure({
@@ -1186,7 +1195,10 @@ export function createVisualEditorExtensions({
     NotionTableHeader,
     TableCell,
     NormalizeTableHeaders,
-    ...notionEditorExtensions,
+    ...createNotionEditorExtensions({
+      resolvePageLink: resolveNotionPageLink,
+      onOpenPageLink: onOpenNotionPageLink,
+    }),
     ...notionFidelityExtensions,
     DragHandle,
     TypographyReplacements,
@@ -1224,11 +1236,24 @@ export function VisualEditor({
   editable = true,
   onComment,
   onJoinTitle,
+  notionPageLinks = [],
+  onOpenNotionPageLink,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const notionPageLinksRef = useRef(notionPageLinks);
+  notionPageLinksRef.current = notionPageLinks;
+  const resolveNotionPageLink = useCallback((notionPageId: string) => {
+    const normalized = notionPageId.replace(/-/g, "").toLowerCase();
+    return (
+      notionPageLinksRef.current.find(
+        (link) =>
+          link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
+      ) ?? null
+    );
+  }, []);
   const prevDocIdRef = useRef(documentId);
   // Track the last content the editor emitted via onChange, so we can
   // distinguish external SQL changes (agent/Notion/peer) from our own saves.
@@ -1317,6 +1342,8 @@ export function VisualEditor({
         user,
         onImageComment: onComment,
         onJoinTitle,
+        resolveNotionPageLink,
+        onOpenNotionPageLink,
       }),
     [
       documentId,
@@ -1327,6 +1354,8 @@ export function VisualEditor({
       user?.color,
       onComment,
       onJoinTitle,
+      resolveNotionPageLink,
+      onOpenNotionPageLink,
     ],
   );
 

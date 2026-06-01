@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
-import { canonicalizeNfm } from "../../shared/nfm.js";
+import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import {
   createNotionPageWithMarkdown,
@@ -21,8 +21,17 @@ import type { DocumentSyncStatus } from "../../shared/api.js";
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type LinkRow = InferSelectModel<typeof schema.documentSyncLinks>;
 
+const MAX_CHILD_PAGE_SYNC_DEPTH = 5;
+
 function nowIso() {
   return new Date().toISOString();
+}
+
+function nanoid(size = 12): string {
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.randomBytes(size);
+  return Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
 }
 
 /**
@@ -48,6 +57,68 @@ function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
   } catch {
     return [];
   }
+}
+
+function normalizeNotionPageIdSafe(input: string | null | undefined) {
+  if (!input) return null;
+  try {
+    return normalizeNotionPageId(input);
+  } catch {
+    return null;
+  }
+}
+
+function parseAttrsJson(value: unknown): Record<string, string> {
+  if (typeof value !== "string" || !value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => {
+        return typeof entry[0] === "string" && typeof entry[1] === "string";
+      }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+type ChildPageReference = {
+  pageId: string;
+  title: string;
+};
+
+function extractChildPageReferences(content: string): ChildPageReference[] {
+  const doc = nfmToDoc(content);
+  const refs: ChildPageReference[] = [];
+  const seen = new Set<string>();
+
+  function visit(node: PMNode) {
+    if (node.type === "notionBlockAtom" && node.attrs?.tagName === "page") {
+      const attrs = parseAttrsJson(node.attrs.attrsJson);
+      const pageId =
+        normalizeNotionPageIdSafe(attrs.url) ??
+        normalizeNotionPageIdSafe(attrs.href) ??
+        normalizeNotionPageIdSafe(attrs.id) ??
+        normalizeNotionPageIdSafe(attrs.pageId) ??
+        normalizeNotionPageIdSafe(attrs.page_id);
+
+      if (pageId && !seen.has(pageId)) {
+        seen.add(pageId);
+        refs.push({
+          pageId,
+          title:
+            typeof node.attrs.label === "string" && node.attrs.label.trim()
+              ? node.attrs.label.trim()
+              : "Untitled",
+        });
+      }
+    }
+
+    for (const child of node.content ?? []) visit(child);
+  }
+
+  for (const child of doc.content) visit(child);
+  return refs;
 }
 
 function buildStatus(args: {
@@ -168,6 +239,209 @@ async function upsertSyncLink(args: {
     });
 }
 
+async function findDocumentIdForRemotePage(
+  owner: string,
+  remotePageId: string,
+) {
+  const db = getDb();
+  const links = await db
+    .select({
+      documentId: schema.documentSyncLinks.documentId,
+      remotePageId: schema.documentSyncLinks.remotePageId,
+    })
+    .from(schema.documentSyncLinks)
+    .where(eq(schema.documentSyncLinks.ownerEmail, owner));
+
+  return (
+    links.find(
+      (link) => normalizeNotionPageIdSafe(link.remotePageId) === remotePageId,
+    )?.documentId ?? null
+  );
+}
+
+async function inheritShares(parentId: string, childId: string, now: string) {
+  const db = getDb();
+  const shares = await db
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+      createdBy: schema.documentShares.createdBy,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, parentId));
+
+  if (shares.length === 0) return;
+
+  await db.insert(schema.documentShares).values(
+    shares.map((share) => ({
+      id: nanoid(),
+      resourceId: childId,
+      principalType: share.principalType,
+      principalId: share.principalId,
+      role: share.role,
+      createdBy: share.createdBy,
+      createdAt: now,
+    })),
+  );
+}
+
+async function createLinkedChildDocument(args: {
+  owner: string;
+  parent: DocumentRow;
+  remotePageId: string;
+  title: string;
+  position: number;
+}) {
+  const db = getDb();
+  const now = nowIso();
+  const id = nanoid();
+
+  await db.insert(schema.documents).values({
+    id,
+    ownerEmail: args.parent.ownerEmail,
+    orgId: args.parent.orgId,
+    parentId: args.parent.id,
+    title: args.title || "Untitled",
+    content: "",
+    icon: null,
+    position: args.position,
+    isFavorite: 0,
+    hideFromSearch: args.parent.hideFromSearch,
+    visibility: args.parent.visibility,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await inheritShares(args.parent.id, id, now);
+  await upsertSyncLink({
+    owner: args.owner,
+    documentId: id,
+    remotePageId: args.remotePageId,
+    state: "linked",
+    warnings: [],
+    hasConflict: false,
+  });
+
+  return id;
+}
+
+async function deleteImportedPlaceholder(owner: string, documentId: string) {
+  const db = getDb();
+  await db
+    .delete(schema.documentSyncLinks)
+    .where(
+      and(
+        eq(schema.documentSyncLinks.documentId, documentId),
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+      ),
+    );
+  await db
+    .delete(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        eq(schema.documents.ownerEmail, owner),
+      ),
+    );
+}
+
+async function syncChildPagesFromPulledContent(args: {
+  owner: string;
+  parent: DocumentRow;
+  content: string;
+  force: boolean;
+  depth: number;
+  seenRemotePageIds: Set<string>;
+}) {
+  if (args.depth >= MAX_CHILD_PAGE_SYNC_DEPTH) return;
+
+  const refs = extractChildPageReferences(args.content);
+  if (refs.length === 0) return;
+
+  const db = getDb();
+  for (const [index, ref] of refs.entries()) {
+    if (args.seenRemotePageIds.has(ref.pageId)) continue;
+    args.seenRemotePageIds.add(ref.pageId);
+
+    let childId = await findDocumentIdForRemotePage(args.owner, ref.pageId);
+    let createdPlaceholder = false;
+
+    if (!childId) {
+      childId = await createLinkedChildDocument({
+        owner: args.owner,
+        parent: args.parent,
+        remotePageId: ref.pageId,
+        title: ref.title,
+        position: index,
+      });
+      createdPlaceholder = true;
+    } else {
+      const [child] = await db
+        .select()
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.id, childId),
+            eq(schema.documents.ownerEmail, args.owner),
+          ),
+        );
+
+      if (!child) continue;
+
+      const updates: Partial<DocumentRow> = {};
+      if (child.parentId !== args.parent.id) {
+        updates.parentId = args.parent.id;
+      }
+      if (child.position !== index) {
+        updates.position = index;
+      }
+      if (Object.keys(updates).length > 0) {
+        await db
+          .update(schema.documents)
+          .set(updates)
+          .where(
+            and(
+              eq(schema.documents.id, childId),
+              eq(schema.documents.ownerEmail, args.owner),
+            ),
+          );
+      }
+    }
+
+    try {
+      await pullDocumentFromNotion(args.owner, childId, args.force, {
+        depth: args.depth + 1,
+        seenRemotePageIds: args.seenRemotePageIds,
+      });
+    } catch (error) {
+      if (createdPlaceholder) {
+        await deleteImportedPlaceholder(args.owner, childId);
+      } else {
+        const link = await getSyncLink(childId, args.owner);
+        if (link) {
+          await upsertSyncLink({
+            owner: args.owner,
+            documentId: childId,
+            remotePageId: link.remotePageId,
+            state: "error",
+            lastSyncedAt: link.lastSyncedAt,
+            lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+            lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+            lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+            lastSyncedContentHash: link.lastSyncedContentHash,
+            lastError:
+              error instanceof Error
+                ? error.message
+                : "Failed to sync Notion child page",
+            warnings: parseWarnings(link),
+            hasConflict: Boolean(link.hasConflict),
+          });
+        }
+      }
+    }
+  }
+}
+
 export async function unlinkDocumentFromNotion(
   owner: string,
   documentId: string,
@@ -266,6 +540,10 @@ export async function pullDocumentFromNotion(
   owner: string,
   documentId: string,
   force = false,
+  childSync: {
+    depth?: number;
+    seenRemotePageIds?: Set<string>;
+  } = {},
 ): Promise<DocumentSyncStatus> {
   const db = getDb();
   const document = await getDocument(documentId, owner);
@@ -379,6 +657,24 @@ export async function pullDocumentFromNotion(
   });
 
   const updatedLink = await getSyncLink(documentId, owner);
+  const seenRemotePageIds = childSync.seenRemotePageIds ?? new Set<string>();
+  const currentRemotePageId = normalizeNotionPageIdSafe(link.remotePageId);
+  if (currentRemotePageId) seenRemotePageIds.add(currentRemotePageId);
+  await syncChildPagesFromPulledContent({
+    owner,
+    parent: {
+      ...document,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt,
+    },
+    content: newContent,
+    force,
+    depth: childSync.depth ?? 0,
+    seenRemotePageIds,
+  });
+
   return buildStatus({
     connected: true,
     documentId,
