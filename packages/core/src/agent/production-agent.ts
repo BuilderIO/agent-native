@@ -1845,6 +1845,21 @@ export async function runAgentLoop(opts: {
               reject(new Error("Tool call timed out after 60 seconds")),
             );
           }),
+          // Stop waiting on the tool when the run itself is aborted (e.g. the
+          // run-manager soft timeout, or a user cancel). Without this leg the
+          // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
+          // the run signal has already fired.
+          new Promise<never>((_, reject) => {
+            if (signal.aborted) {
+              reject(new Error("Run aborted"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("Run aborted")),
+              { once: true },
+            );
+          }),
         ]);
         const mcpResult = isMcpActionResult(raw) ? raw : null;
         const rawForAgent = mcpResult ? mcpResult.text : raw;

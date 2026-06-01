@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { subscribe } from "../event-bus/index.js";
+import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import { resourceListAllOwners, resourcePut } from "../resources/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -155,8 +155,11 @@ export interface TriggerDispatcherDeps {
   appId?: string;
 }
 
-// Track active subscriptions to avoid double-subscribing
-const _subscribedEvents = new Set<string>();
+// Track active subscriptions (eventName -> subscription id) to avoid
+// double-subscribing AND so subscriptions for events that no longer have any
+// enabled trigger can be torn down — otherwise deleted/disabled triggers leave
+// phantom bus listeners that fire handleEvent forever.
+const _eventSubscriptions = new Map<string, string>();
 // In-flight agentic dispatches keyed by `${owner}:${path}`. Guards against the
 // check-then-write TOCTOU window in handleEvent: two near-simultaneous fires of
 // the same event both pass the `lastStatus !== "running"` check (which has
@@ -194,12 +197,20 @@ export async function refreshEventSubscriptions(): Promise<void> {
       }
     }
 
+    // Tear down subscriptions whose event no longer has any enabled trigger.
+    for (const [eventName, subId] of [..._eventSubscriptions]) {
+      if (!eventNames.has(eventName)) {
+        unsubscribe(subId);
+        _eventSubscriptions.delete(eventName);
+      }
+    }
+
     for (const eventName of eventNames) {
-      if (!_subscribedEvents.has(eventName)) {
-        subscribe(eventName, (payload, eventMeta) =>
+      if (!_eventSubscriptions.has(eventName)) {
+        const subId = subscribe(eventName, (payload, eventMeta) =>
           handleEvent(eventName, payload, eventMeta),
         );
-        _subscribedEvents.add(eventName);
+        _eventSubscriptions.set(eventName, subId);
       }
     }
   } catch (err) {

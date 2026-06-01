@@ -163,7 +163,16 @@ function hasWrapperBridge(): boolean {
 
 function isTrustedParentMessage(event: MessageEvent): boolean {
   if (!isInChildFrame()) return false;
-  return event.source === window.parent;
+  if (event.source !== window.parent) return false;
+  // Defense in depth: once the parent's real origin is known (captured from the
+  // browser-stamped event.origin during the frameOrigin handshake, so it can't
+  // be spoofed), also require inbound messages to come from that origin. When
+  // it isn't known yet (null) or is opaque ("null"), fall back to source-only.
+  const expectedOrigin = getFrameOrigin();
+  if (expectedOrigin && expectedOrigin !== "null") {
+    return event.origin === expectedOrigin;
+  }
+  return true;
 }
 
 function requestId(): string {

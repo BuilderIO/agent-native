@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { resolveDefaultWorkspaceId } from "../server/lib/calls.js";
+import { resolveWorkspaceIdForAction } from "../server/lib/calls.js";
 
 const cliBoolean = z.preprocess((value) => {
   if (value === "true") return true;
@@ -27,7 +27,9 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const workspaceId = args.workspaceId || (await resolveDefaultWorkspaceId());
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
 
     const statuses: Array<
       "scheduled" | "joining" | "recording" | "done" | "failed"

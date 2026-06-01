@@ -11,6 +11,7 @@ import { z } from "zod";
 import { asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertWorkspaceAccess,
   getCurrentOwnerEmail,
   nanoid,
   parseSpaceIds,
@@ -46,34 +47,8 @@ export default defineAction({
       } | null;
       workspaceId = current?.id ?? null;
     }
-
-    let workspace: typeof schema.workspaces.$inferSelect | null = null;
-    if (workspaceId) {
-      const [row] = await db
-        .select()
-        .from(schema.workspaces)
-        .where(eq(schema.workspaces.id, workspaceId));
-      workspace = row ?? null;
-    }
-    if (!workspace) {
-      const [row] = await db
-        .select()
-        .from(schema.workspaces)
-        .orderBy(desc(schema.workspaces.createdAt))
-        .limit(1);
-      workspace = row ?? null;
-    }
-
-    if (!workspace) {
-      return {
-        workspace: null,
-        activeWorkspaceId: null,
-        members: [],
-        spaces: [],
-        folders: [],
-        invites: [],
-      };
-    }
+    if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+    const workspace = await assertWorkspaceAccess(workspaceId);
 
     const [members, spaces, folders, invites] = await Promise.all([
       db

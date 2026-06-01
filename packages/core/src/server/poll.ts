@@ -430,12 +430,9 @@ async function seedVersionFromDb(): Promise<void> {
     _lastActionMarkerTs = 0;
     _lastScreenRefreshTs = refreshTs;
     _screenRefreshInitialized = true;
-    // We just read every relevant table to seed the watermarks above, so the
-    // very next poll's checkExternalDbChanges would otherwise re-query them all
-    // immediately (since _lastDbCheck is still 0). Stamp the throttle now to
-    // skip that redundant cold-start round-trip. (_lastActionMarkerTs stays 0
-    // intentionally — see the note above.)
-    _lastDbCheck = Date.now();
+    // Skip the redundant cold-start recheck unless there is an existing durable
+    // action marker that the first poll still needs to emit.
+    _lastDbCheck = actionMarkerTs > 0 ? 0 : Date.now();
   } catch {
     // Tables may not exist yet — ignore
   }

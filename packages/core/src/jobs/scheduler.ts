@@ -235,14 +235,14 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         const nextRunDate = new Date(meta.nextRun);
         if (nextRunDate > now) continue;
       } else {
-        // No nextRun computed yet — compute it and skip if not due
-        const next = nextOccurrence(meta.schedule, new Date(0));
-        if (next > now) {
-          // Store nextRun for future checks
-          meta.nextRun = next.toISOString();
-          await updateResource(resource, meta, body);
-          continue;
-        }
+        // No nextRun computed yet — seed it from `now` so the job waits for its
+        // real next occurrence. Computing from new Date(0) (the epoch) always
+        // returns a 1970 date, which is < now, so the job would fire
+        // immediately on first sight regardless of its schedule.
+        const next = nextOccurrence(meta.schedule, now);
+        meta.nextRun = next.toISOString();
+        await updateResource(resource, meta, body);
+        continue;
       }
 
       // Skip if body is empty
@@ -441,8 +441,10 @@ async function executeJob(
           clearTimeout(timeout);
         }
 
-        // Success — update status
-        const next = nextOccurrence(meta.schedule, now);
+        // Success — update status. Compute the next run from completion time,
+        // not the job's start time `now`: a long run could otherwise schedule a
+        // nextRun that's already in the past and re-fire immediately next tick.
+        const next = nextOccurrence(meta.schedule, new Date());
         meta.lastStatus = "success";
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
@@ -451,8 +453,8 @@ async function executeJob(
           `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
         );
       } catch (err: any) {
-        // Error — update status
-        const next = nextOccurrence(meta.schedule, now);
+        // Error — update status. Use completion time (see success path).
+        const next = nextOccurrence(meta.schedule, new Date());
         meta.lastStatus = "error";
         meta.lastError = err?.message?.slice(0, 200) || "Unknown error";
         meta.nextRun = next.toISOString();

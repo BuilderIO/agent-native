@@ -10,6 +10,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertWorkspaceAccess,
   getCurrentOwnerEmail,
   nanoid,
   parseSpaceIds,
@@ -32,6 +33,14 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const db = getDb();
+    const [space] = await db
+      .select({ workspaceId: schema.spaces.workspaceId })
+      .from(schema.spaces)
+      .where(eq(schema.spaces.id, args.spaceId))
+      .limit(1);
+    if (!space) throw new Error(`Space not found: ${args.spaceId}`);
+    await assertWorkspaceAccess(space.workspaceId, "admin");
+
     const [existing] = await db
       .select()
       .from(schema.spaceMembers)

@@ -171,6 +171,14 @@ export async function createSsoState(
     sql: `INSERT INTO identity_sso_state (state, return_path, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?)`,
     args: [state, returnPath ?? null, now, expiresAt, null],
   });
+  // Fire-and-forget: prune fully-expired rows (consumed or abandoned). Without
+  // this the table grows unbounded and the rate-limit COUNT(*) above slows down.
+  void client
+    .execute({
+      sql: `DELETE FROM identity_sso_state WHERE expires_at < ?`,
+      args: [now],
+    })
+    .catch(() => {});
   return state;
 }
 

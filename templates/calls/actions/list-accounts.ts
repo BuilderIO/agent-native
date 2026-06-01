@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { resolveDefaultWorkspaceId } from "../server/lib/calls.js";
+import { resolveWorkspaceIdForAction } from "../server/lib/calls.js";
 
 export default defineAction({
   description: "List all accounts in the current workspace.",
@@ -15,7 +15,9 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const workspaceId = args.workspaceId || (await resolveDefaultWorkspaceId());
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
     const accounts = await db
       .select()
       .from(schema.accounts)
