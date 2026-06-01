@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.32.4
+
+### Patch Changes
+
+- 826fc96: Keep auth fallback HTML out of shared CDN caches and vary docs markdown/html responses by Accept.
+- 826fc96: Move safe React Router route data and JS warmup into the core client with configurable Vite defaults.
+
 ## 0.32.3
 
 ### Patch Changes
