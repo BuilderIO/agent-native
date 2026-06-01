@@ -196,6 +196,7 @@ export async function getDocumentSyncStatus(
       documentId,
       link,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -211,6 +212,7 @@ export async function getDocumentSyncStatus(
       link,
       remoteUpdatedAt,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   } catch (error: any) {
     await upsertSyncLink({
@@ -222,6 +224,7 @@ export async function getDocumentSyncStatus(
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
       lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: error.message || "Failed to load Notion page",
       warnings: parseWarnings(link),
       hasConflict: Boolean(link.hasConflict),
@@ -232,6 +235,7 @@ export async function getDocumentSyncStatus(
       documentId,
       link: next,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 }
@@ -534,6 +538,7 @@ export async function refreshDocumentSyncStatus(
       documentId,
       link,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
   lastRefreshAt.set(documentId, now);
@@ -563,6 +568,7 @@ export async function refreshDocumentSyncStatus(
           lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
           lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
           lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
           lastError: null,
           warnings: parseWarnings(link),
           hasConflict: true,
@@ -575,6 +581,7 @@ export async function refreshDocumentSyncStatus(
           link: updatedLink,
           remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
           documentUpdatedAt: document.updatedAt,
+          documentContent: document.content,
         });
       }
     }
