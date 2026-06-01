@@ -9,7 +9,6 @@ import {
   IconCheck,
   IconClock,
   IconExternalLink,
-  IconMicrophone2,
   IconNotes,
   IconVideo,
 } from "@tabler/icons-react";
@@ -194,11 +193,10 @@ function relativeStartLabel(iso: string): { text: string; soon: boolean } {
 }
 
 /**
- * <UpcomingMeetingCard /> — a not-yet-recorded calendar event with explicit
- * Record + Join affordances (Granola/Loom-style). Clicking the body opens the
- * meeting detail where notes are captured; "Join & record" jumps straight there
- * and "Join" opens the call link. Buttons are NavLink/<a> siblings (never
- * nested anchors) so the markup stays valid.
+ * <UpcomingMeetingCard /> — a not-yet-recorded calendar event (Granola-style).
+ * Recording is a native Clips desktop-app gesture, so the card just opens the
+ * meeting's notes ("Open") and links out to the call ("Join"). Buttons are
+ * NavLink/<a> siblings (never nested anchors) so the markup stays valid.
  */
 export function UpcomingMeetingCard({
   meeting,
@@ -282,12 +280,11 @@ export function UpcomingMeetingCard({
             <Button
               asChild
               size="sm"
-              variant={joinable ? "default" : "secondary"}
+              variant={isLive ? "default" : "secondary"}
               className="h-7 gap-1 px-2.5 text-xs cursor-pointer"
             >
               <NavLink to={`/meetings/${meeting.id}`}>
-                <IconMicrophone2 className="h-3.5 w-3.5" />
-                {isLive ? "Open notes" : joinable ? "Record" : "Take notes"}
+                {isLive ? "Open notes" : "Open"}
               </NavLink>
             </Button>
           </div>

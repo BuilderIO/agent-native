@@ -17,12 +17,7 @@
  * strictly additive, never DROP / ALTER (shared prod DB rule).
  */
 
-import {
-  getDbExec,
-  isConnectionError,
-  isPostgres,
-  intType,
-} from "../db/client.js";
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 let _initPromise: Promise<void> | undefined;

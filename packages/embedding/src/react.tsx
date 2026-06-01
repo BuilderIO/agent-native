@@ -1,4 +1,4 @@
-import React, {
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -78,7 +78,7 @@ export interface EmbeddedAppProps extends Omit<
 }
 
 type PendingRequest = {
-  resolve: (value: any) => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -164,9 +164,13 @@ export const EmbeddedApp = forwardRef<EmbeddedAppRef, EmbeddedAppProps>(
             ),
           );
         },
-        request(name, payload, options) {
+        request<TResult = unknown, TPayload = unknown>(
+          name: string,
+          payload?: TPayload,
+          options?: { timeoutMs?: number },
+        ) {
           const requestId = createEmbeddedAppRequestId();
-          return new Promise((resolve, reject) => {
+          return new Promise<TResult>((resolve, reject) => {
             const timeoutMs = options?.timeoutMs ?? 30_000;
             const timer =
               timeoutMs > 0
@@ -177,7 +181,11 @@ export const EmbeddedApp = forwardRef<EmbeddedAppRef, EmbeddedAppProps>(
                     );
                   }, timeoutMs)
                 : undefined;
-            pendingRef.current.set(requestId, { resolve, reject, timer });
+            pendingRef.current.set(requestId, {
+              resolve: (value) => resolve(value as TResult),
+              reject,
+              timer,
+            });
             const posted = postEnvelope(
               iframeRef.current,
               resolvedOrigin ?? undefined,

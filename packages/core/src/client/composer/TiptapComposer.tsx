@@ -1056,6 +1056,11 @@ export function TiptapComposer({
   // Persist draft to localStorage so hot-reloads don't lose the prompt
   const draftKey = getComposerDraftKey(draftScope);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    return () => {
+      clearTimeout(draftTimerRef.current);
+    };
+  }, []);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
   const placeholderRef = useRef(placeholder);

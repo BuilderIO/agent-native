@@ -128,9 +128,6 @@ class AnthropicEngine implements AgentEngine {
       signal: opts.abortSignal,
     });
 
-    let thinkingText = "";
-    let thinkingSignature = "";
-
     // Per-stream state lets the translator carry each tool-call's id/name from
     // its `content_block_start` onto the streamed `input_json_delta` chunks, so
     // long tool-input generation emits countable `tool-input-start` /
@@ -141,10 +138,6 @@ class AnthropicEngine implements AgentEngine {
       for await (const chunk of apiStream) {
         const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
-          if (event.type === "thinking-delta") {
-            thinkingText += event.text;
-            if (event.signature) thinkingSignature = event.signature;
-          }
           yield event;
         }
       }

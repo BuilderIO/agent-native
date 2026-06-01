@@ -1,13 +1,5 @@
-/**
- * List text expansion snippets.
- *
- * Usage:
- *   pnpm action list-snippets
- *   pnpm action list-snippets --search="sig"
- */
-
 import { defineAction } from "@agent-native/core";
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
@@ -31,8 +23,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    // Show personal snippets + team snippets the user has access to
-    const whereClauses = [];
+    const whereClauses: SQL[] = [];
 
     if (args.teamOnly) {
       whereClauses.push(eq(schema.dictationSnippets.isTeam, true));
@@ -41,7 +32,7 @@ export default defineAction({
         or(
           eq(schema.dictationSnippets.ownerEmail, ownerEmail),
           eq(schema.dictationSnippets.isTeam, true),
-        )!,
+        ),
       );
     }
 

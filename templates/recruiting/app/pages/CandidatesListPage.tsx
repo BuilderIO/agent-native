@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useCandidates, useFilterCandidates } from "@/hooks/use-greenhouse";
 import {
@@ -24,6 +24,7 @@ export function CandidatesListPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterPrompt, setFilterPrompt] = useState("");
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filterMutation = useFilterCandidates();
   const {
     data: candidates = [],
@@ -42,11 +43,21 @@ export function CandidatesListPage() {
   // Simple debounce
   const handleSearch = (value: string) => {
     setSearch(value);
-    clearTimeout((window as any).__candidateSearchTimeout);
-    (window as any).__candidateSearchTimeout = setTimeout(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearch(value);
     }, 300);
   };
+
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFilter = () => {
     const prompt = filterPrompt.trim();

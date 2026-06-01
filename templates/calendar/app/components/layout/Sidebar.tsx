@@ -48,9 +48,7 @@ import {
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
 import {
-  agentNativePath,
   appPath,
-  useSession,
   DevDatabaseLink,
   FeedbackButton,
 } from "@agent-native/core/client";
@@ -558,7 +556,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     isHiddenCalendar,
   } = useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
-  const { session } = useSession();
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();

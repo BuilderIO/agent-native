@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { agentNativePath } from "@agent-native/core/client";
 import { useQuery } from "@tanstack/react-query";
 import {

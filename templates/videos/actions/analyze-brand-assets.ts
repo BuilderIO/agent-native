@@ -1,7 +1,21 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { resolveAccess } from "@agent-native/core/sharing";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+
+export function normalizeBrandWebsiteUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error("Website URL is required");
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(trimmed);
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+  const parsed = new URL(candidate);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http and https URLs are allowed");
+  }
+  return parsed.href;
+}
 
 export default defineAction({
   description:
@@ -54,45 +68,18 @@ export default defineAction({
     // Fetch and analyze website if URL provided
     if (websiteUrl) {
       try {
-        const url = websiteUrl.startsWith("http")
-          ? websiteUrl
-          : `https://${websiteUrl}`;
-
-        // SSRF guard: only allow http/https and block internal/private IPs
-        const parsed = new URL(url);
-        if (!["http:", "https:"].includes(parsed.protocol)) {
-          throw new Error("Only http and https URLs are allowed");
-        }
-        const hostname = parsed.hostname;
-        if (
-          hostname === "localhost" ||
-          hostname === "127.0.0.1" ||
-          hostname === "0.0.0.0" ||
-          hostname === "[::1]" ||
-          hostname.startsWith("10.") ||
-          hostname.startsWith("172.16.") ||
-          hostname.startsWith("172.17.") ||
-          hostname.startsWith("172.18.") ||
-          hostname.startsWith("172.19.") ||
-          hostname.startsWith("172.2") ||
-          hostname.startsWith("172.30.") ||
-          hostname.startsWith("172.31.") ||
-          hostname.startsWith("192.168.") ||
-          hostname.endsWith(".internal") ||
-          hostname.endsWith(".local") ||
-          hostname === "metadata.google.internal" ||
-          hostname === "169.254.169.254"
-        ) {
-          throw new Error("Internal/private URLs are not allowed");
-        }
-
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",
+        const url = normalizeBrandWebsiteUrl(websiteUrl);
+        const response = await ssrfSafeFetch(
+          url,
+          {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (compatible; AgentNative/1.0; +https://agent-native.com)",
+            },
+            signal: AbortSignal.timeout(10000),
           },
-          signal: AbortSignal.timeout(10000),
-        });
+          { maxRedirects: 3 },
+        );
         const html = await response.text();
 
         const extracted: Record<string, unknown> = { url };

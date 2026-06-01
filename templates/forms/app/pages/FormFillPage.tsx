@@ -59,6 +59,30 @@ export function FormFillPage() {
   );
   const settings: FormSettings = form?.settings || {};
 
+  // Scale fields render the slider at their minimum even before the user
+  // interacts, so seed that displayed default into form state. Otherwise a
+  // required scale field left untouched fails validation despite looking set.
+  useEffect(() => {
+    const scaleDefaults: Record<string, number> = {};
+    for (const field of fields) {
+      if (field.type === "scale") {
+        scaleDefaults[field.id] = field.validation?.min ?? 1;
+      }
+    }
+    if (Object.keys(scaleDefaults).length === 0) return;
+    setValues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [id, def] of Object.entries(scaleDefaults)) {
+        if (next[id] === undefined) {
+          next[id] = def;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [fields]);
+
   // Evaluate conditional visibility
   const visibleFields = useMemo(() => {
     return fields.filter((field) => {
@@ -92,7 +116,13 @@ export function FormFillPage() {
       }
       if (field.validation) {
         const val = values[field.id];
+        const hasNumericValue =
+          val !== undefined &&
+          val !== null &&
+          val !== "" &&
+          !Number.isNaN(Number(val));
         if (
+          hasNumericValue &&
           field.validation.min !== undefined &&
           Number(val) < field.validation.min
         ) {
@@ -102,6 +132,7 @@ export function FormFillPage() {
           );
         }
         if (
+          hasNumericValue &&
           field.validation.max !== undefined &&
           Number(val) > field.validation.max
         ) {

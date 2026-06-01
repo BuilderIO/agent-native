@@ -473,12 +473,20 @@ export function startRun(
             ? (pendingTerminalEvent?.event ?? { type: "done" })
             : pendingTerminalEvent?.event.type === "error"
               ? pendingTerminalEvent.event
-              : {
-                  type: "error",
-                  error: completionError
-                    ? "Agent response could not be saved."
-                    : "Agent run ended unexpectedly",
-                };
+              : pendingTerminalEvent?.event.type === "auto_continue"
+                ? // The run was checkpointed at a soft-timeout/loop boundary and
+                  // is recoverable: the partial turn is in agent_run_events and
+                  // the continuation run will re-attempt the thread_data save.
+                  // Even though the completion save failed (finalStatus stays
+                  // "errored" for SQL/diagnostics), re-emit the auto_continue so
+                  // the client resumes instead of seeing a dead chat.
+                  pendingTerminalEvent.event
+                : {
+                    type: "error",
+                    error: completionError
+                      ? "Agent response could not be saved."
+                      : "Agent run ended unexpectedly",
+                  };
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
           // Assign the seq at EMIT time, not at stash time. `run.events` is a

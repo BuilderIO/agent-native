@@ -25,18 +25,12 @@ import type {
 import {
   addMinutes,
   getDayOfWeek,
-  formatLocalDate,
   zonedTimeToUtc,
   localDatesInRange,
-  overlaps,
 } from "./time.js";
 import { evaluateAvailabilityForDate, type ScheduleInput } from "./rules.js";
 import { hasConflict, mergeBusy } from "./conflicts.js";
-import {
-  exceedsLimits,
-  bucketKeysForSlot,
-  type BookingCounts,
-} from "./limits.js";
+import { exceedsLimits, type BookingCounts } from "./limits.js";
 import { expandSlotForConflictCheck } from "./buffers.js";
 
 export interface ComputeSlotsInput {

@@ -170,8 +170,6 @@ async function createWorkspaceInteractive(
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
 
-  const firstApp = templates[0];
-
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;

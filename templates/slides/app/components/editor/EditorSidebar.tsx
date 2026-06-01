@@ -12,7 +12,6 @@ import {
   IconCopy,
   IconTrash,
   IconLoader2,
-  IconX,
   IconSquarePlus,
 } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";

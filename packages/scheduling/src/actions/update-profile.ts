@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getSchedulingContext } from "../server/context.js";
 import { currentUserEmail } from "./_helpers.js";
 
 // Profile data lives in consumer-provided settings (not the scheduling schema);

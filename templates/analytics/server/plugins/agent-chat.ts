@@ -16,7 +16,6 @@ import {
 } from "../lib/real-data-actions";
 import { renderDataDictionary } from "../lib/data-dictionary-context";
 
-const SQL_DASHBOARD_PREFIX = "sql-dashboard-";
 const DATA_DICT_PREFIX = "data-dict-";
 
 function latestUserText(

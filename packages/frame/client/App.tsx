@@ -17,20 +17,7 @@ import {
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
 
-// Lazy-load heavy components
-const MultiTabAssistantChat = lazy(() =>
-  import("@agent-native/core/client").then((m) => ({
-    default: m.MultiTabAssistantChat,
-  })),
-);
-
-const AgentTerminal = lazy(() =>
-  import("@agent-native/core/client").then((m) => ({
-    default: m.AgentTerminal,
-  })),
-);
-
-// Import the AgentPanel directly — it provides the full Chat/CLI/Workspace UI
+// Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
     default: m.AgentPanel,
@@ -317,7 +304,7 @@ export function App() {
         );
         return;
       }
-      // Relay submitChat from the iframe — MultiTabAssistantChat rejects
+      // Relay submitChat from the iframe; the agent chat rejects
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.

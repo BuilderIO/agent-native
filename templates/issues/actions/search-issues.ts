@@ -14,7 +14,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const { jql, q, compact, maxResults } = args;
+    const { jql, q, maxResults } = args;
 
     if (!jql && !q) throw new Error("jql or q is required");
 

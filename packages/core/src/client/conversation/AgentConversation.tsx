@@ -324,12 +324,12 @@ function ConversationMarkdown({ text }: { text: string }) {
     <div className="agent-conversation-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        urlTransform={(url) => {
-          if (url.startsWith("file://")) return url;
-          return defaultUrlTransform(url);
-        }}
+        urlTransform={defaultUrlTransform}
         components={{
           a({ children, href }) {
+            if (!href) {
+              return <span>{children}</span>;
+            }
             return (
               <a
                 href={href}
@@ -391,10 +391,14 @@ function openMarkdownLink(
   try {
     url = new URL(href, window.location.href);
   } catch {
+    event.preventDefault();
     return;
   }
 
-  if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) return;
+  if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) {
+    event.preventDefault();
+    return;
+  }
   event.preventDefault();
   window.open(url.href, "_blank", "noopener,noreferrer");
 }

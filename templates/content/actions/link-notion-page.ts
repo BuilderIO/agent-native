@@ -19,9 +19,7 @@ export default defineAction({
     const pageIdOrUrl = args.pageId || args.url;
 
     if (!documentId || !pageIdOrUrl) {
-      throw new Error(
-        "Usage: pnpm action link-notion-page --documentId <id> --pageId <id-or-url>",
-      );
+      throw new Error("documentId and pageId are required");
     }
 
     return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);

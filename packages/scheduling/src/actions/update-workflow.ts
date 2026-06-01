@@ -2,8 +2,22 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getSchedulingContext } from "../server/context.js";
+
+function assertWorkflowStepUrlsAllowed(
+  steps: Array<{ action: string; webhookUrl?: string }>,
+) {
+  for (const step of steps) {
+    if (step.action !== "webhook" || !step.webhookUrl) continue;
+    if (isBlockedToolUrl(step.webhookUrl)) {
+      throw new Error(
+        "Workflow webhookUrl must be an http(s) URL and cannot target private/internal hosts.",
+      );
+    }
+  }
+}
 
 export default defineAction({
   description:
@@ -61,6 +75,7 @@ export default defineAction({
       .set(set)
       .where(eq(schema.workflows.id, args.id));
     if (args.steps) {
+      assertWorkflowStepUrlsAllowed(args.steps);
       await getDb()
         .delete(schema.workflowSteps)
         .where(eq(schema.workflowSteps.workflowId, args.id));

@@ -43,6 +43,10 @@ export function useNavigationState() {
       state.view = "action-items";
     } else if (path.startsWith("/interviews")) {
       state.view = "interviews";
+    } else if (path.startsWith("/team")) {
+      state.view = "team";
+    } else if (path.startsWith("/extensions")) {
+      state.view = "extensions";
     } else if (path === "/settings") {
       state.view = "settings";
     }

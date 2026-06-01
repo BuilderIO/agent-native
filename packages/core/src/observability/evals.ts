@@ -181,16 +181,14 @@ function buildConversationTranscript(
         lines.push(`[User]: ${event.text ?? JSON.stringify(event.content)}`);
       } else if (event.type === "text-delta" || event.type === "text") {
         lines.push(`[Agent]: ${event.text}`);
-      } else if (event.type === "tool-call") {
-        lines.push(`[Tool Call: ${event.name}] ${JSON.stringify(event.input)}`);
-      } else if (event.type === "tool-result") {
+      } else if (event.type === "tool_start") {
+        lines.push(`[Tool Call: ${event.tool}] ${JSON.stringify(event.input)}`);
+      } else if (event.type === "tool_done") {
         const snippet =
-          typeof event.content === "string"
-            ? event.content.slice(0, 500)
-            : JSON.stringify(event.content).slice(0, 500);
-        lines.push(
-          `[Tool Result${event.isError ? " (ERROR)" : ""}]: ${snippet}`,
-        );
+          typeof event.result === "string"
+            ? event.result.slice(0, 500)
+            : JSON.stringify(event.result).slice(0, 500);
+        lines.push(`[Tool Result]: ${snippet}`);
       }
     } catch {
       // Skip unparseable events

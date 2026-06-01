@@ -3,7 +3,6 @@ import {
   isConnectionError,
   isPostgres,
   intType,
-  type DbExec,
 } from "../db/client.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";

@@ -1,5 +1,5 @@
 import type { CalendarEvent } from "../../shared/api.js";
-import { nanoid } from "nanoid";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 
 /** Convert a webcal:// URL to https:// */
@@ -244,10 +244,14 @@ export async function fetchICalName(url: string): Promise<string> {
     return nameFromUrl(url);
   }
   try {
-    const response = await fetch(httpUrl, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { "User-Agent": "CalendarApp/1.0" },
-    });
+    const response = await ssrfSafeFetch(
+      httpUrl,
+      {
+        signal: AbortSignal.timeout(10_000),
+        headers: { "User-Agent": "CalendarApp/1.0" },
+      },
+      { maxRedirects: 3 },
+    );
     if (!response.ok) return nameFromUrl(url);
     const icsText = await response.text();
     const lines = unfoldLines(icsText);
@@ -281,10 +285,14 @@ export async function fetchICalEvents(
 
   let icsText: string;
   try {
-    const response = await fetch(httpUrl, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { "User-Agent": "CalendarApp/1.0" },
-    });
+    const response = await ssrfSafeFetch(
+      httpUrl,
+      {
+        signal: AbortSignal.timeout(10_000),
+        headers: { "User-Agent": "CalendarApp/1.0" },
+      },
+      { maxRedirects: 3 },
+    );
     if (!response.ok) return [];
     icsText = await response.text();
   } catch {

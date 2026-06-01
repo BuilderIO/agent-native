@@ -23,12 +23,6 @@ async function urlToReferenceImage(
   }
 }
 
-function dataUrlToReferenceImage(dataUrl: string): ReferenceImage | null {
-  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-  if (!match) return null;
-  return { data: match[2], mimeType: match[1] };
-}
-
 export default defineAction({
   description:
     "Generate an image using Gemini or OpenAI with optional reference images for style matching.",

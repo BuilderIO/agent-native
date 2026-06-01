@@ -13,7 +13,6 @@ import type {
 import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
 import {
   claimPendingTask,
-  getPendingTask,
   markTaskCompleted,
   markTaskFailed,
 } from "./pending-tasks-store.js";

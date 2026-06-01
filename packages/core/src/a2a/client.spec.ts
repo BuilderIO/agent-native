@@ -22,7 +22,7 @@ describe("A2AClient", () => {
 
   it("uses the A2A endpoint advertised by the agent card", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (!init) {
+      if (init?.method !== "POST") {
         expect(url).toBe("https://agent.test/.well-known/agent-card.json");
         return new Response(
           JSON.stringify({
@@ -56,7 +56,8 @@ describe("A2AClient", () => {
 
   it("falls back to /a2a when the agent-native endpoint is absent", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (!init) return new Response("not found", { status: 404 });
+      if (init?.method !== "POST")
+        return new Response("not found", { status: 404 });
       if (url === "https://agent.test/_agent-native/a2a") {
         return new Response("not found", { status: 404 });
       }
@@ -83,7 +84,8 @@ describe("A2AClient", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        if (!init) return new Response("not found", { status: 404 });
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
         const body = JSON.parse(String(init.body));
         if (body.method === "message/send") {
           return new Response(
@@ -138,11 +140,11 @@ describe("A2AClient", () => {
   });
 
   it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {
-    vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        if (!init) return new Response("not found", { status: 404 });
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
         const body = JSON.parse(String(init.body));
         if (body.method === "message/send") {
           return workingResponse(body, "task-deck");
@@ -163,23 +165,22 @@ describe("A2AClient", () => {
     );
 
     const result = callAgent("https://slides.agent.test", "make a deck", {
-      timeoutMs: 1,
+      timeoutMs: 3,
+      pollIntervalMs: 1,
     });
     const assertion = expect(result).resolves.toContain(
       "https://slides.agent.test/deck/deck-real",
     );
 
-    await vi.advanceTimersByTimeAsync(2_000);
-
     await assertion;
   });
 
   it("does not treat unmarked timeout text as a recoverable artifact", async () => {
-    vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        if (!init) return new Response("not found", { status: 404 });
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
         const body = JSON.parse(String(init.body));
         if (body.method === "message/send") {
           return workingResponse(body, "task-fake");
@@ -199,14 +200,13 @@ describe("A2AClient", () => {
     );
 
     const result = callAgent("https://slides.agent.test", "make a deck", {
-      timeoutMs: 1,
+      timeoutMs: 3,
+      pollIntervalMs: 1,
     });
     const assertion = expect(result).rejects.toMatchObject({
       name: "A2ATaskTimeoutError",
       taskId: "task-fake",
     });
-
-    await vi.advanceTimersByTimeAsync(2_000);
 
     await assertion;
   });
@@ -240,7 +240,8 @@ describe("A2AClient", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        if (!init) return new Response("not found", { status: 404 });
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
         bearerToken = String(
           new Headers(init.headers).get("authorization") ?? "",
         ).replace(/^Bearer\s+/i, "");
@@ -272,6 +273,16 @@ describe("A2AClient", () => {
         new TextEncoder().encode("global-a2a-secret"),
       ),
     ).rejects.toThrow();
+  });
+
+  it("blocks private/internal A2A targets before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("http://127.0.0.1:4444");
+
+    await expect(client.getAgentCard()).rejects.toThrow(/SSRF blocked/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

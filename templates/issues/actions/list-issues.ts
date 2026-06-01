@@ -72,9 +72,10 @@ export default defineAction({
       }
 
       if (q) {
+        const safe = q.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
         const base = jql.split("ORDER BY")[0].trim();
         const order = jql.split("ORDER BY")[1]?.trim() || "updated DESC";
-        jql = `text ~ "${q}" AND (${base}) ORDER BY ${order}`;
+        jql = `text ~ "${safe}" AND (${base}) ORDER BY ${order}`;
       }
     }
 

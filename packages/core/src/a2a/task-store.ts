@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;

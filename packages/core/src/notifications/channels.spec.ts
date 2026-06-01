@@ -31,6 +31,9 @@ async function loadWebhookChannel(): Promise<NotificationChannel | undefined> {
     validateUrlAllowlist: (...args: unknown[]) => validateUrlAllowlist(...args),
     getKeyAllowlist: (...args: unknown[]) => getKeyAllowlist(...args),
   }));
+  vi.doMock("../extensions/url-safety.js", () => ({
+    ssrfSafeFetch: (...args: unknown[]) => fetchMock(...args),
+  }));
   const { registerBuiltinNotificationChannels } = await import("./channels.js");
   registerBuiltinNotificationChannels();
   return registered.find((c) => c.name === "webhook");

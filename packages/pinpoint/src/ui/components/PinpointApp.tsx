@@ -25,11 +25,7 @@ import {
   buildElementContext,
   extractElementInfo,
 } from "../../detection/element-info.js";
-import {
-  detectFramework,
-  getComponentInfo,
-  getSourceLocation,
-} from "../../frameworks/adapter.js";
+import { detectFramework } from "../../frameworks/adapter.js";
 import { Toolbar } from "./Toolbar.js";
 import { OverlayCanvas } from "./OverlayCanvas.js";
 import { PinPopup } from "./PinPopup.js";
@@ -51,9 +47,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   const [active, setActive] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [pins, setPins] = createSignal<Pin[]>([]);
-  const [hoveredElement, setHoveredElement] = createSignal<Element | null>(
-    null,
-  );
   const [hoveredRect, setHoveredRect] = createSignal<DOMRect | null>(null);
   const [selectedElement, setSelectedElement] = createSignal<Element | null>(
     null,
@@ -147,7 +140,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     ignoreSelector: "#pinpoint-root, [data-pinpoint-marker]",
     blockInteractions: blockInteractions(),
     onHover: (element, rect) => {
-      setHoveredElement(element);
       setHoveredRect(rect);
 
       if (element && rect) {
@@ -531,7 +523,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     picker.deactivate();
     dragSelect.deactivate();
     textSelect.deactivate();
-    setHoveredElement(null);
     setHoveredRect(null);
     setSelectionLabelInfo(null);
   }

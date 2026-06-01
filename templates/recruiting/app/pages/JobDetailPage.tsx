@@ -1,19 +1,13 @@
 import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import { useParams, useNavigate } from "react-router";
 import {
   useJob,
   useJobPipeline,
   useMoveApplication,
 } from "@/hooks/use-greenhouse";
 import { cn, daysAgo, getInitials, getAvatarColor } from "@/lib/utils";
-import {
-  IconArrowLeft,
-  IconLoader2,
-  IconGripVertical,
-  IconUser,
-  IconBriefcase,
-} from "@tabler/icons-react";
-import type { PipelineStage, GreenhouseApplication } from "@shared/types";
+import { IconArrowLeft, IconLoader2, IconBriefcase } from "@tabler/icons-react";
+import type { GreenhouseApplication } from "@shared/types";
 import {
   useSetPageTitle,
   useSetHeaderActions,

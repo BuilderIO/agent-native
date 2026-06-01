@@ -1,10 +1,3 @@
-/**
- * Remove a dictionary term.
- *
- * Usage:
- *   pnpm action remove-dictionary-term --id=<id>
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
@@ -42,7 +35,6 @@ export default defineAction({
       .where(eq(schema.dictationDictionary.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Removed dictionary term ${args.id}`);
     return { id: args.id, deleted: true };
   },
 });

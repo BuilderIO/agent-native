@@ -1,11 +1,3 @@
-/**
- * Get usage statistics.
- *
- * Usage:
- *   pnpm action get-dictation-stats
- *   pnpm action get-dictation-stats --days=30
- */
-
 import { defineAction } from "@agent-native/core";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -29,7 +21,6 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    // Get stats rows for the date range
     const cutoff = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);

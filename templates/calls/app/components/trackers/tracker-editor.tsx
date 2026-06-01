@@ -71,11 +71,6 @@ export function TrackerEditor({
   onCancel,
 }: TrackerEditorProps) {
   const open = openProp ?? true;
-  const handleOpenChange =
-    onOpenChange ??
-    ((next: boolean) => {
-      if (!next) onCancel?.();
-    });
   void trackerId;
   void onSaved;
   const qc = useQueryClient();

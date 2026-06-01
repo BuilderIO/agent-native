@@ -743,7 +743,6 @@ export function MultiTabAssistantChat({
     isLoading,
     createThread,
     switchThread,
-    deleteThread,
     detachThread,
     forkThread,
     saveThreadData,

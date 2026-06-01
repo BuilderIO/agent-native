@@ -4,7 +4,7 @@
  * All write paths funnel through here so ownership, slug uniqueness, and
  * redirect history are handled consistently.
  */
-import { eq, and, or, type SQL } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { accessFilter } from "@agent-native/core/sharing";
 import type {

@@ -92,16 +92,29 @@ function useCodeModeInternal(apiBase: string): {
   const setCodeMode = useCallback(
     async (codeMode: boolean) => {
       // Optimistic update — apply immediately, then confirm with server.
-      // The endpoint still speaks `devMode` for back-compat.
-      notifyListeners({ devMode: codeMode, canToggle: true });
-      const res = await fetch(`${apiBase}/mode`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ devMode: codeMode }),
+      // The endpoint still speaks `devMode` for back-compat. Snapshot the
+      // prior state so we can roll back if the server rejects or the request
+      // throws; otherwise a failed toggle would leave every subscriber stuck
+      // showing the wrong mode until a full reload re-fetches `/mode`.
+      const prev = cached;
+      notifyListeners({
+        devMode: codeMode,
+        canToggle: prev?.canToggle ?? true,
       });
-      if (res.ok) {
-        const data: CodeModeState = await res.json();
-        notifyListeners(data);
+      try {
+        const res = await fetch(`${apiBase}/mode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ devMode: codeMode }),
+        });
+        if (res.ok) {
+          const data: CodeModeState = await res.json();
+          notifyListeners(data);
+        } else if (prev) {
+          notifyListeners(prev);
+        }
+      } catch {
+        if (prev) notifyListeners(prev);
       }
     },
     [apiBase],

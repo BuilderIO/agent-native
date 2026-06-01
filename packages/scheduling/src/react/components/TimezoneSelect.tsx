@@ -1,9 +1,3 @@
-/**
- * TimezoneSelect — unstyled primitive. A native <select> with the full IANA
- * list. Consumer should swap the outer element for shadcn Select.
- */
-import React from "react";
-
 export interface TimezoneSelectProps {
   value: string;
   onChange: (tz: string) => void;
@@ -36,8 +30,8 @@ const COMMON_ZONES = [
 
 export function TimezoneSelect(props: TimezoneSelectProps) {
   const supported =
-    typeof Intl !== "undefined" && (Intl as any).supportedValuesOf
-      ? (Intl as any).supportedValuesOf("timeZone")
+    typeof Intl !== "undefined" && typeof Intl.supportedValuesOf === "function"
+      ? Intl.supportedValuesOf("timeZone")
       : COMMON_ZONES;
   return (
     <select
@@ -45,7 +39,7 @@ export function TimezoneSelect(props: TimezoneSelectProps) {
       onChange={(e) => props.onChange(e.currentTarget.value)}
       className={props.className ?? ""}
     >
-      {supported.map((tz: string) => (
+      {supported.map((tz) => (
         <option key={tz} value={tz}>
           {tz}
         </option>

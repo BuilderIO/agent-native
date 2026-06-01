@@ -9,13 +9,7 @@
  *   <AgentTerminal className="w-full h-[400px]" />
  */
 
-import React, {
-  useRef,
-  useEffect,
-  useState,
-  useCallback,
-  type CSSProperties,
-} from "react";
+import { useRef, useEffect, useState, type CSSProperties } from "react";
 import { agentNativePath } from "../api-path.js";
 import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
 

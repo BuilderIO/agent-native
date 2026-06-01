@@ -5,6 +5,7 @@
  * Emails + SMS + webhooks are sent via framework-provided primitives
  * (framework email helper, fetch for webhooks, SMS via Twilio if configured).
  */
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { eq, and, lte } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 
@@ -59,11 +60,16 @@ async function processReminder(reminder: any) {
   }
   try {
     if (step.action === "webhook" && step.webhookUrl) {
-      await fetch(step.webhookUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ booking, step: step.action }),
-      });
+      await ssrfSafeFetch(
+        step.webhookUrl,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ booking, step: step.action }),
+          signal: AbortSignal.timeout(10_000),
+        },
+        { maxRedirects: 3 },
+      );
     }
     // Email / SMS sending wired by the template's email + Twilio plugins.
     // For v1 we mark as sent so the lifecycle is exercised end-to-end.

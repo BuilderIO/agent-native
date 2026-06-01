@@ -154,7 +154,7 @@ export function ResponsesPage() {
     );
   }
 
-  if (error && !responses) {
+  if (error && !responses.length) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">

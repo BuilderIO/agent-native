@@ -72,20 +72,13 @@ export function createBrowserVerifier(
       const loadPlaywright = options.loadPlaywright ?? loadOptionalPlaywright;
       const playwright = await loadPlaywright();
       if (playwright?.chromium) {
-        return runWithPlaywright(
-          context,
-          id,
-          routes,
-          artifactPath,
-          playwright,
-          {
-            baseUrl: options.baseUrl,
-            timeoutMs: options.timeoutMs,
-          },
-        );
+        return runWithPlaywright(id, routes, artifactPath, playwright, {
+          baseUrl: options.baseUrl,
+          timeoutMs: options.timeoutMs,
+        });
       }
 
-      return runWithFetchFallback(context, id, routes, artifactPath, {
+      return runWithFetchFallback(id, routes, artifactPath, {
         baseUrl: options.baseUrl,
         timeoutMs: options.timeoutMs,
         fetchImpl: options.fetchImpl,
@@ -95,7 +88,6 @@ export function createBrowserVerifier(
 }
 
 async function runWithPlaywright(
-  _context: MigrationContext,
   id: string,
   routes: string[],
   artifactPath: string,
@@ -148,7 +140,6 @@ async function runWithPlaywright(
 }
 
 async function runWithFetchFallback(
-  _context: MigrationContext,
   id: string,
   routes: string[],
   artifactPath: string,

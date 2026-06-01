@@ -1,11 +1,3 @@
-/**
- * Add a custom dictionary term.
- *
- * Usage:
- *   pnpm action add-dictionary-term --term="Kubernetes" --correction="Kubernetes"
- *   pnpm action add-dictionary-term --term="k8s" --correction="Kubernetes"
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, sql } from "drizzle-orm";
@@ -34,7 +26,6 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const trimmedTerm = args.term.trim();
 
-    // Check for duplicate term (case-insensitive)
     const [existing] = await db
       .select({ id: schema.dictationDictionary.id })
       .from(schema.dictationDictionary)
@@ -66,7 +57,6 @@ export default defineAction({
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Added dictionary term "${args.term}"`);
 
     return { id, term: args.term, correction: args.correction ?? null };
   },

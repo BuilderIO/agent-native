@@ -7,7 +7,6 @@ import * as gh from "../server/lib/greenhouse-api.js";
 import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { z } from "zod";
 import type {
-  GreenhouseScheduledInterview,
   GreenhouseScorecard,
   GreenhouseApplication,
   GreenhouseCandidate,

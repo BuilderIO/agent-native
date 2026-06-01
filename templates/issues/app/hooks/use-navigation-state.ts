@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
@@ -48,8 +48,10 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname]);
 
-  // Listen for navigate commands from agent
-  const { data: navCommand } = useQuery({
+  // Default React Query structuralSharing reuses the previous reference when the
+  // JSON is unchanged, so repeated polling/invalidations don't re-fire the
+  // effect with a new object carrying the same command.
+  const { data: navCommand } = useQuery<NavigationState | null>({
     queryKey: ["navigate-command"],
     queryFn: async () => {
       const res = await fetch(
@@ -57,24 +59,41 @@ export function useNavigationState() {
       );
       if (!res.ok) return null;
       const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
-      }
-      return null;
+      return data ?? null;
     },
     refetchInterval: 2_000,
-    structuralSharing: false,
   });
+
+  const lastProcessedDedupKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!navCommand) return;
+    const cmd = navCommand as NavigationState;
+    const dedupKey = JSON.stringify({
+      view: cmd.view,
+      issueKey: cmd.issueKey,
+      projectKey: cmd.projectKey,
+      boardId: cmd.boardId,
+      sprintId: cmd.sprintId,
+    });
+    if (lastProcessedDedupKeyRef.current === dedupKey) {
+      // Same command we already handled — the consume-DELETE races against the
+      // next polling refetch, so when it loses the command can reappear. Re-fire
+      // DELETE and bail rather than navigate again.
+      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+        method: "DELETE",
+        headers: { "X-Agent-Native-CSRF": "1" },
+      }).catch(() => {});
+      qc.setQueryData(["navigate-command"], null);
+      return;
+    }
+    lastProcessedDedupKeyRef.current = dedupKey;
+
     // Delete the one-shot command AFTER reading it
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
-    const cmd = navCommand as NavigationState;
     let path = "/my-issues";
 
     if (cmd.view === "projects" && cmd.projectKey) {

@@ -20,7 +20,10 @@ import {
   redactString,
   sanitizeOutboundHeaders,
 } from "./proxy-security.js";
-import { isBlockedExtensionUrlWithDns } from "./url-safety.js";
+import {
+  createSsrfSafeDispatcher,
+  isBlockedExtensionUrlWithDns,
+} from "./url-safety.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -196,12 +199,14 @@ export function createFetchToolEntry(
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-          const fetchOpts: RequestInit = {
+          const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+          const fetchOpts: RequestInit & { dispatcher?: unknown } = {
             method,
             headers,
             signal: controller.signal,
             redirect: "manual",
           };
+          if (dispatcher) fetchOpts.dispatcher = dispatcher;
           if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
             fetchOpts.body = resolvedBody;
             if (!headers["content-type"] && !headers["Content-Type"]) {

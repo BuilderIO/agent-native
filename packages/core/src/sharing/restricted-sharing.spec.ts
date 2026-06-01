@@ -312,6 +312,60 @@ describe("requireOrgMemberForUserShares: true", () => {
     });
   });
 
+  it("does not honor stale cross-org user share rows at read time", async () => {
+    await insertDoc({ id: "doc-stale-user-share" });
+    await db.insert(docShares).values({
+      id: "stale-user-share",
+      resourceId: "doc-stale-user-share",
+      principalType: "user",
+      principalId: outsiderEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext(
+      { userEmail: outsiderEmail, orgId: "org-other" },
+      async () => {
+        const rows = await db
+          .select()
+          .from(docs)
+          .where(accessFilter(docs, docShares));
+        expect(rows).toEqual([]);
+        await expect(
+          resolveAccess(resourceType, "doc-stale-user-share"),
+        ).resolves.toBeNull();
+      },
+    );
+  });
+
+  it("does not honor stale cross-org org share rows at read time", async () => {
+    await insertDoc({ id: "doc-stale-org-share" });
+    await db.insert(docShares).values({
+      id: "stale-org-share",
+      resourceId: "doc-stale-org-share",
+      principalType: "org",
+      principalId: "org-other",
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext(
+      { userEmail: "other-member+qa@example.com", orgId: "org-other" },
+      async () => {
+        const rows = await db
+          .select()
+          .from(docs)
+          .where(accessFilter(docs, docShares));
+        expect(rows).toEqual([]);
+        await expect(
+          resolveAccess(resourceType, "doc-stale-org-share"),
+        ).resolves.toBeNull();
+      },
+    );
+  });
+
   it("allows org-principal shares to the resource's own org", async () => {
     await insertDoc({ id: "doc-6-self" });
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {

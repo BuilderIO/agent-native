@@ -10,7 +10,6 @@
  * 3. Cursor automatically changes type and responds to clicks
  */
 
-import type { CursorFrame } from "../hooks/useCursorHistory";
 import type { HoverAnimationResult } from "../hooks/useHoverAnimation";
 
 export type InteractiveElementType =

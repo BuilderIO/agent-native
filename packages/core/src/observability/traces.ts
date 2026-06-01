@@ -105,8 +105,12 @@ export async function instrumentAgentLoop(opts: {
       input: Record<string, string>;
     }
   >();
-  // Secondary index: tool name → latest invocation counter (for tool_done matching)
-  const toolNameToCounter = new Map<string, number>();
+  // Secondary index: tool name → FIFO queue of pending invocation counters.
+  // tool_start/tool_done events carry only the tool name (no call id), so to
+  // pair starts and dones correctly when the agent runs concurrent calls to the
+  // same tool name (read-only / parallelSafe batches via Promise.all), we keep a
+  // queue per name and match each done to the OLDEST still-pending start.
+  const toolNameToCounters = new Map<string, number[]>();
 
   let toolCallCount = 0;
   let successfulTools = 0;
@@ -123,14 +127,18 @@ export async function instrumentAgentLoop(opts: {
           toolName: event.tool,
           input: event.input,
         });
-        toolNameToCounter.set(event.tool, counter);
+        const queue = toolNameToCounters.get(event.tool);
+        if (queue) queue.push(counter);
+        else toolNameToCounters.set(event.tool, [counter]);
       } else if (event.type === "tool_done") {
-        const counter = toolNameToCounter.get(event.tool);
+        const queue = toolNameToCounters.get(event.tool);
+        const counter = queue?.shift();
         const pending =
           counter !== undefined ? pendingTools.get(counter) : undefined;
         if (counter !== undefined) {
           pendingTools.delete(counter);
-          toolNameToCounter.delete(event.tool);
+          if (queue && queue.length === 0)
+            toolNameToCounters.delete(event.tool);
         }
         toolCallCount++;
 

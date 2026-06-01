@@ -50,45 +50,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(
-  path: string,
-  body: unknown,
-  cacheKey?: string,
-): Promise<T> {
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
-    "PYLON_API_KEY",
-  );
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.data as T;
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await getToken()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Pylon API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-
-  if (cache.size >= MAX_CACHE) {
-    const oldest = cache.keys().next().value;
-    if (oldest) cache.delete(oldest);
-  }
-  cache.set(key, { data, ts: Date.now() });
-
-  return data as T;
-}
-
 export interface PylonAccount {
   id: string;
   name: string;

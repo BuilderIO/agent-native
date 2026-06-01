@@ -28,6 +28,24 @@ import {
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 
+function readActiveChart() {
+  if (typeof window === "undefined") return "weight";
+  try {
+    return window.localStorage.getItem("hero_active_chart") || "weight";
+  } catch {
+    return "weight";
+  }
+}
+
+function writeActiveChart(activeChart: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("hero_active_chart", activeChart);
+  } catch {
+    // Ignore unavailable storage; the in-memory tab state still works.
+  }
+}
+
 interface DailyProgressProps {
   totalCalories: number;
   totalBurnedCalories: number;
@@ -45,15 +63,10 @@ export function DailyProgress({
   carbs,
   fat,
 }: DailyProgressProps) {
-  const [activeChart, setActiveChart] = useState(
-    () =>
-      (typeof window !== "undefined"
-        ? localStorage.getItem("hero_active_chart")
-        : null) || "weight",
-  );
+  const [activeChart, setActiveChart] = useState(readActiveChart);
 
   useEffect(() => {
-    localStorage.setItem("hero_active_chart", activeChart);
+    writeActiveChart(activeChart);
   }, [activeChart]);
 
   const netCalories = totalCalories - totalBurnedCalories;

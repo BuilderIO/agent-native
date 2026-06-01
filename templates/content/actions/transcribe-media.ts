@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
   buildDeepLink,
@@ -151,7 +152,13 @@ async function loadMediaBlob({
 }): Promise<{ blob: Blob; sourceMimeType: string }> {
   await assertSafeRemoteMediaUrl(mediaUrl);
   const resolvedUrl = resolveMediaUrl(mediaUrl);
-  const response = await fetch(resolvedUrl);
+  const response = isRelativeMediaUrl(mediaUrl)
+    ? await fetch(resolvedUrl, { signal: AbortSignal.timeout(30_000) })
+    : await ssrfSafeFetch(
+        resolvedUrl,
+        { signal: AbortSignal.timeout(30_000) },
+        { maxRedirects: 3 },
+      );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch ${mediaType} media: HTTP ${response.status} ${response.statusText}`,

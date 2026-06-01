@@ -50,30 +50,6 @@ export interface CreateServerOptions {
 }
 
 /**
- * Parse a .env file into key-value pairs, preserving comments and empty lines for roundtrip.
- */
-function parseEnvFile(content: string): Map<string, string> {
-  const vars = new Map<string, string>();
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex === -1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    // Strip surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    vars.set(key, value);
-  }
-  return vars;
-}
-
-/**
  * Upsert vars into a .env file, preserving existing structure.
  */
 export async function upsertEnvFile(

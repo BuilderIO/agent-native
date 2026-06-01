@@ -9,14 +9,17 @@ function optionalParam(params: URLSearchParams, key: string) {
 }
 
 function navigationFromPath(pathname: string, search = "") {
-  const library = pathname.match(/^\/library\/([^/]+)/);
+  // The "library" view is the brand-kit detail page (route /brand-kits/:id).
+  // Keep the internal view key stable for the agent/MCP contract.
+  const library = pathname.match(/^\/brand-kits\/([^/]+)/);
   if (library) return { view: "library", libraryId: library[1] };
   const asset = pathname.match(/^\/asset\/([^/]+)/);
   if (asset) return { view: "asset", assetId: asset[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "asset", assetId: image[1] };
   if (pathname === "/") return { view: "create" };
-  if (pathname === "/picker") {
+  // The "picker" view is the image Library browser (route /library).
+  if (pathname === "/library") {
     const params = new URLSearchParams(search);
     return {
       view: "picker",
@@ -32,7 +35,8 @@ function navigationFromPath(pathname: string, search = "") {
       aspectRatio: optionalParam(params, "aspectRatio"),
     };
   }
-  if (pathname === "/libraries") return { view: "libraries" };
+  // The "libraries" view is the Brand Kits list (route /brand-kits).
+  if (pathname === "/brand-kits") return { view: "libraries" };
   if (pathname === "/extensions") return { view: "extensions" };
   const extension = pathname.match(/^\/extensions\/([^/]+)/);
   if (extension) return { view: "extensions", extensionId: extension[1] };
@@ -45,7 +49,7 @@ function pathFromCommand(command: any): string | null {
   if (!command) return null;
   if (typeof command.path === "string") return command.path;
   if (command.view === "library" && command.libraryId) {
-    return `/library/${command.libraryId}`;
+    return `/brand-kits/${command.libraryId}`;
   }
   if (
     (command.view === "asset" || command.view === "image") &&
@@ -58,7 +62,7 @@ function pathFromCommand(command: any): string | null {
       command.view === "generation-run") &&
     command.libraryId
   ) {
-    return `/library/${command.libraryId}`;
+    return `/brand-kits/${command.libraryId}`;
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
@@ -81,9 +85,9 @@ function pathFromCommand(command: any): string | null {
       params.set("aspectRatio", command.aspectRatio.trim());
     }
     const query = params.toString();
-    return query ? `/picker?${query}` : "/picker";
+    return query ? `/library?${query}` : "/library";
   }
-  if (command.view === "libraries") return "/libraries";
+  if (command.view === "libraries") return "/brand-kits";
   if (command.view === "extensions" && command.extensionId) {
     return `/extensions/${command.extensionId}`;
   }

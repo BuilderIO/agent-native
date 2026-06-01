@@ -10,6 +10,11 @@ import {
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+interface NavigationState {
+  view?: string;
+  documentId?: string;
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Reads navigation state and fetches matching data.",
@@ -21,7 +26,7 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
 
-    const nav = navigation as any;
+    const nav = navigation as NavigationState | null;
     const db = getDb();
 
     if (nav?.documentId) {
@@ -74,12 +79,6 @@ export default defineAction({
       return "No application state found. Is the app running?";
     }
 
-    const docCount = docs.length;
-    console.error(
-      `Current view: ${nav?.view ?? "list"}` +
-        (nav?.documentId ? ` (document: ${nav.documentId})` : "") +
-        ` — ${docCount} document(s) total`,
-    );
     return screen;
   },
 });

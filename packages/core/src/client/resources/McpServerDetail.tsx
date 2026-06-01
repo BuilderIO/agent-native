@@ -17,11 +17,7 @@ import {
   IconTestPipe,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
-import {
-  testMcpServerUrl,
-  type McpServer,
-  type TestMcpUrlResult,
-} from "./use-mcp-servers.js";
+import { type McpServer, type TestMcpUrlResult } from "./use-mcp-servers.js";
 
 interface McpServerDetailProps {
   server: McpServer;

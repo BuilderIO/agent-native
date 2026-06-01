@@ -80,13 +80,54 @@ async function fetchRemote(url: string): Promise<{
   const mimeType =
     contentType.split(";")[0].trim().toLowerCase() ||
     "application/octet-stream";
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > MAX_REMOTE_FETCH_BYTES) {
+
+  // Reject up front when the server advertises a size over the cap so we never
+  // allocate the body at all.
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_REMOTE_FETCH_BYTES) {
     throw new Error(
-      `Image too large (${buffer.byteLength} bytes, max ${MAX_REMOTE_FETCH_BYTES})`,
+      `Image too large (${contentLength} bytes, max ${MAX_REMOTE_FETCH_BYTES})`,
     );
   }
-  return { bytes: new Uint8Array(buffer), mimeType };
+
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    // Runtimes (or test mocks) without a readable body stream: fall back to a
+    // full read, still enforcing the cap before returning.
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > MAX_REMOTE_FETCH_BYTES) {
+      throw new Error(
+        `Image too large (${buffer.byteLength} bytes, max ${MAX_REMOTE_FETCH_BYTES})`,
+      );
+    }
+    return { bytes: new Uint8Array(buffer), mimeType };
+  }
+
+  // Stream the body and abort the moment the accumulated size exceeds the cap,
+  // so an unbounded or mislabeled response can never be fully buffered.
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > MAX_REMOTE_FETCH_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new Error(
+        `Image too large (>${total} bytes, max ${MAX_REMOTE_FETCH_BYTES})`,
+      );
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, mimeType };
 }
 
 function uploadNotConfiguredError(): string {

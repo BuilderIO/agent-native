@@ -1,4 +1,4 @@
-import { MouseEvent } from "react";
+import type { MouseEvent } from "react";
 import { cn } from "@/lib/utils";
 
 export interface TrackerChipProps {
@@ -20,22 +20,8 @@ export function TrackerChip({
   onClick,
   className,
 }: TrackerChipProps) {
-  const Comp = onClick ? "button" : "span";
-  return (
-    <Comp
-      onClick={onClick as any}
-      type={onClick ? "button" : undefined}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border text-xs leading-none",
-        size === "sm" ? "h-6 px-2" : "h-7 px-2.5",
-        active
-          ? "bg-foreground text-background border-foreground"
-          : "bg-background text-foreground border-border",
-        onClick && !active && "hover:bg-accent",
-        onClick && "cursor-pointer",
-        className,
-      )}
-    >
+  const content = (
+    <>
       <span
         className={cn(
           "h-1.5 w-1.5 rounded-full shrink-0",
@@ -56,6 +42,26 @@ export function TrackerChip({
           {count}
         </span>
       )}
-    </Comp>
+    </>
   );
+  const chipClassName = cn(
+    "inline-flex items-center gap-1.5 rounded-full border text-xs leading-none",
+    size === "sm" ? "h-6 px-2" : "h-7 px-2.5",
+    active
+      ? "bg-foreground text-background border-foreground"
+      : "bg-background text-foreground border-border",
+    onClick && !active && "hover:bg-accent",
+    onClick && "cursor-pointer",
+    className,
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={chipClassName}>
+        {content}
+      </button>
+    );
+  }
+
+  return <span className={chipClassName}>{content}</span>;
 }

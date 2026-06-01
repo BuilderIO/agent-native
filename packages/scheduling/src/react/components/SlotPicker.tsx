@@ -9,7 +9,6 @@
 import type { Slot } from "../../shared/index.js";
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
-import React from "react";
 
 export interface SlotPickerProps {
   slots: Slot[];

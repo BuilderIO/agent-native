@@ -192,8 +192,8 @@ Return a JSON array with one assessment per candidate.`,
     ],
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const firstBlock = response.content[0];
+  const text = firstBlock && firstBlock.type === "text" ? firstBlock.text : "";
 
   try {
     // Extract JSON from the response (handle markdown code blocks)

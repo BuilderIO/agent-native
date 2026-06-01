@@ -8,7 +8,6 @@
  */
 
 import {
-  getFrameOrigin,
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
 } from "./frame.js";

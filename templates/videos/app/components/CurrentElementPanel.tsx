@@ -17,7 +17,6 @@ import {
   IconPointer,
   IconClick,
   IconChevronRight,
-  IconMouse,
 } from "@tabler/icons-react";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import {

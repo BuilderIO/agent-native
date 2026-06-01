@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { H3Event } from "h3";
 import type { IncomingMessage, PlatformAdapter } from "./types.js";
-import { handleWebhook } from "./webhook-handler.js";
+import { handleWebhook, resolveBaseUrl } from "./webhook-handler.js";
 
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
@@ -72,6 +72,11 @@ describe("integration webhook handler", () => {
     );
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it("enqueues and dispatches without sending a platform response inline", async () => {
     const sendResponse = vi.fn();
     const incoming = createIncoming(1001);
@@ -105,6 +110,18 @@ describe("integration webhook handler", () => {
       }),
     );
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("does not reflect inbound Host into self-dispatch URLs in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+
+    expect(() => resolveBaseUrl(createEvent())).toThrow(
+      /requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL/,
+    );
   });
 
   it("does not enqueue or send when beforeProcess handles silently", async () => {

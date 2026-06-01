@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { useActionQuery, agentNativePath } from "@agent-native/core/client";
+import { useNavigate } from "react-router";
+import { useActionQuery } from "@agent-native/core/client";
 import { ActivityBar, type ActivityId } from "@/components/code/activity-bar";
 import { WorkspacePicker } from "@/components/code/workspace-picker";
 import { ExplorerPanel } from "@/components/code/explorer-panel";
@@ -30,8 +30,8 @@ import { CodeEmptyState } from "@/components/code/code-empty-state";
  * The shell owns the `activity` state (which sidebar panel is showing)
  * + the list of open tabs. Workspace selection lives in URL state /
  * the `workspace-picker` dropdown — we read the current workspaceId from
- * `useParams` (the catch-all route puts it there as `?ws=` … see notes
- * below) and fall back to the first row in `list-code-workspaces`.
+ * the `?ws=` query param and fall back to the first row in
+ * `list-code-workspaces`.
  *
  * Tabs are local React state in v1 — the `workbench_open_files` table
  * is wired by the agent only (`agent says "open these tabs"`); the UI
@@ -57,7 +57,6 @@ interface WorkspacesResult {
 
 export function CodeShell({ filePath = null, isDiff = false }: CodeShellProps) {
   const navigate = useNavigate();
-  const params = useParams<{ "*"?: string }>();
 
   const workspacesQuery = useActionQuery<WorkspacesResult>(
     "list-code-workspaces" as any,

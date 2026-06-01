@@ -215,6 +215,8 @@ export type GreenhouseView =
   | "candidates"
   | "interviews"
   | "action-items"
+  | "team"
+  | "extensions"
   | "settings";
 
 export type NavigationState = {

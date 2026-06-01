@@ -3,7 +3,6 @@ import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { IssueListItem } from "./IssueListItem";
 import { groupIssuesByStatusCategory } from "@/lib/issue-utils";
 import type { JiraIssue } from "@shared/types";
-import { cn } from "@/lib/utils";
 
 interface IssueListProps {
   issues: JiraIssue[];

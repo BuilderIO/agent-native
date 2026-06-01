@@ -1,11 +1,3 @@
-/**
- * Update a style preset for a dictation category.
- *
- * Usage:
- *   pnpm action update-style-settings --category=email --preset=formal
- *   pnpm action update-style-settings --category=work_messages --preset=casual --customPrompt="Use bullet points"
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
@@ -56,7 +48,6 @@ export default defineAction({
         .where(eq(schema.dictationStyles.id, existing.id));
 
       await writeAppState("refresh-signal", { ts: Date.now() });
-      console.log(`Updated style for ${args.category}`);
       return { id: existing.id, ...updates };
     }
 
@@ -72,7 +63,6 @@ export default defineAction({
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Created style for ${args.category}`);
     return { id, category: args.category, preset: args.preset ?? "casual" };
   },
 });

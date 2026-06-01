@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from "react";
-import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
+import { useState, useMemo } from "react";
+import { IconCheck, IconSelector } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";

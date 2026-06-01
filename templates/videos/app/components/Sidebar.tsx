@@ -64,14 +64,12 @@ export function Sidebar({
     onNavigate,
     onDelete,
     onPropsChange,
-    onTitleChange,
     onCompSettingsChange,
   } = useComposition();
 
   const {
     tracks: timelineTracks,
     selectedTrackId,
-    selectTrack: onSelectTrack,
     updateTrack: onUpdateTrack,
     addTrack: onAddTrack,
   } = useTimeline();

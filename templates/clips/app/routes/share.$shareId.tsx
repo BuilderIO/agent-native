@@ -46,6 +46,7 @@ import { getDb, schema } from "../../server/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
 type SharePageMetaRecording = {
   id: string;
@@ -72,14 +73,6 @@ function pageTitle(title: string | null | undefined): string {
 
 function displayRecordingTitle(title: string | null | undefined): string {
   return hasGeneratedTitle(title) ? (title ?? "").trim() : "Untitled Clip";
-}
-
-function isStorageSetupFailureReason(
-  reason: string | null | undefined,
-): boolean {
-  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
-    reason ?? "",
-  );
 }
 
 function failureDetail(reason: string | null | undefined): string | null {

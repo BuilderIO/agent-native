@@ -28,7 +28,6 @@ export const vueAdapter: FrameworkAdapter = {
     if (!instance) return null;
 
     const name = getComponentName(instance);
-    const components = buildVueComponentPath(element);
 
     return {
       name: name || "Unknown",
@@ -101,25 +100,4 @@ function getComponentName(instance: any): string | null {
   }
 
   return null;
-}
-
-/**
- * Build a component path for Vue by walking up the component tree.
- */
-function buildVueComponentPath(element: Element): string {
-  const components: string[] = [];
-  let current: Element | null = element;
-
-  while (current && components.length < 10) {
-    const instance = (current as any).__vueParentComponent;
-    if (instance) {
-      const name = getComponentName(instance);
-      if (name) {
-        components.unshift(`<${name}>`);
-      }
-    }
-    current = current.parentElement;
-  }
-
-  return components.join(" ");
 }

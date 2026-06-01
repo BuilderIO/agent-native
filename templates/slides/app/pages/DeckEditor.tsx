@@ -3,7 +3,6 @@ import {
   useCallback,
   useRef,
   useEffect,
-  useMemo,
   lazy,
   Suspense,
 } from "react";
@@ -17,7 +16,6 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import { useDecks } from "@/context/DeckContext";
-import type { SlideLayout } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { shortcutLabel } from "@/lib/utils";
 import EditorSidebar from "@/components/editor/EditorSidebar";

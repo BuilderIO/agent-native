@@ -224,7 +224,6 @@ export default function EditorToolbar({
   onOpenAssetLibrary,
   imageGenButtonRef,
   assetsButtonRef,
-  historyOpen,
   onShowHistory,
   historyButtonRef,
   onUndo,

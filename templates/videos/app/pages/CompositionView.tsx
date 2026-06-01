@@ -17,7 +17,6 @@ import {
   useSession,
 } from "@agent-native/core/client";
 import type { CollabUser } from "@agent-native/core/client";
-import { Pinpoint } from "@agent-native/pinpoint/react";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
@@ -78,7 +77,7 @@ export default function CompositionView({
   }, [initialFrame, frameFromUrl]);
 
   const { isDevMode } = useDevMode();
-  const { session } = useSession();
+  useSession();
 
   // Get state from contexts
   const {

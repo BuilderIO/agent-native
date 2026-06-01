@@ -10,7 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");

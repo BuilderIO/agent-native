@@ -10,7 +10,7 @@
  * via the `getAccessToken` callback.
  */
 import type { CalendarProvider } from "./types.js";
-import type { BusyInterval, Booking } from "../../shared/index.js";
+import type { BusyInterval } from "../../shared/index.js";
 
 export interface GoogleCalendarProviderConfig {
   clientId: string;

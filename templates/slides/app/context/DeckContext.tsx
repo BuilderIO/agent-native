@@ -9,11 +9,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
-import {
-  appBasePath,
-  appPath,
-  isEmbedAuthActive,
-} from "@agent-native/core/client";
+import { appBasePath, isEmbedAuthActive } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =

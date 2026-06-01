@@ -1,10 +1,3 @@
-/**
- * Delete a dictation.
- *
- * Usage:
- *   pnpm action delete-dictation --id=<id>
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
@@ -36,7 +29,6 @@ export default defineAction({
     await db.delete(schema.dictations).where(eq(schema.dictations.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Deleted dictation ${args.id}`);
     return { id: args.id, deleted: true };
   },
 });

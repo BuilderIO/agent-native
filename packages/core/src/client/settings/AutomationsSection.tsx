@@ -1,5 +1,5 @@
 import { agentNativePath } from "../api-path.js";
-import React, { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   IconBolt,
   IconClock,

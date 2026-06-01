@@ -15,7 +15,6 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import React from "react";
 import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { createCameraTrack, createCursorTrack } from "@/remotion/trackHelpers";

@@ -3,13 +3,7 @@ import {
   decodeCommonHtmlEntities,
   normalizeMarkdownHardBreaks,
 } from "@shared/markdown";
-import {
-  formatDistanceToNow,
-  format,
-  isToday,
-  isYesterday,
-  isThisYear,
-} from "date-fns";
+import { format, isToday, isYesterday, isThisYear } from "date-fns";
 
 export function formatEmailDate(dateStr: string): string {
   const date = new Date(dateStr);

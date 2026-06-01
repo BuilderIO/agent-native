@@ -59,40 +59,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(
-  path: string,
-  body: unknown,
-  cacheKey?: string,
-): Promise<T> {
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
-    "GRAFANA_API_TOKEN",
-  );
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.data as T;
-  }
-
-  const apiBase = await getApiBase();
-  const res = await fetch(`${apiBase}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await getToken()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Grafana API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  cacheSet(key, data);
-  return data as T;
-}
-
 // -- Types --
 
 export interface GrafanaDashboardSummary {

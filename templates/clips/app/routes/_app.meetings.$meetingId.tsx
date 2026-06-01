@@ -5,13 +5,12 @@ import {
   IconArrowLeft,
   IconCheck,
   IconClock,
+  IconDeviceDesktop,
   IconDots,
   IconEdit,
   IconExternalLink,
   IconLoader2,
-  IconMicrophone2,
   IconNotes,
-  IconPlayerStopFilled,
   IconTrash,
   IconUsers,
   IconVideo,
@@ -51,10 +50,8 @@ import {
 } from "@/components/meetings/transcript-bubbles";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
-import { AutoRecordPrompt } from "@/components/meetings/auto-record-prompt";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
-import { useMeetingNotesCapture } from "@/hooks/use-meeting-notes-capture";
 import {
   Tooltip,
   TooltipContent,
@@ -312,9 +309,7 @@ export default function MeetingDetailRoute() {
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
-  const startRecording = useActionMutation<any, any>("start-meeting-recording");
   const { isDesktopApp } = useDesktopPromo();
-  const capture = useMeetingNotesCapture();
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const previousHasNotesRef = useRef(false);
@@ -361,6 +356,23 @@ export default function MeetingDetailRoute() {
     !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+
+  // Recording is a native Clips desktop-app gesture (Granola-style), not an
+  // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
+  // handoff to the desktop app. While the desktop records, this web view polls
+  // and shows the live transcript it saves — no browser mic capture here.
+  const meetingTimeMs = Date.parse(
+    meeting?.scheduledEnd ?? meeting?.scheduledStart ?? "",
+  );
+  const isLongPast =
+    !Number.isNaN(meetingTimeMs) && meetingTimeMs < Date.now() - 60 * 60 * 1000;
+  const showDesktopRecordHint =
+    !!meeting &&
+    !meeting.recordingId &&
+    !hasNotes &&
+    !isLive &&
+    !meeting.actualEnd &&
+    !isLongPast;
 
   useEffect(() => {
     if (hasNotes && !previousHasNotesRef.current) {
@@ -462,64 +474,6 @@ export default function MeetingDetailRoute() {
     finalize.mutate({ meetingId: meeting.id });
   };
 
-  /**
-   * Start capturing meeting notes. On the desktop app the native tray/meeting
-   * flow owns capture, so we only allocate the recording row there. In a plain
-   * browser we run an audio-only capture with a live Web Speech transcript.
-   * Either way actualStart is patched optimistically and rolled back on error.
-   */
-  const handleStartNotes = () => {
-    if (!meeting) return;
-    const previousActualStart = meeting.actualStart ?? null;
-
-    if (isDesktopApp) {
-      if (startRecording.isPending) return;
-      patchCachedMeeting({ actualStart: new Date().toISOString() });
-      startRecording.mutate(
-        { meetingId: meeting.id },
-        {
-          onError: (err: unknown) => {
-            patchCachedMeeting({ actualStart: previousActualStart });
-            toast.error(
-              err instanceof Error ? err.message : "Couldn't start recording",
-            );
-          },
-        },
-      );
-      return;
-    }
-
-    if (capture.status !== "idle") return;
-    patchCachedMeeting({ actualStart: new Date().toISOString() });
-    void capture.start(meeting.id).catch((err: unknown) => {
-      patchCachedMeeting({ actualStart: previousActualStart });
-      toast.error(err instanceof Error ? err.message : "Couldn't start notes");
-    });
-  };
-
-  const handleStopNotes = async () => {
-    if (!meeting) return;
-    patchCachedMeeting({ actualEnd: new Date().toISOString() });
-    let transcript = "";
-    try {
-      ({ transcript } = await capture.stop());
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Couldn't finish your notes",
-      );
-    }
-    // Kick off notes generation immediately when we captured something; the
-    // poll-driven auto-finalize covers the cloud-transcription fallback path.
-    if (transcript) {
-      autoFinalizedRef.current = true;
-      finalize.mutate({ meetingId: meeting.id });
-    }
-    qc.invalidateQueries({
-      queryKey: ["action", "get-meeting", { id: meetingId }],
-    });
-    qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
-  };
-
   const handleDeleteMeeting = () => {
     if (!meeting) return;
     deleteMeeting.mutate(
@@ -618,21 +572,7 @@ export default function MeetingDetailRoute() {
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {capture.isCapturing ? (
-            <Button
-              size="sm"
-              onClick={() => void handleStopNotes()}
-              disabled={capture.status === "finishing"}
-              className="h-8 gap-1.5 cursor-pointer bg-red-600 text-white hover:bg-red-600/90"
-            >
-              {capture.status === "finishing" ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <IconPlayerStopFilled className="h-3.5 w-3.5" />
-              )}
-              {capture.status === "finishing" ? "Saving…" : "Stop notes"}
-            </Button>
-          ) : finalize.isPending ? (
+          {finalize.isPending ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
               Generating notes…
@@ -700,16 +640,26 @@ export default function MeetingDetailRoute() {
         </div>
       </PageHeader>
 
-      <AutoRecordPrompt
-        scheduledStart={meeting.scheduledStart}
-        actualStart={meeting.actualStart}
-        disabled={startRecording.isPending || capture.status !== "idle"}
-        onStart={handleStartNotes}
-      />
-
-      {capture.error && (
-        <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          {capture.error}
+      {showDesktopRecordHint && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
+          <IconDeviceDesktop className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm">
+            Record live notes for this meeting from the Clips desktop app — the
+            transcript and AI notes will appear here automatically.
+          </span>
+          {!isDesktopApp && (
+            <Button
+              asChild
+              size="sm"
+              variant="secondary"
+              className="ml-auto h-8 gap-1.5 cursor-pointer"
+            >
+              <NavLink to="/download">
+                <IconExternalLink className="h-3.5 w-3.5" />
+                Get desktop app
+              </NavLink>
+            </Button>
+          )}
         </div>
       )}
 
@@ -827,58 +777,21 @@ export default function MeetingDetailRoute() {
               <IconNotes className="h-3.5 w-3.5" />
               Transcript
             </div>
-            {capture.isCapturing ? (
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-red-600">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
-                </span>
-                Listening
-              </span>
-            ) : meeting.transcriptStatus === "ready" ? (
+            {meeting.transcriptStatus === "ready" && (
               <span className="text-[10px] text-muted-foreground">
                 {segments.length} segments
               </span>
-            ) : null}
+            )}
           </div>
-          {capture.isCapturing ? (
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              {capture.speechSupported ? (
-                capture.transcript || capture.interimText ? (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-                    {capture.transcript}
-                    {capture.interimText ? (
-                      <span className="text-muted-foreground">
-                        {capture.transcript ? " " : ""}
-                        {capture.interimText}
-                      </span>
-                    ) : null}
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <IconMicrophone2 className="h-4 w-4" />
-                    Listening… start talking and your words appear here.
-                  </div>
-                )
-              ) : (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <IconMicrophone2 className="h-4 w-4" />
-                  Recording audio — the transcript will be ready right after you
-                  stop.
-                </div>
-              )}
-            </div>
-          ) : (
-            <TranscriptBubbles
-              segments={segments}
-              isLive={isLive}
-              recordingId={meeting.recordingId}
-              onSeek={handleSeek}
-              registerScrollTo={(fn) => {
-                transcriptScrollToRef.current = fn;
-              }}
-            />
-          )}
+          <TranscriptBubbles
+            segments={segments}
+            isLive={isLive}
+            recordingId={meeting.recordingId}
+            onSeek={handleSeek}
+            registerScrollTo={(fn) => {
+              transcriptScrollToRef.current = fn;
+            }}
+          />
         </div>
       </div>
 

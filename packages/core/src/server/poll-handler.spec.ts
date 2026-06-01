@@ -96,7 +96,15 @@ describe("poll handler", () => {
         };
       }
       if (sql.includes("WHERE key = ?")) {
-        return { rows: [{ updated_at: refreshTs, value: refreshValue }] };
+        return {
+          rows: [
+            {
+              session_id: "test@example.com",
+              updated_at: refreshTs,
+              value: refreshValue,
+            },
+          ],
+        };
       }
       if (
         sql.includes("SELECT id, owner_email") &&
@@ -144,6 +152,7 @@ describe("poll handler", () => {
           source: "screen-refresh",
           type: "change",
           key: "__screen_refresh__",
+          owner: "test@example.com",
           scope: "documents",
         }),
       ]),

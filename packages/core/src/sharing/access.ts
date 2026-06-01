@@ -120,20 +120,24 @@ export function accessFilter(
     }
   }
   if (userEmail) {
+    const shareScope = restrictedShareScopeSql(reg, resourceTable, ctx);
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'user'
                     and ${sharesTable.principalId} = ${userEmail}
+                    and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
   }
   if (orgId) {
+    const shareScope = restrictedShareScopeSql(reg, resourceTable, ctx);
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'org'
                     and ${sharesTable.principalId} = ${orgId}
+                    and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
   }
@@ -169,6 +173,28 @@ function minRoleSql(minRole: ShareRole): SQL {
     return sql`role in ('editor','admin')`;
   }
   return sql`role = 'admin'`;
+}
+
+function restrictedShareScopeSql(
+  reg: ShareableResourceRegistration | undefined,
+  resourceTable: any,
+  ctx: AccessContext,
+): SQL {
+  // Restricted resources (extensions) must stay inside their resource org even
+  // if stale cross-org share rows already exist from older code or bad data.
+  if (reg?.requireOrgMemberForUserShares !== true) return sql`1=1`;
+  if (!ctx.orgId) return sql`1=0`;
+  return eq(resourceTable.orgId, ctx.orgId);
+}
+
+function explicitSharesAllowedForResource(
+  reg: ShareableResourceRegistration,
+  resource: any,
+  ctx: AccessContext,
+): boolean {
+  if (reg.requireOrgMemberForUserShares !== true) return true;
+  const resourceOrgId = resource?.orgId ?? null;
+  return !!resourceOrgId && !!ctx.orgId && resourceOrgId === ctx.orgId;
 }
 
 export interface ResolvedAccess {
@@ -207,17 +233,17 @@ export async function resolveAccess(
   }
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     // No share row needed; default viewer unless upgraded below.
-    const role = await highestShareRole(reg, resourceId, ctx);
+    const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
   }
   // `visibility === "public"` on an `allowPublic: false` resource is treated
   // as private: only owner + explicit shares grant access. Falls through to
   // the explicit-share lookup below.
   if (resource.visibility === "org" && orgId && resource.orgId === orgId) {
-    const role = await highestShareRole(reg, resourceId, ctx);
+    const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
   }
-  const role = await highestShareRole(reg, resourceId, ctx);
+  const role = await highestShareRole(reg, resourceId, ctx, resource);
   if (role) return { role, resource };
   return null;
 }
@@ -226,9 +252,11 @@ async function highestShareRole(
   reg: ShareableResourceRegistration,
   resourceId: string,
   ctx: AccessContext,
+  resource: any,
 ): Promise<ShareRole | null> {
   const { userEmail, orgId } = ctx;
   if (!userEmail && !orgId) return null;
+  if (!explicitSharesAllowedForResource(reg, resource, ctx)) return null;
   const db = reg.getDb() as any;
 
   const principalClauses: ReturnType<typeof and>[] = [];

@@ -17,6 +17,10 @@ interface FileNode {
   type: "file" | "dir";
 }
 
+interface FileTreeNode extends FileNode {
+  children?: FileTreeNode[];
+}
+
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (next: boolean) => void;
@@ -66,16 +70,16 @@ export function CommandPalette({
       const body = await res.json();
       // Flatten depth=3 into a flat file list for cmdk filtering.
       const flat: FileNode[] = [];
-      function walk(nodes: any[], parent: string) {
+      function walk(nodes: FileTreeNode[]) {
         for (const n of nodes) {
           if (n.type === "file") {
             flat.push({ name: n.name, path: n.path, type: "file" });
           } else if (n.type === "dir" && Array.isArray(n.children)) {
-            walk(n.children, n.path);
+            walk(n.children);
           }
         }
       }
-      walk(Array.isArray(body.nodes) ? body.nodes : [], ".");
+      walk(Array.isArray(body.nodes) ? body.nodes : []);
       return { nodes: flat };
     },
     enabled: open && Boolean(workspaceId),

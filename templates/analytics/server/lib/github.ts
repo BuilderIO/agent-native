@@ -60,28 +60,6 @@ async function restGet<T>(
   return data as T;
 }
 
-async function restGetPaginated<T>(path: string, maxPages = 10): Promise<T[]> {
-  const results: T[] = [];
-  let url: string | null =
-    `${REST_BASE}${path}${path.includes("?") ? "&" : "?"}per_page=100`;
-
-  for (let page = 0; page < maxPages && url; page++) {
-    const res = await fetch(url, { headers: await getHeaders() });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`GitHub REST error ${res.status}: ${text}`);
-    }
-    const data: T[] = await res.json();
-    results.push(...data);
-
-    // Parse Link header for next page
-    const link = res.headers.get("link") ?? "";
-    const nextMatch = link.match(/<([^>]+)>;\s*rel="next"/);
-    url = nextMatch ? nextMatch[1] : null;
-  }
-  return results;
-}
-
 async function graphql<T>(
   query: string,
   variables?: Record<string, unknown>,

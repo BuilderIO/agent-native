@@ -113,7 +113,6 @@ export function buildSql(config: ExplorerConfig): string {
   // Check if any enriched joins are needed
   const allJoins = collectAllEnrichedJoins(config.events);
   const needsJoin = allJoins.size > 0;
-  const alias = needsJoin ? "e" : undefined;
 
   // Single event case (most common)
   if (config.events.length === 1) {

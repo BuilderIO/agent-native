@@ -474,7 +474,6 @@ export function WeekView({
     isDragging,
     dragEventId,
     shouldSuppressClick,
-    dragMode,
   } = useEventDrag({
     hourHeight: HOUR_HEIGHT,
     startHour: START_HOUR,

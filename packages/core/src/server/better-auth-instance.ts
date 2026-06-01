@@ -432,10 +432,6 @@ const sqliteAuthSchema = {
   }),
 };
 
-function getBetterAuthSchema() {
-  return isPostgres() ? pgAuthSchema : sqliteAuthSchema;
-}
-
 /**
  * Mirror a Better Auth `account` row for Google into the `oauth_tokens`
  * table that template code (mail's Gmail client, calendar's events fetcher)

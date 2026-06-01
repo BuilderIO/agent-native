@@ -1549,11 +1549,6 @@ export default bundle;
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
         try {
-          // Try resolving from both template dir and workspace root
-          const nodePaths = [
-            path.join(cwd, "node_modules"),
-            path.resolve(cwd, "../../node_modules"),
-          ].filter((p) => fs.existsSync(p));
           // Resolve the module — check workspace node_modules and pnpm store
           let resolvedMod = mod;
           const _require = createRequire(cwd + "/");

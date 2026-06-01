@@ -161,10 +161,6 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
-function firstConfiguredOrigin(): string | undefined {
-  return [...getConfiguredOriginAllowlist()][0];
-}
-
 function getWorkspaceCallbackOrigin(): string | undefined {
   const publicAuthOrigin = firstOriginFromEnv(EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS, {
     allowLoopback: true,

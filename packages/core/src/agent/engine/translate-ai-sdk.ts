@@ -253,9 +253,11 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
     }
 
     case "finish-step":
-      if (part.usage) {
-        events.push(usageEventFromLanguageModelUsage(part.usage));
-      }
+      // Usage is intentionally NOT emitted here. AI SDK's fullStream emits both
+      // a per-step `finish-step` (part.usage) and a terminal `finish`
+      // (part.totalUsage) for every step. runAgentLoop runs one model step per
+      // stream() call, so totalUsage already covers it; emitting here too would
+      // double-count tokens into recordUsage / cost tracking.
       break;
 
     case "finish":

@@ -5,7 +5,7 @@
 // and freehand/shape drawing.
 // LERP interpolation for smooth hover animation.
 
-import { createEffect, onMount, onCleanup, type Component } from "solid-js";
+import { onMount, onCleanup, type Component } from "solid-js";
 import type {
   Pin,
   DrawStroke,

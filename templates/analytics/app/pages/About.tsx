@@ -1,7 +1,6 @@
 import {
   IconChartBar,
   IconMessage,
-  IconPencil,
   IconLayoutDashboard,
   IconDatabase,
 } from "@tabler/icons-react";

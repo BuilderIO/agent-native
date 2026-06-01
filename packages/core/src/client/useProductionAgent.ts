@@ -140,8 +140,14 @@ export function useProductionAgent(
                 prev.map((m) => {
                   if (m.id !== assistantId) return m;
                   const calls = [...(m.toolCalls ?? [])];
-                  // Update last tool call with result
-                  const idx = calls.map((c) => c.tool).lastIndexOf(ev.tool);
+                  // Results can arrive out of order for concurrent same-named
+                  // calls, so attach to the first not-yet-resolved match
+                  // (FIFO) rather than the most recent same-named call.
+                  let idx = calls.findIndex(
+                    (c) => c.tool === ev.tool && c.result === undefined,
+                  );
+                  if (idx < 0)
+                    idx = calls.map((c) => c.tool).lastIndexOf(ev.tool);
                   if (idx >= 0)
                     calls[idx] = { ...calls[idx], result: ev.result };
                   return { ...m, toolCalls: calls };

@@ -19,6 +19,7 @@ import {
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 
 let _registered = false;
 
@@ -78,18 +79,22 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
         }
       });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          severity: input.severity,
-          title: input.title,
-          body: input.body,
-          metadata: input.metadata,
-          owner: meta.owner,
-          emittedAt: new Date().toISOString(),
-        }),
-      });
+      const res = await ssrfSafeFetch(
+        url,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            severity: input.severity,
+            title: input.title,
+            body: input.body,
+            metadata: input.metadata,
+            owner: meta.owner,
+            emittedAt: new Date().toISOString(),
+          }),
+        },
+        { maxRedirects: 3 },
+      );
       if (!res.ok) {
         throw new Error(
           `[notifications] webhook ${new URL(url).origin} returned ${res.status}${

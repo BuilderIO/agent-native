@@ -1819,14 +1819,28 @@ export async function verifyAuth(
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
   // per-caller claims, so derive identity from the forwarded owner-email
-  // hint (install flow) — otherwise tools would run unscoped.
-  if (accessTokens.length > 0 && accessTokens.includes(token)) {
-    return {
-      authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      // Matched a configured ACCESS_TOKEN — a real caller.
-      fullSurface: true,
-    };
+  // hint (install flow) — otherwise tools would run unscoped. Compare in
+  // constant time (matching the rest of this subsystem's secret-comparison
+  // discipline); node:crypto is imported dynamically because this module is
+  // bundled into the serverless function and avoids static Node-only imports.
+  if (accessTokens.length > 0) {
+    const { timingSafeEqual } = await import("node:crypto");
+    const candidate = Buffer.from(token, "utf8");
+    const matched = accessTokens.some((configured) => {
+      const expected = Buffer.from(configured, "utf8");
+      return (
+        expected.length === candidate.length &&
+        timingSafeEqual(expected, candidate)
+      );
+    });
+    if (matched) {
+      return {
+        authed: true,
+        identity: deriveStaticTokenIdentity(ownerEmailHeader),
+        // Matched a configured ACCESS_TOKEN — a real caller.
+        fullSurface: true,
+      };
+    }
   }
 
   return { authed: false };

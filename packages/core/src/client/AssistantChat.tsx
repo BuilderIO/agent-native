@@ -52,7 +52,7 @@ import {
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError, trackEvent } from "./analytics.js";
+import { captureError } from "./analytics.js";
 import { cn } from "./utils.js";
 import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
@@ -1728,12 +1728,7 @@ function ToolCallFallback({
 // assistant-ui's runtime). Uses the same visual styling as normal messages.
 
 function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
   const chatRunning = React.useContext(ChatRunningContext);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [content]);
 
   return (
     <div className="flex justify-start">
@@ -1770,7 +1765,6 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
           }
           return null;
         })}
-        <div ref={endRef} />
       </div>
     </div>
   );
@@ -2809,6 +2803,71 @@ function getMessageText(message: unknown): string {
       .trim();
   }
   return typeof content === "string" ? content.trim() : "";
+}
+
+function contentPartFollowKey(part: any): string {
+  const type = typeof part?.type === "string" ? part.type : "unknown";
+  if (type === "text") return `t:${String(part.text ?? "").length}`;
+  if (type === "tool-call") {
+    return [
+      "tool",
+      part.toolCallId ?? "",
+      part.toolName ?? "",
+      part.status?.type ?? "",
+      String(part.argsText ?? "").length,
+      String(part.result ?? "").length,
+      part.mcpApp ? 1 : 0,
+    ].join(":");
+  }
+  if (type === "image") return `image:${String(part.image ?? "").length}`;
+  return `${type}:${String(part.text ?? part.result ?? "").length}`;
+}
+
+function contentFollowKey(content: unknown): string {
+  if (typeof content === "string") return `t:${content.length}`;
+  if (Array.isArray(content))
+    return content.map(contentPartFollowKey).join("|");
+  return "";
+}
+
+function messageFollowKey(message: unknown): string {
+  const msg = ((message as { message?: unknown })?.message ?? message) as {
+    id?: unknown;
+    role?: unknown;
+    status?: { type?: unknown; reason?: unknown };
+    content?: unknown;
+  };
+  return [
+    String(msg?.id ?? ""),
+    String(msg?.role ?? ""),
+    String(msg?.status?.type ?? ""),
+    String(msg?.status?.reason ?? ""),
+    contentFollowKey(msg?.content),
+  ].join(",");
+}
+
+function queuedMessageFollowKey(message: {
+  id: string;
+  text: string;
+  images?: string[];
+  attachments?: QueuedAttachment[];
+  references?: Reference[];
+  requestMode?: AgentRequestMode;
+  recoveryAction?: AgentRecoveryAction;
+}): string {
+  return [
+    message.id,
+    message.text.length,
+    message.images?.length ?? 0,
+    message.attachments?.length ?? 0,
+    message.references?.length ?? 0,
+    message.requestMode ?? "",
+    message.recoveryAction ?? "",
+  ].join(":");
+}
+
+function reconnectContentFollowKey(content: ContentPart[]): string {
+  return content.map(contentPartFollowKey).join("|");
 }
 
 const RECOVERY_USER_MESSAGE_PREFIXES = [
@@ -4764,6 +4823,16 @@ const AssistantChatInner = forwardRef<
     [addToQueue, messages.length, thread.isRunning, threadRuntime],
   );
 
+  const autoscrollFollowKey = useMemo(
+    () =>
+      [
+        messages.map(messageFollowKey).join(";"),
+        `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
+        `r:${reconnectContentFollowKey(reconnectContent)}`,
+      ].join(";;"),
+    [messages, queuedMessages, reconnectContent],
+  );
+
   const {
     scrollRef,
     isNearBottomRef,
@@ -4772,7 +4841,7 @@ const AssistantChatInner = forwardRef<
     scrollToBottom,
     scrollToBottomAfterPaint,
   } = useNearBottomAutoscroll<HTMLDivElement>({
-    followKey: [messages, queuedMessages],
+    followKey: autoscrollFollowKey,
     streaming: isRunning,
   });
 
@@ -4783,13 +4852,13 @@ const AssistantChatInner = forwardRef<
 
     let stopped = false;
     const observer = new ResizeObserver(() => {
-      if (!stopped) scrollToBottom();
+      if (!stopped && isNearBottomRef.current) scrollToBottom();
     });
     observer.observe(el);
     const timeout = window.setTimeout(() => {
       stopped = true;
       observer.disconnect();
-      scrollToBottom();
+      if (isNearBottomRef.current) scrollToBottom();
     }, 1600);
 
     return () => {
@@ -4797,7 +4866,7 @@ const AssistantChatInner = forwardRef<
       window.clearTimeout(timeout);
       observer.disconnect();
     };
-  }, [scrollToBottom, scrollToBottomAfterPaint]);
+  }, [isNearBottomRef, scrollToBottom, scrollToBottomAfterPaint]);
 
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);

@@ -2,7 +2,6 @@ import { useParams, useNavigate } from "react-router";
 import { useCandidate, useNotes, useDeleteNote } from "@/hooks/use-greenhouse";
 import {
   formatRelativeDate,
-  formatDateFull,
   getInitials,
   getAvatarColor,
   cn,
@@ -15,7 +14,6 @@ import {
   IconPhone,
   IconBuildingSkyscraper,
   IconMapPin,
-  IconBrandLinkedin,
   IconFileSearch,
   IconTrash,
   IconFileDescription,

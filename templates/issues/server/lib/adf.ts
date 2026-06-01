@@ -225,7 +225,9 @@ export function markdownToAdf(markdown: string): unknown {
       content.push({
         type: "codeBlock",
         attrs: lang ? { language: lang } : {},
-        content: [{ type: "text", text: codeLines.join("\n") }],
+        content: codeLines.length
+          ? [{ type: "text", text: codeLines.join("\n") }]
+          : [],
       });
       continue;
     }

@@ -1,13 +1,13 @@
 import fs from "fs/promises";
 import path from "path";
-import type { MigrationContext, Verifier, VerifierResult } from "../types.js";
+import type { Verifier, VerifierResult } from "../types.js";
 
 export const outputFileVerifier: Verifier = {
   id: "output-file-smoke",
   label: "Output file smoke test",
   async run(context) {
     const required = ["package.json", "app/root.tsx", "actions/run.ts"];
-    const missing = [];
+    const missing: string[] = [];
     for (const file of required) {
       try {
         await fs.access(path.join(context.run.outputRoot, file));

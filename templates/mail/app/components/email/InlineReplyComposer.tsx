@@ -14,7 +14,6 @@ import {
   IconPaperclip,
   IconLoader2,
   IconDots,
-  IconX,
   IconTrash,
   IconExternalLink,
 } from "@tabler/icons-react";

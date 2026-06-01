@@ -8,7 +8,6 @@
  * don't copy that).
  */
 
-import React from "react";
 import {
   IconMicrophone,
   IconPlayerStopFilled,

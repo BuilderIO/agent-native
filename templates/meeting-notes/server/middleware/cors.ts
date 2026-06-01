@@ -1,4 +1,4 @@
-import { defineEventHandler, setHeaders, getRequestURL } from "h3";
+import { defineEventHandler, setHeaders } from "h3";
 
 /**
  * CORS middleware — allows cross-origin requests so other templates

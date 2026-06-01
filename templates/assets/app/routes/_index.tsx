@@ -126,7 +126,7 @@ export default function CreatePage() {
         onOpenChange={setCreateOpen}
         onCreated={(library) => {
           rememberLastLibraryId(library.id);
-          navigate(`/library/${library.id}`);
+          navigate(`/brand-kits/${library.id}`);
         }}
       />
     </PageShell>
@@ -766,7 +766,7 @@ function HomeGeneratePanel({
 
     if (selectedLibrary) {
       rememberLastLibraryId(selectedLibrary.id);
-      navigate(`/library/${selectedLibrary.id}`);
+      navigate(`/brand-kits/${selectedLibrary.id}`);
     }
   };
 
@@ -846,12 +846,12 @@ function HomeGeneratePanel({
                 <IconPhotoPlus size={16} className="text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">
                   {popularLibraries.length
-                    ? "Popular libraries"
+                    ? "Popular brand kits"
                     : "Default styles"}
                 </h2>
               </div>
               <Button asChild variant="outline" size="sm">
-                <Link to="/libraries">
+                <Link to="/brand-kits">
                   View all
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </Link>
@@ -864,7 +864,7 @@ function HomeGeneratePanel({
                   <LibraryCard
                     key={library.id}
                     library={library}
-                    to={`/library/${library.id}`}
+                    to={`/brand-kits/${library.id}`}
                     selected={selectedLibrary?.id === library.id}
                     compact
                   />

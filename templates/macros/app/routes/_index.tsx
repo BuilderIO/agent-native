@@ -4,7 +4,6 @@ import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   IconChevronLeft,
   IconChevronRight,
-  IconPlus,
   IconToolsKitchen2,
   IconBarbell,
 } from "@tabler/icons-react";

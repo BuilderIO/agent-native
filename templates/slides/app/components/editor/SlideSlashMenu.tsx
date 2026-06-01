@@ -92,7 +92,7 @@ interface SlashMenuUIProps {
 export const SlashMenuUI = forwardRef<
   { moveUp: () => void; moveDown: () => void; select: () => void },
   SlashMenuUIProps
->(({ editor, position, query, onClose, onCommand }, ref) => {
+>(({ position, query, onCommand }, ref) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const filtered = SLASH_COMMANDS.filter(
@@ -296,7 +296,6 @@ export function useSlashMenu(editor: Editor | null) {
       // Get DOM position of the slash character
       try {
         const coords = editor.view.coordsAtPos(slashAbsPos + 1);
-        const editorRect = editor.view.dom.getBoundingClientRect();
 
         // Position below the line
         setMenuPosition({

@@ -1,5 +1,5 @@
 import { agentNativePath, appPath } from "../api-path.js";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconBell,
   IconBellRinging,

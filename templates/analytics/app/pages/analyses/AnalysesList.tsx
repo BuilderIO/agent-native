@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconFlask, IconClock, IconDatabase } from "@tabler/icons-react";
+import { IconFlask, IconClock } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
   appApiPath,

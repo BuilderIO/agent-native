@@ -1,10 +1,3 @@
-/**
- * Store a new dictation result.
- *
- * Usage:
- *   pnpm action create-dictation --text="Hello world" --rawText="hello world"
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
@@ -92,7 +85,6 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Created dictation ${id} (${wordCount} words)`);
 
     return { id, text: args.text, rawText: args.rawText, createdAt: now };
   },
