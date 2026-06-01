@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createH3SSRHandler,
+  DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
@@ -39,6 +40,17 @@ function createEvent(pathname: string, method = "GET", init: RequestInit = {}) {
     url: new URL(url),
     req: new Request(url, { method, ...init }),
   };
+}
+
+function expectDefaultSsrCacheHeaders(response: Response) {
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    expect(response.headers.get(name)).toBe(value);
+  }
+}
+
+function expectNoDefaultCdnCacheHeaders(response: Response) {
+  expect(response.headers.get("cdn-cache-control")).toBeNull();
+  expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
 }
 
 describe("createH3SSRHandler", () => {
@@ -119,9 +131,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("speculation-rules")).toBe(
       DEFAULT_SPECULATION_RULES_HEADER,
     );
@@ -156,9 +166,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/private-html"));
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultSsrCacheHeaders(response);
   });
 
   it("replaces React Router's default no-cache policy on .data responses", async () => {
@@ -175,9 +183,7 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/docs/template-calendar.data"));
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultSsrCacheHeaders(response);
   });
 
   it("replaces React Router's default no-cache policy on authenticated .data responses", async () => {
@@ -198,9 +204,7 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultSsrCacheHeaders(response);
   });
 
   it("overwrites explicit private cache policies on React Router .data responses", async () => {
@@ -221,9 +225,7 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_CONTROL,
-    );
+    expectDefaultSsrCacheHeaders(response);
   });
 
   it("does not replace no-cache on non-React Router .data responses", async () => {
@@ -240,6 +242,7 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/custom.data"));
 
     expect(response.headers.get("cache-control")).toBe("no-cache");
+    expectNoDefaultCdnCacheHeaders(response);
   });
 
   it("injects the default social image into SSR HTML without one", async () => {

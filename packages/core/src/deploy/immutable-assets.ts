@@ -7,6 +7,7 @@ export const IMMUTABLE_ASSET_CACHE_CONTROL =
 export const IMMUTABLE_ASSET_CACHE_HEADERS = {
   "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
   "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+  "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
 } as const;
 
 export const IMMUTABLE_ASSET_PATH_PATTERN =

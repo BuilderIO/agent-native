@@ -19,12 +19,16 @@
   for = "/*"
   [headers.values]
     Cache-Control = "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600"
+    CDN-Cache-Control = "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600"
+    Netlify-CDN-Cache-Control = "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600"
 
 # Static assets: immutable long cache
 [[headers]]
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+    CDN-Cache-Control = "public, max-age=31536000, immutable"
+    Netlify-CDN-Cache-Control = "public, max-age=31536000, immutable"
 
 # Agent-native API routes: no caching
 [[headers]]

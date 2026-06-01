@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -438,6 +440,12 @@ describe("server/auth", () => {
       expect((result as Response).headers.get("Cache-Control")).toBe(
         DEFAULT_SSR_CACHE_CONTROL,
       );
+      expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
+        DEFAULT_SSR_CACHE_CONTROL,
+      );
+      expect(
+        (result as Response).headers.get("Netlify-CDN-Cache-Control"),
+      ).toBe(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
