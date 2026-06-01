@@ -73,6 +73,7 @@ import {
 
 export interface TiptapComposerHandle {
   focus(): void;
+  setText(text: string): void;
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
@@ -1339,6 +1340,22 @@ export function TiptapComposer({
   useImperativeHandle(focusRef, () => ({
     focus() {
       editor?.commands.focus("end");
+    },
+    setText(text: string) {
+      if (!editor) return;
+      editor.commands.setContent(plainTextToDoc(text));
+      editor.commands.focus("end");
+      const trimmed = editor.state.doc.textContent.trim();
+      setEditorHasText(trimmed.length > 0);
+      composerRuntime.setText(trimmed);
+      onTextChangeRef.current?.(trimmed);
+      try {
+        if (trimmed) {
+          localStorage.setItem(draftKey, editor.getHTML());
+        } else {
+          localStorage.removeItem(draftKey);
+        }
+      } catch {}
     },
   }));
 

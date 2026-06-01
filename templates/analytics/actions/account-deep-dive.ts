@@ -15,22 +15,15 @@ import {
 import {
   getCallDetail,
   getCallTranscript,
-  searchCalls,
+  searchCallsForQueries,
   type GongCall,
 } from "../server/lib/gong";
+import { cliBoolean } from "./schema-helpers";
 
 const DEFAULT_DEAL_LIMIT = 3;
 const DEFAULT_GONG_DAYS = 180;
 const DEFAULT_TRANSCRIPT_LIMIT = 5;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 6_000;
-
-const booleanQueryParam = z.preprocess((value) => {
-  if (typeof value !== "string") return value;
-  const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return value;
-}, z.boolean());
 
 const DEAL_DEEP_DIVE_PROPERTIES = [
   "dealname",
@@ -208,25 +201,22 @@ function buildGongSearchQueries(input: {
     property(company, "name"),
     property(company, "domain"),
   ]);
-  const contactTerms = input.contacts
+  const contactEmails = input.contacts
     .map((contact) => property(contact, "email"))
-    .filter((email): email is string => Boolean(email))
+    .filter((email): email is string => Boolean(email));
+  const contactDomains = contactEmails
     .map((email) => email.split("@")[1])
-    .filter(Boolean);
+    .filter((domain): domain is string => Boolean(domain));
 
   return uniqueStrings([
     input.query,
+    ...contactEmails,
+    ...contactDomains,
     ...companyTerms,
     ...dealTerms,
-    ...contactTerms,
   ])
     .filter((term) => term.length >= 3)
-    .slice(0, 5);
-}
-
-function callStartedMs(call: GongCall) {
-  const time = Date.parse(call.started);
-  return Number.isFinite(time) ? time : 0;
+    .slice(0, 8);
 }
 
 function recordTimestampMs(record: HubSpotObjectRecord) {
@@ -248,31 +238,35 @@ async function loadGongEvidence(options: {
   transcriptMaxChars: number;
 }) {
   const gaps: string[] = [];
-  const byId = new Map<string, GongCall & { matchedQueries?: string[] }>();
+  let calls: Array<GongCall & { matchedQueries?: string[] }> = [];
+  let searchCoverage: {
+    searchedCallCount: number;
+    matchedCallCount: number;
+    coverageTruncated: boolean;
+  } | null = null;
 
-  for (const query of options.queries) {
-    try {
-      const result = await searchCalls(query, options.days, options.gongLimit);
-      for (const call of result.calls) {
-        const existing = byId.get(call.id);
-        byId.set(call.id, {
-          ...(existing ?? call),
-          matchedQueries: uniqueStrings([
-            ...(existing?.matchedQueries ?? []),
-            query,
-          ]),
-        });
-      }
-    } catch (err) {
+  try {
+    const result = await searchCallsForQueries(
+      options.queries,
+      options.days,
+      options.gongLimit,
+    );
+    calls = result.calls;
+    searchCoverage = {
+      searchedCallCount: result.searchedCallCount,
+      matchedCallCount: result.matchedCallCount,
+      coverageTruncated: result.coverageTruncated,
+    };
+    if (result.coverageTruncated) {
       gaps.push(
-        `Gong search "${query}": ${err instanceof Error ? err.message : String(err)}`,
+        `Gong search scanned ${result.searchedCallCount.toLocaleString()} calls and hit the provider page cap before exhausting the lookback window.`,
       );
     }
+  } catch (err) {
+    gaps.push(
+      `Gong search: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
-
-  const calls = Array.from(byId.values())
-    .sort((a, b) => callStartedMs(b) - callStartedMs(a))
-    .slice(0, options.gongLimit);
 
   const callDetails = await Promise.all(
     calls.slice(0, Math.min(5, options.gongLimit)).map(async (call) => {
@@ -324,6 +318,7 @@ async function loadGongEvidence(options: {
     calls,
     callDetails: callDetails.filter((detail) => detail !== null),
     transcripts,
+    searchCoverage,
     gaps,
   };
 }
@@ -359,7 +354,7 @@ export default defineAction({
       .max(25)
       .default(10)
       .describe("Maximum matched Gong calls to return (default 10, max 25)."),
-    includeTranscripts: booleanQueryParam
+    includeTranscripts: cliBoolean
       .default(true)
       .describe(
         "Return compact transcript excerpts for the top matched calls.",
@@ -522,6 +517,7 @@ export default defineAction({
         calls: gong.calls,
         callDetails: gong.callDetails,
         transcripts: gong.transcripts,
+        searchCoverage: gong.searchCoverage,
       },
       coverage: {
         dealCount: deals.length,

@@ -5,7 +5,7 @@ const getDealPipelines = vi.fn();
 const getDealOwners = vi.fn();
 const getVisiblePipelines = vi.fn();
 const getAssociatedHubSpotObjects = vi.fn();
-const searchCalls = vi.fn();
+const searchCallsForQueries = vi.fn();
 const getCallDetail = vi.fn();
 const getCallTranscript = vi.fn();
 
@@ -25,7 +25,7 @@ vi.mock("../server/lib/hubspot", () => ({
 vi.mock("../server/lib/gong", () => ({
   getCallDetail,
   getCallTranscript,
-  searchCalls,
+  searchCallsForQueries,
 }));
 
 const { default: accountDeepDive } = await import("./account-deep-dive");
@@ -122,16 +122,21 @@ function setupHappyPath() {
     }
     return [];
   });
-  searchCalls.mockResolvedValue({
+  searchCallsForQueries.mockResolvedValue({
     calls: [
       {
         id: "call-1",
         title: "The Knot Worldwide POC readout",
         started: "2026-03-27T17:00:00Z",
+        matchedQueries: ["theknotww.com"],
       },
     ],
     limit: 3,
     truncated: false,
+    searchedCallCount: 1,
+    matchedCallCount: 1,
+    queryCount: 3,
+    coverageTruncated: false,
   });
   getCallDetail.mockResolvedValue({
     id: "call-1",
@@ -169,7 +174,7 @@ describe("account-deep-dive action", () => {
     getDealOwners.mockReset();
     getVisiblePipelines.mockReset();
     getAssociatedHubSpotObjects.mockReset();
-    searchCalls.mockReset();
+    searchCallsForQueries.mockReset();
     getCallDetail.mockReset();
     getCallTranscript.mockReset();
     setupHappyPath();
@@ -212,7 +217,11 @@ describe("account-deep-dive action", () => {
         toObjectType: "contacts",
       }),
     );
-    expect(searchCalls).toHaveBeenCalledWith("theknotww.com", 180, 3);
+    expect(searchCallsForQueries).toHaveBeenCalledWith(
+      expect.arrayContaining(["susan@theknotww.com", "theknotww.com"]),
+      180,
+      3,
+    );
     expect(getCallDetail).toHaveBeenCalledWith("call-1");
     expect(getCallTranscript).toHaveBeenCalledWith("call-1");
 
@@ -225,7 +234,13 @@ describe("account-deep-dive action", () => {
     expect(result.hubspot.notes[0].properties.hs_note_body).toBe(
       "VP of Marketing gave a verbal green light.",
     );
+    expect(result.gong.searchQueries).toContain("susan@theknotww.com");
     expect(result.gong.searchQueries).toContain("theknotww.com");
+    expect(result.gong.searchCoverage).toEqual({
+      searchedCallCount: 1,
+      matchedCallCount: 1,
+      coverageTruncated: false,
+    });
     expect(result.gong.callDetails[0].keyPoints).toContain(
       "They have what they need.",
     );

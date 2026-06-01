@@ -170,11 +170,84 @@ export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
 }
 
+function tryParseJsonContent(content: string): unknown {
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function hasEvidencePayload(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  const record = value as Record<string, unknown>;
+  const evidenceKeys = [
+    "accounts",
+    "calls",
+    "contacts",
+    "deals",
+    "emails",
+    "events",
+    "issues",
+    "messages",
+    "notes",
+    "records",
+    "results",
+    "rows",
+    "tickets",
+    "transcripts",
+  ];
+  if (
+    evidenceKeys.some((key) => {
+      const candidate = record[key];
+      return Array.isArray(candidate) ? candidate.length > 0 : !!candidate;
+    })
+  ) {
+    return true;
+  }
+
+  return Object.values(record).some((candidate) =>
+    hasEvidencePayload(candidate),
+  );
+}
+
+function isProviderErrorOnlyContent(content: string | undefined): boolean {
+  if (!content) return false;
+  const lower = content.trim().toLowerCase();
+  if (!lower) return false;
+  if (
+    lower.startsWith("error ") ||
+    lower.startsWith("error:") ||
+    lower.includes('"error":"missing_api_key"') ||
+    lower.includes('"error": "missing_api_key"')
+  ) {
+    return true;
+  }
+
+  const parsed = tryParseJsonContent(content);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return false;
+  }
+  const record = parsed as Record<string, unknown>;
+  if (!("error" in record)) return false;
+  return !hasEvidencePayload(record);
+}
+
 export function hasDataQueryAttempt(
-  toolResults: Array<{ name?: string; isError?: boolean }> | undefined,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
     return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
   });

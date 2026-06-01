@@ -399,12 +399,21 @@ export async function reapAllStaleRuns(): Promise<number> {
             AND COALESCE(heartbeat_at, started_at) < ?`,
     args: [heartbeatCutoff],
   });
+  const completedAt = Date.now();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), heartbeatCutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      heartbeatCutoff,
+    ],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -445,20 +454,39 @@ export async function cleanupOldRuns(
             AND (
               COALESCE(heartbeat_at, started_at) < ?
               OR started_at < ?
-            )`,
+    )`,
     args: [heartbeatCutoff, cutoff],
   });
+  const completedAt = Date.now();
   await client.execute({
-    sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
-    args: [Date.now(), cutoff],
+    sql: `UPDATE agent_runs
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
+          WHERE status = 'running' AND started_at < ?`,
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      cutoff,
+    ],
   });
   // Also expire runs whose heartbeat is stale — producer has died.
   await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), heartbeatCutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      heartbeatCutoff,
+    ],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;

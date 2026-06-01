@@ -16,7 +16,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional substring to filter entries by metric name or definition (case-insensitive)",
+        "Optional substring to filter entries by metric, definition, table, columns, joins, owner, gotchas, or common questions (case-insensitive)",
       ),
     department: z
       .string()
@@ -60,9 +60,28 @@ export default defineAction({
     const dept = (args.department ?? "").trim().toLowerCase();
     const filtered = entries.filter((e) => {
       if (q) {
-        const metric = String(e.metric ?? "").toLowerCase();
-        const def = String(e.definition ?? "").toLowerCase();
-        if (!metric.includes(q) && !def.includes(q)) return false;
+        const searchable = [
+          e.metric,
+          e.definition,
+          e.department,
+          e.table,
+          e.columnsUsed,
+          e.cuts,
+          e.queryTemplate,
+          e.joinPattern,
+          e.updateFrequency,
+          e.dataLag,
+          e.dependencies,
+          e.validDateRange,
+          e.commonQuestions,
+          e.knownGotchas,
+          e.exampleUseCase,
+          e.owner,
+          e.sourceUrl,
+        ]
+          .map((value) => String(value ?? "").toLowerCase())
+          .join("\n");
+        if (!searchable.includes(q)) return false;
       }
       if (dept) {
         if (String(e.department ?? "").toLowerCase() !== dept) return false;

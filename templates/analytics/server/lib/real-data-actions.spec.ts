@@ -44,6 +44,39 @@ describe("real data action classification", () => {
       ]),
     ).toBe(false);
   });
+
+  it("does not count provider error payloads returned as normal action results", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "pylon-issues",
+          content: JSON.stringify({
+            error: "missing_api_key",
+            message: "Connect your Pylon account.",
+          }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "jira-search",
+          content: JSON.stringify({ error: "Jira API error 403" }),
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("still counts successful empty result sets as real evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "hubspot-records",
+          content: JSON.stringify({ records: [], total: 0 }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("analytics data request classification", () => {

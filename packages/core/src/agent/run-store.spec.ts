@@ -46,8 +46,13 @@ vi.mock("../server/capture-error.js", () => ({
   captureError: mockCaptureError,
 }));
 
-const { STALE_RUN_ERROR_EVENT, markRunAborted, reapIfStale, cleanupOldRuns } =
-  await import("./run-store.js");
+const {
+  STALE_RUN_ERROR_EVENT,
+  markRunAborted,
+  reapAllStaleRuns,
+  reapIfStale,
+  cleanupOldRuns,
+} = await import("./run-store.js");
 
 describe("run store", () => {
   beforeEach(() => {
@@ -163,6 +168,26 @@ describe("run store", () => {
     );
     expect(insert?.args[0]).toBe("old-but-heartbeating-run");
     expect(insert?.args[2] as string).toContain('"errorCode":"stale_run"');
+  });
+
+  it("persists stale error diagnostics for all stale-run reap paths", async () => {
+    staleSelectRows = [{ id: "run-stale-startup" }];
+
+    await reapAllStaleRuns();
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    const staleUpdates = execCalls.filter(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = 'errored'/i.test(call.sql) &&
+        /error_code = \?/i.test(call.sql) &&
+        /error_detail = \?/i.test(call.sql),
+    );
+    expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
+    for (const update of staleUpdates) {
+      expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+      expect(update.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
+    }
   });
 
   it("keeps errored runs longer than completed runs during cleanup", async () => {

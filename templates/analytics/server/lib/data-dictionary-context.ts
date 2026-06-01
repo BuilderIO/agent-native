@@ -45,8 +45,27 @@ function renderEntry(
   if (table) lines.push(`  - table: ${table}`);
   const columns = compact(entry.columnsUsed, 360);
   if (columns) lines.push(`  - columns: ${columns}`);
+  const cuts = compact(entry.cuts, 240);
+  if (cuts) lines.push(`  - standard cuts: ${cuts}`);
   const template = compact(entry.queryTemplate, 240);
   if (template) lines.push(`  - query: ${template}`);
+  const joinPattern = compact(entry.joinPattern, 360);
+  if (joinPattern) lines.push(`  - joins: ${joinPattern}`);
+  const freshness = compact(
+    [entry.updateFrequency, entry.dataLag]
+      .filter((value) => compact(value, 120))
+      .join("; "),
+    240,
+  );
+  if (freshness) lines.push(`  - freshness: ${freshness}`);
+  const dependencies = compact(entry.dependencies, 240);
+  if (dependencies) lines.push(`  - dependencies: ${dependencies}`);
+  const validDateRange = compact(entry.validDateRange, 180);
+  if (validDateRange) lines.push(`  - valid range: ${validDateRange}`);
+  const owner = compact(entry.owner, 160);
+  if (owner) lines.push(`  - owner: ${owner}`);
+  const commonQuestions = compact(entry.commonQuestions, 300);
+  if (commonQuestions) lines.push(`  - common questions: ${commonQuestions}`);
   const gotchas = compact(entry.knownGotchas, 360);
   if (gotchas) lines.push(`  - gotchas: ${gotchas}`);
 

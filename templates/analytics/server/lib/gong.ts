@@ -388,11 +388,6 @@ export function matchesGongCallQuery(call: GongCall, query: string): boolean {
   return terms.length > 0 && terms.every((term) => searchable.includes(term));
 }
 
-const extensivePartyCache = new Map<
-  string,
-  { name: string; emailAddress?: string; affiliation?: string }[]
->();
-
 function isExternalCall(call: GongCall): boolean {
   const scope = (call as Record<string, unknown>).scope;
   return typeof scope !== "string" || scope === "External";
@@ -428,17 +423,75 @@ function partyMatchesQuery(
   );
 }
 
-export async function searchCalls(
+const extensivePartyCache = new Map<
+  string,
+  { name: string; emailAddress?: string; affiliation?: string }[]
+>();
+
+export interface GongCallSearchResult {
+  calls: Array<GongCall & { matchedQueries?: string[] }>;
+  limit: number;
+  truncated: boolean;
+  searchedCallCount: number;
+  matchedCallCount: number;
+  queryCount: number;
+  coverageTruncated: boolean;
+}
+
+function normalizedSearchQueries(queries: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const query of queries) {
+    const trimmed = query.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function addMatchedQuery(
+  matches: Map<string, GongCall & { matchedQueries?: string[] }>,
+  call: GongCall,
   query: string,
+  parties?: { name: string; emailAddress?: string; affiliation?: string }[],
+) {
+  const existing = matches.get(call.id);
+  const matchedQueries = new Set([...(existing?.matchedQueries ?? []), query]);
+  matches.set(call.id, {
+    ...(existing ?? call),
+    ...(parties?.length ? { parties } : {}),
+    matchedQueries: Array.from(matchedQueries),
+  });
+}
+
+export async function searchCallsForQueries(
+  queries: string[],
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
-): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
+): Promise<GongCallSearchResult> {
   const fromDateTime = new Date(
     Date.now() - days * 24 * 60 * 60 * 1000,
   ).toISOString();
   const normalizedLimit = normalizeGongCallLimit(limit);
+  const normalizedQueries = normalizedSearchQueries(queries);
 
-  let allCalls: GongCall[] = [];
+  if (!normalizedQueries.length) {
+    return {
+      calls: [],
+      limit: normalizedLimit,
+      truncated: false,
+      searchedCallCount: 0,
+      matchedCallCount: 0,
+      queryCount: 0,
+      coverageTruncated: false,
+    };
+  }
+
+  const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
+  let searchedCallCount = 0;
   let cursor: string | undefined;
   do {
     const params = new URLSearchParams({ fromDateTime });
@@ -447,62 +500,87 @@ export async function searchCalls(
       calls?: GongCall[];
       records?: { cursor?: string; totalRecords?: number };
     }>(`/calls?${params.toString()}`);
-    allCalls = allCalls.concat((data.calls ?? []).filter(isExternalCall));
+    const calls = (data.calls ?? []).filter(isExternalCall);
+    searchedCallCount += calls.length;
     cursor = data.records?.cursor;
-  } while (cursor);
 
-  const titleOrPartyMatches = allCalls.filter((call) =>
-    matchesGongCallQuery(call, query),
-  );
-  const matchedIds = new Set(titleOrPartyMatches.map((call) => call.id));
-  const remaining = allCalls.filter((call) => !matchedIds.has(call.id));
-  const extensiveMatches: GongCall[] = [];
-
-  for (let i = 0; i < remaining.length; i += 100) {
-    const batch = remaining.slice(i, i + 100);
-    const uncached = batch.filter((call) => !extensivePartyCache.has(call.id));
-    if (uncached.length) {
-      try {
-        const data = await apiPost<{ calls?: any[] }>(
-          "/calls/extensive",
-          {
-            filter: { callIds: uncached.map((call) => call.id) },
-            contentSelector: { exposedFields: { parties: true } },
-          },
-          `extensive-parties-batch:${uncached.map((call) => call.id).join(",")}`,
-        );
-        for (const call of data.calls ?? []) {
-          const id = call.metaData?.id;
-          if (!id) continue;
-          extensivePartyCache.set(
-            id,
-            (call.parties ?? []).map((party: any) => ({
-              name: party.name ?? "",
-              emailAddress: party.emailAddress ?? undefined,
-              affiliation: party.affiliation ?? undefined,
-            })),
-          );
+    const remainingForExtensive: GongCall[] = [];
+    for (const call of calls) {
+      let matched = false;
+      for (const query of normalizedQueries) {
+        if (matchesGongCallQuery(call, query)) {
+          addMatchedQuery(matches, call, query, call.parties);
+          matched = true;
         }
-      } catch {
-        // Title matches already cover the obvious path. If extensive lookup
-        // fails, return those instead of failing the entire account search.
+      }
+      if (!matched) {
+        remainingForExtensive.push(call);
       }
     }
 
-    for (const call of batch) {
-      const parties = extensivePartyCache.get(call.id) ?? [];
-      if (parties.length && partyMatchesQuery(parties, query)) {
-        extensiveMatches.push({ ...call, parties });
+    for (let i = 0; i < remainingForExtensive.length; i += 100) {
+      if (matches.size >= normalizedLimit) break;
+      const batch = remainingForExtensive.slice(i, i + 100);
+      const uncached = batch.filter(
+        (call) => !extensivePartyCache.has(call.id),
+      );
+      if (uncached.length) {
+        try {
+          const data = await apiPost<{ calls?: any[] }>(
+            "/calls/extensive",
+            {
+              filter: { callIds: uncached.map((call) => call.id) },
+              contentSelector: { exposedFields: { parties: true } },
+            },
+            `extensive-parties-batch:${uncached.map((call) => call.id).join(",")}`,
+          );
+          for (const call of data.calls ?? []) {
+            const id = call.metaData?.id;
+            if (!id) continue;
+            extensivePartyCache.set(
+              id,
+              (call.parties ?? []).map((party: any) => ({
+                name: party.name ?? "",
+                emailAddress: party.emailAddress ?? undefined,
+                affiliation: party.affiliation ?? undefined,
+              })),
+            );
+          }
+        } catch {
+          // Title matches already cover the obvious path. If extensive lookup
+          // fails, return those instead of failing the entire account search.
+        }
+      }
+
+      for (const call of batch) {
+        if (matches.size >= normalizedLimit) break;
+        const parties = extensivePartyCache.get(call.id) ?? [];
+        if (!parties.length) continue;
+        for (const query of normalizedQueries) {
+          if (partyMatchesQuery(parties, query)) {
+            addMatchedQuery(matches, call, query, parties);
+          }
+        }
       }
     }
-  }
+  } while (cursor && matches.size < normalizedLimit);
 
-  const limited = limitGongCalls(
-    [...titleOrPartyMatches, ...extensiveMatches],
-    normalizedLimit,
-  );
+  const matchedCalls = Array.from(matches.values());
+  const limited = limitGongCalls(matchedCalls, normalizedLimit);
   return {
     ...limited,
-    truncated: limited.truncated,
+    truncated: limited.truncated || Boolean(cursor),
+    searchedCallCount,
+    matchedCallCount: matchedCalls.length,
+    queryCount: normalizedQueries.length,
+    coverageTruncated: Boolean(cursor),
   };
+}
+
+export async function searchCalls(
+  query: string,
+  days = 90,
+  limit = DEFAULT_GONG_CALL_LIMIT,
+): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
+  return searchCallsForQueries([query], days, limit);
 }

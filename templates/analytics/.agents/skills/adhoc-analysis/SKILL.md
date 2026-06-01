@@ -89,6 +89,9 @@ Don't just dump raw data. Synthesize findings:
 - Call out surprises or actionable insights
 - Compare against benchmarks or prior periods when possible
 - Only report figures you actually retrieved from a source — never present a number you did not query. Attribute each figure to its source and time window.
+- Make the evidence trail explicit enough to audit: source(s), time window,
+  filters, sample size or row count, join/match method, caveats/gaps, and
+  recommended next action when useful.
 
 ### Step 4: Generate Charts (when useful)
 

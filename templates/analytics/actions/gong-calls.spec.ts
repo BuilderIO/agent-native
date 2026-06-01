@@ -135,7 +135,7 @@ describe("gong-calls action", () => {
 
     expect(getCallTranscript).toHaveBeenCalledWith("call-1");
     expect(result.callId).toBe("call-1");
-    expect(result.transcript).toBeUndefined();
+    expect(result.transcript).toEqual(result.transcriptText);
     expect(result.transcriptText.text.length).toBeLessThanOrEqual(8_000);
     expect(result.transcriptText.truncated).toBe(true);
     expect(result.guidance).toContain("compact transcript text only");
@@ -162,7 +162,8 @@ describe("gong-calls action", () => {
       rawTranscript: true,
     })) as Record<string, any>;
 
-    expect(result.transcript).toBe(transcriptPayload);
+    expect(result.transcript).toEqual(result.transcriptText);
+    expect(result.rawTranscriptPayload).toBe(transcriptPayload);
     expect(result.transcriptText.text).toContain("Legal is reviewing.");
     expect(result.guidance).toContain("raw Gong transcript payload");
   });

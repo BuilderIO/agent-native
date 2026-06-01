@@ -12,19 +12,12 @@ import {
   type GongCall,
   searchCalls,
 } from "../server/lib/gong";
+import { cliBoolean } from "./schema-helpers";
 
 const DEFAULT_GONG_TRANSCRIPT_LIMIT = 3;
 const MAX_GONG_TRANSCRIPT_LIMIT = 8;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 40_000;
-
-const booleanQueryParam = z.preprocess((value) => {
-  if (typeof value !== "string") return value;
-  const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return value;
-}, z.boolean());
 
 interface TranscriptExtraction {
   text: string;
@@ -235,11 +228,9 @@ export default defineAction({
   description:
     "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true so the answer uses transcript evidence instead of call metadata alone.",
   schema: z.object({
-    users: booleanQueryParam
-      .optional()
-      .describe("Set to true to list Gong users"),
+    users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
-    rawTranscript: booleanQueryParam
+    rawTranscript: cliBoolean
       .optional()
       .describe(
         "Set true only for debugging/export. By default transcript lookups return compact extracted text, not the large raw Gong payload.",
@@ -261,7 +252,7 @@ export default defineAction({
       .describe(
         "Maximum number of calls to return for call searches (default 8, max 25). Use 5-8 for ordinary analysis.",
       ),
-    includeTranscripts: booleanQueryParam
+    includeTranscripts: cliBoolean
       .optional()
       .describe(
         "Fetch transcript excerpts for the newest matching calls. Use true for deep dives, deal/customer context, objections, risks, next steps, or qualitative analysis.",
@@ -298,11 +289,12 @@ export default defineAction({
       );
       return {
         callId: args.transcript,
+        transcript: transcriptText,
         transcriptText,
-        ...(args.rawTranscript ? { transcript } : {}),
+        ...(args.rawTranscript ? { rawTranscriptPayload: transcript } : {}),
         guidance: args.rawTranscript
           ? "Returned compact transcript text and the raw Gong transcript payload. Avoid passing the raw payload into save-analysis; preserve call IDs and short excerpts instead."
-          : "Returned compact transcript text only. Use callId plus short excerpts in analysis evidence; set rawTranscript=true only for debugging or export.",
+          : "Returned compact transcript text only. The transcript field is a backward-compatible alias for transcriptText; set rawTranscript=true only for debugging or export.",
       };
     } else if (args.company) {
       const days = args.days ?? 90;
