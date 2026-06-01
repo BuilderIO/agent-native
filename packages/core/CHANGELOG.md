@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.31.2
+
+### Patch Changes
+
+- 6e6fce7: Internal cleanup sweep: remove unused imports/variables and tidy code (no behavior change).
+
 ## 0.31.1
 
 ### Patch Changes
