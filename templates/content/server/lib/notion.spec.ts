@@ -320,6 +320,8 @@ describe("createNotionPageWithMarkdown", () => {
     expect(body.markdown).toBe(canonicalizeNfm(content));
     expect(canonicalizeNfm(body.markdown)).toBe(body.markdown);
     expect(body.markdown).toContain("- parent\n\t- child");
-    expect(body.markdown).toContain("<summary>→ → team mtg guidance on hackathon</summary>");
+    expect(body.markdown).toContain(
+      "<summary>→ → team mtg guidance on hackathon</summary>",
+    );
   });
 });

@@ -287,14 +287,14 @@ export async function pullDocumentFromNotion(
     ? hashContent(document.content) !== link.lastSyncedContentHash
     : Boolean(
         link.lastPushedLocalUpdatedAt &&
-          document.updatedAt > link.lastPushedLocalUpdatedAt,
+        document.updatedAt > link.lastPushedLocalUpdatedAt,
       );
   const remoteChanged = link.lastSyncedContentHash
     ? hashContent(pageContent.content) !== link.lastSyncedContentHash
     : Boolean(
         link.lastPulledRemoteUpdatedAt &&
-          pageContent.lastEditedTime &&
-          pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
+        pageContent.lastEditedTime &&
+        pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
       );
 
   if (!force && localChanged && remoteChanged) {
@@ -407,14 +407,14 @@ export async function pushDocumentToNotion(
   // candidate remote change (the pulled content below confirms it).
   const remoteChanged = Boolean(
     link.lastKnownRemoteUpdatedAt &&
-      remoteUpdatedAt &&
-      remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
+    remoteUpdatedAt &&
+    remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
   );
   const localChanged = link.lastSyncedContentHash
     ? hashContent(document.content) !== link.lastSyncedContentHash
     : Boolean(
         !link.lastPushedLocalUpdatedAt ||
-          document.updatedAt > link.lastPushedLocalUpdatedAt,
+        document.updatedAt > link.lastPushedLocalUpdatedAt,
       );
 
   if (!force && localChanged && remoteChanged) {
@@ -468,7 +468,12 @@ export async function pushDocumentToNotion(
   if (contentChanged) {
     await db
       .update(schema.documents)
-      .set({ title: newTitle, content: newContent, icon: newIcon, updatedAt: pushedAt })
+      .set({
+        title: newTitle,
+        content: newContent,
+        icon: newIcon,
+        updatedAt: pushedAt,
+      })
       .where(
         and(
           eq(schema.documents.id, documentId),

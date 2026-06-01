@@ -15,15 +15,35 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
   { name: "plain paragraph", nfm: "Just a paragraph." },
   {
     name: "inline marks",
-    nfm: "Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline=\"true\">underline</span>, <span color=\"red\">red text</span>, <span color=\"blue_bg\">blue bg</span>, a [link](https://example.com), and inline math $`E = mc^2`$.",
+    nfm: 'Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline="true">underline</span>, <span color="red">red text</span>, <span color="blue_bg">blue bg</span>, a [link](https://example.com), and inline math $`E = mc^2`$.',
   },
   { name: "block color paragraph", nfm: 'Colored paragraph {color="red"}' },
-  { name: "headings", nfm: L("# Heading One", "## Heading Two", "### Heading Three", "#### Heading Four") },
-  { name: "toggle heading", nfm: L('## Toggle Heading Two {toggle="true"}', "\tChild under toggle heading") },
+  {
+    name: "headings",
+    nfm: L(
+      "# Heading One",
+      "## Heading Two",
+      "### Heading Three",
+      "#### Heading Four",
+    ),
+  },
+  {
+    name: "toggle heading",
+    nfm: L(
+      '## Toggle Heading Two {toggle="true"}',
+      "\tChild under toggle heading",
+    ),
+  },
   { name: "single quote", nfm: "> A single real quote block" },
-  { name: "multi-line quote", nfm: "> Multi-line quote line one<br>line two<br>line three" },
+  {
+    name: "multi-line quote",
+    nfm: "> Multi-line quote line one<br>line two<br>line three",
+  },
   { name: "quote with color", nfm: '> Quoted {color="gray"}' },
-  { name: "nested bullets", nfm: L("- bullet one", "\t- nested bullet", "- bullet two") },
+  {
+    name: "nested bullets",
+    nfm: L("- bullet one", "\t- nested bullet", "- bullet two"),
+  },
   { name: "numbered list", nfm: L("1. first", "2. second", "3. third") },
   { name: "todo list", nfm: L("- [ ] unchecked todo", "- [x] checked todo") },
   {
@@ -78,24 +98,46 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
     name: "code block (literal, unescaped)",
     nfm: L("```python", "def f(x):", "    return x < 3 and x * 2", "```"),
   },
-  { name: "block equation", nfm: L("$$", "\\int_0^1 x^2 dx = \\frac{1}{3}", "$$") },
+  {
+    name: "block equation",
+    nfm: L("$$", "\\int_0^1 x^2 dx = \\frac{1}{3}", "$$"),
+  },
   {
     name: "literal special chars (escaped)",
     nfm: "Text with literal special chars: a \\< b, 2 \\* 3, x_y, price \\$5, \\[bracket\\], \\{brace\\}.",
   },
   { name: "divider", nfm: "---" },
   { name: "empty block", nfm: L("above", "<empty-block/>", "below") },
-  { name: "consecutive empty blocks", nfm: L("first", "<empty-block/>", "<empty-block/>", "last") },
-  { name: "page atom", nfm: '<page url="https://www.notion.so/abc">Child Page</page>' },
+  {
+    name: "consecutive empty blocks",
+    nfm: L("first", "<empty-block/>", "<empty-block/>", "last"),
+  },
+  {
+    name: "page atom",
+    nfm: '<page url="https://www.notion.so/abc">Child Page</page>',
+  },
   { name: "table of contents atom", nfm: "<table_of_contents/>" },
   { name: "image", nfm: "![A caption](https://cdn.example.com/x.png)" },
-  { name: "mention inline", nfm: '<mention-page url="https://www.notion.so/abc">A Page</mention-page>' },
-  { name: "mention date self-closing", nfm: '<mention-date start="2026-06-01"/>' },
+  {
+    name: "mention inline",
+    nfm: '<mention-page url="https://www.notion.so/abc">A Page</mention-page>',
+  },
+  {
+    name: "mention date self-closing",
+    nfm: '<mention-date start="2026-06-01"/>',
+  },
   {
     name: "synced block with children",
-    nfm: L('<synced_block url="https://www.notion.so/s">', "\tShared content", "</synced_block>"),
+    nfm: L(
+      '<synced_block url="https://www.notion.so/s">',
+      "\tShared content",
+      "</synced_block>",
+    ),
   },
-  { name: "visual-indented paragraphs", nfm: L("root", "\tindented once", "\t\tindented twice") },
+  {
+    name: "visual-indented paragraphs",
+    nfm: L("root", "\tindented once", "\t\tindented twice"),
+  },
   {
     name: "nested toggles",
     nfm: L(
@@ -172,9 +214,9 @@ describe("nfm converter — inline round-trips", () => {
     "~~strike~~",
     "`code span`",
     "`multi<br>line code`",
-    "<span underline=\"true\">u</span>",
-    "<span color=\"purple\">colored</span>",
-    "<span color=\"green_bg\">bg</span>",
+    '<span underline="true">u</span>',
+    '<span color="purple">colored</span>',
+    '<span color="green_bg">bg</span>',
     "[text](https://x.com)",
     "[**bold link**](https://x.com)",
     "before $`a^2 + b^2`$ after",
