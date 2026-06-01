@@ -125,7 +125,9 @@ export default function LibrariesPage() {
           <div className="rounded-lg border border-dashed bg-muted/20 p-6">
             <div className="mx-auto max-w-2xl text-center">
               <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
-              <h3 className="mt-4 text-base font-semibold">No brand kits yet</h3>
+              <h3 className="mt-4 text-base font-semibold">
+                No brand kits yet
+              </h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 Start with a default style library or create your own references
                 and style guidance.

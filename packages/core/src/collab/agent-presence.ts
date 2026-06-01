@@ -8,10 +8,7 @@
  */
 
 import { getDocAwareness, type AwarenessEntry } from "./awareness.js";
-import {
-  AGENT_CLIENT_ID,
-  DEFAULT_AGENT_IDENTITY,
-} from "./agent-identity.js";
+import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import { searchAndReplace } from "./ydoc-manager.js";
 
 const HEARTBEAT_INTERVAL = 10_000; // 10 seconds

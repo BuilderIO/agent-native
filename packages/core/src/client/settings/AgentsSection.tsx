@@ -5,12 +5,7 @@ import {
   remoteAgentResourcePath,
 } from "../../resources/metadata.js";
 import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  IconPlus,
-  IconPencil,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconPlus, IconPencil, IconTrash, IconX } from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,
