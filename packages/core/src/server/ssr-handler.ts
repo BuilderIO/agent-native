@@ -19,7 +19,11 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  hasAuthContextAccess,
+  runWithRequestContext,
+  type RequestContext,
+} from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -223,8 +227,17 @@ function shouldUseDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  authContextAccessed: boolean,
 ): boolean {
   if (status < 200 || status >= 400) return false;
+  if (authContextAccessed) {
+    // Do not bypass cache just because a browser carries an auth-looking
+    // cookie: public docs/pages can receive stale workspace cookies and should
+    // still warm the CDN. But if SSR code actually reads user/org context,
+    // that route is rendering private data and must not be public-cached.
+    // Move those reads to client-side actions/API to regain CDN caching.
+    return false;
+  }
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) {
@@ -243,8 +256,9 @@ function shouldUseDefaultSsrCacheHeader(
   // user/org-specific reads happen after hydration through actions and API
   // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
   // route data fetches warm the CDN instead of hammering origin.
-  // Do not re-add a cookie/auth-signal bypass here without changing that
-  // architecture; logged-in browsers still need CDN-cached public route data.
+  // Do not re-add a blanket cookie/auth-signal bypass here: logged-in browsers
+  // still need CDN-cached public route data. The auth-context leak guard above
+  // is the narrow protection for old SSR loaders that still read user/org data.
   // Also do not preserve route-level private/no-store for React Router .data:
   // if a route needs per-user data, it belongs behind a client-side action/API
   // call rather than in the shared SSR payload.
@@ -255,8 +269,16 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  authContextAccessed: boolean,
 ) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) {
+  if (
+    !shouldUseDefaultSsrCacheHeader(
+      headers,
+      status,
+      pathname,
+      authContextAccessed,
+    )
+  ) {
     return;
   }
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
@@ -301,10 +323,16 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
+  requestContext?: RequestContext,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    hasAuthContextAccess(requestContext),
+  );
   applyDefaultSpeculationRulesHeader(headers, response.status);
 
   const location = headers.get("location");
@@ -386,12 +414,14 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
+          ctx,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
+        ctx,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

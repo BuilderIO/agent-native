@@ -466,8 +466,15 @@ function requestHasAuthSignal(request) {
   );
 }
 
-function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
   if (status < 200 || status >= 400) return false;
+  if (hasAuthSignal) {
+    // The generated worker does not have the Node/H3 request-context leak guard
+    // that can tell whether SSR code actually read user/org state. Keep
+    // auth-looking worker requests private until templates move those reads
+    // behind client-side actions/API.
+    return false;
+  }
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) {
@@ -486,14 +493,17 @@ function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
   // user/org-specific data is loaded client-side through actions/API routes
   // after hydration. Keep .data on the same SWR policy as HTML so normal route
   // data fetches fill CDN cache instead of bypassing it and slamming origin.
+  // Do not re-add a blanket auth-signal bypass here for Node/H3 SSR; that path
+  // uses an auth-context access guard instead. Worker output keeps the
+  // conservative hasAuthSignal guard above because it lacks that instrumentation.
   // Also do not preserve route-level private/no-store for React Router .data:
   // if a route needs per-user data, it belongs behind a client-side action/API
   // call rather than in the shared SSR payload.
   return true;
 }
 
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
+function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
 }
 
@@ -530,10 +540,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname) {
+async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
   applyDefaultSpeculationRulesHeader(headers, response.status);
 
   const location = headers.get("location");
@@ -651,6 +661,7 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
+    const hasAuthSignal = requestHasAuthSignal(request);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -661,10 +672,11 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
-        p
+        p,
+        hasAuthSignal
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
   }));
 
   _handler = app.fetch.bind(app);

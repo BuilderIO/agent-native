@@ -5,6 +5,7 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import { getRequestUserEmail } from "./request-context.js";
 
 const mocks = vi.hoisted(() => {
   const requestHandler = vi.fn(async (request: Request) => {
@@ -288,6 +289,50 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );
+  });
+
+  it("withholds public SSR caching when authenticated HTML reads user context", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(`<html><head></head><body>${email}</body></html>`, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/app/private", "GET", {
+        headers: { cookie: "an_session=active" },
+      }),
+    );
+
+    expect(await response.text()).toContain("alice@example.com");
+    expect(response.headers.get("cache-control")).toBeNull();
+  });
+
+  it("withholds public .data caching when authenticated loader reads user context", async () => {
+    mocks.getSession.mockResolvedValueOnce({ email: "alice@example.com" });
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      const email = getRequestUserEmail();
+      return new Response(`[{"email":${JSON.stringify(email)}}]`, {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "text/x-script",
+          "x-remix-response": "yes",
+        },
+      });
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/app/private.data", "GET", {
+        headers: { cookie: "an_session=active" },
+      }),
+    );
+
+    expect(await response.text()).toContain("alice@example.com");
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("keeps public SSR caching for docs anonymous session cookies", async () => {
