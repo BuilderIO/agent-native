@@ -4,6 +4,7 @@ import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  findInstalledFfmpegStaticPackage,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
@@ -560,6 +561,53 @@ describe("generateProvidedPluginsNitroPluginSource", () => {
 describe("Cloudflare deploy builtins", () => {
   it("externalizes node:sqlite references from optional runtime probes", () => {
     expect(getNodeBuiltinNames()).toContain("sqlite");
+  });
+});
+
+describe("findInstalledFfmpegStaticPackage", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupNodeModules() {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-ffmpeg-test-"));
+    dirs.push(cwd);
+    const nodeModules = path.join(cwd, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+    return nodeModules;
+  }
+
+  it("finds a direct ffmpeg-static install only when the binary exists", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(nodeModules, "ffmpeg-static");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBeNull();
+
+    fs.writeFileSync(path.join(packageDir, "ffmpeg"), "binary");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBe(packageDir);
+  });
+
+  it("finds ffmpeg-static in pnpm's nested store layout", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "ffmpeg-static@5.3.0",
+      "node_modules",
+      "ffmpeg-static",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(packageDir, "ffmpeg"), "binary");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBe(packageDir);
   });
 });
 
