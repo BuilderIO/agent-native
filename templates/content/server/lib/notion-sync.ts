@@ -275,15 +275,23 @@ export async function pullDocumentFromNotion(
     link.remotePageId,
   );
 
-  const localChanged = Boolean(
-    link.lastPushedLocalUpdatedAt &&
-    document.updatedAt > link.lastPushedLocalUpdatedAt,
-  );
-  const remoteChanged = Boolean(
-    link.lastPulledRemoteUpdatedAt &&
-    pageContent.lastEditedTime &&
-    pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
-  );
+  // Content-hash change detection: a side "changed" only if its canonical
+  // content actually differs from the last-synced baseline. This is immune to
+  // the normalization mismatches and timestamp jitter that previously made
+  // every no-op pull look like a fresh edit and drove the drift.
+  const localChanged = link.lastSyncedContentHash
+    ? hashContent(document.content) !== link.lastSyncedContentHash
+    : Boolean(
+        link.lastPushedLocalUpdatedAt &&
+          document.updatedAt > link.lastPushedLocalUpdatedAt,
+      );
+  const remoteChanged = link.lastSyncedContentHash
+    ? hashContent(pageContent.content) !== link.lastSyncedContentHash
+    : Boolean(
+        link.lastPulledRemoteUpdatedAt &&
+          pageContent.lastEditedTime &&
+          pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
+      );
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
@@ -295,6 +303,7 @@ export async function pullDocumentFromNotion(
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
       lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: null,
       warnings: pageContent.warnings,
       hasConflict: true,
@@ -306,6 +315,7 @@ export async function pullDocumentFromNotion(
       link: updatedLink,
       remoteUpdatedAt: pageContent.lastEditedTime,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -358,6 +368,7 @@ export async function pullDocumentFromNotion(
     lastPulledRemoteUpdatedAt: pageContent.lastEditedTime,
     lastPushedLocalUpdatedAt: updatedAt,
     lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,
+    lastSyncedContentHash: hashContent(newContent),
     lastError: null,
     warnings: pageContent.warnings,
     hasConflict: false,
@@ -370,6 +381,7 @@ export async function pullDocumentFromNotion(
     link: updatedLink,
     remoteUpdatedAt: pageContent.lastEditedTime,
     documentUpdatedAt: updatedAt,
+    documentContent: newContent,
   });
 }
 
@@ -385,15 +397,21 @@ export async function pushDocumentToNotion(
   if (!connection) throw new Error("Connect Notion before pushing.");
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
+  const remoteUpdatedAt = page.last_edited_time || null;
+  // Did Notion's content actually change since we last synced? The cheap signal
+  // is last_edited_time; with a content baseline we treat any time bump as a
+  // candidate remote change (the pulled content below confirms it).
   const remoteChanged = Boolean(
-    link.lastPulledRemoteUpdatedAt &&
-    page.last_edited_time &&
-    page.last_edited_time > link.lastPulledRemoteUpdatedAt,
+    link.lastKnownRemoteUpdatedAt &&
+      remoteUpdatedAt &&
+      remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
   );
-  const localChanged = Boolean(
-    !link.lastPushedLocalUpdatedAt ||
-    document.updatedAt > link.lastPushedLocalUpdatedAt,
-  );
+  const localChanged = link.lastSyncedContentHash
+    ? hashContent(document.content) !== link.lastSyncedContentHash
+    : Boolean(
+        !link.lastPushedLocalUpdatedAt ||
+          document.updatedAt > link.lastPushedLocalUpdatedAt,
+      );
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
@@ -404,7 +422,8 @@ export async function pushDocumentToNotion(
       lastSyncedAt: link.lastSyncedAt,
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
-      lastKnownRemoteUpdatedAt: page.last_edited_time || null,
+      lastKnownRemoteUpdatedAt: remoteUpdatedAt,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: null,
       warnings: parseWarnings(link),
       hasConflict: true,
@@ -414,8 +433,9 @@ export async function pushDocumentToNotion(
       connected: true,
       documentId,
       link: updatedLink,
-      remoteUpdatedAt: page.last_edited_time || null,
+      remoteUpdatedAt,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -427,16 +447,48 @@ export async function pushDocumentToNotion(
     icon: document.icon,
   });
 
-  const pushedAt = nowIso();
+  // Adopt Notion's post-push normalization locally so both sides are
+  // byte-identical and the next sync sees no change. For canonical content this
+  // is a no-op (the converter matches Notion's emission); it only does work in
+  // the rare case Notion normalizes a construct differently, immediately
+  // converging instead of ping-ponging.
+  const db = getDb();
+  const newContent = remote.content ?? document.content;
+  const newTitle = remote.title || document.title;
+  const newIcon = remote.icon;
+  const contentChanged =
+    newTitle !== document.title ||
+    newContent !== document.content ||
+    newIcon !== document.icon;
+  const pushedAt = contentChanged ? nowIso() : document.updatedAt;
+  if (contentChanged) {
+    await db
+      .update(schema.documents)
+      .set({ title: newTitle, content: newContent, icon: newIcon, updatedAt: pushedAt })
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, owner),
+        ),
+      );
+    try {
+      await deleteCollabState(documentId);
+      releaseDoc(documentId);
+    } catch {
+      // Non-fatal — the client reconciles via setContent.
+    }
+  }
+
   await upsertSyncLink({
     owner,
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
-    lastSyncedAt: pushedAt,
+    lastSyncedAt: nowIso(),
     lastPulledRemoteUpdatedAt: remote.lastEditedTime,
-    lastPushedLocalUpdatedAt: document.updatedAt,
+    lastPushedLocalUpdatedAt: pushedAt,
     lastKnownRemoteUpdatedAt: remote.lastEditedTime,
+    lastSyncedContentHash: hashContent(newContent),
     lastError: null,
     warnings: remote.warnings,
     hasConflict: false,
@@ -448,7 +500,8 @@ export async function pushDocumentToNotion(
     documentId,
     link: updatedLink,
     remoteUpdatedAt: remote.lastEditedTime,
-    documentUpdatedAt: document.updatedAt,
+    documentUpdatedAt: pushedAt,
+    documentContent: newContent,
   });
 }
 
