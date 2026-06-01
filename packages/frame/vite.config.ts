@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 import http from "http";
+import https from "https";
 import { extractAppFromState } from "./src/oauth-state.js";
 
 // Custom logger that suppresses proxy ECONNREFUSED noise during startup.
@@ -93,6 +94,54 @@ function getAppId(req: IncomingMessage): string {
   return "mail";
 }
 
+function normalizeCustomDevUrl(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function customDevUrlFromFrameUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return normalizeCustomDevUrl(new URL(value).searchParams.get("devUrl"));
+  } catch {
+    return null;
+  }
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function getCustomDevUrl(req: IncomingMessage): string | null {
+  const url = new URL(req.url || "/", "http://localhost");
+  const explicit = normalizeCustomDevUrl(url.searchParams.get("_devUrl"));
+  if (explicit) return explicit;
+
+  const fromReferer = customDevUrlFromFrameUrl(
+    typeof req.headers.referer === "string" ? req.headers.referer : undefined,
+  );
+  if (fromReferer) return fromReferer;
+
+  const cookie = req.headers.cookie || "";
+  const cookieMatch = cookie.match(/(?:^|;\s*)frame_active_dev_url=([^;]+)/);
+  return cookieMatch
+    ? normalizeCustomDevUrl(safeDecodeURIComponent(cookieMatch[1]))
+    : null;
+}
+
 function getAppPort(req: IncomingMessage): number {
   return portMap.get(getAppId(req)) || 8085;
 }
@@ -112,13 +161,15 @@ function framePlugin(): Plugin {
 
     const appId = url.searchParams.get("app") || "mail";
     const devPort = portMap.get(appId);
+    const customDevUrl = normalizeCustomDevUrl(url.searchParams.get("devUrl"));
     const gatewayUrl = templateGatewayUrl();
     const devUrl =
-      gatewayUrl && devPort
+      customDevUrl ??
+      (gatewayUrl && devPort
         ? new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "")
         : devPort
           ? `http://localhost:${devPort}`
-          : null;
+          : null);
     const body = JSON.stringify({
       id: appId,
       name: labelMap.get(appId) || appId,
@@ -213,6 +264,46 @@ function framePlugin(): Plugin {
     req.pipe(proxyReq);
   }
 
+  function forwardToUrl(
+    req: IncomingMessage,
+    res: ServerResponse,
+    baseUrl: string,
+    next: (err?: unknown) => void,
+  ) {
+    const target = new URL(req.url || "/", `${baseUrl}/`);
+    const headers = { ...req.headers };
+    headers["x-forwarded-host"] = req.headers.host || `localhost:3334`;
+    headers["x-forwarded-proto"] = "http";
+    headers.host = target.host;
+    const client = target.protocol === "https:" ? https : http;
+
+    const proxyReq = client.request(
+      {
+        host: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        protocol: target.protocol,
+        method: req.method,
+        path: `${target.pathname}${target.search}`,
+        headers,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED") {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end(`App server at ${baseUrl} is not running`);
+        return;
+      }
+      next(err);
+    });
+
+    req.pipe(proxyReq);
+  }
+
   return {
     name: "frame-proxy",
     configureServer(server) {
@@ -221,6 +312,11 @@ function framePlugin(): Plugin {
         if (handleAppInfo(req, res)) return;
         const shouldProxy = PROXY_PREFIXES.some((p) => url.startsWith(p));
         if (!shouldProxy) return next();
+        const customDevUrl = getCustomDevUrl(req);
+        if (customDevUrl) {
+          forwardToUrl(req, res, customDevUrl, next);
+          return;
+        }
         const gatewayUrl = templateGatewayUrl();
         const appId = getAppId(req);
         if (gatewayUrl) {

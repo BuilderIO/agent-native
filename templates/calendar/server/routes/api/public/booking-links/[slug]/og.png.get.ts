@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   getQuery,
   getRouterParam,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -12,6 +13,7 @@ import { getDb, schema } from "../../../../../db/index.js";
 import { getBookingUsername } from "../../../../../handlers/booking-usernames.js";
 import { loadBundledOgFontFiles } from "../../../../../lib/booking-og-fonts.js";
 import { getPrimaryAccountPhotoUrl } from "../../../../../lib/google-calendar.js";
+import { bookingOgImageResponseHeaders } from "../../../../../lib/booking-og-response.js";
 import {
   renderBookingOgImagePng,
   type BookingOgImageInput,
@@ -123,11 +125,8 @@ export default defineEventHandler(async (event: H3Event) => {
     png.byteOffset + png.byteLength,
   ) as ArrayBuffer;
 
+  setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
   return new Response(body, {
-    headers: {
-      "Content-Type": "image/png",
-      "Content-Length": String(png.byteLength),
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
-    },
+    headers: bookingOgImageResponseHeaders(png.byteLength),
   });
 });

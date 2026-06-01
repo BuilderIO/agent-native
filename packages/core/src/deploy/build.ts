@@ -195,7 +195,7 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.name}`;
     actionRegistrations.push(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
-    const params = ${a.method === "get" ? "Object.fromEntries(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
+    const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const result = await ${varName}.run(params);
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
@@ -301,6 +301,25 @@ function stripAppBasePath(pathname) {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function parseActionSearchParams(searchParams) {
+  const params = {};
+  for (const [rawKey, value] of searchParams.entries()) {
+    const isArrayKey = rawKey.endsWith("[]");
+    // The core client serializes arrays as key[]=value so one-item arrays
+    // survive GET action parsing in generated worker deployments.
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    const current = params[key];
+    if (current === undefined) {
+      params[key] = isArrayKey ? [value] : value;
+    } else if (Array.isArray(current)) {
+      current.push(value);
+    } else {
+      params[key] = [current, value];
+    }
+  }
+  return params;
 }
 
 function isApiPath(pathname) {

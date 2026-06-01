@@ -16,6 +16,10 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "hubspot-records" }])).toBe(true);
   });
 
+  it("treats account deep dives as real source evidence", () => {
+    expect(hasDataQueryAttempt([{ name: "account-deep-dive" }])).toBe(true);
+  });
+
   it("treats connected MCP provider tools as real source evidence", () => {
     expect(
       hasDataQueryAttempt([
@@ -28,6 +32,53 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "data-source-status" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "save-analysis" }])).toBe(false);
     expect(hasDataQueryAttempt([{ name: "generate-chart" }])).toBe(false);
+  });
+
+  it("does not count failed source reads as evidence", () => {
+    expect(
+      hasDataQueryAttempt([{ name: "hubspot-records", isError: true }]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        { name: "mcp__codex_apps__hubspot__legacy.__search", isError: true },
+      ]),
+    ).toBe(false);
+  });
+
+  it("does not count provider error payloads returned as normal action results", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "pylon-issues",
+          content: JSON.stringify({
+            error: "missing_api_key",
+            message: "Connect your Pylon account.",
+          }),
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "jira-search",
+          content: JSON.stringify({
+            error: "Jira API error 403",
+            details: { missingFields: ["summary", "status"] },
+          }),
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("still counts successful empty result sets as real evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "hubspot-records",
+          content: JSON.stringify({ records: [], total: 0 }),
+        },
+      ]),
+    ).toBe(true);
   });
 });
 

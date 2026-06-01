@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bodyToHtml,
   encodeAddressHeader,
   encodeMimeHeaderValue,
 } from "./outgoing-email.js";
@@ -48,5 +49,26 @@ describe("encodeAddressHeader", () => {
   it("handles a list of addresses", () => {
     const result = encodeAddressHeader("Alice <a@x.com>, Bob <b@y.com>");
     expect(result).toBe("Alice <a@x.com>, Bob <b@y.com>");
+  });
+});
+
+describe("bodyToHtml", () => {
+  it("renders angle-bracket pasted URLs without leaking escaped delimiters", () => {
+    const url = "https://calendar.agent-native.com/book/steve/meeting";
+    const html = bodyToHtml(`Can we Zoom this week? <${url}>`);
+
+    expect(html).toContain(`href="${url}"`);
+    expect(html).toContain(`>${url}</a>`);
+    expect(html).not.toContain("&lt;");
+    expect(html).not.toContain("&gt;");
+  });
+
+  it("does not double-escape ampersands in markdown link URLs", () => {
+    const html = bodyToHtml(
+      "Here is [my calendar](https://example.com/book?a=1&b=2).",
+    );
+
+    expect(html).toContain('href="https://example.com/book?a=1&amp;b=2"');
+    expect(html).not.toContain("&amp;amp;");
   });
 });

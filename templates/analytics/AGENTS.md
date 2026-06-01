@@ -22,12 +22,18 @@ details live in `.agents/skills/`.
   it.
 - Verify before claiming: only present numbers you actually retrieved from a
   source. Never report a value you did not query.
+- Every analytical answer should include enough audit context for the user to
+  trust it: source(s), time window, filters, sample size or row count,
+  join/match method when relevant, and caveats/gaps.
 - Use actions for data sources, queries, charts, dashboards, analyses, and
   sharing. Do not bypass app access checks with raw SQL for ownable resources.
 - In dev, call actions with `pnpm action <name>`; in production, call native
   tools. The action schema is authoritative.
 - Prefer app query actions and provider readers over hand-written ad hoc SQL
   unless the user explicitly asks for low-level inspection.
+- For named account/deal deep dives, call `account-deep-dive` first. It bundles
+  HubSpot deal/account/contact activity with Gong call detail and compact
+  transcript evidence so the final report can match Fusion-style depth.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
@@ -58,6 +64,10 @@ Read the relevant skill before deeper work:
   handling.
 - `cross-source-analysis` for questions that span multiple data sources
   (identity stitching, de-duplication, consolidated provenance).
+- `hubspot` for CRM deals, companies, contacts, tickets, owners, and account
+  context.
+- `gong` for call metadata, transcript excerpts, objections, risks, and next
+  steps.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers.
 - `bigquery` and `prometheus` for provider-specific behavior.

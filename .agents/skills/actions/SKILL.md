@@ -52,7 +52,10 @@ When an action reads or writes app data, use Drizzle's query builder and portabl
 Tips:
 - Use `.describe()` for parameter descriptions
 - Use `.optional()` for optional params
-- Use `z.coerce.number()` / `z.coerce.boolean()` for params that arrive as strings from HTTP
+- Use `z.coerce.number()` for numeric params that arrive as strings from HTTP.
+  For booleans, use an explicit string parser/helper instead of
+  `z.coerce.boolean()` because JavaScript treats any non-empty string,
+  including `"false"`, as truthy.
 - Use `z.enum(["draft", "published"])` for constrained values
 
 The legacy `parameters` field (plain JSON Schema object) still works as a fallback but does not provide runtime validation or type inference.
