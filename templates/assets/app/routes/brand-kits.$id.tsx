@@ -1753,6 +1753,7 @@ function GeneratePopover({
             </SelectContent>
           </Select>
           <Textarea
+            autoGrow
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={
@@ -1760,7 +1761,7 @@ function GeneratePopover({
                 ? "Eight-second product reveal with slow camera push-in"
                 : "Blog hero for an article about cold-start latency"
             }
-            className="min-h-28"
+            className="min-h-28 max-h-48 resize-none overflow-y-auto"
           />
           <div className="grid grid-cols-2 gap-3">
             {mediaType === "image" ? (

@@ -995,17 +995,24 @@ export default function AssetPicker() {
 
         {mediaType === "image" ? (
           <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
-            <Input
+            <Textarea
+              autoGrow
+              rows={1}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.shiftKey) return;
-                if (!canGenerate) return;
+                if (
+                  event.key !== "Enter" ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing
+                ) {
+                  return;
+                }
                 event.preventDefault();
-                runGenerate();
+                if (canGenerate) runGenerate();
               }}
               placeholder="Generate an image asset"
-              className="h-11 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <div className="flex items-center gap-1 px-2 pb-2">
               <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">

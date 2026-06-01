@@ -15,7 +15,7 @@ import {
  *
  * IPC contract:
  *   receives → `clips:recorder-state` { paused, elapsedMs }
- *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:cancel`
+ *   emits    → `clips:recorder-stop`, `:pause`, `:resume`
  *
  * IMPORTANT: The Stop button MUST NOT close its own window. The popover's
  * recorder listener is what drives the stop flow, and it invokes

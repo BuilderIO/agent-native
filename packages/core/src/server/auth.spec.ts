@@ -771,6 +771,29 @@ describe("server/auth", () => {
       }
     });
 
+    it("lets the MCP protocol endpoint bypass auth with or without trailing slash", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of ["/_agent-native/mcp", "/_agent-native/mcp/"]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      const managementResult = await guard(
+        createMockEvent({ path: "/_agent-native/mcp/status" }),
+      );
+      expect(managementResult).not.toBeUndefined();
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
