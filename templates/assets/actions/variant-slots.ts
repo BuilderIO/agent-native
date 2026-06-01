@@ -8,6 +8,7 @@ import type { AssetVariantState } from "../shared/api.js";
 
 type VariantSlotInput = {
   runId: string;
+  batchId?: string | null;
   libraryId: string;
   collectionId?: string | null;
   presetId?: string | null;
@@ -54,13 +55,15 @@ export async function wasVariantSlotDismissed(
 export async function upsertVariantSlot(input: VariantSlotInput) {
   await withVariantStateLock(async () => {
     const previous = await readVariantStateUnlocked();
+    const inputBatchId = input.batchId ?? input.runId;
     const state: AssetVariantState =
-      previous?.libraryId === input.libraryId &&
-      (previous.sessionId ?? null) === (input.sessionId ?? null) &&
-      previous.prompt === input.prompt
+      previous !== null &&
+      previous.libraryId === input.libraryId &&
+      (previous.batchId ?? previous.runId) === inputBatchId
         ? previous
         : {
             runId: input.runId,
+            batchId: input.batchId ?? null,
             libraryId: input.libraryId,
             collectionId: input.collectionId,
             presetId: input.presetId ?? null,
@@ -71,6 +74,7 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
           };
 
     state.runId = input.runId;
+    state.batchId = input.batchId ?? null;
     state.collectionId = input.collectionId ?? null;
     state.presetId = input.presetId ?? null;
     state.sessionId = input.sessionId ?? null;

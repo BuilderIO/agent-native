@@ -631,6 +631,9 @@ export default function AssetPicker() {
     Boolean(selectedLibraryId) &&
     (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
   const mediaLabel = mediaType === "video" ? "video" : "image";
+  const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
+    string[]
+  >([]);
   const generateBatch = useActionMutation(
     "generate-image-batch" as any,
     {
@@ -638,6 +641,13 @@ export default function AssetPicker() {
         const images = Array.isArray(result?.images) ? result.images : [];
         const generatedCount = images.filter((image: any) => image?.ok).length;
         const failedCount = images.length - generatedCount;
+        setVisibleCandidateRunIds(
+          images
+            .map((image: any) =>
+              image?.ok && typeof image.runId === "string" ? image.runId : null,
+            )
+            .filter((runId: string | null): runId is string => Boolean(runId)),
+        );
         if (generatedCount > 0) {
           toast.success(
             `Generated ${generatedCount} image candidate${
@@ -671,10 +681,11 @@ export default function AssetPicker() {
       mediaType,
       query: query.trim() || undefined,
       includeCandidates:
-        mediaType === "image" &&
-        Boolean(prompt.trim() || generateBatch.isPending),
+        mediaType === "image" && visibleCandidateRunIds.length > 0,
+      candidateRunIds:
+        visibleCandidateRunIds.length > 0 ? visibleCandidateRunIds : undefined,
     }),
-    [generateBatch.isPending, mediaType, prompt, query, selectedLibraryId],
+    [mediaType, query, selectedLibraryId, visibleCandidateRunIds],
   );
   const { data: assetData, isLoading: assetsLoading } = useActionQuery(
     "list-assets",
@@ -792,6 +803,7 @@ export default function AssetPicker() {
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
+    setVisibleCandidateRunIds([]);
     generateBatch.mutate({
       libraryId: selectedLibraryId,
       presetId: selectedPreset?.id,
@@ -809,10 +821,15 @@ export default function AssetPicker() {
     effectiveAspectRatio,
     generateBatch,
     prompt,
+    setVisibleCandidateRunIds,
     selectedLibraryId,
     selectedPreset,
     waitingForRequestedPreset,
   ]);
+
+  useEffect(() => {
+    setVisibleCandidateRunIds([]);
+  }, [aspectRatio, count, mediaType, presetId, prompt, selectedLibraryId]);
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
