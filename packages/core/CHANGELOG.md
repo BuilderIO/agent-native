@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.16
+
+### Patch Changes
+
+- c8773be: Fix social preview response handling and harden Agent Teams recovery paths.
+
 ## 0.32.15
 
 ### Patch Changes
