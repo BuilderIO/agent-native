@@ -1,4 +1,3 @@
-import { embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq, inArray } from "drizzle-orm";
@@ -87,18 +86,6 @@ export function contractDeepLink(id: string): string {
     params: { contractId: id },
   });
 }
-
-export const contractMcpApp = {
-  compactCatalog: true,
-  resource: embedApp({
-    title: "Contracts review",
-    description:
-      "Open the Contracts review inbox for assumptions, feedback, and proof status.",
-    iframeTitle: "Agent-Native Contracts",
-    openLabel: "Open Contracts review",
-    height: 820,
-  }),
-};
 
 export function parseJsonArray(value: string | null | undefined): string[] {
   if (!value) return [];

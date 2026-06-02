@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, embedApp } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -7,7 +7,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   contractDeepLink,
-  contractMcpApp,
   contractPath,
   contractSourceSchema,
   itemInputSchema,
@@ -41,11 +40,24 @@ export default defineAction({
     description:
       "Create a review queue where a person can correct assumptions and proof obligations before the agent continues.",
   },
-  mcpApp: contractMcpApp,
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Contracts review",
+      description:
+        "Open the Contracts review inbox for assumptions, feedback, and proof status.",
+      iframeTitle: "Agent-Native Contracts",
+      openLabel: "Open Contracts review",
+      height: 820,
+    }),
+  },
   run: async (args) => {
     const id = newId("ctr");
     const now = nowIso();
-    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) {
+      throw new Error("Creating a contract requires an authenticated user.");
+    }
     const orgId = getRequestOrgId();
     const db = getDb();
     await db.insert(schema.contracts).values({
