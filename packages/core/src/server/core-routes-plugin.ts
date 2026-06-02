@@ -2341,10 +2341,11 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           // Include orgId so org-scoped Builder credentials resolve here too,
           // keeping the Settings status in sync with the upload route.
-          const orgCtx = userEmail
-            ? await getOrgContext(event).catch(() => null)
-            : null;
-          const orgId = orgCtx?.orgId ?? session?.orgId ?? undefined;
+          let orgId = session?.orgId ?? undefined;
+          if (userEmail && !orgId) {
+            const orgCtx = await getOrgContext(event).catch(() => null);
+            orgId = orgCtx?.orgId ?? undefined;
+          }
           let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
           try {
             const { resolveBuilderPrivateKey } =
@@ -2411,8 +2412,11 @@ export function createCoreRoutesPlugin(
           // Without orgId in the request context, resolveBuilderPrivateKey()
           // skips the org-scope lookup and uploads fail with a misleading
           // "needs file storage" 503 even though Builder is connected.
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+          let orgId = session.orgId ?? undefined;
+          if (!orgId) {
+            const orgCtx = await getOrgContext(event).catch(() => null);
+            orgId = orgCtx?.orgId ?? undefined;
+          }
           const result = await runWithRequestContext({ userEmail, orgId }, () =>
             uploadFile({
               data: filePart.data,
