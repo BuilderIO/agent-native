@@ -89,13 +89,19 @@ function CliCopy({ template }: { template: Template }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
+      data-template-cli-copy
+      className="flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
     >
       <IconTerminal2
         size={16}
         className="shrink-0 text-[var(--fg-secondary)]"
       />
-      <span className="truncate text-[var(--fg)]">{template.cliCommand}</span>
+      <span
+        data-template-cli-copy-text
+        className="min-w-0 truncate text-[var(--fg)]"
+      >
+        {template.cliCommand}
+      </span>
       <IconCopy
         size={16}
         className="ml-auto shrink-0 text-[var(--fg-secondary)]"
@@ -134,8 +140,8 @@ export default function GenericTemplatePage() {
   const sourceSlug = template.slug === "video" ? "videos" : template.slug;
 
   return (
-    <main className="mx-auto max-w-[1200px] px-6">
-      <section className="py-20">
+    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
+      <section className="py-12 sm:py-16 lg:py-20">
         <Link
           data-an-prefetch="render"
           to="/templates"
@@ -145,7 +151,7 @@ export default function GenericTemplatePage() {
           All Templates
         </Link>
 
-        <div className="mt-8 grid gap-12 lg:grid-cols-2 lg:items-start">
+        <div className="mt-8 grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
@@ -155,17 +161,17 @@ export default function GenericTemplatePage() {
               Agent-Native {template.name}
             </div>
 
-            <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
               {template.name} template
             </h1>
             <p className="mb-3 text-sm font-medium text-[var(--docs-accent)]">
               {template.replaces}
             </p>
-            <p className="mb-8 text-lg leading-relaxed text-[var(--fg-secondary)]">
+            <p className="mb-8 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               {template.description}
             </p>
 
-            <div className="mb-8 flex flex-wrap items-center gap-3">
+            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
               {hasDemoUrl && (
                 <a
                   href={template.demoUrl}
