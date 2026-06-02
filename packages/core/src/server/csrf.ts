@@ -59,6 +59,9 @@ import {
 const CSRF_ALLOWLIST_PREFIXES = [
   // Integration webhooks — verified by HMAC against a per-integration secret.
   "/integrations/",
+  // Agent Teams durable sub-agent processor self-fire — verified by the same
+  // HMAC internal-token scheme as the integration/A2A processors.
+  "/agent-teams/",
   // A2A JSON-RPC endpoints — verified by signed JWT (when A2A_SECRET set) or
   // explicitly opt-in unauthenticated (handled at the A2A layer).
   "/a2a",

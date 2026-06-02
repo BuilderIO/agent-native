@@ -1476,6 +1476,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
+    // a queued sub-agent in a fresh function invocation; authenticity is
+    // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
+    // so it bypasses cookie/session auth (mirrors the integration processor).
+    if (p === "/_agent-native/agent-teams/_process-run") {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
