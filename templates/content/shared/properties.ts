@@ -67,7 +67,19 @@ export interface DocumentPropertyOptions {
   formula?: string;
 }
 
-export type DocumentPropertyValue = string | number | boolean | string[] | null;
+export interface DocumentPropertyDateValue {
+  start: string;
+  end?: string | null;
+  includeTime?: boolean;
+}
+
+export type DocumentPropertyValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | DocumentPropertyDateValue
+  | null;
 
 export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
   DocumentPropertyType,
@@ -186,7 +198,100 @@ export function normalizePropertyVisibility(
 export function isEmptyPropertyValue(value: DocumentPropertyValue): boolean {
   if (value === null || value === undefined || value === "") return true;
   if (Array.isArray(value)) return value.length === 0;
+  if (isDocumentPropertyDateValue(value)) return !value.start.trim();
   return false;
+}
+
+export function isDocumentPropertyDateValue(
+  value: unknown,
+): value is DocumentPropertyDateValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "start" in value &&
+    typeof (value as { start?: unknown }).start === "string"
+  );
+}
+
+export function documentPropertyDatePart(
+  value: unknown,
+  part: "start" | "end",
+) {
+  if (isDocumentPropertyDateValue(value)) {
+    const rawValue = part === "start" ? value.start : value.end;
+    return typeof rawValue === "string" ? rawValue.trim() : "";
+  }
+  if (part === "end") return "";
+  if (typeof value === "string") return value.trim();
+  return "";
+}
+
+export function documentPropertyDateIncludesTime(value: unknown) {
+  if (isDocumentPropertyDateValue(value)) return value.includeTime === true;
+  if (typeof value !== "string") return false;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value.trim());
+}
+
+export function documentPropertyDateKey(
+  value: unknown,
+  part: "start" | "end" = "start",
+) {
+  const rawValue = documentPropertyDatePart(value, part);
+  if (!rawValue) return null;
+  const dateOnly = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
+  const date = new Date(rawValue);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function normalizeDatePropertyValue(
+  value: unknown,
+): DocumentPropertyDateValue | null {
+  if (value === undefined || value === null || value === "") return null;
+
+  const includeTime = documentPropertyDateIncludesTime(value);
+  const start = documentPropertyDatePart(value, "start");
+  const end = documentPropertyDatePart(value, "end");
+  const normalizedStart = normalizeDatePropertyPart(start, includeTime);
+  if (!normalizedStart) return null;
+
+  const normalizedEnd = normalizeDatePropertyPart(end, includeTime);
+  const next: DocumentPropertyDateValue = {
+    start: normalizedStart,
+    includeTime,
+  };
+  const startKey = documentPropertyDateKey(normalizedStart);
+  const endKey = normalizedEnd ? documentPropertyDateKey(normalizedEnd) : null;
+  if (normalizedEnd && startKey && endKey && endKey >= startKey) {
+    next.end = normalizedEnd;
+  }
+  return next;
+}
+
+function normalizeDatePropertyPart(value: string, includeTime: boolean) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (match) {
+    const dateOnly = `${match[1]}-${match[2]}-${match[3]}`;
+    if (!includeTime) return dateOnly;
+    return `${dateOnly}T${match[4] ?? "00"}:${match[5] ?? "00"}`;
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  if (!includeTime) return `${year}-${month}-${day}`;
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export function normalizePropertyValue(
@@ -225,19 +330,25 @@ export function normalizePropertyValue(
     case "text":
     case "select":
     case "status":
-    case "date":
     case "person":
     case "place":
     case "url":
     case "email":
     case "phone":
       return String(value);
+    case "date":
+      return normalizeDatePropertyValue(value);
   }
 }
 
 export function formulaValueText(value: DocumentPropertyValue): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.join(", ");
+  if (isDocumentPropertyDateValue(value)) {
+    const start = value.start.trim();
+    const end = value.end?.trim();
+    return end ? `${start} - ${end}` : start;
+  }
   return String(value);
 }
 

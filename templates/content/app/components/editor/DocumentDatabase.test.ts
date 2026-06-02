@@ -1980,13 +1980,20 @@ describe("database calendar view", () => {
     const rows = [
       item("alpha", "Alpha", { date: "2026-05-20" }),
       item("beta", "Beta", { date: "2026-05-20T13:00:00.000Z" }),
+      item("range", "Range", {
+        date: {
+          start: "2026-05-20T09:00",
+          end: "2026-05-22T17:00",
+          includeTime: true,
+        },
+      }),
       item("gamma", "Gamma", { date: null }),
     ];
 
     const grouped = databaseCalendarItemsByDate(rows, properties, "date");
 
     expect(grouped.get("2026-05-20")?.map((row) => row.document.title)).toEqual(
-      ["Alpha", "Beta"],
+      ["Alpha", "Beta", "Range"],
     );
     expect(grouped.has("")).toBe(false);
   });
@@ -2011,6 +2018,9 @@ describe("database calendar view", () => {
       item("alpha", "Alpha", { date: "2026-05-20" }),
       item("beta", "Beta", { date: "2026-06-06" }),
       item("gamma", "Gamma", { date: "2026-06-07" }),
+      item("range", "Range", {
+        date: { start: "2026-04-20", end: "2026-04-26", includeTime: false },
+      }),
       item("empty", "Empty", { date: null }),
     ];
 
@@ -2021,7 +2031,7 @@ describe("database calendar view", () => {
         properties,
         databaseDateViewRange("calendar", new Date(2026, 4, 15)),
       ).map((row) => row.document.title),
-    ).toEqual(["Alpha", "Beta", "Empty"]);
+    ).toEqual(["Alpha", "Beta", "Range", "Empty"]);
     expect(
       databaseScreenVisibleItems(
         { type: "calendar" },
@@ -2029,7 +2039,7 @@ describe("database calendar view", () => {
         properties,
         databaseDateViewRange("calendar", new Date(2026, 4, 15)),
       ).map((row) => row.document.title),
-    ).toEqual(["Alpha", "Beta", "Empty"]);
+    ).toEqual(["Alpha", "Beta", "Range", "Empty"]);
   });
 });
 
@@ -2086,6 +2096,9 @@ describe("database timeline view", () => {
     const spans = databaseTimelineItemSpans(
       [
         item("alpha", "Alpha", { date: "2026-05-20", end: "2026-05-23" }),
+        item("range", "Range", {
+          date: { start: "2026-05-24", end: "2026-05-27", includeTime: false },
+        }),
         item("beta", "Beta", { date: "2026-05-28" }),
         item("outside", "Outside", {
           date: "2026-06-10",
@@ -2111,6 +2124,12 @@ describe("database timeline view", () => {
         label: "2026-05-20 - 2026-05-23",
         startIndex: 24,
         endIndex: 27,
+      },
+      {
+        title: "Range",
+        label: "2026-05-24 - 2026-05-27",
+        startIndex: 28,
+        endIndex: 31,
       },
       {
         title: "Beta",

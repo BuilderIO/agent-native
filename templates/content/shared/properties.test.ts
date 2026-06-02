@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
   evaluateNumericExpression,
   evaluatePropertyFormula,
   isEmptyPropertyValue,
@@ -36,6 +38,46 @@ describe("document properties", () => {
       "b",
     ]);
     expect(normalizePropertyValue("date", "")).toBeNull();
+    expect(normalizePropertyValue("date", "2026-05-28")).toEqual({
+      start: "2026-05-28",
+      includeTime: false,
+    });
+    expect(
+      normalizePropertyValue("date", {
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      }),
+    ).toEqual({
+      start: "2026-05-28T10:30",
+      end: "2026-05-29T16:00",
+      includeTime: true,
+    });
+  });
+
+  it("reads date keys and include-time state from legacy and range values", () => {
+    expect(documentPropertyDateKey("2026-05-28T12:34:00.000Z")).toBe(
+      "2026-05-28",
+    );
+    expect(
+      documentPropertyDateKey({
+        start: "2026-05-28T10:30",
+        end: "2026-05-30T17:00",
+        includeTime: true,
+      }),
+    ).toBe("2026-05-28");
+    expect(
+      documentPropertyDateKey(
+        {
+          start: "2026-05-28T10:30",
+          end: "2026-05-30T17:00",
+          includeTime: true,
+        },
+        "end",
+      ),
+    ).toBe("2026-05-30");
+    expect(documentPropertyDateIncludesTime("2026-05-28")).toBe(false);
+    expect(documentPropertyDateIncludesTime("2026-05-28T10:30")).toBe(true);
   });
 
   it("keeps computed property values read-only", () => {
@@ -88,6 +130,7 @@ describe("document properties", () => {
     expect(isEmptyPropertyValue(null)).toBe(true);
     expect(isEmptyPropertyValue("")).toBe(true);
     expect(isEmptyPropertyValue([])).toBe(true);
+    expect(isEmptyPropertyValue({ start: "", includeTime: false })).toBe(true);
     expect(isEmptyPropertyValue(false)).toBe(false);
     expect(isEmptyPropertyValue(0)).toBe(false);
   });

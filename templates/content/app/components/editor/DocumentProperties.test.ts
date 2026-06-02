@@ -11,7 +11,9 @@ import {
   filterDocumentPropertyTypes,
   filterPropertyOptions,
   firstMatchingPropertyOption,
+  formatPropertyDateEndInputValue,
   formatPropertyDateInputValue,
+  formatPropertyDateTimeInputValue,
   nextPropertyOption,
   personLabel,
   placeLabel,
@@ -152,6 +154,37 @@ describe("document date property editor", () => {
     expect(formatPropertyDateInputValue("2026-05-28T12:34:00.000Z")).toBe(
       "2026-05-28",
     );
+    expect(
+      formatPropertyDateInputValue({
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      }),
+    ).toBe("2026-05-28");
+    expect(
+      formatPropertyDateEndInputValue({
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      }),
+    ).toBe("2026-05-29");
+    expect(
+      formatPropertyDateTimeInputValue({
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      }),
+    ).toBe("2026-05-28T10:30");
+    expect(
+      formatPropertyDateTimeInputValue(
+        {
+          start: "2026-05-28T10:30",
+          end: "2026-05-29T16:00",
+          includeTime: true,
+        },
+        "end",
+      ),
+    ).toBe("2026-05-29T16:00");
     expect(formatPropertyDateInputValue("not a date")).toBe("");
     expect(formatPropertyDateInputValue(null)).toBe("");
   });

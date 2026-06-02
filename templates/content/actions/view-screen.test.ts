@@ -69,14 +69,14 @@ function internalProperty(value: string | null) {
   });
 }
 
-function publishDateProperty(value: string | null) {
+function publishDateProperty(value: DocumentProperty["value"]) {
   return property("publish", "Publish Date", "date", value, {
     options: {},
     position: 5,
   });
 }
 
-function endDateProperty(value: string | null) {
+function endDateProperty(value: DocumentProperty["value"]) {
   return property("end", "End Date", "date", value, {
     options: {},
     position: 6,
@@ -492,6 +492,40 @@ describe("view-screen current database view", () => {
       datePropertyName: "Publish Date",
       endDatePropertyId: "end",
       endDatePropertyName: "End Date",
+    });
+  });
+
+  it("summarizes date range values without object placeholders", () => {
+    const response = databaseResponse();
+    const activeView = response.database.viewConfig.views[0]!;
+    activeView.hiddenPropertyIds = [];
+    activeView.propertyOrderIds = ["publish"];
+    response.properties.push(publishDateProperty(null));
+    response.items[0]!.properties.push(
+      publishDateProperty({
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      }),
+    );
+
+    expect(
+      databaseCurrentViewSnapshot(
+        {},
+        response,
+      ).visibleItems[0]?.properties.find(
+        (property) => property.propertyId === "publish",
+      ),
+    ).toEqual({
+      propertyId: "publish",
+      name: "Publish Date",
+      type: "date",
+      value: {
+        start: "2026-05-28T10:30",
+        end: "2026-05-29T16:00",
+        includeTime: true,
+      },
+      text: "2026-05-28T10:30 - 2026-05-29T16:00",
     });
   });
 

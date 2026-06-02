@@ -71,8 +71,13 @@ import {
   DOCUMENT_PROPERTY_VISIBILITY_LABELS,
   DOCUMENT_PROPERTY_VISIBILITIES,
   defaultPropertyOptions,
+  documentPropertyDateIncludesTime,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
   isEmptyPropertyValue,
   isComputedPropertyType,
+  normalizeDatePropertyValue,
+  type DocumentPropertyDateValue,
   type DocumentPropertyOption,
   type DocumentPropertyOptionColor,
   type DocumentPropertyOptions,
@@ -170,6 +175,19 @@ function formatDate(value: string) {
 }
 
 function formatDateTime(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    const [datePart, timePart] = value.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = timePart.split(":").map(Number);
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(year, month - 1, day, hour, minute));
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
@@ -179,6 +197,15 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatPropertyDateDisplayValue(value: DocumentProperty["value"]) {
+  const includeTime = documentPropertyDateIncludesTime(value);
+  const formatter = includeTime ? formatDateTime : formatDate;
+  const start = documentPropertyDatePart(value, "start");
+  const end = documentPropertyDatePart(value, "end");
+  if (!start) return "Empty";
+  return end ? `${formatter(start)} - ${formatter(end)}` : formatter(start);
 }
 
 function optionClass(option?: DocumentPropertyOption | null) {
@@ -211,7 +238,7 @@ export function displayValue(property: DocumentProperty) {
   }
 
   if (type === "date") {
-    return <span>{formatDate(String(value))}</span>;
+    return <span>{formatPropertyDateDisplayValue(value)}</span>;
   }
 
   if (type === "created_time" || type === "last_edited_time") {
@@ -450,9 +477,25 @@ export function removePropertyOption(
 }
 
 export function formatPropertyDateInputValue(value: DocumentProperty["value"]) {
-  if (typeof value !== "string") return "";
-  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
-  return dateOnly ? `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}` : "";
+  return documentPropertyDateKey(value) ?? "";
+}
+
+export function formatPropertyDateEndInputValue(
+  value: DocumentProperty["value"],
+) {
+  return documentPropertyDateKey(value, "end") ?? "";
+}
+
+export function formatPropertyDateTimeInputValue(
+  value: DocumentProperty["value"],
+  part: "start" | "end" = "start",
+) {
+  const rawValue = documentPropertyDatePart(value, part);
+  const match = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match)
+    return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+  const dateKey = documentPropertyDateKey(value, part);
+  return dateKey ? `${dateKey}T09:00` : "";
 }
 
 export function dateInputValueForOffset(baseDate: Date, offsetDays: number) {
@@ -1347,8 +1390,18 @@ function DateValueEditor({
   onDone: () => void;
 }) {
   const mutation = useSetDocumentProperty(documentId);
-  const [value, setValue] = useState(
-    formatPropertyDateInputValue(property.value),
+  const [includeTime, setIncludeTime] = useState(
+    documentPropertyDateIncludesTime(property.value),
+  );
+  const [startValue, setStartValue] = useState(
+    documentPropertyDateIncludesTime(property.value)
+      ? formatPropertyDateTimeInputValue(property.value)
+      : formatPropertyDateInputValue(property.value),
+  );
+  const [endValue, setEndValue] = useState(
+    documentPropertyDateIncludesTime(property.value)
+      ? formatPropertyDateTimeInputValue(property.value, "end")
+      : formatPropertyDateEndInputValue(property.value),
   );
   const dateValueInputRef = useRef<HTMLInputElement>(null);
 
@@ -1360,11 +1413,23 @@ function DateValueEditor({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  async function save(nextValue = value) {
+  function buildValue(
+    nextStartValue = startValue,
+    nextEndValue = endValue,
+    nextIncludeTime = includeTime,
+  ): DocumentPropertyDateValue | null {
+    return normalizeDatePropertyValue({
+      start: nextStartValue,
+      end: nextEndValue || null,
+      includeTime: nextIncludeTime,
+    });
+  }
+
+  async function save(nextValue = buildValue()) {
     await mutation.mutateAsync({
       documentId,
       propertyId: property.definition.id,
-      value: nextValue || null,
+      value: nextValue,
     });
     onDone();
   }
@@ -1393,7 +1458,14 @@ function DateValueEditor({
           size="sm"
           className="h-8 justify-start gap-1.5"
           disabled={mutation.isPending}
-          onClick={() => void save(dateInputValueForOffset(new Date(), 0))}
+          onClick={() =>
+            void save({
+              start: includeTime
+                ? `${dateInputValueForOffset(new Date(), 0)}T09:00`
+                : dateInputValueForOffset(new Date(), 0),
+              includeTime,
+            })
+          }
         >
           <IconCalendar className="size-3.5" />
           Today
@@ -1404,28 +1476,97 @@ function DateValueEditor({
           size="sm"
           className="h-8 justify-start gap-1.5"
           disabled={mutation.isPending}
-          onClick={() => void save(dateInputValueForOffset(new Date(), 1))}
+          onClick={() =>
+            void save({
+              start: includeTime
+                ? `${dateInputValueForOffset(new Date(), 1)}T09:00`
+                : dateInputValueForOffset(new Date(), 1),
+              includeTime,
+            })
+          }
         >
           <IconCalendar className="size-3.5" />
           Tomorrow
         </Button>
       </div>
-      <Input
-        ref={dateValueInputRef}
-        aria-label={`Edit ${property.definition.name} date`}
-        autoFocus
-        name="property-value"
-        type="date"
-        value={value}
-        placeholder="Select a date"
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onDone();
-          }
-        }}
-      />
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        Start
+        <Input
+          ref={dateValueInputRef}
+          aria-label={`Edit ${property.definition.name} start date`}
+          autoFocus
+          name="property-start-value"
+          type={includeTime ? "datetime-local" : "date"}
+          value={startValue}
+          placeholder="Select a date"
+          onChange={(event) => setStartValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+        />
+      </label>
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        End
+        <div className="flex gap-1">
+          <Input
+            aria-label={`Edit ${property.definition.name} end date`}
+            name="property-end-value"
+            type={includeTime ? "datetime-local" : "date"}
+            value={endValue}
+            placeholder="Optional"
+            onChange={(event) => setEndValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onDone();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEndValue("")}
+            disabled={!endValue || mutation.isPending}
+          >
+            Clear
+          </Button>
+        </div>
+      </label>
+      <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+        <input
+          type="checkbox"
+          checked={includeTime}
+          onChange={(event) => {
+            const nextIncludeTime = event.target.checked;
+            setIncludeTime(nextIncludeTime);
+            if (nextIncludeTime) {
+              setStartValue((current) =>
+                current.includes("T")
+                  ? current
+                  : current
+                    ? `${current}T09:00`
+                    : "",
+              );
+              setEndValue((current) =>
+                current.includes("T")
+                  ? current
+                  : current
+                    ? `${current}T17:00`
+                    : "",
+              );
+            } else {
+              setStartValue((current) => current.slice(0, 10));
+              setEndValue((current) => current.slice(0, 10));
+            }
+          }}
+        />
+        Include time
+      </label>
       <div className="flex justify-end gap-2">
         <Button
           type="button"

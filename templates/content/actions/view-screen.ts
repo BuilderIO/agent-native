@@ -19,7 +19,11 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
-import { isEmptyPropertyValue } from "../shared/properties.js";
+import {
+  documentPropertyDateKey,
+  formulaValueText,
+  isEmptyPropertyValue,
+} from "../shared/properties.js";
 import {
   listPropertiesForDocument,
   serializeDatabase,
@@ -167,7 +171,7 @@ function propertyValueTextForScreen(
   if (property.definition.type === "checkbox") {
     return value ? "Checked" : "Unchecked";
   }
-  return String(value);
+  return formulaValueText(value);
 }
 
 export const DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT = 50;
@@ -452,18 +456,7 @@ function propertyNumberValueForScreen(property: DocumentProperty) {
 }
 
 function calendarDateKeyForScreen(value: unknown) {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    const dateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
-    if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
-  }
-  if (value === null || value === undefined || value === "") return null;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return documentPropertyDateKey(value);
 }
 
 function formatDatabaseCalculationNumberForScreen(value: number) {

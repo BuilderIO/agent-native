@@ -140,6 +140,9 @@ import type {
 } from "@shared/api";
 import {
   type DocumentPropertyOptionColor,
+  documentPropertyDateKey,
+  documentPropertyDatePart,
+  formulaValueText,
   isComputedPropertyType,
   isEmptyPropertyValue,
 } from "@shared/properties";
@@ -511,7 +514,10 @@ function DatabaseTable({
       dateViewProperty?.editable &&
       dateViewProperty.definition.type === "date"
     ) {
-      propertyValueOverrides[dateViewProperty.definition.id] = dateKey;
+      propertyValueOverrides[dateViewProperty.definition.id] = {
+        start: dateKey,
+        includeTime: false,
+      };
     }
     return createRow(title, propertyValueOverrides);
   }
@@ -1328,6 +1334,12 @@ export function databaseBulkScalarInputState(
     return Number.isFinite(numberValue)
       ? { isValid: true, value: numberValue }
       : { isValid: false, value: null };
+  }
+  if (type === "date") {
+    return {
+      isValid: /^\d{4}-\d{2}-\d{2}$/.test(trimmed),
+      value: { start: trimmed, includeTime: false },
+    };
   }
   return { isValid: true, value: trimmed };
 }
@@ -6575,18 +6587,23 @@ export function databaseTimelineItemSpans(
 
   return items
     .map((item) => {
-      const startKey = calendarDateKey(
-        databaseItemPropertyById(item, properties, startPropertyId)?.value ??
-          null,
+      const startProperty = databaseItemPropertyById(
+        item,
+        properties,
+        startPropertyId,
       );
+      const startKey = calendarDateKey(startProperty?.value ?? null);
       if (!startKey) return null;
 
-      const rawEndKey = endPropertyId
-        ? calendarDateKey(
-            databaseItemPropertyById(item, properties, endPropertyId)?.value ??
-              null,
-          )
-        : null;
+      const rangeEndKey = calendarDateEndKey(startProperty?.value ?? null);
+      const rawEndKey = rangeEndKey
+        ? rangeEndKey
+        : endPropertyId
+          ? calendarDateKey(
+              databaseItemPropertyById(item, properties, endPropertyId)
+                ?.value ?? null,
+            )
+          : null;
       const endKey = rawEndKey && rawEndKey >= startKey ? rawEndKey : startKey;
       if (endKey < firstKey || startKey > lastKey) return null;
 
@@ -6686,21 +6703,30 @@ export function databaseScreenVisibleItems(
   const datePropertyId = dateProperty.definition.id;
 
   return items.filter((item) => {
-    const startKey = calendarDateKey(
-      databaseItemPropertyById(item, properties, datePropertyId)?.value ?? null,
+    const startProperty = databaseItemPropertyById(
+      item,
+      properties,
+      datePropertyId,
     );
+    const startKey = calendarDateKey(startProperty?.value ?? null);
     if (!startKey) return true;
 
     if (view.type === "calendar") {
-      return startKey >= dateRange.start && startKey <= dateRange.end;
+      const rangeEndKey = calendarDateEndKey(startProperty?.value ?? null);
+      const endKey =
+        rangeEndKey && rangeEndKey >= startKey ? rangeEndKey : startKey;
+      return endKey >= dateRange.start && startKey <= dateRange.end;
     }
 
-    const rawEndKey = view.endDatePropertyId
-      ? calendarDateKey(
-          databaseItemPropertyById(item, properties, view.endDatePropertyId)
-            ?.value ?? null,
-        )
-      : null;
+    const rangeEndKey = calendarDateEndKey(startProperty?.value ?? null);
+    const rawEndKey = rangeEndKey
+      ? rangeEndKey
+      : view.endDatePropertyId
+        ? calendarDateKey(
+            databaseItemPropertyById(item, properties, view.endDatePropertyId)
+              ?.value ?? null,
+          )
+        : null;
     const endKey = rawEndKey && rawEndKey >= startKey ? rawEndKey : startKey;
     return endKey >= dateRange.start && startKey <= dateRange.end;
   });
@@ -6753,16 +6779,17 @@ export function calendarDateKey(value: Date): string;
 export function calendarDateKey(value: DocumentPropertyValue): string | null;
 export function calendarDateKey(value: Date | DocumentPropertyValue) {
   if (value instanceof Date) return formatCalendarDateKey(value);
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    const dateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
-    if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
-  }
+  const dateKey = documentPropertyDateKey(value);
+  if (dateKey) return dateKey;
   if (value === null || value === undefined || value === "") return null;
 
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return null;
   return formatCalendarDateKey(date);
+}
+
+function calendarDateEndKey(value: DocumentPropertyValue) {
+  return documentPropertyDateKey(value, "end");
 }
 
 function formatCalendarDateKey(date: Date) {
@@ -7621,7 +7648,12 @@ function DatabaseBulkScalarValueEditor({
             size="sm"
             className="h-8 justify-start gap-1.5"
             disabled={disabled}
-            onClick={() => void onApply(dateInputValueForOffset(new Date(), 0))}
+            onClick={() =>
+              void onApply({
+                start: dateInputValueForOffset(new Date(), 0),
+                includeTime: false,
+              })
+            }
           >
             <IconCalendar className="size-3.5" />
             Today
@@ -7632,7 +7664,12 @@ function DatabaseBulkScalarValueEditor({
             size="sm"
             className="h-8 justify-start gap-1.5"
             disabled={disabled}
-            onClick={() => void onApply(dateInputValueForOffset(new Date(), 1))}
+            onClick={() =>
+              void onApply({
+                start: dateInputValueForOffset(new Date(), 1),
+                includeTime: false,
+              })
+            }
           >
             <IconCalendar className="size-3.5" />
             Tomorrow
@@ -8605,6 +8642,11 @@ function databaseFilterDefaultValueForNewItem(
   ) {
     return optionValue ?? value;
   }
+  if (property.definition.type === "date") {
+    return /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? { start: value, includeTime: false }
+      : undefined;
+  }
   if (property.definition.type === "checkbox") return undefined;
 
   return value;
@@ -8784,7 +8826,10 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
   if (property.definition.type === "checkbox") {
     return value ? "Checked" : "Unchecked";
   }
-  return String(value);
+  if (property.definition.type === "date") {
+    return formulaValueText(value);
+  }
+  return formulaValueText(value);
 }
 
 function compareDatabaseSortValues(left: string, right: string) {
@@ -8822,7 +8867,9 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
 
 function propertyDateValue(property: DocumentProperty | null | undefined) {
   if (!property || !property.value) return Number.NaN;
-  const value = new Date(String(property.value)).getTime();
+  const value = new Date(
+    documentPropertyDatePart(property.value, "start") || String(property.value),
+  ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
