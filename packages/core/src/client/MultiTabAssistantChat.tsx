@@ -684,6 +684,73 @@ interface ChatTab {
   subAgentName?: string;
 }
 
+type AgentTeamRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "needs-approval"
+  | "completed"
+  | "errored"
+  | "unknown";
+
+interface AgentTeamRunSummary {
+  title?: string;
+  status?: AgentTeamRunStatus;
+  sourceRecord?: {
+    type?: string;
+    threadId?: unknown;
+    parentThreadId?: unknown;
+    name?: unknown;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+interface AgentTeamTabInfo {
+  threadId: string;
+  parentThreadId: string;
+  name: string;
+  status: AgentTeamRunStatus;
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isActiveAgentTeamStatus(status?: AgentTeamRunStatus): boolean {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "paused" ||
+    status === "needs-approval"
+  );
+}
+
+function runToAgentTeamTabInfo(
+  run: AgentTeamRunSummary,
+): AgentTeamTabInfo | null {
+  if (run.sourceRecord?.type && run.sourceRecord.type !== "agent-team-task") {
+    return null;
+  }
+  const metadata = run.metadata ?? {};
+  const threadId =
+    readString(run.sourceRecord?.threadId) || readString(metadata.threadId);
+  const parentThreadId =
+    readString(run.sourceRecord?.parentThreadId) ||
+    readString(metadata.parentThreadId);
+  if (!threadId || !parentThreadId || threadId === parentThreadId) return null;
+  const name =
+    readString(run.sourceRecord?.name) ||
+    readString(metadata.name) ||
+    readString(run.title) ||
+    "Sub-agent";
+  return {
+    threadId,
+    parentThreadId,
+    name,
+    status: run.status ?? "unknown",
+  };
+}
+
 export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
@@ -1025,6 +1092,9 @@ export function MultiTabAssistantChat({
     } catch {}
     return {};
   });
+  const parentMapRef = useRef(parentMap);
+  parentMapRef.current = parentMap;
+  const dismissedSubAgentTabsRef = useRef<Set<string>>(new Set());
 
   // Persist parent map to localStorage
   useEffect(() => {
@@ -1045,6 +1115,11 @@ export function MultiTabAssistantChat({
       return {};
     },
   );
+  const subAgentNamesRef = useRef(subAgentNames);
+  subAgentNamesRef.current = subAgentNames;
+  const [subAgentStatuses, setSubAgentStatuses] = useState<
+    Record<string, AgentTeamRunStatus>
+  >({});
 
   useEffect(() => {
     try {
@@ -1076,6 +1151,8 @@ export function MultiTabAssistantChat({
     } catch {}
     return [];
   });
+  const openTabIdsRef = useRef(openTabIds);
+  openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
 
   // Rehydrate open tabs when the scope flips. Mirrors `persistedKeyRef` in
@@ -1251,6 +1328,113 @@ export function MultiTabAssistantChat({
       });
     }
   }, [isLoading, openTabIds, activeThreadId, createThread]);
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
+
+    async function hydrateAgentTeamTabs() {
+      try {
+        const res = await fetch(runsUrl);
+        if (res.ok) {
+          const data = (await res.json()) as { runs?: AgentTeamRunSummary[] };
+          const infos = Array.isArray(data.runs)
+            ? data.runs
+                .map(runToAgentTeamTabInfo)
+                .filter((info): info is AgentTeamTabInfo => Boolean(info))
+            : [];
+
+          setSubAgentStatuses((prev) => {
+            let changed = false;
+            const next: Record<string, AgentTeamRunStatus> = {};
+            for (const info of infos) {
+              next[info.threadId] = info.status;
+              if (prev[info.threadId] !== info.status) changed = true;
+            }
+            if (Object.keys(prev).length !== Object.keys(next).length) {
+              changed = true;
+            }
+            return changed ? next : prev;
+          });
+
+          const openSet = new Set(openTabIdsRef.current);
+          const candidates = infos.filter(
+            (info) =>
+              !dismissedSubAgentTabsRef.current.has(info.threadId) &&
+              (openSet.has(info.parentThreadId) || openSet.has(info.threadId)),
+          );
+
+          if (candidates.length > 0) {
+            const shouldRefreshThreads = candidates.some(
+              (info) =>
+                !openSet.has(info.threadId) && openSet.has(info.parentThreadId),
+            );
+            const candidateParents = new Map(
+              candidates.map((info) => [info.threadId, info.parentThreadId]),
+            );
+            setParentMap((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (next[info.threadId] === info.parentThreadId) continue;
+                next =
+                  next === prev
+                    ? { ...prev, [info.threadId]: info.parentThreadId }
+                    : { ...next, [info.threadId]: info.parentThreadId };
+              }
+              return next;
+            });
+            setSubAgentNames((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (!info.name || next[info.threadId] === info.name) continue;
+                next =
+                  next === prev
+                    ? { ...prev, [info.threadId]: info.name }
+                    : { ...next, [info.threadId]: info.name };
+              }
+              return next;
+            });
+
+            setOpenTabIds((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (next.includes(info.threadId)) continue;
+                const parentIdx = next.indexOf(info.parentThreadId);
+                if (parentIdx === -1) continue;
+                if (next === prev) next = [...prev];
+                let insertIdx = parentIdx + 1;
+                while (insertIdx < next.length) {
+                  const siblingParent =
+                    parentMapRef.current[next[insertIdx]] ||
+                    candidateParents.get(next[insertIdx]);
+                  if (siblingParent !== info.parentThreadId) break;
+                  insertIdx++;
+                }
+                next.splice(insertIdx, 0, info.threadId);
+              }
+              return next;
+            });
+            if (shouldRefreshThreads) {
+              void refreshThreads();
+            }
+          }
+        }
+      } catch {
+        // Best effort: task cards and manual history still work if this poll fails.
+      } finally {
+        if (!stopped) {
+          timer = setTimeout(hydrateAgentTeamTabs, 3000);
+        }
+      }
+    }
+
+    hydrateAgentTeamTabs();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [apiUrl, refreshThreads]);
 
   // Focus the composer when switching tabs
   useEffect(() => {
