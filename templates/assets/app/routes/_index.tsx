@@ -1105,12 +1105,21 @@ function AssetComposerToolbar({
             value={String(count)}
             onValueChange={(value) => onCountChange(Number(value))}
           >
-            <SelectTrigger
-              aria-label="Variant count"
-              className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
-            >
-              <span>{count}x</span>
-            </SelectTrigger>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SelectTrigger
+                    aria-label="Variant count"
+                    className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[4rem] shrink-0`}
+                  >
+                    <span>{count}x</span>
+                  </SelectTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[16rem]">
+                  Number of image variations to generate at once
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <SelectContent>
               <SelectGroup>
                 {[1, 2, 3, 4].map((n) => (
