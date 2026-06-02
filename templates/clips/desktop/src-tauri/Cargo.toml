@@ -54,6 +54,8 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }
 chrono = { version = "0.4", features = ["serde"] }
+# Verify the integrity of the Whisper model we download from HuggingFace.
+sha2 = "0.10"
 
 # macOS-only: raw Objective-C messaging so we can flip NSWindow's sharingType
 # to NSWindowSharingNone and hide every overlay window (popover, bubble,
@@ -111,8 +113,6 @@ screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"
 whisper-rs = { version = "0.16.0" }
-# Verify the integrity of the Whisper model we download from HuggingFace.
-sha2 = "0.10"
 # NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
 # msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
 # crate. Its API surface drifts between minor 0.3.x releases (and not
