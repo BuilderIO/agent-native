@@ -6,6 +6,15 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
+import {
+  listPropertiesForDocument,
+  serializeDatabase,
+} from "./_property-utils.js";
+import {
+  getDatabaseByDocumentId,
+  getDatabaseItemByDocumentId,
+  serializeDatabaseMembership,
+} from "./_database-utils.js";
 import "../server/db/index.js";
 
 function canEditRole(role: string) {
@@ -30,6 +39,8 @@ export default defineAction({
     const access = await resolveAccess("document", args.id);
     if (!access) throw new Error(`Document "${args.id}" not found`);
     const doc = access.resource;
+    const database = await getDatabaseByDocumentId(doc.id);
+    const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
 
     return {
       id: doc.id,
@@ -49,8 +60,13 @@ export default defineAction({
       accessRole: access.role,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
+      database: database ? serializeDatabase(database) : undefined,
+      databaseMembership: databaseMembership
+        ? serializeDatabaseMembership(databaseMembership)
+        : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      properties: await listPropertiesForDocument(doc),
     };
   },
   link: ({ result }) => {

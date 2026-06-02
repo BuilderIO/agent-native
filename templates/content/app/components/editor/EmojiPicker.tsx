@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
 import {
   Popover,
   PopoverTrigger,
@@ -626,9 +626,20 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 interface EmojiPickerProps {
   icon: string | null;
   onSelect: (emoji: string | null) => void;
+  defaultIcon?: ReactNode;
+  defaultIconLabel?: string;
+  variant?: "page" | "compact";
+  portalled?: boolean;
 }
 
-export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
+export function EmojiPicker({
+  icon,
+  onSelect,
+  defaultIcon,
+  defaultIconLabel = "page",
+  variant = "page",
+  portalled = true,
+}: EmojiPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -663,24 +674,48 @@ export function EmojiPicker({ icon, onSelect }: EmojiPickerProps) {
             {icon ? (
               <button
                 type="button"
-                className="text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1"
+                aria-label="Change page icon"
+                className={
+                  variant === "compact"
+                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-xl leading-none hover:bg-accent/50"
+                    : "text-5xl leading-none cursor-pointer hover:bg-accent/50 rounded-md p-1 -ml-1"
+                }
               >
                 {icon}
+              </button>
+            ) : defaultIcon ? (
+              <button
+                type="button"
+                aria-label={`Change ${defaultIconLabel} icon`}
+                className={
+                  variant === "compact"
+                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                    : "flex size-14 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 -ml-1"
+                }
+              >
+                {defaultIcon}
               </button>
             ) : (
               <button
                 type="button"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100"
+                aria-label="Add page icon"
+                className={
+                  variant === "compact"
+                    ? "flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent/50 hover:text-muted-foreground data-[state=open]:bg-accent/50"
+                    : "flex items-center gap-1.5 text-sm text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 rounded-md px-1.5 py-1 -ml-1.5 cursor-pointer opacity-0 group-hover/title:opacity-100 data-[state=open]:opacity-100"
+                }
               >
                 <IconMoodSmile size={18} />
-                <span>Add icon</span>
+                {variant === "page" ? <span>Add icon</span> : null}
               </button>
             )}
           </TooltipTrigger>
         </PopoverTrigger>
-        <TooltipContent>{icon ? "Change icon" : "Add icon"}</TooltipContent>
+        <TooltipContent>
+          {icon || defaultIcon ? "Change icon" : "Add icon"}
+        </TooltipContent>
       </Tooltip>
-      <PopoverContent align="start" className="w-80 p-0">
+      <PopoverContent align="start" className="w-80 p-0" portalled={portalled}>
         {/* Search */}
         <div className="p-2 border-b">
           <input

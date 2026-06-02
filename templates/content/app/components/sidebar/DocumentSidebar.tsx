@@ -21,7 +21,6 @@ import {
   IconPlus,
   IconSearch,
   IconStar,
-  IconFileText,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
@@ -36,7 +35,7 @@ import {
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NotionButton } from "./NotionButton";
-import { DocumentTreeItem } from "./DocumentTreeItem";
+import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import {
   useDocuments,
   useCreateDocument,
@@ -44,6 +43,7 @@ import {
   useMoveDocument,
   useUpdateDocument,
   buildDocumentTree,
+  filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import {
@@ -164,7 +164,8 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const tree = buildDocumentTree(documents);
+  const treeDocuments = filterDocumentTreeDocuments(documents);
+  const tree = buildDocumentTree(treeDocuments);
   const privateTree = tree.filter((node) => node.visibility !== "org");
   const organizationTree = tree.filter((node) => node.visibility === "org");
   const favorites = documents.filter((d) => d.isFavorite);
@@ -597,7 +598,7 @@ export function DocumentSidebar({
                       }}
                     >
                       <span className="flex-shrink-0 w-5 text-center">
-                        {doc.icon || <IconFileText size={14} />}
+                        <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
                         {doc.title || "Untitled"}
@@ -632,7 +633,7 @@ export function DocumentSidebar({
                       }}
                     >
                       <span className="flex-shrink-0 w-5 text-center">
-                        {doc.icon || <IconFileText size={14} />}
+                        <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
                         {doc.title || "Untitled"}

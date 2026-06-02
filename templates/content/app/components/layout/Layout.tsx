@@ -1,4 +1,11 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useLocation } from "react-router";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { useCreatePage } from "@/hooks/use-create-page";
@@ -92,6 +99,11 @@ export function Layout({ children }: LayoutProps) {
       <IconMenu2 size={18} />
     </button>
   ) : null;
+  const contentSidebarWidth = isMobile
+    ? 0
+    : sidebarCollapsed
+      ? 48
+      : sidebarWidth;
 
   return (
     <HeaderActionsProvider>
@@ -143,7 +155,14 @@ export function Layout({ children }: LayoutProps) {
           ]}
           scope={documentScope}
         >
-          <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
+          <main
+            className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+            style={
+              {
+                "--content-sidebar-width": `${contentSidebarWidth}px`,
+              } as CSSProperties
+            }
+          >
             {showHeader ? (
               <Header sidebarTrigger={mobileSidebarTrigger} />
             ) : null}
