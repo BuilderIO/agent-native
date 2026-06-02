@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.32.14
+
+### Patch Changes
+
+- 6dde14d: Add a keyed agent chat composer context API for staging hidden context before the next prompt is submitted.
+- 6dde14d: Agent Teams sub-agents now run reliably on serverless hosts (Netlify/Vercel/AWS Lambda).
+
+  Previously a spawned sub-agent executed as an in-process detached promise from the spawning request. Serverless hosts freeze the function the moment that response flushes, so the sub-agent was suspended mid-run and never completed — yet `spawn` had already returned `status: "running"`, which the orchestrator narrated as "done." Background "batch" jobs reported success but produced no output.
+
+  Sub-agents now use the framework's durable enqueue-to-SQL + self-fire-HTTP pattern (the same one A2A async tasks and integration webhooks use): `spawnTask` enqueues the run and self-fires a fresh, HMAC-signed POST to a new `/_agent-native/agent-teams/_process-run` route, which executes the run in its own function invocation with its own timeout budget. Runs longer than one function's wall-clock checkpoint at the soft-timeout boundary and self-fire a continuation chunk (the server-side analog of the main chat's client-driven continuation), folding into one durable assistant message via a stable turn id. An atomic SQL claim makes duplicate dispatches idempotent.
+
+  Status reporting is now truthful and observable: `status`/`read-result`/`list` reconcile against the durable queue (a single completed chunk at a continuation boundary no longer prematurely marks a multi-chunk task done), dropped dispatches are re-fired, and genuinely-stalled runs fail with a real message instead of hanging as "running." The RunsTray now self-heals an owner's in-flight runs on read, so it reflects precise status without waiting on the orchestrator to poll.
+
+  This path is host-agnostic — it works anywhere Nitro deploys (no `waitUntil` dependency) and falls back to localhost self-dispatch in dev. It requires `APP_URL`/`URL`/`DEPLOY_URL`/`BETTER_AUTH_URL` to be set in production/shared deployments so the deployment can reach its own URL (the same requirement async A2A and webhooks already carry).
+
+  Note: the previous best-effort "sub-agent finished" auto-recap on the parent thread (a second in-process run that also never survived serverless) is removed; the orchestrator is instead prompted to read `status`/`read-result`, and the RunsTray surfaces completion.
+
+- 6dde14d: Improve background agent visibility by surfacing recent runs in the agent panel and tracking Agent Teams launches in the shared progress tray.
+- 6dde14d: Dedupe the client export and server fold of the same tool-call turn so it no longer renders twice. Now that rebuilt tool-call ids are scoped by run (`${runId}:tc_1`) while the live client stream uses a bare counter (`tc_1`), the two copies of one turn hashed to different thread-merge fingerprints; the render-only `toolCallId` is now stripped before fingerprinting so they match again.
+- 6dde14d: Recover the agent panel after assistant-ui React fiber unmount crashes instead of leaving the chat UI stuck behind the reset panel.
+- 6dde14d: Stop the agent chat from giving up on the first soft-timeout when a turn hasn't produced visible output yet. A complex first turn can spend the whole ~40s soft-timeout window "thinking" before any text or tool call, which previously surfaced "The agent stopped before finishing" with zero retries. Silent run timeouts now retry through a larger empty-continuation budget (1 → 3) so transient slow starts recover, while the cap still terminates a genuinely stuck turn with a clear message instead of looping forever.
+- 6dde14d: Suppress Node 22 web stream close races from Vite dev socket error handling so `agent-native dev` does not crash during startup.
+- 6dde14d: Add generated Agent-Native social preview images and default OG image metadata.
+- 6dde14d: Prevent folded continuation turns from persisting duplicate assistant-ui tool-call resource keys, sanitize already-saved duplicates, and recover standalone prompt composers if the duplicate-key crash still appears.
+
 ## 0.32.13
 
 ### Patch Changes
