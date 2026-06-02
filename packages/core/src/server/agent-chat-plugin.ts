@@ -122,6 +122,18 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
+  AGENT_TEAM_PROCESS_RUN_PATH,
+  processAgentTeamRun,
+} from "./agent-teams.js";
+import {
+  verifyInternalToken,
+  extractBearerToken,
+} from "../integrations/internal-token.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
+import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
@@ -1906,6 +1918,7 @@ function createTeamTools(deps: {
             actions: subAgentActions,
             engine: deps.getEngine(),
             model: selectedModel,
+            name: selectedName || undefined,
             parentThreadId: deps.getParentThreadId(),
             parentSend: (event) => {
               if (capturedSend) capturedSend(event);
@@ -4502,31 +4515,36 @@ export function createAgentChatPlugin(
       >();
       const resolvedModel = options?.model ?? DEFAULT_ANTHROPIC_MODEL;
 
+      // The action set a sub-agent inherits. Shared between the spawn-time team
+      // tool and the `_process-run` processor route below so the durable run
+      // executes with exactly the tools the orchestrator intended.
+      const buildSubAgentActions = (): Record<string, ActionEntry> =>
+        isDevMode()
+          ? {
+              // Sub-agents spawned in dev mode also invoke template actions
+              // via bash, so omit them from the native tool registry.
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...devScriptsForA2A,
+            }
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...urlTools,
+              ...chatScripts,
+            };
+
       const teamTools = createTeamTools({
         getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
         getSystemPrompt: () =>
           getRequestRunContext()?.systemPrompt ?? basePrompt,
-        getActions: () =>
-          isDevMode()
-            ? {
-                // Sub-agents spawned in dev mode also invoke template actions
-                // via bash, so omit them from the native tool registry.
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...chatScripts,
-                ...devScriptsForA2A,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-              },
+        getActions: buildSubAgentActions,
         getEngine: () => {
           const runCtx = getRequestRunContext();
           return (
@@ -4961,6 +4979,83 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             codeMode: currentDevMode,
             canToggle,
           };
+        }),
+      );
+
+      // ─── Agent Teams: durable sub-agent run processor ─────────────────
+      // Self-fire target for `spawnTask`. Executes one chunk of a queued
+      // sub-agent in this fresh function invocation (its own timeout budget)
+      // so background sub-agents survive serverless instead of dying as a
+      // detached promise. Mounted here so it closes over the sub-agent action
+      // set / base prompt / engine (per-deployment closures that can't be
+      // serialized into the queue). HMAC-authed with the same internal-token
+      // scheme as the A2A/webhook processors.
+      getH3App(nitroApp).use(
+        AGENT_TEAM_PROCESS_RUN_PATH,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const body = (await readBody(event)) as {
+            taskId?: unknown;
+            mode?: unknown;
+          } | null;
+          const taskId =
+            body && typeof body.taskId === "string" ? body.taskId : "";
+          if (!taskId) {
+            setResponseStatus(event, 400);
+            return { error: "taskId required" };
+          }
+          const mode: "start" | "continue" =
+            body?.mode === "continue" ? "continue" : "start";
+
+          if (hasConfiguredA2ASecret()) {
+            const tok = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(taskId, tok ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent Teams processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          try {
+            return await processAgentTeamRun({
+              taskId,
+              mode,
+              event,
+              resolveConfig: async ({ payload, ownerEmail }) => {
+                let apiKey: string | undefined;
+                try {
+                  const { getOwnerActiveApiKey } =
+                    await import("../agent/production-agent.js");
+                  apiKey =
+                    (await getOwnerActiveApiKey(ownerEmail)) ?? undefined;
+                } catch {
+                  apiKey = undefined;
+                }
+                const engine = createAnthropicEngine({
+                  apiKey:
+                    apiKey ?? options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+                });
+                return {
+                  baseSystemPrompt: basePrompt,
+                  actions: buildSubAgentActions(),
+                  engine,
+                  model: payload.model ?? resolvedModel,
+                };
+              },
+            });
+          } catch (err: any) {
+            console.error("[agent-teams] _process-run failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-run failed" };
+          }
         }),
       );
 
