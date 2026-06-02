@@ -172,11 +172,11 @@ const EMPTY_DEFAULT_BLANK_ROW_COUNT = 5;
 const DATABASE_DRAG_THRESHOLD = 6;
 const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "table",
-  "list",
-  "gallery",
-  "calendar",
-  "timeline",
   "board",
+  "gallery",
+  "list",
+  "timeline",
+  "calendar",
 ];
 const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
@@ -186,6 +186,28 @@ const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
+type DatabaseDragPreviewState =
+  | {
+      kind: "view";
+      label: string;
+      type: ContentDatabaseViewType;
+      x: number;
+      y: number;
+      width: number;
+    }
+  | {
+      kind: "property";
+      label: string;
+      type: DocumentPropertyType;
+      x: number;
+      y: number;
+      width: number;
+    };
+type DatabaseDropSide = "before" | "after";
+type DatabaseDropTargetState = {
+  id: string;
+  side: DatabaseDropSide;
+};
 
 function databaseDragMoved(
   startX: number,
@@ -208,6 +230,81 @@ function suppressNextDocumentClick() {
     capture: true,
     once: true,
   });
+}
+
+function databaseDragPreviewFromElement(
+  element: HTMLElement,
+  label: string,
+  preview:
+    | { kind: "view"; type: ContentDatabaseViewType }
+    | { kind: "property"; type: DocumentPropertyType },
+  clientX: number,
+  clientY: number,
+): DatabaseDragPreviewState {
+  const rect = element.getBoundingClientRect();
+  return {
+    ...preview,
+    label,
+    x: clientX,
+    y: clientY,
+    width: Math.min(rect.width, preview.kind === "property" ? 220 : 180),
+  };
+}
+
+function databaseDropSideForElement(
+  element: HTMLElement,
+  clientX: number,
+): DatabaseDropSide {
+  const rect = element.getBoundingClientRect();
+  return clientX < rect.left + rect.width / 2 ? "before" : "after";
+}
+
+function DatabaseDragPreview({
+  preview,
+}: {
+  preview: DatabaseDragPreviewState | null;
+}) {
+  if (!preview) return null;
+
+  const Icon =
+    preview.kind === "view"
+      ? databaseViewIcon(preview.type)
+      : TYPE_ICONS[preview.type];
+
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none fixed left-0 top-0 z-[9999] flex max-w-56 items-center gap-1.5 overflow-hidden rounded-md border border-border bg-background/95 px-2 text-sm shadow-lg",
+        preview.kind === "view" ? "h-7 font-medium" : "h-8 text-xs",
+      )}
+      style={{
+        width: preview.width,
+        transform: `translate3d(${preview.x + 12}px, ${preview.y + 10}px, 0)`,
+      }}
+    >
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{preview.label}</span>
+    </div>
+  );
+}
+
+function DatabaseDropIndicator({ side }: { side: DatabaseDropSide | null }) {
+  if (!side) return null;
+
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute bottom-1 top-1 z-20 w-[3px] rounded-full",
+        side === "before" ? "-left-0.5" : "-right-0.5",
+      )}
+      style={{
+        background: "hsl(210 100% 52%)",
+        boxShadow: "0 0 0 1px hsl(var(--background))",
+      }}
+    />
+  );
 }
 
 export function databaseItemPageIconText(
@@ -651,12 +748,19 @@ function DatabaseTable({
   function movePropertyInActiveView(
     propertyId: string,
     targetPropertyId: string,
+    side: DatabaseDropSide = "before",
   ) {
     updateActiveView((view) =>
-      reorderDatabaseViewProperty(view, propertyId, targetPropertyId, {
-        allProperties: properties,
-        visibleProperties: tableProperties,
-      }),
+      reorderDatabaseViewProperty(
+        view,
+        propertyId,
+        targetPropertyId,
+        {
+          allProperties: properties,
+          visibleProperties: tableProperties,
+        },
+        side,
+      ),
     );
   }
 
@@ -2040,7 +2144,11 @@ function DatabaseTableView({
     event: ReactPointerEvent,
   ) => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
-  onPropertyMove: (propertyId: string, targetPropertyId: string) => void;
+  onPropertyMove: (
+    propertyId: string,
+    targetPropertyId: string,
+    side?: DatabaseDropSide,
+  ) => void;
   calculations: Record<string, DatabaseColumnCalculation>;
   onCalculationChange: (
     key: ColumnKey,
@@ -2072,9 +2180,10 @@ function DatabaseTableView({
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
     null,
   );
-  const [dropTargetPropertyId, setDropTargetPropertyId] = useState<
-    string | null
-  >(null);
+  const [dropTargetProperty, setDropTargetProperty] =
+    useState<DatabaseDropTargetState | null>(null);
+  const [dragPreview, setDragPreview] =
+    useState<DatabaseDragPreviewState | null>(null);
   const [confirmDeleteSelectedOpen, setConfirmDeleteSelectedOpen] =
     useState(false);
   const [isDuplicatingSelected, setIsDuplicatingSelected] = useState(false);
@@ -2141,39 +2250,63 @@ function DatabaseTableView({
 
   function clearDraggedProperty() {
     setDraggedPropertyId(null);
-    setDropTargetPropertyId(null);
+    setDropTargetProperty(null);
+    setDragPreview(null);
+    globalThis.document.body.classList.remove("notion-editor-is-dragging");
   }
 
   function startPropertyPointerDrag(
-    propertyId: string,
+    property: DocumentProperty,
     event: ReactPointerEvent<HTMLElement>,
   ) {
     if (!canEdit) return;
     if (
       event.target instanceof HTMLElement &&
-      event.target.closest("[data-column-resize-handle]")
+      event.target.closest(
+        "[data-column-resize-handle], [data-column-menu-trigger]",
+      )
     ) {
       return;
     }
 
+    const propertyId = property.definition.id;
+    const sourceElement = event.currentTarget;
     const startX = event.clientX;
     const startY = event.clientY;
     let dragging = false;
 
-    function propertyIdFromPoint(clientX: number, clientY: number) {
+    function propertyTargetFromPoint(
+      clientX: number,
+      clientY: number,
+    ): DatabaseDropTargetState | null {
       const element = globalThis.document.elementFromPoint(clientX, clientY);
       const header = element?.closest<HTMLElement>(
         "[data-database-property-id]",
       );
-      return header?.dataset.databasePropertyId ?? null;
+      const targetPropertyId = header?.dataset.databasePropertyId ?? null;
+      if (!header || !targetPropertyId) return null;
+      return {
+        id: targetPropertyId,
+        side: databaseDropSideForElement(header, clientX),
+      };
     }
 
-    function beginDrag() {
+    function beginDrag(moveEvent: PointerEvent) {
       dragging = true;
       setDraggedPropertyId(propertyId);
-      setDropTargetPropertyId(null);
+      setDropTargetProperty(null);
+      setDragPreview(
+        databaseDragPreviewFromElement(
+          sourceElement,
+          property.definition.name,
+          { kind: "property", type: property.definition.type },
+          moveEvent.clientX,
+          moveEvent.clientY,
+        ),
+      );
       globalThis.document.body.style.userSelect = "none";
       globalThis.document.body.style.cursor = "grabbing";
+      globalThis.document.body.classList.add("notion-editor-is-dragging");
     }
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -2183,15 +2316,20 @@ function DatabaseTableView({
       ) {
         return;
       }
-      if (!dragging) beginDrag();
+      if (!dragging) beginDrag(moveEvent);
       moveEvent.preventDefault();
-      const targetPropertyId = propertyIdFromPoint(
+      setDragPreview((current) =>
+        current
+          ? { ...current, x: moveEvent.clientX, y: moveEvent.clientY }
+          : current,
+      );
+      const targetProperty = propertyTargetFromPoint(
         moveEvent.clientX,
         moveEvent.clientY,
       );
-      setDropTargetPropertyId(
-        targetPropertyId && targetPropertyId !== propertyId
-          ? targetPropertyId
+      setDropTargetProperty(
+        targetProperty && targetProperty.id !== propertyId
+          ? targetProperty
           : null,
       );
     };
@@ -2204,12 +2342,12 @@ function DatabaseTableView({
 
       if (dragging) {
         suppressNextDocumentClick();
-        const targetPropertyId = propertyIdFromPoint(
+        const targetProperty = propertyTargetFromPoint(
           upEvent.clientX,
           upEvent.clientY,
         );
-        if (targetPropertyId && targetPropertyId !== propertyId) {
-          onPropertyMove(propertyId, targetPropertyId);
+        if (targetProperty && targetProperty.id !== propertyId) {
+          onPropertyMove(propertyId, targetProperty.id, targetProperty.side);
         }
       }
 
@@ -2399,8 +2537,9 @@ function DatabaseTableView({
   return (
     <div
       data-database-scroll-surface="table"
-      className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
+      className="relative w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
     >
+      <DatabaseDragPreview preview={dragPreview} />
       <div className="w-max min-w-full min-w-[720px]">
         {selectedCount > 0 ? (
           <DatabaseSelectionBar
@@ -2449,10 +2588,12 @@ function DatabaseTableView({
                 documentId={databaseDocumentId}
                 canEdit={canEdit}
                 isDragging={draggedPropertyId === property.definition.id}
-                isDropTarget={
+                dropSide={
                   !!draggedPropertyId &&
-                  dropTargetPropertyId === property.definition.id &&
+                  dropTargetProperty?.id === property.definition.id &&
                   draggedPropertyId !== property.definition.id
+                    ? dropTargetProperty.side
+                    : null
                 }
                 sorts={sorts}
                 filters={filters}
@@ -2462,7 +2603,7 @@ function DatabaseTableView({
                   onPropertyHiddenChange(property.definition.id, true)
                 }
                 onPointerDown={(event) =>
-                  startPropertyPointerDrag(property.definition.id, event)
+                  startPropertyPointerDrag(property, event)
                 }
                 onResize={(event) =>
                   onResizeColumn(
@@ -4775,13 +4916,13 @@ function DatabaseCalendarView({
   }
 
   return (
-    <div className="border-b border-border">
-      <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 border-t border-border px-1 py-1">
+    <div className="min-w-0 max-w-full overflow-hidden border-b border-border">
+      <div className="flex min-h-9 min-w-0 flex-wrap items-center justify-between gap-2 border-t border-border px-1 py-1">
         <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <IconCalendar className="size-4 shrink-0" />
           <span className="truncate">{monthLabel}</span>
         </div>
-        <div className="flex min-w-0 items-center gap-1">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
           {dateProperties.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -4877,13 +5018,16 @@ function DatabaseCalendarView({
         <DatabaseNoMatchingPages onClear={onClearResultConstraints} />
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <div className="min-w-[840px]">
+          <div
+            data-database-calendar-surface="true"
+            className="min-w-0 max-w-full overflow-hidden"
+          >
+            <div className="w-full min-w-0">
               <div className="grid grid-cols-7 border-t border-border text-xs font-medium text-muted-foreground">
                 {CALENDAR_WEEKDAYS.map((weekday) => (
                   <div
                     key={weekday}
-                    className="border-r border-border px-2 py-1.5 last:border-r-0"
+                    className="min-w-0 border-r border-border px-2 py-1.5 last:border-r-0"
                   >
                     {weekday}
                   </div>
@@ -4898,28 +5042,40 @@ function DatabaseCalendarView({
                     <section
                       key={dateKey}
                       className={cn(
-                        "min-h-36 border-r border-b border-border bg-background p-1.5 last:border-r-0",
+                        "group min-w-0 border-r border-b border-border bg-background p-1.5 last:border-r-0",
                         !inMonth && "bg-muted/25 text-muted-foreground",
                       )}
                       aria-label={`${dateKey} calendar day`}
                     >
-                      <div className="mb-1 flex h-6 items-center justify-between gap-2">
-                        <span
-                          className={cn(
-                            "flex size-6 items-center justify-center rounded-full text-xs font-medium",
-                            dateKey === calendarDateKey(new Date()) &&
-                              "bg-foreground text-background",
-                          )}
-                        >
-                          {day.getDate()}
-                        </span>
+                      <div className="mb-1 flex h-6 items-center justify-between gap-1">
                         {dayItems.length > 0 ? (
                           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                             {dayItems.length}
                           </span>
-                        ) : null}
+                        ) : (
+                          <span aria-hidden="true" />
+                        )}
+                        <span className="ml-auto flex items-center gap-1">
+                          {canCreateOnDay ? (
+                            <NewCalendarCard
+                              dateKey={dateKey}
+                              disabled={isCreating}
+                              isPending={isCreating}
+                              onCreate={onCreateCard}
+                            />
+                          ) : null}
+                          <span
+                            className={cn(
+                              "flex size-6 items-center justify-center rounded-full text-xs font-medium",
+                              dateKey === calendarDateKey(new Date()) &&
+                                "bg-foreground text-background",
+                            )}
+                          >
+                            {day.getDate()}
+                          </span>
+                        </span>
                       </div>
-                      <div className="grid gap-1">
+                      <div className="grid min-h-28 gap-1">
                         {dayItems.map((item) => (
                           <DatabaseCalendarCard
                             key={item.id}
@@ -4933,14 +5089,6 @@ function DatabaseCalendarView({
                             onOpenPage={() => onOpenPage(item)}
                           />
                         ))}
-                        {canCreateOnDay ? (
-                          <NewCalendarCard
-                            dateKey={dateKey}
-                            disabled={isCreating}
-                            isPending={isCreating}
-                            onCreate={onCreateCard}
-                          />
-                        ) : null}
                       </div>
                     </section>
                   );
@@ -5107,51 +5255,25 @@ function NewCalendarCard({
     title?: string,
   ) => Promise<ContentDatabaseItem | null>;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-
-  async function submitNewCard() {
+  async function createCard() {
     if (disabled) return;
-    const createdItem = await onCreate(dateKey, title.trim());
-    setTitle("");
-    if (!createdItem) inputRef.current?.focus();
+    await onCreate(dateKey, "");
   }
 
   return (
-    <form
-      className="rounded border border-dashed border-transparent bg-transparent transition-colors focus-within:border-border focus-within:bg-background/80 hover:bg-background/60"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitNewCard();
-      }}
+    <button
+      type="button"
+      aria-label={`Add page for ${dateKey}`}
+      disabled={disabled}
+      className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 group-focus-within:opacity-100 group-hover:opacity-100"
+      onClick={() => void createCard()}
     >
-      <label className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs text-muted-foreground">
-        {isPending ? (
-          <Spinner className="size-3.5 shrink-0" />
-        ) : (
-          <IconPlus className="size-3.5 shrink-0" />
-        )}
-        <input
-          ref={inputRef}
-          value={title}
-          disabled={disabled}
-          aria-label={`New ${dateKey} calendar card title`}
-          placeholder="New page"
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void submitNewCard();
-            }
-            if (event.key === "Escape") {
-              setTitle("");
-              event.currentTarget.blur();
-            }
-          }}
-          className="h-6 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground focus:placeholder:text-muted-foreground/70"
-        />
-      </label>
-    </form>
+      {isPending ? (
+        <Spinner className="size-3.5" />
+      ) : (
+        <IconPlus className="size-3.5" />
+      )}
+    </button>
   );
 }
 
@@ -6823,6 +6945,7 @@ export function reorderDatabaseView(
   config: ContentDatabaseViewConfig,
   sourceViewId: string,
   targetViewId: string,
+  side: DatabaseDropSide = "before",
 ) {
   const normalized = normalizeClientDatabaseViewConfig(config);
   if (sourceViewId === targetViewId) return normalized;
@@ -6836,7 +6959,12 @@ export function reorderDatabaseView(
 
   const views = [...normalized.views];
   const [source] = views.splice(sourceIndex, 1);
-  views.splice(targetIndex, 0, source);
+  const nextTargetIndex = views.findIndex((view) => view.id === targetViewId);
+  views.splice(
+    side === "after" ? nextTargetIndex + 1 : nextTargetIndex,
+    0,
+    source,
+  );
   return normalizeClientDatabaseViewConfig({
     ...normalized,
     views,
@@ -7188,6 +7316,7 @@ export function reorderDatabaseViewProperty(
     allProperties: DocumentProperty[];
     visibleProperties: DocumentProperty[];
   },
+  side: DatabaseDropSide = "before",
 ): ContentDatabaseView {
   if (sourcePropertyId === targetPropertyId) return view;
   const visibleIds = properties.visibleProperties.map(
@@ -7210,7 +7339,12 @@ export function reorderDatabaseViewProperty(
 
   const nextOrder = [...allIds];
   const [source] = nextOrder.splice(sourceIndex, 1);
-  nextOrder.splice(targetIndex, 0, source);
+  const nextTargetIndex = nextOrder.indexOf(targetPropertyId);
+  nextOrder.splice(
+    side === "after" ? nextTargetIndex + 1 : nextTargetIndex,
+    0,
+    source,
+  );
   return { ...view, propertyOrderIds: nextOrder };
 }
 
@@ -7809,7 +7943,10 @@ function DatabaseViewTabs({
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
-  const [dropTargetViewId, setDropTargetViewId] = useState<string | null>(null);
+  const [dropTargetView, setDropTargetView] =
+    useState<DatabaseDropTargetState | null>(null);
+  const [dragPreview, setDragPreview] =
+    useState<DatabaseDragPreviewState | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const suppressViewClickRef = useRef(false);
 
@@ -7846,33 +7983,55 @@ function DatabaseViewTabs({
 
   function clearDraggedView() {
     setDraggedViewId(null);
-    setDropTargetViewId(null);
+    setDropTargetView(null);
+    setDragPreview(null);
+    globalThis.document.body.classList.remove("notion-editor-is-dragging");
   }
 
   function startViewPointerDrag(
-    viewId: string,
+    view: ContentDatabaseView,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) {
     if (!canEdit || normalized.views.length <= 1) return;
 
+    const viewId = view.id;
+    const sourceElement = event.currentTarget;
     const startX = event.clientX;
     const startY = event.clientY;
     let dragging = false;
 
-    function viewIdFromPoint(clientX: number, clientY: number) {
+    function viewTargetFromPoint(
+      clientX: number,
+      clientY: number,
+    ): DatabaseDropTargetState | null {
       const element = globalThis.document.elementFromPoint(clientX, clientY);
       const tab = element?.closest<HTMLElement>("[data-database-view-id]");
-      return tab?.dataset.databaseViewId ?? null;
+      const targetViewId = tab?.dataset.databaseViewId ?? null;
+      if (!tab || !targetViewId) return null;
+      return {
+        id: targetViewId,
+        side: databaseDropSideForElement(tab, clientX),
+      };
     }
 
-    function beginDrag() {
+    function beginDrag(moveEvent: PointerEvent) {
       dragging = true;
       suppressViewClickRef.current = true;
       setDraggedViewId(viewId);
-      setDropTargetViewId(null);
+      setDropTargetView(null);
+      setDragPreview(
+        databaseDragPreviewFromElement(
+          sourceElement,
+          view.name,
+          { kind: "view", type: view.type },
+          moveEvent.clientX,
+          moveEvent.clientY,
+        ),
+      );
       setOpenViewMenuId(null);
       globalThis.document.body.style.userSelect = "none";
       globalThis.document.body.style.cursor = "grabbing";
+      globalThis.document.body.classList.add("notion-editor-is-dragging");
     }
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
@@ -7882,20 +8041,26 @@ function DatabaseViewTabs({
       ) {
         return;
       }
-      if (!dragging) beginDrag();
+      if (!dragging) beginDrag(moveEvent);
       moveEvent.preventDefault();
-      const targetViewId = viewIdFromPoint(
+      setDragPreview((current) =>
+        current
+          ? { ...current, x: moveEvent.clientX, y: moveEvent.clientY }
+          : current,
+      );
+      const targetView = viewTargetFromPoint(
         moveEvent.clientX,
         moveEvent.clientY,
       );
-      setDropTargetViewId(
-        targetViewId && targetViewId !== viewId ? targetViewId : null,
+      setDropTargetView(
+        targetView && targetView.id !== viewId ? targetView : null,
       );
     };
 
     const handlePointerUp = (upEvent: PointerEvent) => {
       globalThis.document.body.style.userSelect = "";
       globalThis.document.body.style.cursor = "";
+      globalThis.document.body.classList.remove("notion-editor-is-dragging");
       globalThis.document.removeEventListener("pointermove", handlePointerMove);
       globalThis.document.removeEventListener("pointerup", handlePointerUp);
 
@@ -7904,10 +8069,18 @@ function DatabaseViewTabs({
         globalThis.setTimeout(() => {
           suppressViewClickRef.current = false;
         }, 50);
-        const targetViewId = viewIdFromPoint(upEvent.clientX, upEvent.clientY);
-        if (targetViewId && targetViewId !== viewId) {
+        const targetView = viewTargetFromPoint(
+          upEvent.clientX,
+          upEvent.clientY,
+        );
+        if (targetView && targetView.id !== viewId) {
           onViewConfigChange(
-            reorderDatabaseView(normalized, viewId, targetViewId),
+            reorderDatabaseView(
+              normalized,
+              viewId,
+              targetView.id,
+              targetView.side,
+            ),
           );
         }
       }
@@ -7920,10 +8093,17 @@ function DatabaseViewTabs({
   }
 
   return (
-    <div className="group/viewtabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div className="group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <DatabaseDragPreview preview={dragPreview} />
       {normalized.views.map((view) => {
         const active = view.id === normalized.activeViewId;
         const ViewIcon = databaseViewIcon(view.type);
+        const dropSide =
+          !!draggedViewId &&
+          dropTargetView?.id === view.id &&
+          draggedViewId !== view.id
+            ? dropTargetView.side
+            : null;
         const tabButton = (
           <button
             type="button"
@@ -7932,7 +8112,7 @@ function DatabaseViewTabs({
               active && canEdit ? `${view.name} view menu` : view.name
             }
             className={cn(
-              "flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "relative flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               canEdit &&
                 normalized.views.length > 1 &&
                 "cursor-grab active:cursor-grabbing",
@@ -7940,9 +8120,7 @@ function DatabaseViewTabs({
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               draggedViewId === view.id && "opacity-45",
-              dropTargetViewId === view.id &&
-                draggedViewId !== view.id &&
-                "ring-1 ring-inset ring-ring",
+              dropSide && "bg-accent/40",
             )}
             onClick={(event) => {
               if (suppressViewClickRef.current) {
@@ -7959,8 +8137,9 @@ function DatabaseViewTabs({
               event.preventDefault();
               setOpenViewMenuId(view.id);
             }}
-            onPointerDown={(event) => startViewPointerDrag(view.id, event)}
+            onPointerDown={(event) => startViewPointerDrag(view, event)}
           >
+            <DatabaseDropIndicator side={dropSide} />
             <ViewIcon
               className={cn(
                 "size-4 shrink-0",
@@ -8126,60 +8305,25 @@ function DatabaseViewTabs({
                 className="h-8"
               />
               <div className="grid grid-cols-2 gap-1">
-                <Button type="submit" size="sm" className="h-8 gap-1.5">
-                  <IconTable className="size-3.5" />
-                  Table
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
-                  onClick={() => createView("list")}
-                >
-                  <IconList className="size-3.5" />
-                  List
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
-                  onClick={() => createView("gallery")}
-                >
-                  <IconLayoutGrid className="size-3.5" />
-                  Gallery
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
-                  onClick={() => createView("calendar")}
-                >
-                  <IconCalendar className="size-3.5" />
-                  Calendar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
-                  onClick={() => createView("timeline")}
-                >
-                  <IconTimeline className="size-3.5" />
-                  Timeline
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 gap-1.5"
-                  onClick={() => createView("board")}
-                >
-                  <IconLayoutKanban className="size-3.5" />
-                  Board
-                </Button>
+                {DATABASE_VIEW_TYPES.map((type) => {
+                  const ViewIcon = databaseViewIcon(type);
+                  const label = databaseViewDefaultName(type);
+                  return (
+                    <Button
+                      key={type}
+                      type={type === "table" ? "submit" : "button"}
+                      size="sm"
+                      variant={type === "table" ? "default" : "secondary"}
+                      className="h-8 gap-1.5"
+                      onClick={
+                        type === "table" ? undefined : () => createView(type)
+                      }
+                    >
+                      <ViewIcon className="size-3.5" />
+                      {label}
+                    </Button>
+                  );
+                })}
               </div>
             </form>
           </DropdownMenuContent>
@@ -8885,7 +9029,7 @@ function DatabasePropertyHeader({
   documentId,
   canEdit,
   isDragging,
-  isDropTarget,
+  dropSide,
   sorts,
   filters,
   onSortsChange,
@@ -8898,13 +9042,13 @@ function DatabasePropertyHeader({
   documentId: string;
   canEdit: boolean;
   isDragging: boolean;
-  isDropTarget: boolean;
+  dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onHide?: () => void;
-  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
@@ -8918,13 +9062,14 @@ function DatabasePropertyHeader({
     <div
       data-database-property-id={property.definition.id}
       className={cn(
-        "group flex h-8 min-w-0 items-center border-r border-border/45 px-1 transition-colors",
+        "group relative flex h-8 min-w-0 items-center border-r border-border/45 px-1 transition-colors",
         canEdit && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
-        isDropTarget && "bg-accent/50 ring-1 ring-inset ring-ring/50",
+        dropSide && "bg-accent/40",
       )}
       onPointerDown={onPointerDown}
     >
+      <DatabaseDropIndicator side={dropSide} />
       {canEdit ? (
         <IconGripVertical className="mr-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
       ) : null}
@@ -8934,6 +9079,11 @@ function DatabasePropertyHeader({
           documentId={documentId}
           icon={Icon}
           triggerClassName="h-7 min-w-0 flex-1 text-xs text-muted-foreground"
+          onTriggerPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onPointerDown(event);
+          }}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -8947,6 +9097,7 @@ function DatabasePropertyHeader({
           <button
             type="button"
             aria-label={`Column menu for ${property.definition.name}`}
+            data-column-menu-trigger=""
             className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 data-[state=open]:opacity-100"
           >
             <IconChevronDown className="size-3.5" />
@@ -10849,11 +11000,6 @@ function DatabaseTableRow({
 function RowActionsCell({
   item,
   databaseDocumentId,
-  rowIndex,
-  canReorder,
-  canMoveUp,
-  canMoveDown,
-  showReorderActions = true,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
@@ -10872,7 +11018,6 @@ function RowActionsCell({
   const queryClient = useQueryClient();
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
-  const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
@@ -10885,18 +11030,6 @@ function RowActionsCell({
       if (duplicatedItem) onPreviewItem?.(duplicatedItem);
     } catch (err) {
       toast.error("Failed to duplicate row", {
-        description:
-          err instanceof Error ? err.message : "Something went wrong",
-      });
-    }
-  }
-
-  async function moveRow(position: number) {
-    setMenuOpen(false);
-    try {
-      await moveItem.mutateAsync({ itemId: item.id, position });
-    } catch (err) {
-      toast.error("Failed to move row", {
         description:
           err instanceof Error ? err.message : "Something went wrong",
       });
@@ -10959,36 +11092,6 @@ function RowActionsCell({
             <IconCopy className="mr-2 size-4 text-muted-foreground" />
             Duplicate row
           </DropdownMenuItem>
-          {showReorderActions ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!canMoveUp || moveItem.isPending}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void moveRow(rowIndex - 1);
-                }}
-              >
-                <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-                Move up
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!canMoveDown || moveItem.isPending}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void moveRow(rowIndex + 1);
-                }}
-              >
-                <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-                Move down
-              </DropdownMenuItem>
-              {!canReorder ? (
-                <div className="px-2 py-1 text-xs text-muted-foreground">
-                  Clear search, sort, and filter to reorder rows.
-                </div>
-              ) : null}
-            </>
-          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"

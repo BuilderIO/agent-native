@@ -21,7 +21,7 @@ describe("document database layout", () => {
       "flex max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
-      "group/viewtabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
+      "group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
     );
   });
 
@@ -180,11 +180,13 @@ describe("document database layout", () => {
 
     expect(source).toContain("const [openViewMenuId, setOpenViewMenuId]");
     expect(source).toContain("const [draggedViewId, setDraggedViewId]");
+    expect(source).toContain("const [dropTargetView, setDropTargetView]");
+    expect(source).toContain("function DatabaseDragPreview(");
+    expect(source).toContain("function DatabaseDropIndicator(");
     expect(source).toContain("function startViewPointerDrag(");
     expect(source).toContain("data-database-view-id");
-    expect(source).toContain(
-      "reorderDatabaseView(normalized, viewId, targetViewId",
-    );
+    expect(source).toContain("reorderDatabaseView(");
+    expect(source).toContain("targetView.side");
     expect(source).toContain("onContextMenu={(event) => {");
     expect(source).toContain('aria-label="Add database view"');
     expect(source).toContain("group-hover/viewtabs:opacity-100");
@@ -202,11 +204,60 @@ describe("document database layout", () => {
     expect(source).toContain("function startPropertyPointerDrag(");
     expect(source).toContain("data-database-property-id");
     expect(source).toContain('data-column-resize-handle=""');
+    expect(source).toContain('data-column-menu-trigger=""');
+    expect(source).toContain("dropTargetProperty?.id");
     expect(source).toContain("cursor-grab active:cursor-grabbing");
     expect(source).not.toContain("Move left");
     expect(source).not.toContain("Move right");
+    expect(source).not.toContain("Move up");
+    expect(source).not.toContain("Move down");
     expect(source).not.toContain("onMoveLeft");
     expect(source).not.toContain("onMoveRight");
+  });
+
+  it("keeps calendar cells calm and unclipped", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain('data-database-calendar-surface="true"');
+    expect(source).toContain("min-w-0 max-w-full overflow-hidden");
+    expect(source).toContain("group min-w-0 border-r border-b");
+    expect(source).toContain("aria-label={`Add page for ${dateKey}`}");
+    expect(source).toContain("group-hover:opacity-100");
+    expect(source).not.toContain("New ${dateKey} calendar card title");
+  });
+
+  it("orders new view choices by the supported database IA", () => {
+    const source = readDatabaseSource();
+    expect(source).toContain("DATABASE_VIEW_TYPES.map((type) => {");
+    const typeOrder = source.indexOf(
+      "const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [",
+    );
+    const tableIndex = source.indexOf('"table"', typeOrder);
+    const boardIndex = source.indexOf('"board"', typeOrder);
+    const galleryIndex = source.indexOf('"gallery"', typeOrder);
+    const listIndex = source.indexOf('"list"', typeOrder);
+    const timelineIndex = source.indexOf('"timeline"', typeOrder);
+    const calendarIndex = source.indexOf('"calendar"', typeOrder);
+
+    expect([
+      tableIndex,
+      boardIndex,
+      galleryIndex,
+      listIndex,
+      timelineIndex,
+      calendarIndex,
+    ]).toEqual(
+      [
+        ...[
+          tableIndex,
+          boardIndex,
+          galleryIndex,
+          listIndex,
+          timelineIndex,
+          calendarIndex,
+        ],
+      ].sort((left, right) => left - right),
+    );
   });
 
   it("keeps the table footer inside one quiet horizontal scroll surface", () => {

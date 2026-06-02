@@ -1953,10 +1953,16 @@ describe("database saved views", () => {
       "end",
     ]);
 
-    const reordered = reorderDatabaseViewProperty(view, "date", "end", {
-      allProperties: properties,
-      visibleProperties: visible,
-    });
+    const reordered = reorderDatabaseViewProperty(
+      view,
+      "date",
+      "end",
+      {
+        allProperties: properties,
+        visibleProperties: visible,
+      },
+      "after",
+    );
 
     expect(reordered.propertyOrderIds).toEqual([
       "number",

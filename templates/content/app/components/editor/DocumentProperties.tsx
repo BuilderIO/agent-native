@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   IconAlignLeft,
   IconAt,
@@ -788,11 +794,13 @@ export function PropertyManagementPopover({
   documentId,
   icon: Icon,
   triggerClassName,
+  onTriggerPointerDown,
 }: {
   property: DocumentProperty;
   documentId: string;
   icon: Icon;
   triggerClassName?: string;
+  onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
@@ -933,6 +941,16 @@ export function PropertyManagementPopover({
               "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               triggerClassName,
             )}
+            onPointerDown={onTriggerPointerDown}
+            onClick={
+              onTriggerPointerDown
+                ? (event) => {
+                    event.preventDefault();
+                    resetDraft();
+                    setOpen(true);
+                  }
+                : undefined
+            }
           >
             <Icon className="size-4 shrink-0" />
             <span className="truncate">{property.definition.name}</span>
