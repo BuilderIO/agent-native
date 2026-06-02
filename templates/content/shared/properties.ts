@@ -318,6 +318,7 @@ export function normalizePropertyValue(
     }
     case "multi_select":
     case "files_media":
+    case "person":
       return Array.isArray(value)
         ? value
             .filter((item): item is string => typeof item === "string")
@@ -330,7 +331,6 @@ export function normalizePropertyValue(
     case "text":
     case "select":
     case "status":
-    case "person":
     case "place":
     case "url":
     case "email":

@@ -18,7 +18,13 @@ import {
 describe("document properties", () => {
   it("normalizes editable values by property type", () => {
     expect(normalizePropertyValue("text", "Draft")).toBe("Draft");
-    expect(normalizePropertyValue("person", "Alice Moore")).toBe("Alice Moore");
+    expect(normalizePropertyValue("person", "Alice Moore")).toEqual([
+      "Alice Moore",
+    ]);
+    expect(normalizePropertyValue("person", "Alice\nTaylor")).toEqual([
+      "Alice",
+      "Taylor",
+    ]);
     expect(normalizePropertyValue("place", "Indianapolis, IN")).toBe(
       "Indianapolis, IN",
     );

@@ -7,6 +7,7 @@ import {
   dateInputValueForOffset,
   filesMediaEditorValue,
   filesMediaItems,
+  filesMediaKind,
   filesMediaLabel,
   filterDocumentPropertyTypes,
   filterPropertyOptions,
@@ -15,6 +16,7 @@ import {
   formatPropertyDateInputValue,
   formatPropertyDateTimeInputValue,
   nextPropertyOption,
+  personItems,
   personLabel,
   placeLabel,
   removePropertyOption,
@@ -65,7 +67,19 @@ describe("document property type picker", () => {
 describe("document person property display", () => {
   it("keeps person labels explicit", () => {
     expect(personLabel(" Alice Moore ")).toBe("Alice Moore");
+    expect(personLabel("alice@example.com")).toBe("Alice");
     expect(personLabel("")).toBe("Empty");
+  });
+
+  it("normalizes person selections for chip editing", () => {
+    expect(personItems("Alice Moore, alice@example.com\nAlice Moore")).toEqual([
+      "Alice Moore",
+      "alice@example.com",
+    ]);
+    expect(personItems([" Alice ", "", "ALICE", "Taylor"])).toEqual([
+      "Alice",
+      "Taylor",
+    ]);
   });
 });
 
@@ -88,6 +102,13 @@ describe("document files media property display", () => {
     expect(filesMediaLabel("https://example.com/uploads/brief.pdf")).toBe(
       "brief.pdf",
     );
+    expect(filesMediaKind("https://example.com/uploads/brief.pdf")).toBe(
+      "Link",
+    );
+    expect(filesMediaKind("https://example.com/uploads/hero.png")).toBe(
+      "Image",
+    );
+    expect(filesMediaKind("clip.mov")).toBe("Video");
   });
 });
 

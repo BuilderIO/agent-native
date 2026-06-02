@@ -25,9 +25,12 @@ import {
   IconSearch,
   IconSquareCheck,
   IconTrash,
+  IconUpload,
+  IconX,
   IconUserCircle,
   type Icon,
 } from "@tabler/icons-react";
+import { emailToName, useSession } from "@agent-native/core/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +61,7 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -85,6 +89,7 @@ import {
   type DocumentPropertyVisibility,
 } from "@shared/properties";
 import type { DocumentProperty } from "@shared/api";
+import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface DocumentPropertiesProps {
   documentId: string;
@@ -245,7 +250,21 @@ export function displayValue(property: DocumentProperty) {
     return <span>{formatDateTime(String(value))}</span>;
   }
 
-  if (type === "person" || type === "created_by" || type === "last_edited_by") {
+  if (type === "person") {
+    const people = personItems(value);
+    if (people.length === 0) {
+      return <span className="text-muted-foreground/70">Empty</span>;
+    }
+    return (
+      <span className="inline-flex max-w-full flex-wrap gap-1">
+        {people.map((person) => (
+          <PersonPill key={person} value={person} />
+        ))}
+      </span>
+    );
+  }
+
+  if (type === "created_by" || type === "last_edited_by") {
     return <PersonPill value={String(value)} />;
   }
 
@@ -314,13 +333,48 @@ function OptionPill({ option }: { option: DocumentPropertyOption }) {
 }
 
 export function personLabel(value: string) {
-  return value.trim() || "Empty";
+  const trimmed = value.trim();
+  if (!trimmed) return "Empty";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)
+    ? emailToName(trimmed)
+    : trimmed;
+}
+
+export function personItems(value: DocumentProperty["value"]) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,]+/)
+      : [];
+  const seen = new Set<string>();
+  return rawItems
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item) return false;
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function personInitials(value: string) {
+  const label = personLabel(value);
+  const parts = label.split(/\s+/).filter(Boolean);
+  return (
+    parts
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?"
+  );
 }
 
 function PersonPill({ value }: { value: string }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
-      <IconUserCircle className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-background text-[9px] font-semibold text-muted-foreground">
+        {personInitials(value)}
+      </span>
       <span className="truncate">{personLabel(value)}</span>
     </span>
   );
@@ -367,6 +421,15 @@ export function filesMediaLabel(value: string) {
     const pathParts = trimmed.split("/").filter(Boolean);
     return pathParts[pathParts.length - 1] || trimmed;
   }
+}
+
+export function filesMediaKind(value: string) {
+  const label = filesMediaLabel(value).toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|svg|avif)$/.test(label)) return "Image";
+  if (/\.(mp4|mov|webm|m4v)$/.test(label)) return "Video";
+  if (/\.(mp3|wav|m4a|aac|ogg)$/.test(label)) return "Audio";
+  if (/^https?:\/\//i.test(value.trim())) return "Link";
+  return "File";
 }
 
 function FilesMediaPill({ value }: { value: string }) {
@@ -1273,6 +1336,16 @@ function PropertyValueEditor({
     );
   }
 
+  if (type === "person") {
+    return (
+      <PersonValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
   if (type === "files_media") {
     return (
       <FilesMediaValueEditor
@@ -1292,7 +1365,7 @@ function PropertyValueEditor({
   );
 }
 
-function FilesMediaValueEditor({
+function PersonValueEditor({
   property,
   documentId,
   onDone,
@@ -1302,23 +1375,45 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const mutation = useSetDocumentProperty(documentId);
-  const [value, setValue] = useState(filesMediaEditorValue(property.value));
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { session } = useSession();
+  const [people, setPeople] = useState(() => personItems(property.value));
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const currentUserEmail = session?.email?.trim() ?? "";
+  const currentUserLabel = currentUserEmail
+    ? personLabel(currentUserEmail)
+    : "";
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.select();
-    });
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  async function save(nextValue = value) {
-    const items = filesMediaItems(nextValue);
+  function addPerson(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setPeople((current) => {
+      if (
+        current.some((person) => person.toLowerCase() === trimmed.toLowerCase())
+      ) {
+        return current;
+      }
+      return [...current, trimmed];
+    });
+    setQuery("");
+  }
+
+  function removePerson(value: string) {
+    setPeople((current) =>
+      current.filter((person) => person.toLowerCase() !== value.toLowerCase()),
+    );
+  }
+
+  async function save(nextPeople = people) {
     await mutation.mutateAsync({
       documentId,
       propertyId: property.definition.id,
-      value: items.length > 0 ? items : null,
+      value: nextPeople.length > 0 ? nextPeople : null,
     });
     onDone();
   }
@@ -1332,33 +1427,104 @@ function FilesMediaValueEditor({
     onDone();
   }
 
+  const filteredPeople = people.filter((person) =>
+    personLabel(person).toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const canAddQuery = query.trim().length > 0;
+  const canAddMe =
+    !!currentUserEmail &&
+    !people.some(
+      (person) => person.toLowerCase() === currentUserEmail.toLowerCase(),
+    );
+
   return (
     <form
       className="grid gap-2"
       onSubmit={(event) => {
         event.preventDefault();
+        if (query.trim()) {
+          addPerson(query);
+          return;
+        }
         void save();
       }}
     >
-      <textarea
-        ref={textareaRef}
-        aria-label={`Edit ${property.definition.name} files`}
-        value={value}
-        placeholder="One file or media link per line"
-        rows={4}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onDone();
-          }
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void save();
-          }
-        }}
-        className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      />
+      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border px-2 py-1.5">
+        {people.map((person) => (
+          <span
+            key={person}
+            className="inline-flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-medium"
+          >
+            <PersonPill value={person} />
+            <button
+              type="button"
+              aria-label={`Remove ${personLabel(person)}`}
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => removePerson(person)}
+            >
+              <IconX className="size-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          aria-label={`Add ${property.definition.name} person`}
+          value={query}
+          placeholder={people.length === 0 ? "Search or add person" : "Add"}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+          className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+      <div className="grid gap-1">
+        {canAddMe ? (
+          <button
+            type="button"
+            className="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => addPerson(currentUserEmail)}
+          >
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <PersonPill value={currentUserEmail} />
+              <span className="truncate text-muted-foreground">
+                {currentUserEmail}
+              </span>
+            </span>
+            <span className="text-xs text-muted-foreground">Me</span>
+          </button>
+        ) : null}
+        {filteredPeople.length > 0 && query.trim() ? (
+          <div className="px-2 pt-1 text-xs text-muted-foreground">
+            Selected
+          </div>
+        ) : null}
+        {query.trim()
+          ? filteredPeople.map((person) => (
+              <button
+                type="button"
+                key={person}
+                className="flex items-center rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => setQuery(person)}
+              >
+                <PersonPill value={person} />
+              </button>
+            ))
+          : null}
+        {canAddQuery ? (
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onClick={() => addPerson(query)}
+          >
+            <IconPlus className="size-4 text-muted-foreground" />
+            <span>Add "{query.trim()}"</span>
+          </button>
+        ) : null}
+      </div>
       <div className="flex justify-end gap-2">
         <Button
           type="button"
@@ -1372,7 +1538,207 @@ function FilesMediaValueEditor({
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={mutation.isPending}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={mutation.isPending}
+          onClick={() => void save()}
+        >
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function FilesMediaValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const [items, setItems] = useState(() => filesMediaItems(property.value));
+  const [linkValue, setLinkValue] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const linkInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      linkInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  function addItem(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setItems((current) => {
+      if (
+        current.some((item) => item.toLowerCase() === trimmed.toLowerCase())
+      ) {
+        return current;
+      }
+      return [...current, trimmed];
+    });
+    setLinkValue("");
+  }
+
+  function removeItem(value: string) {
+    setItems((current) => current.filter((item) => item !== value));
+  }
+
+  async function save(nextItems = items) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextItems.length > 0 ? nextItems : null,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  async function uploadFiles(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length === 0) return;
+    setUploading(true);
+    try {
+      const uploadedUrls: string[] = [];
+      for (const file of selectedFiles) {
+        uploadedUrls.push(await uploadImageFile(file));
+      }
+      setItems((current) => [...current, ...uploadedUrls]);
+      toast.success(
+        uploadedUrls.length === 1 ? "Image uploaded" : "Images uploaded",
+      );
+    } catch (error) {
+      toast.error(imageUploadErrorMessage(error));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (linkValue.trim()) {
+          addItem(linkValue);
+          return;
+        }
+        void save();
+      }}
+    >
+      <div className="grid max-h-48 gap-1 overflow-auto">
+        {items.length === 0 ? (
+          <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+            No files or media
+          </div>
+        ) : (
+          items.map((item) => (
+            <div
+              key={item}
+              className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2 py-2"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded bg-muted">
+                <IconPaperclip className="size-4 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {filesMediaLabel(item)}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {filesMediaKind(item)}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${filesMediaLabel(item)}`}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => removeItem(item)}
+              >
+                <IconX className="size-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="flex gap-1">
+        <Input
+          ref={linkInputRef}
+          aria-label={`Add ${property.definition.name} link`}
+          value={linkValue}
+          placeholder="Paste file or media link"
+          onChange={(event) => setLinkValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onDone();
+            }
+          }}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => addItem(linkValue)}
+          disabled={!linkValue.trim() || mutation.isPending}
+        >
+          <IconPlus className="size-3.5" />
+          Add
+        </Button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        onChange={(event) => void uploadFiles(event.currentTarget.files)}
+      />
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={mutation.isPending || uploading}
+        >
+          <IconUpload className="size-3.5" />
+          Upload
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending || uploading}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={mutation.isPending || uploading}
+        >
           Save
         </Button>
       </div>
