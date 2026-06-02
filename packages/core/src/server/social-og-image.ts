@@ -12,7 +12,6 @@ import { getAppName } from "./app-name.js";
 export interface AgentNativeOgImageInput {
   appName?: string | null;
   title?: string | null;
-  subtitle?: string | null;
   accentText?: string | null;
 }
 
@@ -242,6 +241,12 @@ function queryStringValue(
   return clean || undefined;
 }
 
+function pngBody(bytes: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(body).set(bytes);
+  return body;
+}
+
 export function renderAgentNativeOgImageSvg(
   input: AgentNativeOgImageInput = {},
 ): string {
@@ -300,39 +305,42 @@ export async function renderAgentNativeOgImagePng(
 }
 
 export function agentNativeOgImageResponseHeaders(
-  byteLength: number,
+  byteLength?: number,
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "image/png",
-    "Content-Length": String(byteLength),
     "Cache-Control": AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
     "CDN-Cache-Control": AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
     "Netlify-CDN-Cache-Control": AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL,
     "Cross-Origin-Resource-Policy": "cross-origin",
   };
+  if (typeof byteLength === "number") {
+    headers["Content-Length"] = String(byteLength);
+  }
+  return headers;
 }
 
 export function createAgentNativeOgImageHandler(
   options: AgentNativeOgImageInput = {},
 ) {
   return defineEventHandler(async (event) => {
+    if (getMethod(event) === "HEAD") {
+      return new Response(null, {
+        headers: agentNativeOgImageResponseHeaders(),
+      });
+    }
+
     const query = getQuery(event);
     const appName = cleanText(options.appName) || resolveDefaultAppName(event);
     const png = await renderAgentNativeOgImagePng({
       ...options,
       appName,
       title: cleanText(options.title) || queryStringValue(query.title, 140),
-      subtitle:
-        cleanText(options.subtitle) || queryStringValue(query.subtitle, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),
     });
-    const body = png.buffer.slice(
-      png.byteOffset,
-      png.byteOffset + png.byteLength,
-    ) as ArrayBuffer;
 
-    return new Response(getMethod(event) === "HEAD" ? null : body, {
+    return new Response(pngBody(png), {
       headers: agentNativeOgImageResponseHeaders(png.byteLength),
     });
   });

@@ -38,7 +38,8 @@ vi.mock("../server/poll.js", () => ({
   recordChange: vi.fn(),
 }));
 
-const { DEFAULT_PROGRESS_RUN_STALE_MS, listRuns } = await import("./store.js");
+const { DEFAULT_PROGRESS_RUN_STALE_MS, listRuns, setProgressPreListHook } =
+  await import("./store.js");
 
 function lastSelect(): ExecCall {
   const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
@@ -51,6 +52,7 @@ describe("progress store", () => {
     vi.restoreAllMocks();
     execCalls.length = 0;
     vi.clearAllMocks();
+    setProgressPreListHook(undefined);
     mockDb.execute.mockImplementation(defaultExecute);
   });
 
@@ -93,5 +95,15 @@ describe("progress store", () => {
       "stale@example.com",
       now - DEFAULT_PROGRESS_RUN_STALE_MS,
     ]);
+  });
+
+  it("passes the request event to the pre-list hook", async () => {
+    const event = { node: { req: { headers: { host: "app.example.test" } } } };
+    const hook = vi.fn();
+    setProgressPreListHook(hook);
+
+    await listRuns("hook@example.com", { event });
+
+    expect(hook).toHaveBeenCalledWith("hook@example.com", { event });
   });
 });

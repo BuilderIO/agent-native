@@ -1,10 +1,13 @@
 export function bookingOgImageResponseHeaders(
-  byteLength: number,
+  byteLength?: number,
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "image/png",
-    "Content-Length": String(byteLength),
     "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
     "Cross-Origin-Resource-Policy": "cross-origin",
   };
+  if (typeof byteLength === "number") {
+    headers["Content-Length"] = String(byteLength);
+  }
+  return headers;
 }

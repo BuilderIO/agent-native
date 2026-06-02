@@ -1,6 +1,6 @@
 ---
 title: "Client"
-description: "React hooks and utilities for agent-native apps: sendToAgentChat, useDbSync, useAgentChatGenerating, and cn."
+description: "React hooks and utilities for agent-native apps: sendToAgentChat, setContextToAgentChat, useDbSync, useAgentChatGenerating, and cn."
 ---
 
 # Client
@@ -114,6 +114,67 @@ sendToAgentChat({
 | `projectSlug`         | `string?`   | Optional project slug for structured context   |
 | `preset`              | `string?`   | Optional preset name for downstream consumers  |
 | `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
+
+## setContextToAgentChat(opts) {#setcontexttoagentchat}
+
+Stage one or more hidden context nuggets in the active agent chat composer
+without submitting a message or filling the prompt text. Use this when the UI
+lets a user select app objects, rows, elements, files, or other structured data
+that should inform the next prompt, while still letting the user write the
+visible request themselves.
+
+Each context nugget has a stable `key`. Calling `setContextToAgentChat()` again
+with the same key replaces that nugget. Calling it with a new key stacks another
+nugget. The composer shows each nugget as a removable chip, and the framework
+includes the staged context in a hidden `<context>` block only when the user
+submits the prompt.
+
+`addContextToAgentChat()` is an alias for the same replace-by-key behavior.
+
+```ts
+import { setContextToAgentChat } from "@agent-native/core";
+
+setContextToAgentChat({
+  key: "selected-element:.thing#hello",
+  title: "Selected Element",
+  context: [
+    "CSS selector: .thing#hello",
+    "HTML:",
+    '<button class="thing" id="hello">Buy now</button>',
+  ].join("\n"),
+});
+
+setContextToAgentChat({
+  key: "cart",
+  title: "Cart",
+  context: "2 items: Pro plan, extra seat",
+});
+```
+
+If an app should only ever stage one item of a kind, reuse the same key:
+
+```ts
+setContextToAgentChat({
+  key: "selected-record",
+  title: "Selected Record",
+  context: JSON.stringify(record, null, 2),
+});
+```
+
+Use `sendToAgentChat({ message, context, submit: true })` when the UI already
+knows the message to send immediately. Use `sendToAgentChat({ submit: false })`
+only when you want to prefill editable prompt text. Use
+`setContextToAgentChat()` when the UI should add context while leaving the
+prompt box available for the user's own request.
+
+### AgentChatContextMessage {#agentchatcontextmessage}
+
+| Option        | Type       | Description                                            |
+| ------------- | ---------- | ------------------------------------------------------ |
+| `key`         | `string`   | Stable identifier used to replace an existing nugget   |
+| `title`       | `string`   | Short label shown in the composer chip                 |
+| `context`     | `string`   | Hidden context included with the next submitted prompt |
+| `openSidebar` | `boolean?` | Defaults to true; pass false to stage context silently |
 
 ## MCP App Host Bridge {#mcp-app-host-bridge}
 

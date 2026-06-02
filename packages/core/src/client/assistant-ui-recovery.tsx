@@ -45,7 +45,13 @@ type AssistantUiStaleIndexErrorBoundaryProps = {
 type AssistantUiStaleIndexErrorBoundaryState = {
   error: Error | null;
   retryToken: number;
+  recovery: {
+    signature: string;
+    retryCount: number;
+  } | null;
 };
+
+const MAX_ASSISTANT_UI_RECOVERABLE_RETRIES = 2;
 
 export class AssistantUiStaleIndexErrorBoundary extends React.Component<
   AssistantUiStaleIndexErrorBoundaryProps,
@@ -54,9 +60,19 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
   state: AssistantUiStaleIndexErrorBoundaryState = {
     error: null,
     retryToken: 0,
+    recovery: null,
   };
 
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private recoverySignature(
+    kind: AssistantUiRecoverableErrorKind,
+    error: unknown,
+  ): string {
+    const message =
+      error instanceof Error ? error.message : String(error ?? "");
+    return `${this.props.resetKey}:${kind}:${message}`;
+  }
 
   static getDerivedStateFromError(
     error: unknown,
@@ -69,6 +85,11 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
   componentDidCatch(error: unknown, info: React.ErrorInfo) {
     const recoverable = assistantUiRecoverableRenderErrorKind(error);
     if (!recoverable) return;
+    const signature = this.recoverySignature(recoverable, error);
+    const retryCount =
+      this.state.recovery?.signature === signature
+        ? this.state.recovery.retryCount + 1
+        : 1;
 
     captureError(error, {
       tags: {
@@ -77,9 +98,15 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
       },
       extra: {
         resetKey: this.props.resetKey,
+        retryCount,
         componentStack: info.componentStack,
       },
     });
+
+    this.setState({
+      recovery: { signature, retryCount },
+    });
+    if (retryCount > MAX_ASSISTANT_UI_RECOVERABLE_RETRIES) return;
 
     if (this.retryTimer) return;
     this.retryTimer = setTimeout(() => {
@@ -93,16 +120,32 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
     }, 0);
   }
 
-  componentDidUpdate(prevProps: AssistantUiStaleIndexErrorBoundaryProps) {
-    if (
-      this.state.error &&
-      isAssistantUiRecoverableRenderError(this.state.error) &&
-      prevProps.resetKey !== this.props.resetKey
-    ) {
-      this.setState((state) => ({
-        error: null,
-        retryToken: state.retryToken + 1,
-      }));
+  componentDidUpdate(
+    prevProps: AssistantUiStaleIndexErrorBoundaryProps,
+    prevState: AssistantUiStaleIndexErrorBoundaryState,
+  ) {
+    if (prevProps.resetKey !== this.props.resetKey) {
+      if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
+      if (
+        this.state.error &&
+        isAssistantUiRecoverableRenderError(this.state.error)
+      ) {
+        this.setState((state) => ({
+          error: null,
+          retryToken: state.retryToken + 1,
+          recovery: null,
+        }));
+      } else if (this.state.recovery) {
+        this.setState({ recovery: null });
+      }
+      return;
+    }
+
+    if (prevState.error && !this.state.error && this.state.recovery) {
+      this.setState({ recovery: null });
     }
   }
 
@@ -115,6 +158,12 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       if (!isAssistantUiRecoverableRenderError(this.state.error)) {
+        throw this.state.error;
+      }
+      if (
+        this.state.recovery &&
+        this.state.recovery.retryCount > MAX_ASSISTANT_UI_RECOVERABLE_RETRIES
+      ) {
         throw this.state.error;
       }
       return null;

@@ -187,11 +187,13 @@ describe("progress routes", () => {
 
   it("clamps invalid list limits before reaching the store", async () => {
     const handler = createProgressHandler() as any;
+    const event = createEvent("/?limit=-1&active=true");
 
-    await handler(createEvent("/?limit=-1&active=true"));
+    await handler(event);
 
     expect(mockListRuns).toHaveBeenCalledWith("boni@local", {
       activeOnly: true,
+      event,
       limit: 50,
     });
   });
