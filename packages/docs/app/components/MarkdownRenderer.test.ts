@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   renderMarkdownToHtml,
+  resolveRenderedMarkdownHtml,
   resolveCodeBlockLanguage,
 } from "./MarkdownRenderer";
 
@@ -60,5 +61,16 @@ describe("renderMarkdownToHtml", () => {
     expect(
       resolveCodeBlockLanguage('ts title="example.ts"', "const x = 1"),
     ).toBe("typescript");
+  });
+});
+
+describe("resolveRenderedMarkdownHtml", () => {
+  it("ignores highlighted HTML generated for a previous markdown render", () => {
+    expect(
+      resolveRenderedMarkdownHtml('<h2 id="second">Second</h2>', {
+        sourceHtml: '<h2 id="first">First</h2>',
+        html: '<h2 id="first" class="highlighted">First</h2>',
+      }),
+    ).toBe('<h2 id="second">Second</h2>');
   });
 });
