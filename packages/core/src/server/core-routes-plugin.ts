@@ -2339,14 +2339,16 @@ export function createCoreRoutesPlugin(
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          const orgId = session?.orgId ?? undefined;
           let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
           try {
             const { resolveBuilderPrivateKey } =
               await import("./credential-provider.js");
             const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
             builderConfigured = userEmail
-              ? await runWithRequestContext({ userEmail, orgId }, resolve)
+              ? await runWithRequestContext(
+                  { userEmail, orgId: session?.orgId },
+                  resolve,
+                )
               : await resolve();
           } catch {
             // fall back to env check above
@@ -2401,14 +2403,15 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const orgId = session.orgId ?? undefined;
-          const result = await runWithRequestContext({ userEmail, orgId }, () =>
-            uploadFile({
-              data: filePart.data,
-              filename: filePart.filename,
-              mimeType: filePart.type,
-              ownerEmail: userEmail,
-            }),
+          const result = await runWithRequestContext(
+            { userEmail, orgId: session.orgId },
+            () =>
+              uploadFile({
+                data: filePart.data,
+                filename: filePart.filename,
+                mimeType: filePart.type,
+                ownerEmail: userEmail,
+              }),
           );
 
           if (result) {
