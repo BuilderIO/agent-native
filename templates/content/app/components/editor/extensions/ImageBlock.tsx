@@ -180,28 +180,27 @@ async function blobToPng(blob: Blob): Promise<Blob> {
   return pngBlob;
 }
 
-async function fetchImageAsPng(src: string): Promise<Blob> {
-  const response = await fetch(src);
-  if (!response.ok) throw new Error("Copy failed");
-  const blob = await response.blob();
-  // PNG is the only image type the clipboard accepts across browsers, so
-  // re-encode anything that isn't already a PNG before writing it.
-  return blob.type === "image/png" ? blob : await blobToPng(blob);
-}
-
 async function copyImage(src: string) {
   try {
     if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
       throw new Error("Image clipboard unavailable");
     }
 
-    // Pass a Promise to ClipboardItem so clipboard.write stays within the
-    // user gesture (required by Safari). The resolved type is always one the
-    // clipboard accepts (PNG fallback) so the write does not get rejected.
+    const response = await fetch(src);
+    if (!response.ok) throw new Error("Copy failed");
+    const blob = await response.blob();
+    const clipboardItem = ClipboardItem as typeof ClipboardItem & {
+      supports?: (type: string) => boolean;
+    };
+    const originalType = blob.type || "image/png";
+    const canCopyOriginalType =
+      originalType.startsWith("image/") &&
+      (!clipboardItem.supports || clipboardItem.supports(originalType));
+    const imageBlob = canCopyOriginalType ? blob : await blobToPng(blob);
+    const imageType = canCopyOriginalType ? originalType : "image/png";
+
     await navigator.clipboard.write([
-      new ClipboardItem({
-        "image/png": fetchImageAsPng(src),
-      }),
+      new ClipboardItem({ [imageType]: imageBlob }),
     ]);
     toast.success("Image copied.");
   } catch {
