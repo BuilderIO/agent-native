@@ -4,8 +4,7 @@
 //! Resolves where the `ggml-base.bin` model lives, downloads it from
 //! HuggingFace on first use, and verifies the download against a pinned
 //! SHA-256 + byte size so a corrupted, truncated, or tampered file is rejected
-//! rather than loaded. Pure filesystem + HTTP — no `whisper-rs` dependency — so
-//! it stays platform-agnostic and easy to test in isolation.
+//! rather than loaded
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
