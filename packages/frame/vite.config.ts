@@ -14,11 +14,24 @@ import { extractAppFromState } from "./src/oauth-state.js";
 // retries), but flood the terminal with hundreds of identical lines.
 const logger = createLogger();
 const _loggerError = logger.error.bind(logger);
+
+function isBenignProxyError(err: unknown, fallback = ""): boolean {
+  const e = err as NodeJS.ErrnoException | undefined;
+  const code = e?.code;
+  const message = `${String(e?.message ?? "")}\n${fallback}`;
+  return (
+    code === "ECONNREFUSED" ||
+    code === "ECONNRESET" ||
+    code === "ECONNABORTED" ||
+    code === "EPIPE" ||
+    /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/im.test(
+      message,
+    )
+  );
+}
+
 logger.error = (msg, opts) => {
-  if (
-    opts?.error?.code === "ECONNREFUSED" ||
-    (typeof msg === "string" && msg.includes("ECONNREFUSED"))
-  )
+  if (isBenignProxyError(opts?.error, typeof msg === "string" ? msg : ""))
     return;
   _loggerError(msg, opts);
 };
@@ -146,6 +159,49 @@ function getAppPort(req: IncomingMessage): number {
   return portMap.get(getAppId(req)) || 8085;
 }
 
+function endProxyResponse(
+  res: ServerResponse,
+  status: number,
+  body: string,
+): void {
+  if (res.destroyed) return;
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  res.writeHead(status, { "Content-Type": "text/plain" });
+  res.end(body);
+}
+
+function attachProxyAbortHandlers(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proxyReq: http.ClientRequest,
+): void {
+  const abortProxy = () => {
+    if (!res.writableEnded) proxyReq.destroy();
+  };
+  req.on("aborted", abortProxy);
+  res.on("close", abortProxy);
+}
+
+function handleProxyError(
+  res: ServerResponse,
+  next: (err?: unknown) => void,
+  err: NodeJS.ErrnoException,
+  messages: { refused: string; closed: string },
+): void {
+  if (err.code === "ECONNREFUSED") {
+    endProxyResponse(res, 503, messages.refused);
+    return;
+  }
+  if (isBenignProxyError(err)) {
+    endProxyResponse(res, 502, messages.closed);
+    return;
+  }
+  next(err);
+}
+
 /**
  * Custom proxy middleware — Vite 8's built-in proxy uses http-proxy-3, which
  * silently ignores the `router` option. We need per-request target resolution
@@ -212,15 +268,13 @@ function framePlugin(): Plugin {
     );
 
     proxyReq.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        // App server isn't up yet — return 503 without flooding logs
-        res.writeHead(503, { "Content-Type": "text/plain" });
-        res.end(`App server on port ${port} is not running`);
-        return;
-      }
-      next(err);
+      handleProxyError(res, next, err, {
+        refused: `App server on port ${port} is not running`,
+        closed: `App server on port ${port} closed the connection`,
+      });
     });
 
+    attachProxyAbortHandlers(req, res, proxyReq);
     req.pipe(proxyReq);
   }
 
@@ -253,14 +307,13 @@ function framePlugin(): Plugin {
     );
 
     proxyReq.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        res.writeHead(503, { "Content-Type": "text/plain" });
-        res.end(`Template gateway at ${gatewayUrl} is not running`);
-        return;
-      }
-      next(err);
+      handleProxyError(res, next, err, {
+        refused: `Template gateway at ${gatewayUrl} is not running`,
+        closed: `Template gateway at ${gatewayUrl} closed the connection`,
+      });
     });
 
+    attachProxyAbortHandlers(req, res, proxyReq);
     req.pipe(proxyReq);
   }
 
@@ -293,14 +346,13 @@ function framePlugin(): Plugin {
     );
 
     proxyReq.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        res.writeHead(503, { "Content-Type": "text/plain" });
-        res.end(`App server at ${baseUrl} is not running`);
-        return;
-      }
-      next(err);
+      handleProxyError(res, next, err, {
+        refused: `App server at ${baseUrl} is not running`,
+        closed: `App server at ${baseUrl} closed the connection`,
+      });
     });
 
+    attachProxyAbortHandlers(req, res, proxyReq);
     req.pipe(proxyReq);
   }
 

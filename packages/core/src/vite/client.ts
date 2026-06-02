@@ -1111,6 +1111,28 @@ function portExposer(): Plugin {
  * Vite's own connect pipeline.
  */
 function silenceConnectionResets(): Plugin {
+  const isClosedWebStreamController = (err: unknown) => {
+    const e = err as
+      | (NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException })
+      | undefined;
+    const code = e?.code || (e?.cause as NodeJS.ErrnoException)?.code;
+    const message = [
+      String(e?.message ?? ""),
+      String((e?.cause as NodeJS.ErrnoException | undefined)?.message ?? ""),
+    ].join("\n");
+    const stack = [
+      String(e?.stack ?? ""),
+      String((e?.cause as NodeJS.ErrnoException | undefined)?.stack ?? ""),
+    ].join("\n");
+    return (
+      code === "ERR_INVALID_STATE" &&
+      /Controller is already closed/i.test(message) &&
+      (!stack ||
+        /ReadableStreamDefaultController\.close|internal\/webstreams\/adapters|IncomingMessage\.onclose/.test(
+          stack,
+        ))
+    );
+  };
   const isBenign = (err: unknown) => {
     const e = err as
       | (NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException })
@@ -1121,6 +1143,7 @@ function silenceConnectionResets(): Plugin {
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
       code === "EPIPE" ||
+      isClosedWebStreamController(err) ||
       /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(
         message,
       )

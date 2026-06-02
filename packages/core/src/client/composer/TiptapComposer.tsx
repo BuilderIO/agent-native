@@ -48,7 +48,7 @@ import type {
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
-import { sendToAgentChat } from "../agent-chat.js";
+import { sendToAgentChat, type AgentChatContextItem } from "../agent-chat.js";
 import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import {
@@ -391,6 +391,10 @@ interface TiptapComposerProps {
   onConnectProvider?: () => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
+  /** Keyed context nuggets staged for the next submitted prompt. */
+  contextItems?: AgentChatContextItem[];
+  /** Remove a staged context nugget by key. */
+  onRemoveContextItem?: (key: string) => void;
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
    * normal Upload / Skill / Job / Automation / Tool / MCP picker. `"upload-only"`
@@ -956,6 +960,8 @@ export function TiptapComposer({
   providerConnectStatusEnabled,
   onConnectProvider,
   draftScope,
+  contextItems = [],
+  onRemoveContextItem,
   plusMenuMode = "full",
   interceptBuildRequestsForBuilder = false,
 }: TiptapComposerProps) {
@@ -970,6 +976,7 @@ export function TiptapComposer({
     attachmentCount: composerAttachments.length,
     disabled,
   });
+  const hasContextItems = contextItems.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
@@ -1938,11 +1945,36 @@ export function TiptapComposer({
           />
         </div>
       )}
+      {hasContextItems && (
+        <div
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="context-row"
+          className="agent-composer-context-row flex flex-wrap gap-1.5 px-2.5 pt-2 pb-0"
+        >
+          {contextItems.map((item) => (
+            <span
+              key={item.key}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground"
+            >
+              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">{item.title}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveContextItem?.(item.key)}
+                aria-label={`Remove ${item.title} context`}
+                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
         className={`agent-composer-editor-wrap ${
-          composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
+          composerMode || hasContextItems ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
         }`}
       >
         <EditorContent

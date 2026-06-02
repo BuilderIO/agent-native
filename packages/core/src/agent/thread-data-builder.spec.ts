@@ -662,6 +662,67 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
   });
 
+  it("dedupes a clean client tool-call turn against the server fold of the same turn", () => {
+    // Regression: the server now scopes rebuilt tool-call ids by run
+    // (`${runId}:tc_1`) while the client's live stream uses a bare counter
+    // (`tc_1`). A cleanly-completed client export carries neither runId nor
+    // turnId (only requestMode), so without stripping the render-only id from
+    // the dedup fingerprint these two copies of ONE turn no longer match and the
+    // turn renders twice. The fingerprint must ignore toolCallId.
+    // Server fold of a tool-call turn: runId-scoped tool ids, has runId+turnId.
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "run-1:tc_1",
+                toolName: "bigquery",
+                argsText: '{"sql":"select 1"}',
+                args: { sql: "select 1" },
+                result: "rows",
+              },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { turnId: "turn-1" } },
+          },
+          parentId: null,
+        },
+      ],
+    };
+    // Client export of the SAME turn after a clean completion: tc_N ids, and the
+    // adapter stamps only requestMode (no runId, no turnId).
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "aui-abc",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tc_1",
+                toolName: "bigquery",
+                argsText: '{"sql":"select 1"}',
+                args: { sql: "select 1" },
+                result: "rows",
+              },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { custom: { requestMode: "chat" } },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+    expect(merged.messages).toHaveLength(1);
+  });
+
   it("matches server-persisted user attachments to later client saves by attachment metadata", () => {
     const existing = {
       messages: [

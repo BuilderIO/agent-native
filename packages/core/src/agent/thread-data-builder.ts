@@ -1,4 +1,5 @@
 import type { AgentChatAttachment, RunEvent } from "./types.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -287,6 +288,23 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
   }));
 }
 
+// Strip the render-only `toolCallId` before fingerprinting. The id is generated
+// differently depending on who built the message — the server now scopes it by
+// run (`${runId}:tc_1`) while the client's live stream uses a bare counter
+// (`tc_1`) — so the client export and the server fold of the SAME tool-call turn
+// would otherwise hash to different fingerprints and fail to dedupe, leaving the
+// turn rendered twice. The id never participates in message identity (history
+// replay regenerates its own ids), so hashing content without it is the correct
+// notion of "same message".
+function normalizeContentForFingerprint(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((part: any) =>
+    part && typeof part === "object" && part.type === "tool-call"
+      ? { ...part, toolCallId: undefined }
+      : part,
+  );
+}
+
 function messageIdentityKeys(message: any): string[] {
   const keys: string[] = [];
   if (typeof message?.id === "string" && message.id) {
@@ -315,7 +333,7 @@ function messageIdentityKeys(message: any): string[] {
     keys.push(
       `fingerprint:${JSON.stringify({
         role: message?.role,
-        content: message?.content,
+        content: normalizeContentForFingerprint(message?.content),
         attachments: normalizeAttachmentIdentity(message?.attachments),
       })}`,
     );
@@ -327,7 +345,7 @@ function messageIdentityKeys(message: any): string[] {
       keys.push(
         `user-fingerprint:${JSON.stringify({
           role: message.role,
-          content: message.content,
+          content: normalizeContentForFingerprint(message.content),
           attachments: normalizeAttachmentIdentity(message.attachments),
         })}`,
       );
@@ -472,6 +490,48 @@ export function normalizeThreadRepository(repo: any): any {
   normalized.headId =
     headId && seenIds.has(headId) ? headId : (previousId ?? null);
   return normalized;
+}
+
+/**
+ * Rebuild a flat `EngineMessage[]` from persisted thread_data (the
+ * assistant-ui ExportedMessageRepository shape). Text-only — tool calls/results
+ * are flattened to their text so a continuation run gets the conversation
+ * prefix as plain context (Anthropic's prompt cache makes the resume cheap).
+ *
+ * Used to resume a background sub-agent in a fresh function invocation (the
+ * server-side analog of the browser re-POSTing history for the main chat).
+ * Originally inlined in `integrations/webhook-handler.ts`.
+ */
+export function threadDataToEngineMessages(
+  threadData: string | Record<string, unknown> | null | undefined,
+): EngineMessage[] {
+  const messages: EngineMessage[] = [];
+  if (!threadData) return messages;
+  let data: any;
+  try {
+    data = typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  } catch {
+    return messages;
+  }
+  if (!Array.isArray(data?.messages)) return messages;
+  for (const entry of data.messages) {
+    const m = entry?.message ?? entry;
+    if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
+              .filter(
+                (c: any) => c?.type === "text" && typeof c.text === "string",
+              )
+              .map((c: any) => c.text)
+              .join("\n")
+          : "";
+    if (!text.trim()) continue;
+    messages.push({ role: m.role, content: [{ type: "text", text }] });
+  }
+  return messages;
 }
 
 export interface CodeAgentThreadTranscriptEvent {

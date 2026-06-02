@@ -37,6 +37,12 @@ import {
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
+  normalizeAgentChatContextItem,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
+import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
@@ -3508,6 +3514,8 @@ export interface AssistantChatHandle {
   sendMessage(text: string, images?: string[]): void;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
+  /** Add or replace keyed context for the next composer submission. */
+  setComposerContextItem(item: AgentChatContextItem): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
   sendRecoveryMessage(
     text: string,
@@ -3902,6 +3910,52 @@ const AssistantChatInner = forwardRef<
       recoveryAction?: AgentRecoveryAction;
     }>
   >([]);
+  const [composerContextItems, setComposerContextItems] = useState<
+    AgentChatContextItem[]
+  >([]);
+  const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
+  const updateComposerContextItems = useCallback(
+    (updater: (previous: AgentChatContextItem[]) => AgentChatContextItem[]) => {
+      setComposerContextItems((previous) => {
+        const next = updater(previous);
+        composerContextItemsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const stageComposerContextItem = useCallback(
+    (rawItem: AgentChatContextItem) => {
+      const item = normalizeAgentChatContextItem(rawItem);
+      if (!item) return;
+      updateComposerContextItems((previous) => {
+        const index = previous.findIndex((current) => current.key === item.key);
+        if (index === -1) return [...previous, item];
+        return previous.map((current, currentIndex) =>
+          currentIndex === index ? item : current,
+        );
+      });
+    },
+    [updateComposerContextItems],
+  );
+  const removeComposerContextItem = useCallback(
+    (key: string) => {
+      updateComposerContextItems((previous) =>
+        previous.filter((item) => item.key !== key),
+      );
+    },
+    [updateComposerContextItems],
+  );
+  const buildComposerContextSubmission = useCallback((text: string) => {
+    const context = formatAgentChatContextItemsForPrompt(
+      composerContextItemsRef.current,
+    );
+    if (!context) return { text, includesContext: false };
+    return {
+      text: appendAgentChatContextToMessage(text, context),
+      includesContext: true,
+    };
+  }, []);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -4862,6 +4916,7 @@ const AssistantChatInner = forwardRef<
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
       recoveryAction?: AgentRecoveryAction,
+      includeComposerContext = false,
     ) => {
       materializeFrozenReconnectContent();
       setShowContinue(false);
@@ -4880,6 +4935,10 @@ const AssistantChatInner = forwardRef<
       // exists to stop streaming from yanking the viewport, not to swallow
       // direct sends.
       markNearBottom();
+      const submitted = includeComposerContext
+        ? buildComposerContextSubmission(text)
+        : { text, includesContext: false };
+      const submittedText = submitted.text;
       const queuedAttachments = await serializeQueuedAttachments(attachments);
       const imageAttachments = createAgentImageAttachments(images);
       const messageAttachments = [
@@ -4905,7 +4964,7 @@ const AssistantChatInner = forwardRef<
               typeof crypto !== "undefined" && crypto.randomUUID
                 ? crypto.randomUUID()
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            text,
+            text: submittedText,
             images,
             attachments:
               messageAttachments.length > 0 ? messageAttachments : undefined,
@@ -4917,7 +4976,7 @@ const AssistantChatInner = forwardRef<
       } else {
         threadRuntime.append({
           role: "user",
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text: submittedText }],
           ...(messageAttachments.length > 0
             ? { attachments: messageAttachments }
             : {}),
@@ -4928,8 +4987,18 @@ const AssistantChatInner = forwardRef<
           ),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
+      if (submitted.includesContext) {
+        updateComposerContextItems(() => []);
+      }
     },
-    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
+    [
+      buildComposerContextSubmission,
+      execMode,
+      isRunning,
+      materializeFrozenReconnectContent,
+      threadRuntime,
+      updateComposerContextItems,
+    ],
   );
 
   // Expose imperative handle
@@ -4941,6 +5010,10 @@ const AssistantChatInner = forwardRef<
       },
       prefillMessage(text: string) {
         tiptapRef.current?.setText(text);
+        tiptapRef.current?.focus();
+      },
+      setComposerContextItem(item: AgentChatContextItem) {
+        stageComposerContextItem(item);
         tiptapRef.current?.focus();
       },
       sendRecoveryMessage(
@@ -4979,7 +5052,13 @@ const AssistantChatInner = forwardRef<
         };
       },
     }),
-    [addToQueue, messages.length, thread.isRunning, threadRuntime],
+    [
+      addToQueue,
+      messages.length,
+      stageComposerContextItem,
+      thread.isRunning,
+      threadRuntime,
+    ],
   );
 
   const autoscrollFollowKey = useMemo(
@@ -5529,7 +5608,7 @@ const AssistantChatInner = forwardRef<
                           : composerPlaceholder
                   }
                   onSubmit={
-                    isRunning
+                    isRunning || composerContextItems.length > 0
                       ? (text, references, attachments, options) =>
                           void addToQueue(
                             text,
@@ -5538,6 +5617,8 @@ const AssistantChatInner = forwardRef<
                             attachments,
                             undefined,
                             options?.intent ?? "immediate",
+                            undefined,
+                            true,
                           )
                       : undefined
                   }
@@ -5553,6 +5634,8 @@ const AssistantChatInner = forwardRef<
                   onEffortChange={onEffortChange}
                   onConnectProvider={onConnectProvider}
                   toolbarSlot={composerToolbarSlot}
+                  contextItems={composerContextItems}
+                  onRemoveContextItem={removeComposerContextItem}
                   plusMenuMode={plusMenuMode}
                   layoutVariant={composerLayoutVariant}
                   providerConnectStatusEnabled={providerStatusChecksEnabled}

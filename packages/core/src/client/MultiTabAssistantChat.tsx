@@ -45,6 +45,11 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  appendAgentChatContextToMessage,
+  normalizeAgentChatContextItem,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -765,6 +770,9 @@ export function MultiTabAssistantChat({
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, PendingSend>>(new Map());
+  const pendingContextItems = useRef<Map<string, AgentChatContextItem[]>>(
+    new Map(),
+  );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
@@ -790,6 +798,26 @@ export function MultiTabAssistantChat({
     setModelSelectionVersion((version) => version + 1);
   }, []);
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
+
+  const setContextInTab = useCallback(
+    (threadId: string, item: AgentChatContextItem) => {
+      const ref = chatRefs.current.get(threadId);
+      if (ref) {
+        ref.setComposerContextItem(item);
+        return;
+      }
+      const existing = pendingContextItems.current.get(threadId) ?? [];
+      const index = existing.findIndex((current) => current.key === item.key);
+      const next =
+        index === -1
+          ? [...existing, item]
+          : existing.map((current, currentIndex) =>
+              currentIndex === index ? item : current,
+            );
+      pendingContextItems.current.set(threadId, next);
+    },
+    [],
+  );
 
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
@@ -1278,6 +1306,19 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
+      if (event.data?.type === "agentNative.setChatContext") {
+        const item = normalizeAgentChatContextItem(event.data.data);
+        if (!item) return;
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar !== false) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        setContextInTab(currentTabId, item);
+        return;
+      }
       if (event.data?.type !== "agentNative.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
@@ -1308,7 +1349,7 @@ export function MultiTabAssistantChat({
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
       const fullMessage = context
-        ? `${message}\n\n<context>\n${context}\n</context>`
+        ? appendAgentChatContextToMessage(message, context)
         : message;
 
       const sendToTab = (threadId: string) => {
@@ -1374,22 +1415,37 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     createThread,
     postMessageSubmissionsDisabled,
+    setContextInTab,
     switchThread,
   ]);
 
   // Process pending sends when refs mount
   useEffect(() => {
-    for (const [tabId, pending] of pendingSends.current) {
+    const pendingTabIds = new Set([
+      ...pendingSends.current.keys(),
+      ...pendingContextItems.current.keys(),
+    ]);
+    for (const tabId of pendingTabIds) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => {
-          if (pending.submit) {
-            ref.sendMessage(pending.message, pending.images);
-          } else {
-            ref.prefillMessage(pending.message);
+        const pendingContext = pendingContextItems.current.get(tabId);
+        if (pendingContext) {
+          for (const item of pendingContext) {
+            ref.setComposerContextItem(item);
           }
-        }, 50);
-        pendingSends.current.delete(tabId);
+          pendingContextItems.current.delete(tabId);
+        }
+        const pending = pendingSends.current.get(tabId);
+        if (pending) {
+          setTimeout(() => {
+            if (pending.submit) {
+              ref.sendMessage(pending.message, pending.images);
+            } else {
+              ref.prefillMessage(pending.message);
+            }
+          }, 50);
+          pendingSends.current.delete(tabId);
+        }
       }
     }
   }, [openTabIds]);
@@ -1445,6 +1501,7 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      pendingContextItems.current.delete(tabId);
       newThreadIds.current.delete(tabId);
       threadModelRef.current.delete(tabId);
       // Clean up parent map and sub-agent names
