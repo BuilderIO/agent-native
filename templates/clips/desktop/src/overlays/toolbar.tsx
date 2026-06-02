@@ -1,21 +1,36 @@
 import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
+  IconRefresh,
+  IconTrash,
 } from "@tabler/icons-react";
+
+const OVERLAY_SHADOW_GUTTER = 18;
+const TOOLBAR_CONTENT_WIDTH = 72;
+const TOOLBAR_COLLAPSED_HEIGHT = 150;
+const TOOLBAR_EXPANDED_HEIGHT = 234;
+const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_COLLAPSED_WINDOW_HEIGHT =
+  TOOLBAR_COLLAPSED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_EXPANDED_WINDOW_HEIGHT =
+  TOOLBAR_EXPANDED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
 
 /**
  * Floating recording toolbar — vertical pill anchored to the LEFT edge of
  * the screen (Loom's placement). Big orange Stop at the top, elapsed time
- * below, pause underneath. Pure command emitter — the popover owns the
+ * below, pause underneath. On hover, it grows downward to expose restart
+ * and cancel controls. Pure command emitter — the popover owns the
  * MediaRecorder.
  *
  * IPC contract:
  *   receives → `clips:recorder-state` { paused, elapsedMs }
- *   emits    → `clips:recorder-stop`, `:pause`, `:resume`
+ *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`, `:cancel`
  *
  * IMPORTANT: The Stop button MUST NOT close its own window. The popover's
  * recorder listener is what drives the stop flow, and it invokes
@@ -31,13 +46,16 @@ import {
 export function Toolbar() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [stopping, setStopping] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "stop" | "restart" | "cancel" | null
+  >(null);
   // Pre-record mode: the toolbar shows alongside the pre-record bubble so
   // the user can drag both around and position them before hitting Start.
   // Stop / Pause are disabled until the recorder actually begins, at which
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandedRef = useRef(false);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -92,33 +110,84 @@ export function Toolbar() {
     };
   }, []);
 
-  function stop() {
-    if (stopping || !enabled) return;
-    setStopping(true);
-    console.log("[clips-toolbar] stop clicked — emitting clips:recorder-stop");
-    emit("clips:recorder-stop").catch((err) => {
-      console.error("[clips-toolbar] emit clips:recorder-stop failed:", err);
-    });
-    // Defensive fallback: the recorder normally closes us via
-    // `hide_overlays` within a second or two. If for any reason the
-    // popover listener never fires (popover window closed, listener
-    // torn down mid-emit, etc.), self-close after 3s so the user isn't
-    // left with a zombie pill floating over their screen. The recorder
-    // closing us first is a no-op on the already-closed window.
+  function scheduleCloseFallback(action: string) {
     fallbackTimer.current = setTimeout(() => {
       console.warn(
-        "[clips-toolbar] recorder did not close toolbar within 3s — self-closing",
+        `[clips-toolbar] recorder did not close toolbar within 3s after ${action} — self-closing`,
       );
       getCurrentWindow()
         .close()
         .catch(() => {});
     }, 3_000);
   }
+
+  function resizeToolbarWindow(expanded: boolean) {
+    if (expandedRef.current === expanded) return;
+    expandedRef.current = expanded;
+    const height = expanded
+      ? TOOLBAR_EXPANDED_WINDOW_HEIGHT
+      : TOOLBAR_COLLAPSED_WINDOW_HEIGHT;
+    getCurrentWindow()
+      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, height))
+      .catch((err) => {
+        console.warn("[clips-toolbar] resize failed", err);
+      });
+  }
+
+  function stop() {
+    if (pendingAction || !enabled) return;
+    setPendingAction("stop");
+    console.log("[clips-toolbar] stop clicked — emitting clips:recorder-stop");
+    emit("clips:recorder-stop")
+      .then(() => scheduleCloseFallback("stop"))
+      .catch((err) => {
+        console.error("[clips-toolbar] emit clips:recorder-stop failed:", err);
+        setPendingAction(null);
+      });
+    // Defensive fallback: the recorder normally closes us via
+    // `hide_overlays` within a second or two. If for any reason the
+    // popover listener never fires (popover window closed, listener
+    // torn down mid-emit, etc.), self-close after 3s so the user isn't
+    // left with a zombie pill floating over their screen. The recorder
+    // closing us first is a no-op on the already-closed window.
+  }
   function togglePause() {
-    if (!enabled) return;
+    if (!enabled || pendingAction) return;
     emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(
       () => {},
     );
+  }
+  function restart() {
+    if (pendingAction || !enabled) return;
+    setPendingAction("restart");
+    console.log(
+      "[clips-toolbar] restart clicked — emitting clips:recorder-restart",
+    );
+    emit("clips:recorder-restart")
+      .then(() => scheduleCloseFallback("restart"))
+      .catch((err) => {
+        console.error(
+          "[clips-toolbar] emit clips:recorder-restart failed:",
+          err,
+        );
+        setPendingAction(null);
+      });
+  }
+  function cancel() {
+    if (pendingAction || !enabled) return;
+    setPendingAction("cancel");
+    console.log(
+      "[clips-toolbar] cancel clicked — emitting clips:recorder-cancel",
+    );
+    emit("clips:recorder-cancel")
+      .then(() => scheduleCloseFallback("cancel"))
+      .catch((err) => {
+        console.error(
+          "[clips-toolbar] emit clips:recorder-cancel failed:",
+          err,
+        );
+        setPendingAction(null);
+      });
   }
 
   // Same explicit-drag pattern the bubble uses — `data-tauri-drag-region`
@@ -135,27 +204,44 @@ export function Toolbar() {
         console.warn("[clips-toolbar] startDragging failed", err);
       });
   };
+  const handleToolbarBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    resizeToolbarWindow(false);
+  };
+
+  const pendingActionLabel =
+    pendingAction === "restart"
+      ? "Restarting..."
+      : pendingAction === "cancel"
+        ? "Cancelling..."
+        : "Stopping...";
 
   return (
     <div
       className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
       onMouseDown={handleToolbarMouseDown}
+      onMouseEnter={() => resizeToolbarWindow(true)}
+      onMouseLeave={() => resizeToolbarWindow(false)}
+      onFocusCapture={() => resizeToolbarWindow(true)}
+      onBlurCapture={handleToolbarBlur}
     >
       <button
         className="toolbar-v-stop"
         onClick={stop}
-        disabled={stopping || !enabled}
-        aria-label={stopping ? "Stopping recording" : "Stop recording"}
+        disabled={!!pendingAction || !enabled}
+        aria-label={
+          pendingAction === "stop" ? "Stopping recording" : "Stop recording"
+        }
         title={
-          stopping
-            ? "Stopping..."
+          pendingAction === "stop"
+            ? pendingActionLabel
             : enabled
               ? "Stop recording"
               : "Recording not started yet"
         }
         data-no-drag
       >
-        {stopping ? (
+        {pendingAction === "stop" ? (
           <IconLoader2 className="toolbar-v-spinner" size={18} />
         ) : (
           <span className="toolbar-v-stop-square" />
@@ -165,11 +251,11 @@ export function Toolbar() {
       <button
         className="toolbar-v-pause"
         onClick={togglePause}
-        disabled={!enabled || stopping}
+        disabled={!enabled || !!pendingAction}
         aria-label={paused ? "Resume" : "Pause"}
         title={
-          stopping
-            ? "Stopping..."
+          pendingAction
+            ? pendingActionLabel
             : enabled
               ? paused
                 ? "Resume"
@@ -184,6 +270,52 @@ export function Toolbar() {
           <IconPlayerPauseFilled size={18} />
         )}
       </button>
+      <div
+        className="toolbar-v-hover-actions"
+        role="group"
+        aria-label="Recording actions"
+      >
+        <button
+          className="toolbar-v-action"
+          onClick={restart}
+          disabled={!enabled || !!pendingAction}
+          aria-label="Restart recording"
+          title={
+            pendingAction === "restart"
+              ? pendingActionLabel
+              : enabled
+                ? "Restart"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {pendingAction === "restart" ? (
+            <IconLoader2 className="toolbar-v-spinner" size={18} />
+          ) : (
+            <IconRefresh size={24} stroke={1.9} />
+          )}
+        </button>
+        <button
+          className="toolbar-v-action toolbar-v-action-danger"
+          onClick={cancel}
+          disabled={!enabled || !!pendingAction}
+          aria-label="Cancel recording"
+          title={
+            pendingAction === "cancel"
+              ? pendingActionLabel
+              : enabled
+                ? "Cancel"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {pendingAction === "cancel" ? (
+            <IconLoader2 className="toolbar-v-spinner" size={18} />
+          ) : (
+            <IconTrash size={24} stroke={1.9} />
+          )}
+        </button>
+      </div>
     </div>
   );
 }

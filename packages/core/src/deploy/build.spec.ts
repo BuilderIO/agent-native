@@ -4,10 +4,13 @@ import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  copyDir,
+  findInstalledFfmpegStaticPackage,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
   runNitroBuildPipeline,
+  shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
@@ -560,6 +563,118 @@ describe("generateProvidedPluginsNitroPluginSource", () => {
 describe("Cloudflare deploy builtins", () => {
   it("externalizes node:sqlite references from optional runtime probes", () => {
     expect(getNodeBuiltinNames()).toContain("sqlite");
+  });
+});
+
+describe("copyDir", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it("copies directory symlink targets instead of treating symlinks as files", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-copy-dir-test-"));
+    dirs.push(cwd);
+    const src = path.join(cwd, "src");
+    const dest = path.join(cwd, "dest");
+    const linkedTarget = path.join(cwd, "linked-target");
+    fs.mkdirSync(src, { recursive: true });
+    fs.mkdirSync(linkedTarget, { recursive: true });
+    fs.writeFileSync(path.join(linkedTarget, "asset.txt"), "asset");
+    fs.symlinkSync(
+      linkedTarget,
+      path.join(src, "linked-dir"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    copyDir(src, dest);
+
+    expect(
+      fs.readFileSync(path.join(dest, "linked-dir", "asset.txt"), "utf8"),
+    ).toBe("asset");
+  });
+
+  it("skips broken symlinks instead of crashing the copy", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-copy-dir-test-"));
+    dirs.push(cwd);
+    const src = path.join(cwd, "src");
+    const dest = path.join(cwd, "dest");
+    fs.mkdirSync(src, { recursive: true });
+    fs.symlinkSync(path.join(cwd, "missing-target"), path.join(src, "broken"));
+
+    expect(() => copyDir(src, dest)).not.toThrow();
+    expect(fs.existsSync(path.join(dest, "broken"))).toBe(false);
+  });
+});
+
+describe("findInstalledFfmpegStaticPackage", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupNodeModules() {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-ffmpeg-test-"));
+    dirs.push(cwd);
+    const nodeModules = path.join(cwd, "node_modules");
+    fs.mkdirSync(nodeModules, { recursive: true });
+    return nodeModules;
+  }
+
+  it("finds a direct ffmpeg-static install only when the binary exists", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(nodeModules, "ffmpeg-static");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBeNull();
+
+    fs.writeFileSync(path.join(packageDir, "ffmpeg"), "binary");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBe(packageDir);
+  });
+
+  it("finds ffmpeg-static in pnpm's nested store layout", () => {
+    const nodeModules = setupNodeModules();
+    const packageDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "ffmpeg-static@5.3.0",
+      "node_modules",
+      "ffmpeg-static",
+    );
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(packageDir, "ffmpeg"), "binary");
+
+    expect(findInstalledFfmpegStaticPackage([nodeModules])).toBe(packageDir);
+  });
+
+  it("only bundles host ffmpeg-static binaries for matching Linux serverless targets", () => {
+    expect(shouldBundleFfmpegStaticForServerless("linux", "x64", "x64")).toBe(
+      true,
+    );
+    expect(
+      shouldBundleFfmpegStaticForServerless("linux", "arm64", "arm64"),
+    ).toBe(true);
+    expect(shouldBundleFfmpegStaticForServerless("linux", "x64", "arm64")).toBe(
+      false,
+    );
+    expect(shouldBundleFfmpegStaticForServerless("linux", "x64", null)).toBe(
+      false,
+    );
+    expect(shouldBundleFfmpegStaticForServerless("darwin", "x64", "x64")).toBe(
+      false,
+    );
+    expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
+      false,
+    );
   });
 });
 

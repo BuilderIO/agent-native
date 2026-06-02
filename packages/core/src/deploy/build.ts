@@ -1172,14 +1172,41 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-function copyDir(src: string, dest: string) {
+export function copyDir(
+  src: string,
+  dest: string,
+  ancestorRealPaths = new Set<string>(),
+) {
+  const realSrc = fs.realpathSync(src);
+  if (ancestorRealPaths.has(realSrc)) return;
+  const nextAncestorRealPaths = new Set(ancestorRealPaths);
+  nextAncestorRealPaths.add(realSrc);
+
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+    if (entry.isSymbolicLink()) {
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(srcPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.warn(
+            `[deploy] Skipping broken symlink while copying ${srcPath}`,
+          );
+          continue;
+        }
+        throw error;
+      }
+      if (stat.isDirectory()) {
+        copyDir(srcPath, destPath, nextAncestorRealPaths);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    } else if (entry.isDirectory()) {
+      copyDir(srcPath, destPath, nextAncestorRealPaths);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -1197,6 +1224,34 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "linux-x64-musl",
   "win32-x64-msvc",
 ];
+const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
+const FFMPEG_STATIC_BINARY_NAMES =
+  process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
+const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
+const SERVERLESS_FFMPEG_STATIC_ARCHES = new Set<NodeJS.Architecture>([
+  "arm64",
+  "x64",
+]);
+type ServerlessFfmpegStaticArch = "arm64" | "x64";
+
+function serverlessFfmpegStaticTargetArchFromEnv(): ServerlessFfmpegStaticArch | null {
+  const value = process.env.AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH;
+  if (value === "arm64" || value === "x64") return value;
+  return null;
+}
+
+export function shouldBundleFfmpegStaticForServerless(
+  hostPlatform: NodeJS.Platform = process.platform,
+  hostArch: NodeJS.Architecture = process.arch,
+  targetArch: ServerlessFfmpegStaticArch | null = serverlessFfmpegStaticTargetArchFromEnv(),
+): boolean {
+  return (
+    hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM &&
+    targetArch !== null &&
+    hostArch === targetArch &&
+    SERVERLESS_FFMPEG_STATIC_ARCHES.has(targetArch)
+  );
+}
 
 function nodeModulesAncestors(startDir: string): string[] {
   const dirs: string[] = [];
@@ -1237,6 +1292,68 @@ function findInstalledLibsqlNativePackage(
   return null;
 }
 
+function hasFfmpegStaticBinary(packageDir: string): boolean {
+  return FFMPEG_STATIC_BINARY_NAMES.some((binaryName) =>
+    fs.existsSync(path.join(packageDir, binaryName)),
+  );
+}
+
+function hasInstalledFfmpegStaticPackage(nodeModulesRoots: string[]): boolean {
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, FFMPEG_STATIC_PACKAGE_NAME);
+    if (fs.existsSync(path.join(direct, "package.json"))) return true;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    const pnpmPrefix = `${FFMPEG_STATIC_PACKAGE_NAME}@`;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        FFMPEG_STATIC_PACKAGE_NAME,
+      );
+      if (fs.existsSync(path.join(nested, "package.json"))) return true;
+    }
+  }
+  return false;
+}
+
+export function findInstalledFfmpegStaticPackage(
+  nodeModulesRoots: string[],
+): string | null {
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, FFMPEG_STATIC_PACKAGE_NAME);
+    if (
+      fs.existsSync(path.join(direct, "package.json")) &&
+      hasFfmpegStaticBinary(direct)
+    ) {
+      return direct;
+    }
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    const pnpmPrefix = `${FFMPEG_STATIC_PACKAGE_NAME}@`;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        FFMPEG_STATIC_PACKAGE_NAME,
+      );
+      if (
+        fs.existsSync(path.join(nested, "package.json")) &&
+        hasFfmpegStaticBinary(nested)
+      ) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -1256,6 +1373,39 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
       `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
     );
   }
+}
+
+function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
+  if (!serverDir || !fs.existsSync(serverDir)) return;
+  const nodeModulesRoots = nodeModulesAncestors(cwd);
+  if (!shouldBundleFfmpegStaticForServerless()) {
+    if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
+      console.warn(
+        `[deploy] ffmpeg-static installs a ${process.platform}-${process.arch} binary, but the serverless runtime architecture is not known to match it; ` +
+          "set AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH=x64 or arm64 to bundle a matching binary, otherwise server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+      );
+    }
+    return;
+  }
+
+  const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
+  if (!src) {
+    if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
+      console.warn(
+        "[deploy] ffmpeg-static is installed without a downloaded ffmpeg binary; " +
+          "server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+      );
+    }
+    return;
+  }
+
+  copyDir(
+    src,
+    path.join(serverDir, "node_modules", FFMPEG_STATIC_PACKAGE_NAME),
+  );
+  console.log(
+    "[deploy] Copied ffmpeg-static into the server bundle for media transcription fallback.",
+  );
 }
 
 /**
@@ -1575,6 +1725,7 @@ export default bundle;
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
+    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

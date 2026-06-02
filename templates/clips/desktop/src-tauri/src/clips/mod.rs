@@ -416,7 +416,8 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
 }
 
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// matching Loom's left-rail placement. Draggable, always on top.
+/// with hover-revealed restart/cancel controls matching Loom's left-rail
+/// placement. Draggable, always on top.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
@@ -430,12 +431,14 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // window in physical px. Keep the visible toolbar large enough for the
     // fixed 30px circular controls on high-DPI displays.
     let content_w: u32 = (72.0 * scale).round() as u32;
-    let content_h: u32 = (150.0 * scale).round() as u32;
+    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
     let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    // Flush-left with a small margin; vertically centered on the screen.
+    let h: u32 = collapsed_content_h + gutter * 2;
+    // Flush-left with a small margin; vertically center the collapsed pill.
+    // The React toolbar temporarily resizes this window while hover/focus
+    // reveals extra controls so transparent pixels don't block clicks.
     let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - content_h as i32) / 2 - gutter as i32;
+    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
