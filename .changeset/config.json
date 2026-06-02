@@ -10,7 +10,9 @@
   "ignore": [
     "@agent-native/desktop-app",
     "@agent-native/code-agents-ui",
-    "@agent-native/shared-app-config"
+    "@agent-native/shared-app-config",
+    "@agent-native/embedding",
+    "@agent-native/migrate"
   ],
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true
