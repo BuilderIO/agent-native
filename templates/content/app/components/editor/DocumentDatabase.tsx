@@ -17,7 +17,6 @@ import {
   IconArrowUp,
   IconAdjustmentsHorizontal,
   IconArrowsSort,
-  IconBolt,
   IconCalendar,
   IconCalendarDue,
   IconCalendarEvent,
@@ -36,14 +35,11 @@ import {
   IconLayoutKanban,
   IconLayoutGrid,
   IconList,
-  IconLock,
   IconMinus,
   IconPlus,
   IconPalette,
   IconPencil,
   IconSearch,
-  IconSettings,
-  IconSparkles,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -843,28 +839,6 @@ function DatabaseTable({
             type="button"
             variant="ghost"
             size="sm"
-            disabled
-            aria-label="Automations"
-            title="Automations"
-            className={databaseToolbarIconButtonClass()}
-          >
-            <IconBolt className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled
-            aria-label="AI Autofill"
-            title="AI Autofill"
-            className={databaseToolbarIconButtonClass()}
-          >
-            <IconSparkles className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
             aria-label="View settings"
             title="View settings"
             className={databaseToolbarIconButtonClass(
@@ -885,7 +859,7 @@ function DatabaseTable({
             <Button
               type="button"
               size="sm"
-              className="h-7 gap-0 overflow-hidden rounded-md bg-[#2383e2] px-0 text-xs font-medium text-white hover:bg-[#0075de]"
+              className="h-7 gap-0 overflow-hidden rounded-md bg-foreground px-0 text-xs font-medium text-background hover:bg-foreground/90"
               disabled={addItem.isPending || !databaseId}
               onClick={() => void createRow()}
             >
@@ -1136,14 +1110,11 @@ function DatabaseTable({
       <DatabaseViewSettingsPanel
         open={settingsOpen}
         panel={settingsPanel}
-        documentTitle={document.title}
         documentId={document.id}
         activeView={activeView}
         properties={orderedProperties}
         items={items}
         hiddenCount={hiddenProperties.length}
-        filters={filters}
-        sorts={sorts}
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={() => setSettingsOpen(false)}
         onPanelChange={setSettingsPanel}
@@ -2610,24 +2581,16 @@ type DatabaseSettingsPanel =
   | "main"
   | "layout"
   | "property_visibility"
-  | "filter"
-  | "sort"
-  | "group"
-  | "conditional_color"
-  | "edit_properties"
-  | "more_settings";
+  | "group";
 
 function DatabaseViewSettingsPanel({
   open,
   panel,
-  documentTitle,
   documentId,
   activeView,
   properties,
   items,
   hiddenCount,
-  filters,
-  sorts,
   groupIds,
   onClose,
   onPanelChange,
@@ -2643,14 +2606,11 @@ function DatabaseViewSettingsPanel({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
-  documentTitle: string;
   documentId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   hiddenCount: number;
-  filters: DatabaseFilter[];
-  sorts: DatabaseSort[];
   groupIds: string[];
   onClose: () => void;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
@@ -2698,11 +2658,8 @@ function DatabaseViewSettingsPanel({
         {panel === "main" ? (
           <DatabaseSettingsMainPanel
             activeView={activeView}
-            documentTitle={documentTitle}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
-            filterCount={filters.filter(isActiveFilter).length}
-            sortCount={sorts.length}
             onPanelChange={onPanelChange}
           />
         ) : panel === "layout" ? (
@@ -2732,9 +2689,7 @@ function DatabaseViewSettingsPanel({
             onHideEmptyGroupsChange={onHideEmptyGroupsChange}
             onGroupsCollapsedChange={onGroupsCollapsedChange}
           />
-        ) : (
-          <DatabaseSettingsUnavailablePanel panel={panel} />
-        )}
+        ) : null}
       </div>
     </aside>
   );
@@ -2743,30 +2698,19 @@ function DatabaseViewSettingsPanel({
 function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
   if (panel === "layout") return "Layout";
   if (panel === "property_visibility") return "Property visibility";
-  if (panel === "filter") return "Filter";
-  if (panel === "sort") return "Sort";
   if (panel === "group") return "Group";
-  if (panel === "conditional_color") return "Conditional color";
-  if (panel === "edit_properties") return "Edit properties";
-  if (panel === "more_settings") return "More settings";
   return "View settings";
 }
 
 function DatabaseSettingsMainPanel({
   activeView,
-  documentTitle,
   propertyCount,
   hiddenCount,
-  filterCount,
-  sortCount,
   onPanelChange,
 }: {
   activeView: ContentDatabaseView;
-  documentTitle: string;
   propertyCount: number;
   hiddenCount: number;
-  filterCount: number;
-  sortCount: number;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
@@ -2798,75 +2742,10 @@ function DatabaseSettingsMainPanel({
           onClick={() => onPanelChange("property_visibility")}
         />
         <DatabaseSettingsRow
-          icon={<IconFilter className="size-4" />}
-          label="Filter"
-          value={filterCount > 0 ? String(filterCount) : ""}
-          onClick={() => onPanelChange("filter")}
-        />
-        <DatabaseSettingsRow
-          icon={<IconArrowsSort className="size-4" />}
-          label="Sort"
-          value={sortCount > 0 ? String(sortCount) : ""}
-          onClick={() => onPanelChange("sort")}
-        />
-        <DatabaseSettingsRow
           icon={<IconLayoutKanban className="size-4" />}
           label="Group"
           value={groupLabel}
           onClick={() => onPanelChange("group")}
-        />
-        <DatabaseSettingsRow
-          icon={<IconPalette className="size-4" />}
-          label="Conditional color"
-          onClick={() => onPanelChange("conditional_color")}
-        />
-        <DatabaseSettingsRow
-          icon={<IconCopy className="size-4" />}
-          label="Copy link to view"
-          disabled
-        />
-      </div>
-      <DatabaseSettingsSectionLabel>
-        Data source settings
-      </DatabaseSettingsSectionLabel>
-      <div className="grid gap-1">
-        <DatabaseSettingsRow
-          icon={<IconTable className="size-4" />}
-          label="Source"
-          value={documentTitle.trim() || "Untitled database"}
-          disabled
-        />
-        <DatabaseSettingsRow
-          icon={<IconSettings className="size-4" />}
-          label="Edit properties"
-          onClick={() => onPanelChange("edit_properties")}
-        />
-        <DatabaseSettingsRow
-          icon={<IconBolt className="size-4" />}
-          label="Automations"
-          disabled
-        />
-        <DatabaseSettingsRow
-          icon={<IconSparkles className="size-4" />}
-          label="AI Autofill"
-          disabled
-        />
-        <DatabaseSettingsRow
-          icon={<IconDots className="size-4" />}
-          label="More settings"
-          onClick={() => onPanelChange("more_settings")}
-        />
-      </div>
-      <div className="grid gap-1 border-t border-border/70 pt-2">
-        <DatabaseSettingsRow
-          icon={<IconTable className="size-4" />}
-          label="Manage data sources"
-          disabled
-        />
-        <DatabaseSettingsRow
-          icon={<IconLock className="size-4" />}
-          label="Lock database"
-          disabled
         />
       </div>
     </div>
@@ -3311,22 +3190,6 @@ function DatabaseSettingsGroupPanel({
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function DatabaseSettingsUnavailablePanel({
-  panel,
-}: {
-  panel: DatabaseSettingsPanel;
-}) {
-  return (
-    <div className="grid gap-1">
-      <DatabaseSettingsRow
-        icon={<IconSettings className="size-4" />}
-        label={databaseSettingsPanelTitle(panel)}
-        disabled
-      />
     </div>
   );
 }

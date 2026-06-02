@@ -115,10 +115,8 @@ describe("document database layout", () => {
     expect(source).toContain("function databaseToolbarIconButtonClass");
     expect(source).toContain('aria-label="Search"');
     expect(source).toContain('aria-label="View settings"');
-    expect(source).toContain('aria-label="Automations"');
-    expect(source).toContain('aria-label="AI Autofill"');
     expect(source).toContain("Property visibility");
-    expect(source).toContain("bg-[#2383e2]");
+    expect(source).toContain("bg-foreground px-0 text-xs font-medium");
   });
 
   it("renders a Notion-like right-side view settings panel", () => {
@@ -127,13 +125,25 @@ describe("document database layout", () => {
     expect(source).toContain("type DatabaseSettingsPanel");
     expect(source).toContain("function DatabaseViewSettingsPanel");
     expect(source).toContain("View settings");
-    expect(source).toContain("Data source settings");
     expect(source).toContain("function DatabaseSettingsLayoutPanel");
     expect(source).toContain(
       "function DatabaseSettingsPropertyVisibilityPanel",
     );
     expect(source).toContain("function DatabaseSettingsGroupPanel");
     expect(source).toContain("fixed bottom-0 right-0 top-12");
+  });
+
+  it("omits unavailable database settings placeholders", () => {
+    const source = readDatabaseSource();
+
+    expect(source).not.toContain("Automations");
+    expect(source).not.toContain("AI Autofill");
+    expect(source).not.toContain("Conditional color");
+    expect(source).not.toContain("Copy link to view");
+    expect(source).not.toContain("Manage data sources");
+    expect(source).not.toContain("Lock database");
+    expect(source).not.toContain("Data source settings");
+    expect(source).not.toContain("DatabaseSettingsUnavailablePanel");
   });
 
   it("keeps empty table chrome quiet", () => {
