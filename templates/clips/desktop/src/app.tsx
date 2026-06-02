@@ -3952,8 +3952,7 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
-  const whisperModelEnabled =
-    featureConfig?.whisperModelEnabled !== false;
+  const whisperModelEnabled = featureConfig?.whisperModelEnabled !== false;
   type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
   interface WhisperModelStatus {
     state: WhisperModelState;
@@ -3961,8 +3960,9 @@ function Setup({
     downloadedMb: number;
     totalMb: number;
   }
-  const [whisperStatus, setWhisperStatus] =
-    useState<WhisperModelStatus | null>(null);
+  const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
+    null,
+  );
 
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
@@ -4142,13 +4142,25 @@ function Setup({
     let cancelled = false;
     const refresh = () => {
       invoke<WhisperModelStatus>("whisper_model_status")
-        .then((s) => { if (!cancelled) setWhisperStatus(s); })
+        .then((s) => {
+          if (!cancelled) setWhisperStatus(s);
+        })
         .catch(() => {});
     };
     refresh();
     const unlistens: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
-      p.then((u) => { if (cancelled) { try { u(); } catch { /* ignore */ } return; } unlistens.push(u); }).catch(() => {});
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {});
     };
     track(listen("whisper:model-progress", () => refresh()));
     track(listen("whisper:model-ready", () => refresh()));
@@ -4156,7 +4168,13 @@ function Setup({
     track(listen("whisper:model-enabled-changed", () => refresh()));
     return () => {
       cancelled = true;
-      unlistens.forEach((u) => { try { u(); } catch { /* ignore */ } });
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          /* ignore */
+        }
+      });
     };
   }, []);
 
@@ -4906,8 +4924,8 @@ function WhisperModelStatusRow({
       <div className="whisper-status whisper-status-disabled">
         <IconAlertTriangle size={13} className="whisper-status-icon" />
         <span>
-          Without the Whisper model, only your microphone is transcribed —
-          other speakers are not captured.
+          Without the Whisper model, only your microphone is transcribed — other
+          speakers are not captured.
         </span>
       </div>
     );
@@ -4927,9 +4945,10 @@ function WhisperModelStatusRow({
   }
 
   if (status.state === "downloading") {
-    const pct = status.totalMb > 0
-      ? Math.round((status.downloadedMb / status.totalMb) * 100)
-      : 0;
+    const pct =
+      status.totalMb > 0
+        ? Math.round((status.downloadedMb / status.totalMb) * 100)
+        : 0;
     return (
       <div className="whisper-status whisper-status-downloading">
         <span className="whisper-progress-label">
