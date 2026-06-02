@@ -76,6 +76,8 @@ import {
   normalizeClientDatabaseViewConfig,
   orderDatabasePropertiesForView,
   pruneDatabaseRowSelection,
+  reorderDatabaseView,
+  reorderDatabaseViewProperty,
   renameDatabaseView,
   selectDatabaseView,
   setDatabaseViewColumnCalculation,
@@ -1680,6 +1682,18 @@ describe("database saved views", () => {
       "SEO copy",
     ]);
 
+    const reordered = reorderDatabaseView(
+      movedRight,
+      movedRight.activeViewId,
+      "default",
+    );
+    expect(reordered.activeViewId).toBe(movedRight.activeViewId);
+    expect(reordered.views.map((view) => view.name)).toEqual([
+      "SEO copy",
+      "Table",
+      "SEO",
+    ]);
+
     const selected = selectDatabaseView(duplicated, "default");
     expect(selected.activeViewId).toBe("default");
 
@@ -1937,6 +1951,18 @@ describe("database saved views", () => {
       "date",
       "checkbox",
       "end",
+    ]);
+
+    const reordered = reorderDatabaseViewProperty(view, "date", "end", {
+      allProperties: properties,
+      visibleProperties: visible,
+    });
+
+    expect(reordered.propertyOrderIds).toEqual([
+      "number",
+      "checkbox",
+      "end",
+      "date",
     ]);
   });
 });

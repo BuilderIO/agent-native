@@ -179,9 +179,46 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("const [openViewMenuId, setOpenViewMenuId]");
+    expect(source).toContain("const [draggedViewId, setDraggedViewId]");
+    expect(source).toContain("function startViewPointerDrag(");
+    expect(source).toContain("data-database-view-id");
+    expect(source).toContain(
+      "reorderDatabaseView(normalized, viewId, targetViewId",
+    );
     expect(source).toContain("onContextMenu={(event) => {");
     expect(source).toContain('aria-label="Add database view"');
     expect(source).toContain("group-hover/viewtabs:opacity-100");
-    expect(source).not.toContain("hover:bg-background/80 hover:text-foreground");
+    expect(source).not.toContain(
+      "hover:bg-background/80 hover:text-foreground",
+    );
+  });
+
+  it("uses drag reordering instead of explicit move actions for views and columns", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("function reorderDatabaseView(");
+    expect(source).toContain("function reorderDatabaseViewProperty(");
+    expect(source).toContain("const [draggedPropertyId, setDraggedPropertyId]");
+    expect(source).toContain("function startPropertyPointerDrag(");
+    expect(source).toContain("data-database-property-id");
+    expect(source).toContain('data-column-resize-handle=""');
+    expect(source).toContain("cursor-grab active:cursor-grabbing");
+    expect(source).not.toContain("Move left");
+    expect(source).not.toContain("Move right");
+    expect(source).not.toContain("onMoveLeft");
+    expect(source).not.toContain("onMoveRight");
+  });
+
+  it("keeps the table footer inside one quiet horizontal scroll surface", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain('data-database-scroll-surface="table"');
+    expect(source).toContain("min-w-0 max-w-full overflow-x-auto");
+    expect(source).toContain("group/footer grid border-b border-border/30");
+    expect(source).toContain(
+      "aria-label={`Calculate ${property.definition.name}`}",
+    );
+    expect(source).toContain("group-hover/footer:opacity-100");
+    expect(source).toContain("quietUntilHover");
   });
 });

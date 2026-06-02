@@ -30,6 +30,27 @@ export const DOCUMENT_PROPERTY_TYPES = [
   ...COMPUTED_DOCUMENT_PROPERTY_TYPES,
 ] as const;
 
+export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "files_media",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+  "id",
+  "created_time",
+  "created_by",
+  "last_edited_time",
+  "last_edited_by",
+] as const satisfies readonly DocumentPropertyType[];
+
 export type EditableDocumentPropertyType =
   (typeof EDITABLE_DOCUMENT_PROPERTY_TYPES)[number];
 

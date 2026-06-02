@@ -5,8 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_VISIBILITIES,
-  DOCUMENT_PROPERTY_TYPES,
   isComputedPropertyType,
   normalizePropertyVisibility,
   type DocumentPropertyType,
@@ -27,7 +27,7 @@ export default defineAction({
       .string()
       .describe("Document ID used to scope the property workspace"),
     name: z.string().min(1).describe("Property name"),
-    type: z.enum(DOCUMENT_PROPERTY_TYPES).describe("Property type"),
+    type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
     visibility: z
       .enum(DOCUMENT_PROPERTY_VISIBILITIES)
       .optional()

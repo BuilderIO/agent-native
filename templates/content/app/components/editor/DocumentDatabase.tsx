@@ -169,6 +169,7 @@ const MAX_COLUMN_WIDTH = 640;
 const ACTION_COLUMN_WIDTH = 48;
 const EMPTY_DEFAULT_ADD_PROPERTY_COLUMN_WIDTH = 220;
 const EMPTY_DEFAULT_BLANK_ROW_COUNT = 5;
+const DATABASE_DRAG_THRESHOLD = 6;
 const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "table",
   "list",
@@ -185,6 +186,29 @@ const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
+
+function databaseDragMoved(
+  startX: number,
+  startY: number,
+  clientX: number,
+  clientY: number,
+) {
+  return (
+    Math.hypot(clientX - startX, clientY - startY) >= DATABASE_DRAG_THRESHOLD
+  );
+}
+
+function suppressNextDocumentClick() {
+  const handler = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  globalThis.document.addEventListener("click", handler, {
+    capture: true,
+    once: true,
+  });
+}
 
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
@@ -626,10 +650,10 @@ function DatabaseTable({
 
   function movePropertyInActiveView(
     propertyId: string,
-    direction: DatabasePropertyMoveDirection,
+    targetPropertyId: string,
   ) {
     updateActiveView((view) =>
-      moveDatabaseViewProperty(view, propertyId, direction, {
+      reorderDatabaseViewProperty(view, propertyId, targetPropertyId, {
         allProperties: properties,
         visibleProperties: tableProperties,
       }),
@@ -1038,6 +1062,8 @@ function DatabaseTable({
           activeFilters={activeFilters}
           selectedItemIds={selectedItemIds}
           hasSearch={!!searchQuery}
+          totalCount={items.length}
+          constrained={hasResultConstraints}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
           wrapCells={activeView.wrapCells === true}
           rowDensity={activeView.rowDensity ?? "default"}
@@ -1051,6 +1077,8 @@ function DatabaseTable({
           onResizeColumn={resizeColumn}
           onPropertyHiddenChange={setPropertyHiddenInActiveView}
           onPropertyMove={movePropertyInActiveView}
+          calculations={activeView.calculations ?? {}}
+          onCalculationChange={setColumnCalculation}
           onToggleRowSelection={(itemId) =>
             setSelectedItemIds((current) =>
               toggleDatabaseRowSelection(current, itemId),
@@ -1124,18 +1152,7 @@ function DatabaseTable({
       />
 
       {!database.isLoading ? (
-        activeView.type === "table" ? (
-          <DatabaseTableFooter
-            properties={tableProperties}
-            items={visibleItems}
-            totalCount={items.length}
-            constrained={hasResultConstraints}
-            columnWidths={columnWidths}
-            canEdit={canEdit}
-            calculations={activeView.calculations ?? {}}
-            onCalculationChange={setColumnCalculation}
-          />
-        ) : (
+        activeView.type === "table" ? null : (
           <DatabaseResultCountFooter
             visibleCount={databaseFooterVisibleCount(
               activeView.type,
@@ -1964,6 +1981,8 @@ function DatabaseTableView({
   activeFilters,
   selectedItemIds,
   hasSearch,
+  totalCount,
+  constrained,
   rowsAreManuallyOrdered,
   wrapCells,
   rowDensity,
@@ -1976,6 +1995,8 @@ function DatabaseTableView({
   onResizeColumn,
   onPropertyHiddenChange,
   onPropertyMove,
+  calculations,
+  onCalculationChange,
   onToggleRowSelection,
   onToggleAllRowsSelection,
   onClearSelection,
@@ -2002,6 +2023,8 @@ function DatabaseTableView({
   activeFilters: DatabaseFilter[];
   selectedItemIds: string[];
   hasSearch: boolean;
+  totalCount: number;
+  constrained: boolean;
   rowsAreManuallyOrdered: boolean;
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
@@ -2017,9 +2040,11 @@ function DatabaseTableView({
     event: ReactPointerEvent,
   ) => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
-  onPropertyMove: (
-    propertyId: string,
-    direction: DatabasePropertyMoveDirection,
+  onPropertyMove: (propertyId: string, targetPropertyId: string) => void;
+  calculations: Record<string, DatabaseColumnCalculation>;
+  onCalculationChange: (
+    key: ColumnKey,
+    calculation: DatabaseColumnCalculation | null,
   ) => void;
   onToggleRowSelection: (itemId: string) => void;
   onToggleAllRowsSelection: () => void;
@@ -2044,6 +2069,12 @@ function DatabaseTableView({
   const deleteDocument = useDeleteDocument();
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
+  const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
+    null,
+  );
+  const [dropTargetPropertyId, setDropTargetPropertyId] = useState<
+    string | null
+  >(null);
   const [confirmDeleteSelectedOpen, setConfirmDeleteSelectedOpen] =
     useState(false);
   const [isDuplicatingSelected, setIsDuplicatingSelected] = useState(false);
@@ -2106,6 +2137,87 @@ function DatabaseTableView({
   function clearDraggedRow() {
     setDraggedItemId(null);
     setDropTargetItemId(null);
+  }
+
+  function clearDraggedProperty() {
+    setDraggedPropertyId(null);
+    setDropTargetPropertyId(null);
+  }
+
+  function startPropertyPointerDrag(
+    propertyId: string,
+    event: ReactPointerEvent<HTMLElement>,
+  ) {
+    if (!canEdit) return;
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest("[data-column-resize-handle]")
+    ) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+
+    function propertyIdFromPoint(clientX: number, clientY: number) {
+      const element = globalThis.document.elementFromPoint(clientX, clientY);
+      const header = element?.closest<HTMLElement>(
+        "[data-database-property-id]",
+      );
+      return header?.dataset.databasePropertyId ?? null;
+    }
+
+    function beginDrag() {
+      dragging = true;
+      setDraggedPropertyId(propertyId);
+      setDropTargetPropertyId(null);
+      globalThis.document.body.style.userSelect = "none";
+      globalThis.document.body.style.cursor = "grabbing";
+    }
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (
+        !dragging &&
+        !databaseDragMoved(startX, startY, moveEvent.clientX, moveEvent.clientY)
+      ) {
+        return;
+      }
+      if (!dragging) beginDrag();
+      moveEvent.preventDefault();
+      const targetPropertyId = propertyIdFromPoint(
+        moveEvent.clientX,
+        moveEvent.clientY,
+      );
+      setDropTargetPropertyId(
+        targetPropertyId && targetPropertyId !== propertyId
+          ? targetPropertyId
+          : null,
+      );
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      globalThis.document.body.style.userSelect = "";
+      globalThis.document.body.style.cursor = "";
+      globalThis.document.removeEventListener("pointermove", handlePointerMove);
+      globalThis.document.removeEventListener("pointerup", handlePointerUp);
+
+      if (dragging) {
+        suppressNextDocumentClick();
+        const targetPropertyId = propertyIdFromPoint(
+          upEvent.clientX,
+          upEvent.clientY,
+        );
+        if (targetPropertyId && targetPropertyId !== propertyId) {
+          onPropertyMove(propertyId, targetPropertyId);
+        }
+      }
+
+      clearDraggedProperty();
+    };
+
+    globalThis.document.addEventListener("pointermove", handlePointerMove);
+    globalThis.document.addEventListener("pointerup", handlePointerUp);
   }
 
   function startRowDrag(itemId: string, event: ReactPointerEvent) {
@@ -2285,8 +2397,11 @@ function DatabaseTableView({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[720px]">
+    <div
+      data-database-scroll-surface="table"
+      className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
+    >
+      <div className="w-max min-w-full min-w-[720px]">
         {selectedCount > 0 ? (
           <DatabaseSelectionBar
             selectedCount={selectedCount}
@@ -2304,7 +2419,7 @@ function DatabaseTableView({
           />
         ) : null}
         <div
-          className="grid border-y border-border/60 text-xs font-medium text-muted-foreground/80"
+          className="grid border-y border-border/45 text-xs font-medium text-muted-foreground/70"
           style={{
             gridTemplateColumns: databaseGridColumns(
               properties,
@@ -2326,13 +2441,19 @@ function DatabaseTableView({
               onResizeColumn("name", DEFAULT_NAME_COLUMN_WIDTH, event)
             }
           />
-          {properties.map((property, index) => {
+          {properties.map((property) => {
             return (
               <DatabasePropertyHeader
                 key={property.definition.id}
                 property={property}
                 documentId={databaseDocumentId}
                 canEdit={canEdit}
+                isDragging={draggedPropertyId === property.definition.id}
+                isDropTarget={
+                  !!draggedPropertyId &&
+                  dropTargetPropertyId === property.definition.id &&
+                  draggedPropertyId !== property.definition.id
+                }
                 sorts={sorts}
                 filters={filters}
                 onSortsChange={onSortsChange}
@@ -2340,15 +2461,8 @@ function DatabaseTableView({
                 onHide={() =>
                   onPropertyHiddenChange(property.definition.id, true)
                 }
-                onMoveLeft={
-                  index > 0
-                    ? () => onPropertyMove(property.definition.id, "left")
-                    : undefined
-                }
-                onMoveRight={
-                  index < properties.length - 1
-                    ? () => onPropertyMove(property.definition.id, "right")
-                    : undefined
+                onPointerDown={(event) =>
+                  startPropertyPointerDrag(property.definition.id, event)
                 }
                 onResize={(event) =>
                   onResizeColumn(
@@ -2484,6 +2598,17 @@ function DatabaseTableView({
                 actionColumnWidth={actionColumnWidth}
               />
             ) : null}
+            <DatabaseTableFooter
+              properties={properties}
+              items={items}
+              totalCount={totalCount}
+              constrained={constrained}
+              columnWidths={columnWidths}
+              canEdit={canEdit}
+              calculations={calculations}
+              actionColumnWidth={actionColumnWidth}
+              onCalculationChange={onCalculationChange}
+            />
           </>
         )}
       </div>
@@ -3474,6 +3599,7 @@ function DatabaseTableFooter({
   columnWidths,
   canEdit,
   calculations,
+  actionColumnWidth = ACTION_COLUMN_WIDTH,
   onCalculationChange,
 }: {
   properties: DocumentProperty[];
@@ -3483,6 +3609,7 @@ function DatabaseTableFooter({
   columnWidths: Record<string, number>;
   canEdit: boolean;
   calculations: Record<string, DatabaseColumnCalculation>;
+  actionColumnWidth?: number;
   onCalculationChange: (
     key: ColumnKey,
     calculation: DatabaseColumnCalculation | null,
@@ -3492,41 +3619,51 @@ function DatabaseTableFooter({
 
   return (
     <div
-      className="grid border-b border-border/40 text-xs text-muted-foreground/60"
+      className="group/footer grid border-b border-border/30 bg-background text-xs text-muted-foreground/55"
       style={{
         gridTemplateColumns: databaseGridColumns(
           properties,
           canEdit,
           columnWidths,
+          actionColumnWidth,
         ),
       }}
     >
-      <div className="flex h-7 min-w-0 items-center border-r border-border/40 px-2">
+      <div className="flex h-6 min-w-0 items-center border-r border-border/30 px-2">
         {databaseResultCountLabel(items.length, totalCount, constrained)}
       </div>
       {properties.map((property) => {
         const calculation = calculations[property.definition.id] ?? null;
         const result = calculation
           ? databaseColumnCalculationResult(calculation, items, property)
-          : "Calculate";
+          : null;
         const options = databaseCalculationOptionsForProperty(property);
         return (
           <div
             key={property.definition.id}
-            className="flex h-7 min-w-0 items-center border-r border-border/40 px-1"
+            className="flex h-6 min-w-0 items-center border-r border-border/30 px-1"
           >
             {canEdit ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
+                    aria-label={`Calculate ${property.definition.name}`}
                     className={cn(
-                      "flex h-7 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      !calculation && "text-muted-foreground/70",
+                      "flex h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      calculation
+                        ? "text-muted-foreground/70"
+                        : "justify-center text-muted-foreground/35 opacity-0 transition-opacity group-hover/footer:opacity-100 focus-visible:opacity-100",
                     )}
                   >
-                    <span className="truncate">{result}</span>
-                    <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-60" />
+                    {result ? (
+                      <>
+                        <span className="truncate">{result}</span>
+                        <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-55" />
+                      </>
+                    ) : (
+                      <IconPlus className="size-3.5" />
+                    )}
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
@@ -3564,7 +3701,7 @@ function DatabaseTableFooter({
           </div>
         );
       })}
-      {canEdit ? <div className="h-7" /> : null}
+      {canEdit ? <div className="h-6" /> : null}
     </div>
   );
 }
@@ -6357,7 +6494,7 @@ function NewDatabaseRow({
       aria-label="New database row"
       disabled={disabled}
       className={cn(
-        "grid w-full text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+        "grid w-full border-t border-border/45 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
         databaseTableRowDensityClass(rowDensity),
       )}
       style={{
@@ -6372,7 +6509,7 @@ function NewDatabaseRow({
     >
       <span
         className={cn(
-          "flex min-w-0 items-center gap-2 border-r border-border/60",
+          "flex min-w-0 items-center gap-2 border-r border-border/45",
           databaseTableCellDensityClass(rowDensity),
         )}
       >
@@ -6386,7 +6523,7 @@ function NewDatabaseRow({
       {properties.map((property) => (
         <span
           key={property.definition.id}
-          className="border-r border-border/60 last:border-r-0"
+          className="border-r border-border/45 last:border-r-0"
         />
       ))}
       <span />
@@ -6675,6 +6812,31 @@ export function moveDatabaseView(
   const target = views[targetIndex];
   views[targetIndex] = views[index];
   views[index] = target;
+  return normalizeClientDatabaseViewConfig({
+    ...normalized,
+    views,
+    activeViewId: normalized.activeViewId,
+  });
+}
+
+export function reorderDatabaseView(
+  config: ContentDatabaseViewConfig,
+  sourceViewId: string,
+  targetViewId: string,
+) {
+  const normalized = normalizeClientDatabaseViewConfig(config);
+  if (sourceViewId === targetViewId) return normalized;
+  const sourceIndex = normalized.views.findIndex(
+    (view) => view.id === sourceViewId,
+  );
+  const targetIndex = normalized.views.findIndex(
+    (view) => view.id === targetViewId,
+  );
+  if (sourceIndex < 0 || targetIndex < 0) return normalized;
+
+  const views = [...normalized.views];
+  const [source] = views.splice(sourceIndex, 1);
+  views.splice(targetIndex, 0, source);
   return normalizeClientDatabaseViewConfig({
     ...normalized,
     views,
@@ -7015,6 +7177,40 @@ export function moveDatabaseViewProperty(
   const nextOrder = [...allIds];
   nextOrder[currentIndex] = targetId;
   nextOrder[targetIndex] = propertyId;
+  return { ...view, propertyOrderIds: nextOrder };
+}
+
+export function reorderDatabaseViewProperty(
+  view: ContentDatabaseView,
+  sourcePropertyId: string,
+  targetPropertyId: string,
+  properties: {
+    allProperties: DocumentProperty[];
+    visibleProperties: DocumentProperty[];
+  },
+): ContentDatabaseView {
+  if (sourcePropertyId === targetPropertyId) return view;
+  const visibleIds = properties.visibleProperties.map(
+    (property) => property.definition.id,
+  );
+  if (
+    !visibleIds.includes(sourcePropertyId) ||
+    !visibleIds.includes(targetPropertyId)
+  ) {
+    return view;
+  }
+
+  const allIds = orderDatabasePropertiesForView(
+    properties.allProperties,
+    view,
+  ).map((property) => property.definition.id);
+  const sourceIndex = allIds.indexOf(sourcePropertyId);
+  const targetIndex = allIds.indexOf(targetPropertyId);
+  if (sourceIndex < 0 || targetIndex < 0) return view;
+
+  const nextOrder = [...allIds];
+  const [source] = nextOrder.splice(sourceIndex, 1);
+  nextOrder.splice(targetIndex, 0, source);
   return { ...view, propertyOrderIds: nextOrder };
 }
 
@@ -7612,7 +7808,10 @@ function DatabaseViewTabs({
   const [openViewMenuId, setOpenViewMenuId] = useState<string | null>(null);
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
+  const [dropTargetViewId, setDropTargetViewId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const suppressViewClickRef = useRef(false);
 
   useEffect(() => {
     if (!renameViewId) return;
@@ -7645,27 +7844,112 @@ function DatabaseViewTabs({
     setRenameValue("");
   }
 
+  function clearDraggedView() {
+    setDraggedViewId(null);
+    setDropTargetViewId(null);
+  }
+
+  function startViewPointerDrag(
+    viewId: string,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    if (!canEdit || normalized.views.length <= 1) return;
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+
+    function viewIdFromPoint(clientX: number, clientY: number) {
+      const element = globalThis.document.elementFromPoint(clientX, clientY);
+      const tab = element?.closest<HTMLElement>("[data-database-view-id]");
+      return tab?.dataset.databaseViewId ?? null;
+    }
+
+    function beginDrag() {
+      dragging = true;
+      suppressViewClickRef.current = true;
+      setDraggedViewId(viewId);
+      setDropTargetViewId(null);
+      setOpenViewMenuId(null);
+      globalThis.document.body.style.userSelect = "none";
+      globalThis.document.body.style.cursor = "grabbing";
+    }
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (
+        !dragging &&
+        !databaseDragMoved(startX, startY, moveEvent.clientX, moveEvent.clientY)
+      ) {
+        return;
+      }
+      if (!dragging) beginDrag();
+      moveEvent.preventDefault();
+      const targetViewId = viewIdFromPoint(
+        moveEvent.clientX,
+        moveEvent.clientY,
+      );
+      setDropTargetViewId(
+        targetViewId && targetViewId !== viewId ? targetViewId : null,
+      );
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      globalThis.document.body.style.userSelect = "";
+      globalThis.document.body.style.cursor = "";
+      globalThis.document.removeEventListener("pointermove", handlePointerMove);
+      globalThis.document.removeEventListener("pointerup", handlePointerUp);
+
+      if (dragging) {
+        suppressNextDocumentClick();
+        globalThis.setTimeout(() => {
+          suppressViewClickRef.current = false;
+        }, 50);
+        const targetViewId = viewIdFromPoint(upEvent.clientX, upEvent.clientY);
+        if (targetViewId && targetViewId !== viewId) {
+          onViewConfigChange(
+            reorderDatabaseView(normalized, viewId, targetViewId),
+          );
+        }
+      }
+
+      clearDraggedView();
+    };
+
+    globalThis.document.addEventListener("pointermove", handlePointerMove);
+    globalThis.document.addEventListener("pointerup", handlePointerUp);
+  }
+
   return (
     <div className="group/viewtabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {normalized.views.map((view) => {
         const active = view.id === normalized.activeViewId;
         const ViewIcon = databaseViewIcon(view.type);
-        const viewIndex = normalized.views.findIndex(
-          (candidate) => candidate.id === view.id,
-        );
         const tabButton = (
           <button
             type="button"
+            data-database-view-id={view.id}
             aria-label={
               active && canEdit ? `${view.name} view menu` : view.name
             }
             className={cn(
               "flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              canEdit &&
+                normalized.views.length > 1 &&
+                "cursor-grab active:cursor-grabbing",
               active
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              draggedViewId === view.id && "opacity-45",
+              dropTargetViewId === view.id &&
+                draggedViewId !== view.id &&
+                "ring-1 ring-inset ring-ring",
             )}
-            onClick={() => {
+            onClick={(event) => {
+              if (suppressViewClickRef.current) {
+                event.preventDefault();
+                suppressViewClickRef.current = false;
+                return;
+              }
               if (!active) {
                 onViewConfigChange(selectDatabaseView(normalized, view.id));
               }
@@ -7675,6 +7959,7 @@ function DatabaseViewTabs({
               event.preventDefault();
               setOpenViewMenuId(view.id);
             }}
+            onPointerDown={(event) => startViewPointerDrag(view.id, event)}
           >
             <ViewIcon
               className={cn(
@@ -7782,31 +8067,6 @@ function DatabaseViewTabs({
                   >
                     <IconCopy className="mr-2 size-4 text-muted-foreground" />
                     Duplicate view
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={viewIndex <= 0}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onViewConfigChange(
-                        moveDatabaseView(normalized, view.id, "left"),
-                      );
-                    }}
-                  >
-                    <IconArrowLeft className="mr-2 size-4 text-muted-foreground" />
-                    Move left
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={viewIndex >= normalized.views.length - 1}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onViewConfigChange(
-                        moveDatabaseView(normalized, view.id, "right"),
-                      );
-                    }}
-                  >
-                    <IconArrowRight className="mr-2 size-4 text-muted-foreground" />
-                    Move right
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -7953,11 +8213,12 @@ function DatabaseNameHeader({
   const partiallySelected = selectedCount > 0 && !allSelected;
 
   return (
-    <div className="group flex h-8 min-w-0 items-center border-r border-border/60 px-1">
+    <div className="group flex h-8 min-w-0 items-center border-r border-border/45 px-1">
       <DatabaseRowSelectionControl
         checked={allSelected}
         indeterminate={partiallySelected}
         disabled={selectableCount === 0}
+        quietUntilHover={selectedCount === 0}
         label={
           allSelected
             ? "Clear selected rows"
@@ -8023,7 +8284,7 @@ function DatabaseSelectionBar({
   onDeleteSelected: () => void;
 }) {
   return (
-    <div className="flex h-9 items-center justify-between gap-2 border-t border-border bg-muted/30 px-2 text-xs text-muted-foreground">
+    <div className="flex h-8 items-center justify-between gap-2 border-y border-border/45 bg-muted/20 px-2 text-xs text-muted-foreground">
       <span className="font-medium text-foreground">
         {selectedCount} selected
       </span>
@@ -8569,15 +8830,19 @@ function DatabaseRowSelectionControl({
   checked,
   indeterminate = false,
   disabled = false,
+  quietUntilHover = false,
   label,
   onToggle,
 }: {
   checked: boolean;
   indeterminate?: boolean;
   disabled?: boolean;
+  quietUntilHover?: boolean;
   label: string;
   onToggle: () => void;
 }) {
+  const quiet = quietUntilHover && !checked && !indeterminate;
+
   return (
     <button
       type="button"
@@ -8586,8 +8851,10 @@ function DatabaseRowSelectionControl({
       aria-label={label}
       disabled={disabled}
       className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30",
+        "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30",
         (checked || indeterminate) && "text-foreground",
+        quiet &&
+          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100",
       )}
       onClick={(event) => {
         event.stopPropagation();
@@ -8617,25 +8884,27 @@ function DatabasePropertyHeader({
   property,
   documentId,
   canEdit,
+  isDragging,
+  isDropTarget,
   sorts,
   filters,
   onSortsChange,
   onFiltersChange,
   onHide,
-  onMoveLeft,
-  onMoveRight,
+  onPointerDown,
   onResize,
 }: {
   property: DocumentProperty;
   documentId: string;
   canEdit: boolean;
+  isDragging: boolean;
+  isDropTarget: boolean;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onHide?: () => void;
-  onMoveLeft?: () => void;
-  onMoveRight?: () => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
@@ -8646,7 +8915,19 @@ function DatabasePropertyHeader({
   );
 
   return (
-    <div className="group flex h-8 min-w-0 items-center border-r border-border/60 px-1">
+    <div
+      data-database-property-id={property.definition.id}
+      className={cn(
+        "group flex h-8 min-w-0 items-center border-r border-border/45 px-1 transition-colors",
+        canEdit && "cursor-grab active:cursor-grabbing",
+        isDragging && "opacity-45",
+        isDropTarget && "bg-accent/50 ring-1 ring-inset ring-ring/50",
+      )}
+      onPointerDown={onPointerDown}
+    >
+      {canEdit ? (
+        <IconGripVertical className="mr-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
+      ) : null}
       {canEdit ? (
         <PropertyManagementPopover
           property={property}
@@ -8680,8 +8961,6 @@ function DatabasePropertyHeader({
           onSortsChange={onSortsChange}
           onFiltersChange={onFiltersChange}
           onHide={canEdit ? onHide : undefined}
-          onMoveLeft={canEdit ? onMoveLeft : undefined}
-          onMoveRight={canEdit ? onMoveRight : undefined}
         />
       </DropdownMenu>
       <ColumnResizeHandle
@@ -8734,6 +9013,7 @@ function ColumnResizeHandle({
     <button
       type="button"
       aria-label={label}
+      data-column-resize-handle=""
       className="-mr-1 h-full w-2 cursor-col-resize rounded-sm opacity-0 transition-opacity hover:bg-primary/60 hover:opacity-100 focus-visible:bg-primary/60 focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-60"
       onPointerDown={onPointerDown}
     />
@@ -8749,8 +9029,6 @@ function ColumnHeaderMenuContent({
   onSortsChange,
   onFiltersChange,
   onHide,
-  onMoveLeft,
-  onMoveRight,
   hideDisabled,
 }: {
   columnKey: ColumnKey;
@@ -8761,8 +9039,6 @@ function ColumnHeaderMenuContent({
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onHide?: () => void | Promise<void>;
-  onMoveLeft?: () => void;
-  onMoveRight?: () => void;
   hideDisabled?: boolean;
 }) {
   const columnSort = sorts.find((sort) => sort.key === columnKey) ?? null;
@@ -8845,26 +9121,6 @@ function ColumnHeaderMenuContent({
       {onHide ? (
         <>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={!onMoveLeft}
-            onSelect={(event) => {
-              event.preventDefault();
-              onMoveLeft?.();
-            }}
-          >
-            <IconArrowLeft className="mr-2 size-4 text-muted-foreground" />
-            Move left
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!onMoveRight}
-            onSelect={(event) => {
-              event.preventDefault();
-              onMoveRight?.();
-            }}
-          >
-            <IconArrowRight className="mr-2 size-4 text-muted-foreground" />
-            Move right
-          </DropdownMenuItem>
           <DropdownMenuItem
             disabled={hideDisabled}
             onSelect={(event) => {
@@ -10487,9 +10743,9 @@ function DatabaseTableRow({
   return (
     <div
       className={cn(
-        "group grid border-t border-border transition-colors",
+        "group grid border-t border-border/45 transition-colors",
         databaseTableRowDensityClass(rowDensity),
-        selected && "bg-muted/30",
+        selected && "bg-muted/20",
         isDragging && "opacity-50",
         isDropTarget && "bg-accent/50 ring-1 ring-inset ring-ring/50",
       )}
@@ -10544,7 +10800,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 border-r border-border last:border-r-0 hover:bg-muted/40",
+              "flex min-w-0 border-r border-border/55 last:border-r-0 hover:bg-muted/30",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -10854,13 +11110,14 @@ function RowNameCell({
   return (
     <div
       className={cn(
-        "group/name flex min-w-0 gap-1 border-r border-border hover:bg-muted/40",
+        "group group/name flex min-w-0 gap-1 border-r border-border/55 hover:bg-muted/30",
         databaseRowNameCellDensityClass(rowDensity),
         wrapCells ? "items-start" : "items-center",
       )}
     >
       <DatabaseRowSelectionControl
         checked={selected}
+        quietUntilHover
         label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
         onToggle={onToggleSelected}
       />
