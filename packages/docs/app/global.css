@@ -190,6 +190,12 @@ body {
   text-align: left;
 }
 
+.template-detail-cta-actions > :where(a, button) {
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+}
+
 [data-template-cli-copy] {
   width: 100%;
   max-width: 100%;
@@ -210,6 +216,12 @@ body {
   [data-template-cli-copy] {
     width: auto;
     max-width: min(100%, 36rem);
+  }
+}
+
+@media (max-width: 639px) {
+  .template-detail-page > section:not(:first-child) {
+    padding-block: 3rem;
   }
 }
 
