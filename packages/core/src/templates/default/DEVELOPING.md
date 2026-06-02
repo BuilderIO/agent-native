@@ -80,7 +80,8 @@ export default defineNitroPlugin(async (nitroApp) => {
 | `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
 | `readResource`, `writeResource`              | Read/write resources (from `@agent-native/core/resources`)                 |
 | `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
+| `sendToAgentChat`                            | Send or prefill messages in the agent chat from UI (client-side)           |
+| `setContextToAgentChat`                      | Stage keyed context chips for the next agent chat prompt from UI           |
 | `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 ## Adding a Script
@@ -101,6 +102,19 @@ sendToAgentChat({
 });
 ```
 
+To add hidden context without submitting or filling the prompt text, stage
+keyed context nuggets. Multiple nuggets stack; using the same `key` replaces the
+previous nugget.
+
+```ts
+import { setContextToAgentChat } from "@agent-native/core";
+setContextToAgentChat({
+  key: "selected-record",
+  title: "Selected Record",
+  context: JSON.stringify(record, null, 2),
+});
+```
+
 **From scripts:**
 
 ```ts
@@ -110,12 +124,14 @@ agentChat.submit("Generate something");
 
 ## Database
 
-By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
+Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
-| Variable              | Required         | Description                                                |
-| --------------------- | ---------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
+When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
+
+| Variable              | Required                        | Description                                                                |
+| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
+| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
 
 ## Tech Stack
 

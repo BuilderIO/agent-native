@@ -5,17 +5,17 @@ import type {
 } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
-  getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
-  hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
+import { getDbExec } from "@agent-native/core/db";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarFreeBusy,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
@@ -397,6 +397,21 @@ async function resolveAccountPhotoUrl(
   }
 }
 
+async function getBetterAuthUserImage(
+  email: string | undefined,
+): Promise<string | undefined> {
+  if (!email) return undefined;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT image FROM "user" WHERE email = ? LIMIT 1',
+      args: [email],
+    });
+    return optionalString(rows[0]?.image);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getClient(
   email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
@@ -486,6 +501,31 @@ export async function getConnectedAccounts(
   if (!forEmail) return [];
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   return accounts.map((a) => a.accountId);
+}
+
+export async function getPrimaryAccountPhotoUrl(
+  forEmail?: string,
+): Promise<string | undefined> {
+  if (!forEmail) return undefined;
+  const fallbackUserImage = await getBetterAuthUserImage(forEmail);
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const account = accounts.find((a) => a.accountId === forEmail) ?? accounts[0];
+  if (!account) return fallbackUserImage;
+
+  const tokens = account.tokens as unknown as GoogleTokens;
+  const cachedPhotoUrl = optionalString(tokens.photoUrl);
+  if (cachedPhotoUrl) return cachedPhotoUrl;
+
+  try {
+    const accessToken = await getValidAccessToken(
+      account.accountId,
+      tokens,
+      forEmail,
+    );
+    return (await resolveAccountPhotoUrl(accessToken)) ?? fallbackUserImage;
+  } catch {
+    return fallbackUserImage;
+  }
 }
 
 export async function getAuthStatus(
@@ -656,6 +696,105 @@ export async function listEvents(
   );
 
   return { events: allResults.flat(), errors };
+}
+
+export async function getFreeBusy(
+  timeMin: string,
+  timeMax: string,
+  calendarIds: string[],
+  forEmail?: string,
+  timeZone?: string,
+  accountEmail?: string,
+): Promise<{
+  calendars: Record<
+    string,
+    {
+      busy: Array<{ start: string; end: string }>;
+      errors?: Array<{ domain?: string; reason?: string }>;
+    }
+  >;
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const ids = Array.from(
+    new Set(
+      calendarIds
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0)
+        .map((id) => id.toLowerCase()),
+    ),
+  );
+  if (ids.length === 0) return { calendars: {}, errors: [] };
+
+  const { clients, errors } = await getClientsWithErrors(forEmail);
+  if (clients.length === 0) return { calendars: {}, errors };
+  const selectedAccount = accountEmail?.trim().toLowerCase();
+  const client = selectedAccount
+    ? clients.find((entry) => entry.email.toLowerCase() === selectedAccount)
+    : clients[0];
+  if (!client) {
+    return {
+      calendars: {},
+      errors: [
+        ...errors,
+        {
+          email: accountEmail ?? "google",
+          error: "Selected Google account is not connected.",
+        },
+      ],
+    };
+  }
+
+  try {
+    const response = await calendarFreeBusy(client.accessToken, {
+      timeMin,
+      timeMax,
+      timeZone,
+      items: ids.map((id) => ({ id })),
+    });
+    const calendars = (response.calendars ?? {}) as Record<
+      string,
+      {
+        busy?: Array<{ start: string; end: string }>;
+        errors?: Array<{ domain?: string; reason?: string }>;
+      }
+    >;
+    const normalized: Record<
+      string,
+      {
+        busy: Array<{ start: string; end: string }>;
+        errors?: Array<{ domain?: string; reason?: string }>;
+      }
+    > = {};
+    const calendarErrors: Array<{ email: string; error: string }> = [];
+
+    for (const id of ids) {
+      const calendar = calendars[id] ?? calendars[id.toLowerCase()];
+      const calendarError = calendar?.errors
+        ?.map((error) => error.reason || error.domain)
+        .filter(Boolean)
+        .join(", ");
+      normalized[id] = {
+        busy: calendar?.busy ?? [],
+        errors: calendar?.errors,
+      };
+      if (calendarError) {
+        calendarErrors.push({ email: id, error: calendarError });
+      }
+    }
+
+    return { calendars: normalized, errors: [...errors, ...calendarErrors] };
+  } catch (error: any) {
+    return {
+      calendars: {},
+      errors: [
+        ...errors,
+        {
+          email: accountEmail ?? forEmail ?? "google",
+          error: error?.message || "Unable to load Google free/busy data",
+        },
+      ],
+    };
+  }
 }
 
 export async function listOverlayEvents(
@@ -1133,6 +1272,7 @@ async function rsvpSingleEvent(
   eventId: string,
   responseStatus: string,
   accountEmail: string,
+  comment?: string,
   sendUpdates?: string,
 ): Promise<void> {
   await calendarPatchEvent(
@@ -1140,7 +1280,13 @@ async function rsvpSingleEvent(
     "primary",
     eventId,
     {
-      attendees: [{ email: accountEmail, responseStatus }],
+      attendees: [
+        {
+          email: accountEmail,
+          responseStatus,
+          ...(comment !== undefined ? { comment } : {}),
+        },
+      ],
       attendeesOmitted: true,
     },
     { sendUpdates: sendUpdates ?? "none" },
@@ -1156,6 +1302,7 @@ export async function rsvpEvent(
   responseStatus: "accepted" | "declined" | "tentative",
   accountEmail: string,
   scope: "single" | "all" | "thisAndFollowing" = "single",
+  comment?: string,
   sendUpdates?: string,
 ): Promise<void> {
   const client = await getClient(accountEmail);
@@ -1169,6 +1316,7 @@ export async function rsvpEvent(
       googleEventId,
       responseStatus,
       accountEmail,
+      comment,
       sendUpdates,
     );
     return;
@@ -1190,6 +1338,7 @@ export async function rsvpEvent(
       recurringEventId,
       responseStatus,
       accountEmail,
+      comment,
       sendUpdates,
     );
     return;
@@ -1224,6 +1373,7 @@ export async function rsvpEvent(
         e.id,
         responseStatus,
         accountEmail,
+        comment,
         sendUpdates,
       ),
     ),

@@ -17,7 +17,6 @@ import {
   IconPointer,
   IconClick,
   IconChevronRight,
-  IconMouse,
 } from "@tabler/icons-react";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import {
@@ -450,7 +449,7 @@ export const CurrentElementPanel: React.FC = () => {
       if (propertyName === "borderColor") {
         return "#9ca3af"; // neutral gray
       }
-    } catch (e) {
+    } catch {
       // Fallback to config defaults
     }
     return null;

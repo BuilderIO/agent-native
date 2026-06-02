@@ -1,9 +1,10 @@
 import BookingPage from "@/pages/BookingPage";
 import { Spinner } from "@/components/ui/spinner";
+import { bookingOgLoader, bookingOgMeta } from "./booking-og-meta";
 
-export function meta() {
-  return [{ title: "Book a Meeting" }];
-}
+export const loader = bookingOgLoader;
+
+export const meta = bookingOgMeta;
 
 export function HydrateFallback() {
   return (
@@ -14,7 +15,6 @@ export function HydrateFallback() {
 }
 
 // Public booking page — no AppLayout wrapper.
-// Future: add a server loader here for og tags/SEO when needed.
 export default function BookingRoute() {
   return <BookingPage />;
 }

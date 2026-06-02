@@ -4,6 +4,8 @@ description: >-
   Agent observability, evals, feedback, and experiments. Use when adding
   observability dashboards, configuring trace capture, setting up evals,
   creating A/B experiments, or collecting user feedback on agent responses.
+metadata:
+  internal: true
 ---
 
 # Agent Observability
@@ -78,17 +80,25 @@ const criteria: EvalCriteria = {
 A/B testing with sticky user-level assignment:
 
 ```ts
-import { createExperiment, startExperiment } from "@agent-native/core/observability";
+import { insertExperiment, updateExperiment } from "@agent-native/core/observability";
 
-const exp = await createExperiment({
+const exp = {
+  id: crypto.randomUUID(),
   name: "sonnet-vs-haiku",
+  status: "draft" as const,
   variants: [
     { id: "control", weight: 50, config: { model: "claude-sonnet-4-6" } },
     { id: "treatment", weight: 50, config: { model: "claude-haiku-4-5-20251001" } },
   ],
   metrics: ["cost", "latency", "satisfaction"],
-});
-await startExperiment(exp.id);
+  assignmentLevel: "user" as const,
+  startedAt: null,
+  endedAt: null,
+  createdAt: Date.now(),
+};
+await insertExperiment(exp);
+// Move it to "running" when ready to start collecting assignments.
+await updateExperiment(exp.id, { status: "running" });
 ```
 
 The agent loop reads active experiments via `resolveActiveExperimentConfig()` and applies the variant's `model` override automatically. Assignment uses consistent hashing — same user always gets the same variant.

@@ -8,6 +8,7 @@ import {
   archiveDashboard,
   unarchiveDashboard,
 } from "../server/lib/dashboards-store";
+import { cliBoolean } from "./schema-helpers";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -19,15 +20,14 @@ function resolveScope() {
 export default defineAction({
   description:
     "Archive (soft-delete) or restore a saved dashboard by ID. Archived dashboards " +
-    "stay in the database but are hidden from the default sidebar list. They can be " +
-    "restored from the sidebar's Archived section or by re-running this action with " +
-    "`archived: false`. Use this instead of `delete-dashboard` when the user might " +
-    "want the dashboard back later — only use a hard delete when the user explicitly " +
-    "asks to remove a dashboard permanently.",
+    "stay in the database but are hidden from dashboard lists. There is no explicit " +
+    "restore UI; restore them by running this action with `archived: false`. Use " +
+    "this instead of `delete-dashboard` when the user might want the dashboard back " +
+    "later — only use a hard delete when the user explicitly asks to remove a " +
+    "dashboard permanently.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
-    archived: z
-      .boolean()
+    archived: cliBoolean
       .optional()
       .default(true)
       .describe(
@@ -49,7 +49,7 @@ export default defineAction({
       name: dash.title,
       archivedAt: dash.archivedAt,
       message: args.archived
-        ? `Dashboard "${dash.title}" archived. Restore via the sidebar's Archived section, or run archive-dashboard with archived:false.`
+        ? `Dashboard "${dash.title}" archived. Ask the agent in chat to restore it if needed.`
         : `Dashboard "${dash.title}" restored.`,
     };
   },

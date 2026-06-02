@@ -23,7 +23,7 @@ export function meta() {
  *
  * We preserve `?` and `#` so deep-links like `?thread=<id>` from a Slack
  * "Open thread" button survive the bounce — `useThreadDeepLink` in
- * `root.tsx` reads them after the redirect lands on `/overview`.
+ * `root.tsx` reads them after the redirect lands and opens `/chat`.
  */
 function buildTarget(request: Request): string {
   const url = new URL(request.url);

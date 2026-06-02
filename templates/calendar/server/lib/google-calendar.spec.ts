@@ -8,7 +8,9 @@ const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
 const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
+const dbExecuteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
@@ -23,6 +25,10 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   hasOAuthTokens: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ execute: dbExecuteMock }),
+}));
+
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: createOAuth2ClientMock,
   oauth2GetUserInfo: oauth2GetUserInfoMock,
@@ -32,9 +38,17 @@ vi.mock("./google-api.js", () => ({
   calendarInsertEvent: vi.fn(),
   calendarDeleteEvent: vi.fn(),
   calendarPatchEvent: calendarPatchEventMock,
+  calendarFreeBusy: calendarFreeBusyMock,
 }));
 
-import { exchangeCode, getAuthStatus, updateEvent } from "./google-calendar";
+import {
+  exchangeCode,
+  getAuthStatus,
+  getFreeBusy,
+  getPrimaryAccountPhotoUrl,
+  rsvpEvent,
+  updateEvent,
+} from "./google-calendar";
 
 describe("calendar Google auth status", () => {
   beforeEach(() => {
@@ -50,6 +64,7 @@ describe("calendar Google auth status", () => {
         },
       },
     ]);
+    dbExecuteMock.mockResolvedValue({ rows: [] });
   });
 
   it("uses the OAuth userinfo picture for account avatars", async () => {
@@ -113,6 +128,34 @@ describe("calendar Google auth status", () => {
       "owner@example.com",
     );
   });
+
+  it("returns the primary Google account photo for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+          photoUrl: "https://lh3.googleusercontent.com/a/photo",
+        },
+      },
+    ]);
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/photo",
+    );
+  });
+
+  it("falls back to Better Auth user image for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    dbExecuteMock.mockResolvedValue({
+      rows: [{ image: "https://lh3.googleusercontent.com/a/auth-photo" }],
+    });
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/auth-photo",
+    );
+  });
 });
 
 describe("calendar recurring event updates", () => {
@@ -166,6 +209,113 @@ describe("calendar recurring event updates", () => {
         end: { dateTime: "2026-05-06T17:00:00Z" },
       }),
       expect.any(Object),
+    );
+  });
+});
+
+describe("calendar RSVP updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("includes the attendee response note when RSVP-ing", async () => {
+    await rsvpEvent(
+      "event-1",
+      "declined",
+      "steve@example.com",
+      "single",
+      "I have a conflict",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "declined",
+            comment: "I have a conflict",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+    );
+  });
+
+  it("sends an empty comment so an RSVP note can be cleared", async () => {
+    await rsvpEvent("event-1", "accepted", "steve@example.com", "single", "");
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+            comment: "",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+    );
+  });
+});
+
+describe("calendar free/busy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "primary@example.com",
+        tokens: {
+          access_token: "primary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "secondary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarFreeBusyMock.mockResolvedValue({
+      calendars: { "secondary@example.com": { busy: [] } },
+    });
+  });
+
+  it("uses the selected organizer account for free/busy lookup", async () => {
+    await getFreeBusy(
+      "2026-05-28T16:00:00Z",
+      "2026-05-28T18:00:00Z",
+      ["secondary@example.com"],
+      "owner@example.com",
+      "America/Los_Angeles",
+      "secondary@example.com",
+    );
+
+    expect(calendarFreeBusyMock).toHaveBeenCalledWith(
+      "secondary-token",
+      expect.objectContaining({
+        timeZone: "America/Los_Angeles",
+        items: [{ id: "secondary@example.com" }],
+      }),
     );
   });
 });

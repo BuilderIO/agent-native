@@ -10,9 +10,9 @@
  *   - `@source` directives so Tailwind scans @agent-native/core's compiled
  *     client files for class names (AgentPanel, AssistantChat, onboarding, etc.)
  *   - `@custom-variant dark` for the `.dark` class-based dark-mode strategy
- *   - shadcn/ui-compatible `@theme` color tokens that resolve from raw HSL
- *     CSS variables (--background, --foreground, --muted, …) defined per
- *     template in `:root`/`.dark` (or `.light`).
+ *   - shadcn/ui-compatible `@theme inline` color tokens so utilities resolve
+ *     `hsl(var(--background))` at use time (required for `.dark`, `.light`, and
+ *     other scoped overrides on subtrees).
  *   - Full shadcn/ui animation utilities via tw-animate-css (animate-in,
  *     animate-out, fade, zoom, slide, spin) plus accordion keyframes.
  *   - The official typography plugin.
@@ -39,7 +39,7 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
-@theme {
+@theme inline {
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));

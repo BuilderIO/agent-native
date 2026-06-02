@@ -15,7 +15,16 @@ import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import { resolveEmbedSessionFromRequest } from "./embed-session.js";
+import {
+  resolveEmbedSessionFromRequest,
+  requestHasEmbedAuthMarker,
+} from "./embed-session.js";
+import {
+  EMBED_TRANSPLANT_HEADER,
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -80,9 +89,9 @@ import {
 } from "./desktop-sso.js";
 import {
   isElectron as isElectronRequest,
-  getOrigin,
   getAppBasePath,
   getAppUrl,
+  getOrigin,
   encodeOAuthState,
   decodeOAuthState,
   createOAuthSession,
@@ -95,6 +104,13 @@ import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -132,7 +148,7 @@ export interface AuthSession {
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
-  /** Active organization ID (from Better Auth organization plugin) */
+  /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
   orgRole?: string;
@@ -264,7 +280,7 @@ export interface AuthOptions {
  *
  * Browsers scope cookies by host (NOT host+port — RFC 6265), so two apps
  * running on different localhost ports share one cookie jar. When multiple
- * templates run side-by-side (`dev:all`, the desktop app, multi-template
+ * templates run side-by-side (eager repo dev, the desktop app, multi-template
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
@@ -528,7 +544,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const url = event.node?.req?.url ?? event.path ?? "/";
   const queryStart = url.indexOf("?");
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-  return config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  const loginHtml =
+    config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
 }
 
 /**
@@ -651,20 +669,6 @@ function getAccessTokens(): string[] {
     }
   }
   return tokens;
-}
-
-function safeTokenMatch(input: string, tokens: string[]): boolean {
-  const inputBuf = Buffer.from(input);
-  for (const token of tokens) {
-    const tokenBuf = Buffer.from(token);
-    if (
-      inputBuf.length === tokenBuf.length &&
-      crypto.timingSafeEqual(inputBuf, tokenBuf)
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function getBearerSessionToken(event: H3Event): string | undefined {
@@ -879,6 +883,7 @@ function getOnboardingHtmlOptions(
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
+    requestOrigin: event ? getOrigin(event) : undefined,
   };
 }
 
@@ -1131,14 +1136,31 @@ function applyCorsHeaders(event: H3Event): {
   // rather than "unauthenticated").
   const origin = getHeader(event, "origin");
   if (!origin) return { hasOrigin: false, allowed: true };
+  const requestedHeaders = String(
+    getHeader(event, "access-control-request-headers") ?? "",
+  )
+    .toLowerCase()
+    .split(",")
+    .map((header) => header.trim());
+  const mcpEmbedCorsRequest =
+    isMcpEmbedCorsOrigin(origin) &&
+    (requestHasEmbedAuthMarker(event) ||
+      requestedHeaders.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+      requestedHeaders.includes(EMBED_TRANSPLANT_HEADER) ||
+      Boolean(getHeader(event, EMBED_TARGET_HEADER)) ||
+      Boolean(getHeader(event, EMBED_TRANSPLANT_HEADER)) ||
+      Boolean(getHeader(event, "authorization")));
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
     allowLocalhostWhenNoAllowlist: true,
   });
-  if (!allowedOrigin) return { hasOrigin: true, allowed: false };
-  setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+  const responseOrigin = mcpEmbedCorsRequest ? origin : allowedOrigin;
+  if (!responseOrigin) return { hasOrigin: true, allowed: false };
+  setResponseHeader(event, "Access-Control-Allow-Origin", responseOrigin);
   setResponseHeader(event, "Vary", "Origin");
-  setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+  if (!mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin)) {
+    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+  }
   setResponseHeader(
     event,
     "Access-Control-Allow-Methods",
@@ -1147,14 +1169,17 @@ function applyCorsHeaders(event: H3Event): {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "X-Request-Source",
-      "X-Agent-Native-CSRF",
-      EMBED_TARGET_HEADER,
-    ].join(","),
+    mcpEmbedCorsRequest
+      ? MCP_EMBED_CORS_ALLOW_HEADERS
+      : [
+          "Content-Type",
+          "Authorization",
+          "X-Requested-With",
+          "X-Request-Source",
+          "X-Agent-Native-CSRF",
+          "X-User-Timezone",
+          EMBED_TARGET_HEADER,
+        ].join(","),
   );
   return { hasOrigin: true, allowed: true };
 }
@@ -1268,18 +1293,18 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
             BUILDER_STATE_PARAM,
           )
         : null;
-    // The signed `_an_state` only authenticates the popup back to our app
-    // when the redirect chain through Builder dropped the session cookie
-    // (preview hosts, third-party-cookie blockers, etc). It is NOT a
-    // bearer credential that should let *any* request through. We bypass
-    // the auth guard only when no session exists (the legitimate
-    // session-lost popup case) — when a session IS present, the normal
-    // guard runs and the callback handler cross-checks the state owner
-    // against the session.
+    // The signed `_an_state` authenticates this specific Builder callback
+    // flow back to our app. A stale localhost session cookie can otherwise
+    // make the global guard reject the callback before the handler gets to
+    // validate the state and owner. This only bypasses to the callback route;
+    // the callback handler still verifies the signed owner / pending flow.
+    if (verifyBuilderCallbackStateAndGetOwner(state)) return true;
+
+    // The legacy owner cookie is broader and can be stale across shared
+    // browser sessions, so keep it limited to the session-lost popup case.
     const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
-      verifyBuilderCallbackStateAndGetOwner(state) ||
       verifyBuilderConnectTokenAndGetOwner(
         getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
       ),
@@ -1287,6 +1312,94 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   }
 
   return false;
+}
+
+const LOGIN_OG_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const LOGIN_TWITTER_CARD_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
+const LOGIN_TWITTER_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
+  const headCloseIdx = loginHtml.indexOf("</head>");
+  if (headCloseIdx === -1) return loginHtml;
+
+  const hasAnySocialImage =
+    LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
+    LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
+  const imageUrl = escapeHtmlAttr(
+    getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+  );
+  const tags: string[] = [];
+
+  if (!hasAnySocialImage) {
+    tags.push(`<meta property="og:image" content="${imageUrl}">`);
+    tags.push(`<meta property="og:image:secure_url" content="${imageUrl}">`);
+    tags.push(
+      `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">`,
+    );
+    tags.push(
+      `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">`,
+    );
+    tags.push(
+      `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">`,
+    );
+    tags.push(
+      `<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+  if (!LOGIN_TWITTER_CARD_META_RE.test(loginHtml)) {
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  if (!hasAnySocialImage) {
+    tags.push(`<meta name="twitter:image" content="${imageUrl}">`);
+    tags.push(
+      `<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+
+  if (tags.length === 0) return loginHtml;
+  return (
+    loginHtml.slice(0, headCloseIdx) +
+    tags.join("") +
+    loginHtml.slice(headCloseIdx)
+  );
+}
+
+function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
+  return new Response(injectLoginSocialImageMeta(loginHtml, event), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // Login HTML is selected by the absence of a session cookie. Never put it
+      // in a shared CDN cache: the same route may redirect authenticated users
+      // or render the app after sign-in.
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      "CDN-Cache-Control": "no-store",
+      "Netlify-CDN-Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
+function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
+  if (!isReadMethod(event)) return false;
+  if (pathname.endsWith(".data")) return false;
+
+  const fetchDest = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document" || fetchDest === "iframe") return true;
+
+  const accept = getHeader(event, "accept")?.toLowerCase();
+  return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
 function createAuthGuardFn(): (
@@ -1363,6 +1476,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
+    // a queued sub-agent in a fresh function invocation; authenticity is
+    // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
+    // so it bypasses cookie/session auth (mirrors the integration processor).
+    if (p === "/_agent-native/agent-teams/_process-run") {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
@@ -1374,10 +1495,10 @@ function createAuthGuardFn(): (
     // authoritative gate — exactly like A2A above. Without this bypass the
     // guard's blanket 401-for-/_agent-native/* below shadows that check, so
     // an external coding agent (Claude Code / Codex / Cowork) connecting via
-    // the stdio proxy or HTTP can never reach it. Exact path only: the MCP
-    // handler returns early for `/_agent-native/mcp/*` management subroutes,
-    // which keep their normal session auth.
-    if (p === "/_agent-native/mcp") {
+    // the stdio proxy or HTTP can never reach it. Exact protocol endpoint only:
+    // tolerate the common trailing slash, but keep
+    // `/_agent-native/mcp/*` management subroutes on normal session auth.
+    if (p === "/_agent-native/mcp" || p === "/_agent-native/mcp/") {
       return;
     }
 
@@ -1475,10 +1596,7 @@ function createAuthGuardFn(): (
           headers: { Location: safeReturn },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Auth entry pages are framework-owned pages, not app routes. When a user
@@ -1492,10 +1610,7 @@ function createAuthGuardFn(): (
           headers: { Location: getAppBasePath() || "/" },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Skip static assets (Vite chunks, fonts, images, etc.)
@@ -1536,6 +1651,11 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
+    if (!isHtmlDocumentRequest(event, p)) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
+
     // Local-dev convenience: on the first page GET of a freshly-scaffolded
     // app, transparently create + sign in `dev@local.test` instead of
     // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
@@ -1546,10 +1666,7 @@ function createAuthGuardFn(): (
       if (autoSession) return autoSession;
     }
 
-    return new Response(loginHtml, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+    return loginHtmlResponse(loginHtml, event);
   };
 }
 
@@ -1763,17 +1880,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  // 1. ACCESS_TOKEN check (programmatic/agent access)
-  const accessTokens = getAccessTokens();
-  if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSession(event);
-    if (cookieSession) return cookieSession;
-  }
-
-  // 2. MCP App embed session. This is a short-lived browser session minted
+  // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
-  // MCP bearer token as a browser cookie.
+  // MCP bearer token as a browser cookie. Resolve it FIRST: the token is
+  // HMAC-verified and carries its own identity + org scope, and is the most
+  // specific intent for an embed request. Checking it before the legacy
+  // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
+  // configured) from shadowing the embed identity.
   const embedSession = await resolveEmbedSessionFromRequest(event);
   if (embedSession) {
     return {
@@ -1781,6 +1895,13 @@ async function resolveSessionUncached(
       token: embedSession.token,
       ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
     };
+  }
+
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
+    const cookieSession = await getLegacyCookieSession(event);
+    if (cookieSession) return cookieSession;
   }
 
   // 3. BYOA custom getSession
@@ -1996,44 +2117,16 @@ function stripAppBasePath(pathname: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Login page HTML (ACCESS_TOKEN mode)
+// Fallback login page HTML (custom auth with no login page configured)
 // ---------------------------------------------------------------------------
 
-function inferWorkspaceBasePathFromRequest(requestPath?: string): string {
-  if (
-    process.env.AGENT_NATIVE_WORKSPACE !== "1" &&
-    process.env.VITE_AGENT_NATIVE_WORKSPACE !== "1"
-  ) {
-    return "";
-  }
-  if (!requestPath || !requestPath.startsWith("/")) return "";
-  const firstSegment = requestPath.split(/[/?#]/)[1];
-  if (!firstSegment) return "";
-  const reservedRootPaths = new Set([
-    "_agent-native",
-    ".well-known",
-    "api",
-    "login",
-    "signup",
-    "apps",
-    "new-app",
-    "approval",
-    "extensions",
-  ]);
-  if (reservedRootPaths.has(firstSegment)) return "";
-  if (!isValidWorkspaceAppIdFormat(firstSegment)) return "";
-  return `/${firstSegment}`;
-}
-
-function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
-  const configuredBasePath =
-    getAppBasePath() || inferWorkspaceBasePathFromRequest(options.requestPath);
+function getCustomAuthRequiredHtml(): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Private app</title>
+<title>Authentication required</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -2046,18 +2139,10 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     --text: #f4f4f5;
     --muted: #a1a1aa;
     --subtle: #71717a;
-    --error: #fca5a5;
-    --error-bg: rgba(127,29,29,0.18);
-    --success: #86efac;
-    --success-bg: rgba(20,83,45,0.2);
-    --info: #c4b5fd;
-    --info-bg: rgba(76,29,149,0.18);
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background:
-      radial-gradient(circle at top left, rgba(63,63,70,0.24), transparent 32rem),
-      linear-gradient(180deg, #111114 0%, var(--bg) 58%);
+    background: linear-gradient(180deg, #111114 0%, var(--bg) 58%);
     color: var(--text);
     display: flex;
     align-items: center;
@@ -2101,107 +2186,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
     font-size: 0.9375rem;
     line-height: 1.55;
   }
-  label {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-    margin-bottom: 0.375rem;
-  }
-  label span:last-child {
-    color: var(--subtle);
-    font-size: 0.75rem;
-  }
-  .input-wrap { position: relative; }
-  input {
-    width: 100%;
-    min-height: 2.75rem;
-    padding: 0.625rem 0.75rem;
-    background: #0f0f12;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 0.9375rem;
-    outline: none;
-  }
-  input:focus {
-    border-color: var(--border-strong);
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
-  }
-  input::placeholder { color: #52525b; }
-  button {
-    width: 100%;
-    min-height: 2.75rem;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    background: var(--text);
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
-  }
-  button:hover:not(:disabled) { background: #e4e4e7; transform: translateY(-1px); }
-  button:disabled { opacity: 0.55; cursor: wait; }
   .hint {
-    margin-top: 0.75rem;
-    color: var(--subtle);
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg {
-    display: none;
-    margin-top: 0.875rem;
-    padding: 0.75rem;
-    border-radius: 8px;
-    font-size: 0.8125rem;
-    line-height: 1.45;
-  }
-  .msg.show { display: block; }
-  .msg.error {
-    color: var(--error);
-    background: var(--error-bg);
-    border: 1px solid rgba(248,113,113,0.22);
-  }
-  .msg.success {
-    color: var(--success);
-    background: var(--success-bg);
-    border: 1px solid rgba(74,222,128,0.18);
-  }
-  .msg.info {
-    color: var(--info);
-    background: var(--info-bg);
-    border: 1px solid rgba(167,139,250,0.2);
-  }
-  details {
     margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-  }
-  summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 0.8125rem;
-    font-weight: 600;
-  }
-  details p {
-    margin-top: 0.75rem;
     color: var(--subtle);
     font-size: 0.8125rem;
-    line-height: 1.5;
-  }
-  code {
-    color: #e4e4e7;
-    background: var(--panel-soft);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 0.075rem 0.25rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.78rem;
+    line-height: 1.45;
   }
   @media (max-width: 480px) {
     .card { padding: 1.5rem; }
@@ -2211,118 +2200,11 @@ function getTokenLoginHtml(options: { requestPath?: string } = {}): string {
 </head>
 <body>
 <div class="card">
-  <div class="eyebrow">Private deployment</div>
-  <h1>This app is private</h1>
-  <p class="intro">Enter the shared app access token to continue. This is the value configured for this app, not your deploy provider account token.</p>
-  <form id="form">
-    <label for="token"><span>App ACCESS_TOKEN</span><span>Required</span></label>
-    <div class="input-wrap">
-      <input id="token" type="password" autocomplete="current-password" autofocus placeholder="Paste the shared app token" />
-    </div>
-    <button id="submit" type="submit">Continue</button>
-    <p class="hint">If someone sent you this app, ask them for the shared app token. If you own the deploy, use the exact value saved as <code>ACCESS_TOKEN</code> or one of <code>ACCESS_TOKENS</code>.</p>
-    <p class="msg error" id="msg" role="alert"></p>
-  </form>
-  <details>
-    <summary>Where do I find this?</summary>
-    <p>Create or copy the app's shared token from your deployment environment variables. The key should be <code>ACCESS_TOKEN</code> for one token or <code>ACCESS_TOKENS</code> for a comma-separated list. Redeploy after changing it.</p>
-  </details>
+  <div class="eyebrow">Authentication required</div>
+  <h1>Sign in is not configured</h1>
+  <p class="intro">This route requires an authenticated session, but this app's custom auth plugin did not provide a sign-in page.</p>
+  <p class="hint">If this route should be public, add it to the auth plugin's public route configuration. Otherwise configure a custom sign-in page for this app.</p>
 </div>
-<script>
-  var configuredBasePath = ${JSON.stringify(configuredBasePath)};
-  function __anBasePath() {
-    if (
-      configuredBasePath &&
-      (window.location.pathname === configuredBasePath ||
-        window.location.pathname.indexOf(configuredBasePath + '/') === 0)
-    ) {
-      return configuredBasePath;
-    }
-    var marker = '/_agent-native';
-    var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
-  }
-  function __anPath(path) {
-    return __anBasePath() + path;
-  }
-  function setMessage(kind, text) {
-    var msg = document.getElementById('msg');
-    msg.textContent = text;
-    msg.className = 'msg ' + kind + ' show';
-  }
-  function clearMessage() {
-    var msg = document.getElementById('msg');
-    msg.textContent = '';
-    msg.className = 'msg error';
-  }
-  function setBusy(isBusy) {
-    var button = document.getElementById('submit');
-    var input = document.getElementById('token');
-    button.disabled = isBusy;
-    input.disabled = isBusy;
-    button.textContent = isBusy ? 'Checking...' : 'Continue';
-  }
-  async function readJsonSafely(res) {
-    try {
-      return await res.json();
-    } catch (_err) {
-      return null;
-    }
-  }
-  async function verifySession() {
-    var res = await fetch(__anPath('/_agent-native/auth/session'), {
-      method: 'GET',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (!res.ok) return false;
-    var data = await readJsonSafely(res);
-    return !!data && !data.error;
-  }
-  document.getElementById('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    var token = document.getElementById('token').value.trim();
-    if (!token) {
-      setMessage('error', 'Paste the shared app token to continue.');
-      return;
-    }
-    clearMessage();
-    setBusy(true);
-    setMessage('info', 'Checking the app token...');
-    try {
-      var res = await fetch(__anPath('/_agent-native/auth/login'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ token: token }),
-      });
-      if (!res.ok) {
-        var badTokenMessage = 'That token was not accepted. Use this app\\'s shared ACCESS_TOKEN, not your deploy provider account token.';
-        if (res.status === 404) {
-          badTokenMessage = 'Could not reach this app\\'s auth endpoint. If this app is mounted under a path, confirm APP_BASE_PATH and VITE_APP_BASE_PATH match the deploy path.';
-        }
-        setMessage('error', badTokenMessage);
-        setBusy(false);
-        return;
-      }
-      var hasSession = await verifySession();
-      if (!hasSession) {
-        setMessage('error', 'The token was accepted, but the browser did not keep the session cookie. Try opening the app in a new tab, or check cookie restrictions for this domain.');
-        setBusy(false);
-        return;
-      }
-      setMessage('success', 'Signed in. Opening the app...');
-      window.location.replace(window.location.href);
-    } catch (_err) {
-      setMessage('error', 'Could not contact the auth endpoint. Check the deploy status, then try again.');
-      setBusy(false);
-    }
-  });
-</script>
 </body>
 </html>`;
 }
@@ -2685,8 +2567,6 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  const accessTokens = getAccessTokens();
-
   // Initialize Better Auth. Forward `googleScopes` into the BetterAuthConfig
   // so the social provider requests the broader product scopes (Gmail,
   // Calendar, etc.) up front during the primary sign-in — eliminating the
@@ -2905,22 +2785,6 @@ async function mountBetterAuthRoutes(
       }
 
       const body = await readBody(event);
-
-      // Legacy ACCESS_TOKEN login
-      if (
-        body?.token &&
-        typeof body.token === "string" &&
-        accessTokens.length > 0
-      ) {
-        if (!safeTokenMatch(body.token, accessTokens)) {
-          setResponseStatus(event, 401);
-          return { error: "Invalid token" };
-        }
-        const sessionToken = crypto.randomBytes(32).toString("hex");
-        await addSession(sessionToken, "user");
-        setFrameworkSessionCookie(event, sessionToken);
-        return authLoginResponse(event, sessionToken, "user");
-      }
 
       // Email/password login via Better Auth
       const email = body?.email?.trim?.()?.toLowerCase?.();
@@ -3143,81 +3007,6 @@ async function mountBetterAuthRoutes(
 }
 
 // ---------------------------------------------------------------------------
-// mountTokenOnlyRoutes — ACCESS_TOKEN-only auth (no Better Auth)
-// ---------------------------------------------------------------------------
-
-function mountTokenOnlyRoutes(
-  app: H3App,
-  accessTokens: string[],
-  publicPaths: string[] = [],
-  workspaceAppAudience = resolveWorkspaceAppAudience(),
-  workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(),
-): void {
-  app.use(
-    "/_agent-native/auth/login",
-    defineEventHandler(async (event) => {
-      if (getMethod(event) !== "POST") {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-
-      const body = await readBody(event);
-      if (
-        !body?.token ||
-        typeof body.token !== "string" ||
-        !safeTokenMatch(body.token, accessTokens)
-      ) {
-        setResponseStatus(event, 401);
-        return { error: "Invalid token" };
-      }
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, "user");
-      setFrameworkSessionCookie(event, sessionToken);
-      return authLoginResponse(event, sessionToken, "user");
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/logout",
-    defineEventHandler(async (event) => {
-      for (const cookie of getFrameworkSessionCookieValues(event)) {
-        await removeSession(cookie);
-      }
-      const bearerToken = getBearerSessionToken(event);
-      if (bearerToken) await removeSession(bearerToken);
-      clearFrameworkSessionCookies(event);
-      if (isElectronRequest(event)) await clearDesktopSso();
-      return { ok: true };
-    }),
-  );
-
-  app.use(
-    "/_agent-native/auth/session",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const session = await getSession(event);
-      return session ?? { error: "Not authenticated" };
-    }),
-  );
-
-  _authGuardConfig = {
-    loginHtml: getTokenLoginHtml(),
-    getLoginHtml: (_event, rawPath) =>
-      getTokenLoginHtml({ requestPath: rawPath }),
-    publicPaths,
-    workspaceAppAudience,
-    workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
-    workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
-  };
-  const guardFn = createAuthGuardFn();
-  _authGuardFn = guardFn;
-  app.use(defineEventHandler(guardFn));
-}
-
-// ---------------------------------------------------------------------------
 // mountAuthFallbackRoutes — minimal auth endpoints when Better Auth init fails
 // ---------------------------------------------------------------------------
 
@@ -3352,7 +3141,6 @@ function mountAuthFallbackRoutes(app: H3App): void {
  * Automatically configure auth based on environment and configuration:
  *
  * - **BYOA (custom getSession)**: Template-provided auth callback handles everything.
- * - **ACCESS_TOKEN/ACCESS_TOKENS**: Simple token-based auth.
  * - **Default**: Better Auth with email/password, social providers, organizations, and JWT.
  *   Users see an onboarding page to create an account on first visit.
  *
@@ -3480,14 +3268,13 @@ export async function autoMountAuth(
       }),
     );
 
-    const byoaLoginHtml = options.loginHtml ?? getTokenLoginHtml();
+    const byoaLoginHtml = options.loginHtml ?? getCustomAuthRequiredHtml();
     _authGuardConfig = {
       loginHtml: byoaLoginHtml,
       ...(options.loginHtml
         ? {}
         : {
-            getLoginHtml: (_event, rawPath) =>
-              getTokenLoginHtml({ requestPath: rawPath }),
+            getLoginHtml: () => getCustomAuthRequiredHtml(),
           }),
       publicPaths,
       workspaceAppAudience,
@@ -3500,23 +3287,6 @@ export async function autoMountAuth(
 
     if (process.env.DEBUG)
       console.log("[agent-native] Auth enabled — custom getSession provider.");
-    return true;
-  }
-
-  // ACCESS_TOKEN-only mode
-  const tokens = getAccessTokens();
-  if (tokens.length > 0) {
-    mountTokenOnlyRoutes(
-      app,
-      tokens,
-      publicPaths,
-      workspaceAppAudience,
-      workspaceAppRouteAccess,
-    );
-    if (process.env.DEBUG)
-      console.log(
-        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-      );
     return true;
   }
 
@@ -3559,5 +3329,9 @@ export async function autoMountAuth(
  * @deprecated Use `autoMountAuth(app, options?)` instead.
  */
 export function mountAuthMiddleware(app: H3App, accessToken: string): void {
-  mountTokenOnlyRoutes(app, [accessToken]);
+  void app;
+  void accessToken;
+  throw new Error(
+    "mountAuthMiddleware(accessToken) has been removed. Use createAuthPlugin() or autoMountAuth() with Better Auth, or a custom getSession provider.",
+  );
 }

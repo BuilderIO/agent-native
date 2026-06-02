@@ -11,17 +11,9 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
   parseJson,
-  resolveDefaultWorkspaceId,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -39,14 +31,9 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+    });
 
     const rows = await db
       .select()
@@ -69,10 +56,3 @@ export default defineAction({
     return { workspaceId, views, count: views.length };
   },
 });
-
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void writeAppState;
-void accessFilter;
-void assertAccess;

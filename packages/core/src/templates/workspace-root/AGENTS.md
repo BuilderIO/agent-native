@@ -11,7 +11,9 @@ coding agents can discover the same workspace-wide guidance from the root.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
-  work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
+  work. When selected UI data should become hidden context for the user's next
+  prompt without submitting anything, use `setContextToAgentChat()` with a
+  stable `key`. Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
   before building agent-driven UI or "AI" features.
 
 ## Workspace Resources
@@ -60,15 +62,16 @@ coding agents can discover the same workspace-wide guidance from the root.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/starter` or another existing app unless the user explicitly asks to
   modify that existing app.
-- Treat first-party apps such as Mail, Calendar, Analytics, Brain, and Dispatch as
+- Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as
   existing hosted/connected neighbors available through links and A2A/default
-  connected agents. For example, Mail, Calendar, Analytics, and Brain already exist at
+  connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at
   `https://mail.agent-native.com`, `https://calendar.agent-native.com`, and
-  `https://analytics.agent-native.com`, and `https://brain.agent-native.com`.
-- If a new app needs to use Mail, Calendar, Analytics, Brain, or similar first-party
+  `https://analytics.agent-native.com`, `https://brain.agent-native.com`, and
+  `https://assets.agent-native.com`.
+- If a new app needs to use Mail, Calendar, Analytics, Brain, Assets, or similar first-party
   data/agents, build only the genuinely new workflow and delegate/link to those
   existing apps. Do not create wrapper apps, child apps, nested template copies,
-  or cloned Mail/Calendar/Analytics/Brain implementations inside the new app just to
+  or cloned Mail/Calendar/Analytics/Brain/Assets implementations inside the new app just to
   provide access.
 - Only create a first-party app copy when the user explicitly asks for a
   customized fork/copy of that app. Otherwise prefer the hosted/shared app so
@@ -100,8 +103,16 @@ coding agents can discover the same workspace-wide guidance from the root.
   `http: { method: "GET" }`, and call them from React with `useActionQuery` /
   `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*`
   for the same data unless the route is for uploads, streaming, webhooks,
-  OAuth, or another route-only concern. Action-backed UI is what makes
-  agent-created or agent-edited records appear without a manual refresh.
+  OAuth, or another route-only concern. Do not add routes whose main job is to
+  wrap, proxy, or re-export an action; the action endpoint already exists at
+  `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created
+  or agent-edited records appear without a manual refresh.
+- App database code must be provider-agnostic. Define schemas with
+  `@agent-native/core/db/schema` helpers and write app reads/writes with
+  Drizzle's query builder and portable `drizzle-orm` operators. Do not import
+  from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates.
+  Keep raw SQL for additive migrations, health checks, or carefully scoped
+  maintenance, and never write SQLite-only or Postgres-only product code.
 - In local development, scaffold the app from the workspace root with
   `pnpm exec agent-native create <app-id> --template=<template>`. In production
   Dispatch posts the request to Builder branch creation; the Builder branch

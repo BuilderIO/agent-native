@@ -29,6 +29,7 @@ export default runMigrations(
       last_pulled_remote_updated_at TEXT,
       last_pushed_local_updated_at TEXT,
       last_known_remote_updated_at TEXT,
+      last_synced_content_hash TEXT,
       last_error TEXT,
       warnings_json TEXT,
       has_conflict INTEGER NOT NULL DEFAULT 0,
@@ -135,8 +136,13 @@ export default runMigrations(
       version: 17,
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
     },
+    // v18: content-hash baseline for drift-free conflict detection.
     {
       version: 18,
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
+    },
+    {
+      version: 19,
       sql: `CREATE TABLE IF NOT EXISTS document_property_definitions (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -152,7 +158,7 @@ export default runMigrations(
     )`,
     },
     {
-      version: 19,
+      version: 20,
       sql: `CREATE TABLE IF NOT EXISTS document_property_values (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -164,15 +170,15 @@ export default runMigrations(
     )`,
     },
     {
-      version: 20,
+      version: 21,
       sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'always_show'`,
     },
     {
-      version: 21,
+      version: 22,
       sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS database_id TEXT`,
     },
     {
-      version: 22,
+      version: 23,
       sql: `CREATE TABLE IF NOT EXISTS content_databases (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -185,7 +191,7 @@ export default runMigrations(
     )`,
     },
     {
-      version: 23,
+      version: 24,
       sql: `CREATE TABLE IF NOT EXISTS content_database_items (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -198,8 +204,14 @@ export default runMigrations(
     )`,
     },
     {
-      version: 24,
+      version: 25,
       sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
+    },
+    // v26 repeats v18 idempotently for databases that previously ran this
+    // feature branch's old v18 property migration before merging main.
+    {
+      version: 26,
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
     },
   ],
   { table: "content_migrations" },

@@ -44,6 +44,159 @@ afterAll(() => {
 });
 
 describe("resourceEffectiveContext", () => {
+  it("exposes selected Dispatch workspace skills only to granted apps", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceEffectiveContext,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourceListAccessible,
+    } = await import("./store.js");
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_resources (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workspace_resource_grants (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        resource_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        synced_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    sqlite
+      .prepare("DELETE FROM workspace_resource_grants WHERE id = ?")
+      .run("grant_skill_analytics");
+    sqlite
+      .prepare("DELETE FROM workspace_resources WHERE id = ?")
+      .run("selected_skill_analytics");
+
+    const skillPath = "skills/analytics-review/SKILL.md";
+    sqlite
+      .prepare(
+        `INSERT INTO workspace_resources
+          (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "selected_skill_analytics",
+        "owner@example.test",
+        "org_123",
+        "skill",
+        "Analytics Review",
+        "Review analytics work",
+        skillPath,
+        "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review",
+        "selected",
+        "owner@example.test",
+        1,
+        2,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO workspace_resource_grants
+          (id, owner_email, org_id, resource_id, app_id, status, synced_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "grant_skill_analytics",
+        "owner@example.test",
+        "org_123",
+        "selected_skill_analytics",
+        "analytics",
+        "active",
+        null,
+        1,
+        2,
+      );
+
+    const grantedSkills = await resourceListAccessible(
+      "member@example.test",
+      "skills/",
+      { workspaceAppId: "analytics", orgId: "org_123" },
+    );
+    const selectedSkill = grantedSkills.find(
+      (resource) => resource.path === skillPath,
+    );
+
+    expect(selectedSkill).toMatchObject({
+      id: "dispatch-workspace-resource:selected_skill_analytics",
+      owner: WORKSPACE_OWNER,
+      path: skillPath,
+      mimeType: "text/markdown",
+    });
+
+    await expect(
+      resourceGet(selectedSkill!.id, {
+        workspaceAppId: "analytics",
+        userEmail: "member@example.test",
+        orgId: "org_123",
+      }),
+    ).resolves.toMatchObject({
+      owner: WORKSPACE_OWNER,
+      path: skillPath,
+      content: expect.stringContaining("# Analytics Review"),
+    });
+
+    await expect(
+      resourceGetByPath(WORKSPACE_OWNER, skillPath, {
+        workspaceAppId: "analytics",
+        userEmail: "member@example.test",
+        orgId: "org_123",
+      }),
+    ).resolves.toMatchObject({
+      owner: WORKSPACE_OWNER,
+      path: skillPath,
+    });
+
+    await expect(
+      resourceList(WORKSPACE_OWNER, "skills/", {
+        workspaceAppId: "analytics",
+        userEmail: "member@example.test",
+        orgId: "org_123",
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: skillPath })]),
+    );
+
+    const effective = await resourceEffectiveContext(
+      "member@example.test",
+      skillPath,
+      { workspaceAppId: "analytics", orgId: "org_123" },
+    );
+    expect(effective.effectiveScope).toBe("workspace");
+    expect(effective.effectiveResource).toMatchObject({
+      owner: WORKSPACE_OWNER,
+      path: skillPath,
+    });
+
+    const mailSkills = await resourceListAccessible(
+      "member@example.test",
+      "skills/",
+      { workspaceAppId: "mail", orgId: "org_123" },
+    );
+    expect(mailSkills.some((resource) => resource.path === skillPath)).toBe(
+      false,
+    );
+  });
+
   it("reuses one workspace record across callers and overlays shared/personal overrides", async () => {
     const {
       SHARED_OWNER,
@@ -112,6 +265,55 @@ describe("resourceEffectiveContext", () => {
     expect(owners).toEqual(
       [WORKSPACE_OWNER, SHARED_OWNER, analyticsUser].sort(),
     );
+  });
+
+  it("treats resource path prefixes with LIKE wildcards as literal text", async () => {
+    const {
+      resourceDeleteByPath,
+      resourceList,
+      resourceListAccessible,
+      resourceListAllOwners,
+      resourcePut,
+    } = await import("./store.js");
+
+    const owner = "prefix-wildcards@example.test";
+    const namespace = `prefix-wildcards-${Date.now()}-`;
+    const literalUnderscore = `${namespace}literal_prefix/file.md`;
+    const underscoreDecoy = `${namespace}literalXprefix/file.md`;
+    const literalPercent = `${namespace}literal%prefix/file.md`;
+    const percentDecoy = `${namespace}literal-any-prefix/file.md`;
+    const paths = [
+      literalUnderscore,
+      underscoreDecoy,
+      literalPercent,
+      percentDecoy,
+    ];
+
+    try {
+      for (const path of paths) {
+        await resourcePut(owner, path, path);
+      }
+
+      await expect(
+        resourceList(owner, `${namespace}literal_prefix`),
+      ).resolves.toEqual([
+        expect.objectContaining({ path: literalUnderscore }),
+      ]);
+
+      await expect(
+        resourceListAccessible(owner, `${namespace}literal%prefix`),
+      ).resolves.toEqual([expect.objectContaining({ path: literalPercent })]);
+
+      await expect(
+        resourceListAllOwners(`${namespace}literal_prefix`),
+      ).resolves.toEqual([
+        expect.objectContaining({ path: literalUnderscore }),
+      ]);
+    } finally {
+      for (const path of paths) {
+        await resourceDeleteByPath(owner, path);
+      }
+    }
   });
 
   it("resolves personal > organization/app > workspace for instruction, skill, AGENTS, and context paths", async () => {

@@ -41,9 +41,11 @@ import type { McpConfig, McpServerConfig } from "./config.js";
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 import { formatMcpConnectError } from "./errors.js";
 import {
+  areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
   isBuiltinMcpCapabilityAvailable,
+  listSupportedBuiltinMcpCapabilities,
   normalizeBuiltinMcpCapabilityIds,
   toBuiltinMcpServerConfig,
   type BuiltinMcpCapability,
@@ -66,6 +68,7 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { fetchHubServers } from "./hub-client.js";
+import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-bridge";
 
@@ -210,33 +213,46 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
         await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
-  for (const [fullKey, value] of Object.entries(all)) {
-    const settingsKey = builtinMcpCapabilitiesSettingsKey();
-    const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
-    const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
-    let scope: RemoteMcpScope | null = null;
-    let ownerId: string | null = null;
-    if (userMatch) {
-      scope = "user";
-      ownerId = userMatch[1];
-    } else if (orgMatch) {
-      scope = "org";
-      ownerId = orgMatch[1];
-    }
-    if (!scope || !ownerId) continue;
-    const enabledIds = normalizeBuiltinMcpCapabilityIds(
-      Array.isArray((value as any).enabledIds)
-        ? (value as any).enabledIds.map(String)
-        : [],
-    );
-    for (const id of enabledIds) {
-      const capability = getBuiltinMcpCapability(id);
-      if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
-        continue;
+  if (areBuiltinMcpCapabilitiesSupported()) {
+    for (const [fullKey, value] of Object.entries(all)) {
+      const settingsKey = builtinMcpCapabilitiesSettingsKey();
+      const userMatch = new RegExp(`^u:([^:]+):${settingsKey}$`).exec(fullKey);
+      const orgMatch = new RegExp(`^o:([^:]+):${settingsKey}$`).exec(fullKey);
+      let scope: RemoteMcpScope | null = null;
+      let ownerId: string | null = null;
+      if (userMatch) {
+        scope = "user";
+        ownerId = userMatch[1];
+      } else if (orgMatch) {
+        scope = "org";
+        ownerId = orgMatch[1];
       }
-      servers[builtinMergedConfigKey(scope, capability, ownerId)] =
-        toBuiltinMcpServerConfig(capability);
+      if (!scope || !ownerId) continue;
+      const enabledIds = normalizeBuiltinMcpCapabilityIds(
+        Array.isArray((value as any).enabledIds)
+          ? (value as any).enabledIds.map(String)
+          : [],
+      );
+      for (const id of enabledIds) {
+        const capability = getBuiltinMcpCapability(id);
+        if (!capability || !isBuiltinMcpCapabilityAvailable(capability)) {
+          continue;
+        }
+        servers[builtinMergedConfigKey(scope, capability, ownerId)] =
+          toBuiltinMcpServerConfig(capability);
+      }
     }
+  }
+
+  try {
+    const workspaceServers = await loadWorkspaceMcpServers();
+    for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
+      servers[mergedKey] = cfg;
+    }
+  } catch (err: any) {
+    console.warn(
+      `[mcp-client] workspace MCP resource merge failed: ${err?.message ?? err}. Continuing with local config.`,
+    );
   }
 
   // Hub-consume: if this app is configured to consume from a remote hub
@@ -256,6 +272,53 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
 
   if (Object.keys(servers).length === 0) return null;
   return { servers, source: base?.source ?? "merged" };
+}
+
+function sortedConfigSignature(config: McpConfig | null): string {
+  const entries = Object.entries(config?.servers ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return JSON.stringify(entries);
+}
+
+function mcpConfigRefreshIntervalMs(): number {
+  const raw = process.env.AGENT_NATIVE_MCP_CONFIG_REFRESH_MS;
+  if (raw?.trim() === "0") return 0;
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 5_000) return parsed;
+  return 60_000;
+}
+
+export function startMcpConfigRefresh(
+  manager: McpClientManager,
+): (() => void) | null {
+  const intervalMs = mcpConfigRefreshIntervalMs();
+  if (intervalMs <= 0 || typeof setInterval !== "function") return null;
+
+  let currentSignature = sortedConfigSignature(manager.getConfig());
+  let refreshing = false;
+  const refresh = async () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const next = await buildMergedConfig();
+      const nextSignature = sortedConfigSignature(next);
+      if (nextSignature !== currentSignature) {
+        await manager.reconfigure(next);
+        currentSignature = nextSignature;
+      }
+    } catch (err: any) {
+      console.warn(
+        `[mcp-client] config refresh failed: ${err?.message ?? err}`,
+      );
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  const timer = setInterval(refresh, intervalMs);
+  (timer as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
 }
 
 async function resolveContextForRequest(event: H3Event): Promise<{
@@ -588,61 +651,74 @@ async function handleBuiltinList(
   };
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userEnabled = email
-    ? await listEnabledBuiltinMcpCapabilities("user", email)
-    : [];
-  const orgEnabled = orgId
-    ? await listEnabledBuiltinMcpCapabilities("org", orgId)
-    : [];
+  const supported = areBuiltinMcpCapabilitiesSupported();
+  const userEnabled =
+    supported && email
+      ? await listEnabledBuiltinMcpCapabilities("user", email)
+      : [];
+  const orgEnabled =
+    supported && orgId
+      ? await listEnabledBuiltinMcpCapabilities("org", orgId)
+      : [];
 
   return {
-    capabilities: BUILTIN_MCP_CAPABILITIES.map((capability) => {
-      const available = isBuiltinMcpCapabilityAvailable(capability);
-      const userMergedId = email
-        ? builtinMergedConfigKey("user", capability, email)
-        : undefined;
-      const orgMergedId = orgId
-        ? builtinMergedConfigKey("org", capability, orgId)
-        : undefined;
-      return {
-        id: capability.id,
-        serverId: capability.serverId,
-        name: capability.name,
-        description: capability.description,
-        command: capability.command,
-        args: capability.args,
-        exclusiveGroup: capability.exclusiveGroup,
-        available,
-        unavailableReason: available
-          ? undefined
-          : `Only available on ${capability.platforms?.join(", ")}`,
-        notes: capability.notes,
-        enabled: {
-          user: userEnabled.includes(capability.id),
-          org: orgEnabled.includes(capability.id),
-        },
-        mergedIds: {
-          user: userMergedId,
-          org: orgMergedId,
-        },
-        status: {
-          user:
-            userMergedId && userEnabled.includes(capability.id)
-              ? statusFor(manager, userMergedId)
-              : undefined,
-          org:
-            orgMergedId && orgEnabled.includes(capability.id)
-              ? statusFor(manager, orgMergedId)
-              : undefined,
-        },
-      };
-    }),
+    capabilities: (supported ? BUILTIN_MCP_CAPABILITIES : []).map(
+      (capability) => {
+        const available = isBuiltinMcpCapabilityAvailable(capability);
+        const userMergedId = email
+          ? builtinMergedConfigKey("user", capability, email)
+          : undefined;
+        const orgMergedId = orgId
+          ? builtinMergedConfigKey("org", capability, orgId)
+          : undefined;
+        return {
+          id: capability.id,
+          serverId: capability.serverId,
+          name: capability.name,
+          description: capability.description,
+          command: capability.command,
+          args: capability.args,
+          exclusiveGroup: capability.exclusiveGroup,
+          available,
+          unavailableReason: available
+            ? undefined
+            : `Only available on ${capability.platforms?.join(", ")}`,
+          notes: capability.notes,
+          enabled: {
+            user: userEnabled.includes(capability.id),
+            org: orgEnabled.includes(capability.id),
+          },
+          mergedIds: {
+            user: userMergedId,
+            org: orgMergedId,
+          },
+          status: {
+            user:
+              userMergedId && userEnabled.includes(capability.id)
+                ? statusFor(manager, userMergedId)
+                : undefined,
+            org:
+              orgMergedId && orgEnabled.includes(capability.id)
+                ? statusFor(manager, orgMergedId)
+                : undefined,
+          },
+        };
+      },
+    ),
     user: { enabledIds: userEnabled },
     org: { enabledIds: orgEnabled, orgId, role },
   };
 }
 
 async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
+  if (!areBuiltinMcpCapabilitiesSupported()) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "Built-in local MCP capabilities are only available in local development.",
+    };
+  }
+
   const body = (await readBody(event).catch(() => ({}))) as {
     scope?: unknown;
     enabledIds?: unknown;
@@ -727,7 +803,10 @@ async function handleBuiltinUpdate(event: H3Event, manager: McpClientManager) {
 function validateBuiltinCapabilityForEnable(id: string): string | null {
   const capability = getBuiltinMcpCapability(id);
   if (!capability) return `Unknown built-in MCP capability "${id}"`;
-  if (!isBuiltinMcpCapabilityAvailable(capability)) {
+  if (!listSupportedBuiltinMcpCapabilities().includes(capability)) {
+    if (!areBuiltinMcpCapabilitiesSupported()) {
+      return "Built-in local MCP capabilities are only available in local development.";
+    }
     return `${capability.name} is only available on ${capability.platforms?.join(", ")}`;
   }
   return null;
@@ -932,7 +1011,12 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const result = await tryConnect(server.url, server.headers);
+  // `server.headers` holds only the cleartext (non-secret) subset; auth headers
+  // (Authorization, API keys) live encrypted in app_secrets and are resolved by
+  // toHttpServerConfigAsync. Testing with cleartext-only headers would fail for
+  // any server that uses encrypted credentials.
+  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);
     return { ok: false, error: result.error };

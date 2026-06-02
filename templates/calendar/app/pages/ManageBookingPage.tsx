@@ -68,7 +68,7 @@ export function ManageBookingPage() {
       }
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       setJustCancelled(true);
     },
   });

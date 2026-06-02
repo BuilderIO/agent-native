@@ -50,7 +50,10 @@
 import path from "path";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoRawDbAccessControlPatchTarget,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
@@ -659,8 +662,23 @@ async function runSqlite(opts: RunOpts): Promise<void> {
     const { content, results, applied, total } = applyEither(original, opts);
 
     if (applied > 0) {
+      // SQLite views are not updatable, so the scoped temp view we read through
+      // above cannot be the write target — the UPDATE must hit the real table
+      // in the `main` schema. Re-apply the exact predicate the scoping view
+      // uses (db-exec performs the identical rewrite) so the write can never
+      // reach a row the scoped SELECT couldn't see. Falls back to the bare name
+      // only when scoping is inactive (e.g. a database with no tables).
+      const predicate = scoping.active
+        ? scoping.tablePredicates.get(opts.table)
+        : undefined;
+      const target = predicate
+        ? `main."${opts.table.replace(/"/g, '""')}"`
+        : `"${opts.table}"`;
+      const whereClause = predicate
+        ? `${predicate} AND (${opts.where})`
+        : opts.where;
       await client.execute({
-        sql: `UPDATE "${opts.table}" SET "${opts.column}" = ? WHERE ${opts.where}`,
+        sql: `UPDATE ${target} SET "${opts.column}" = ? WHERE ${whereClause}`,
         args: [content],
       });
     }
@@ -755,6 +773,7 @@ When to use db-patch vs other tools:
       `Invalid --column: "${column}". Must be a plain identifier (letters, digits, underscore).`,
     );
   assertNoSensitiveFrameworkTables(table, "patch");
+  assertNoRawDbAccessControlPatchTarget(table, column);
   assertNoSensitiveFrameworkTables(where, "read");
   validateWhere(where);
 

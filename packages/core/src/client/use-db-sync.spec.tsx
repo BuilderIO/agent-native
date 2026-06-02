@@ -131,4 +131,47 @@ describe("useDbSync", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores poll results that resolve after unmount", async () => {
+    const queryClient = new QueryClientProbe();
+    let resolvePoll:
+      | ((response: Response | PromiseLike<Response>) => void)
+      | null = null;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolvePoll = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<SyncProbe queryClient={queryClient} />);
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+
+    await act(async () => {
+      resolvePoll!(
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [{ version: 1, source: "action", type: "change" }],
+          }),
+        ),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.calls).toEqual([]);
+    container.remove();
+  });
 });

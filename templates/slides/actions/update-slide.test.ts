@@ -1,20 +1,56 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockExecute = vi.fn();
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 let mockFitCheckResult:
   | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
   | undefined;
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: mockExecute }),
+// Captured by the Drizzle `update().set()` mock so tests can assert on the
+// persisted deck JSON + bumped updatedAt.
+let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
+
+let mockDeckRow: Record<string, unknown> | undefined;
+
+// Minimal Drizzle query-builder stub. The action only uses:
+//   db.select({...}).from(decks).where(...).limit(1)  -> [row]
+//   db.update(decks).set({...}).where(...)            -> persists
+const mockDb = {
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => (mockDeckRow ? [mockDeckRow] : []),
+      }),
+    }),
+  }),
+  update: () => ({
+    set: (values: { data?: string; updatedAt?: string }) => {
+      lastUpdateSet = values;
+      return { where: async () => ({ rowsAffected: 1 }) };
+    },
+  }),
+};
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => mockDb,
+  schema: {
+    decks: {
+      id: "decks.id",
+      title: "decks.title",
+      data: "decks.data",
+      ownerEmail: "decks.ownerEmail",
+      designSystemId: "decks.designSystemId",
+    },
+  },
 }));
 
-vi.mock("@agent-native/core/collab", () => ({
-  hasCollabState: vi.fn(async () => false),
-  agentEnterDocument: vi.fn(),
-  agentLeaveDocument: vi.fn(),
+vi.mock("drizzle-orm", () => ({
+  eq: (...args: unknown[]) => ({ eq: args }),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: ({ params }: { params: { deckId: string } }) =>
+    `/deck/${params.deckId}`,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -24,8 +60,6 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
-
-vi.mock("../server/db/index.js", () => ({}));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
@@ -41,29 +75,22 @@ import action from "./update-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExecute.mockImplementation(async (query: { sql: string }) => {
-    if (query.sql.startsWith("SELECT id, title, data")) {
-      return {
-        rows: [
-          {
-            id: "deck-1",
-            title: "Deck",
-            owner_email: "owner@example.com",
-            data: JSON.stringify({
-              title: "Deck",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              slides: [{ id: "slide-1", content: "<div>Old</div>" }],
-            }),
-          },
-        ],
-      };
-    }
-    return { rows: [], rowsAffected: 1 };
-  });
+  lastUpdateSet = undefined;
+  mockFitCheckResult = undefined;
+  mockDeckRow = {
+    id: "deck-1",
+    title: "Deck",
+    ownerEmail: "owner@example.com",
+    data: JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>Old</div>" }],
+    }),
+  };
 });
 
 describe("update-slide", () => {
-  it("bumps deck JSON updatedAt so fallback polling detects same-slide edits", async () => {
+  it("applies the edit, bumps deck updatedAt, persists, and notifies clients", async () => {
     const result = await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
@@ -78,19 +105,42 @@ describe("update-slide", () => {
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
 
-    const updateCall = mockExecute.mock.calls.find(([query]) =>
-      String(query.sql).startsWith("UPDATE decks SET data = ?"),
-    );
-    expect(updateCall).toBeDefined();
-    const [query] = updateCall!;
-    const [rawDeck, rowUpdatedAt, deckId] = query.args;
-    const deck = JSON.parse(rawDeck as string);
-
-    expect(deckId).toBe("deck-1");
+    // The persisted deck JSON contains the new content and a bumped updatedAt,
+    // and the row updatedAt matches the JSON updatedAt (the freshness signal
+    // the open editor uses to detect a genuinely-newer external edit).
+    expect(lastUpdateSet).toBeDefined();
+    const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
-    expect(rowUpdatedAt).toBe(deck.updatedAt);
+    expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("applies a surgical find/replace edit", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      find: "Old",
+      replace: "Fresh",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].content).toBe("<div>Fresh</div>");
+  });
+
+  it("returns ok:false without writing when the find text is missing", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      find: "this text does not exist in the slide",
+      replace: "x",
+    })) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(result.layoutOverflow).toBeUndefined();
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
   it("returns layoutOverflow + auto-fix message when the patched slide still overflows", async () => {
@@ -180,8 +230,8 @@ describe("update-slide", () => {
       replace: "x",
     })) as Record<string, unknown>;
 
-    // When find is not found in either Yjs or SQL, the action returns
-    // ok: false BEFORE doing the fit-check. layoutOverflow must NOT appear.
+    // When find is not found, the action returns ok: false BEFORE the
+    // fit-check. layoutOverflow must NOT appear.
     expect(result.ok).toBe(false);
     expect(result.layoutOverflow).toBeUndefined();
   });

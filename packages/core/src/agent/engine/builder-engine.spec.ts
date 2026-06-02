@@ -4,6 +4,7 @@ import {
   BUILDER_DEFAULT_MODEL,
   createBuilderEngine,
 } from "./builder-engine.js";
+import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
 import * as captureErrorModule from "../../server/capture-error.js";
 import type { EngineStreamOptions } from "./types.js";
 
@@ -35,6 +36,11 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
       userId: credentialState.builderUserId,
       orgName: credentialState.builderOrgName,
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     })),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
@@ -135,6 +141,11 @@ describe("createBuilderEngine", () => {
       userId: null,
       orgName: null,
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     });
 
     const fetchSpy = vi.fn();
@@ -192,7 +203,7 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(init.body);
     expect(body.model).toBe("claude-sonnet-4-6");
-    expect(body.max_tokens).toBe(32768);
+    expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     expect(body.system).toBe("You are helpful.");
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
@@ -447,6 +458,63 @@ describe("createBuilderEngine", () => {
     });
   });
 
+  it("maps inactive personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("Invalid or inactive personal access token", {
+          status: 403,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toContain("Builder authentication failed");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      status: 403,
+      code: "http_403",
+      message: "Invalid or inactive personal access token",
+    });
+  });
+
+  it("maps streamed personal access token errors to Builder auth stop-error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Invalid or inactive personal access token",
+            requestId: "req_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_auth_error");
+    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(
+      credentialState.recordBuilderCredentialAuthFailure,
+    ).toHaveBeenCalledWith({
+      code: "builder_auth_error",
+      message: "Invalid or inactive personal access token",
+    });
+  });
+
   it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
     // A reverse proxy returning a bare HTML 502/504 should not swallow the
     // body silently. Before the fix, `.json()` would throw and the
@@ -603,7 +671,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("caps configured gateway timeouts below the 60s serverless function limit", async () => {
+  it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "60000");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
@@ -618,13 +686,13 @@ describe("createBuilderEngine", () => {
 
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
-    await vi.advanceTimersByTimeAsync(55_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("55s");
+    expect(stop?.error).toContain("45s");
   });
 
   it("maps mid-stream rate_limited into a retryable error stop", async () => {

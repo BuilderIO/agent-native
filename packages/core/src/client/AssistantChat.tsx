@@ -15,6 +15,7 @@ import {
   useAui,
   useComposer,
   useComposerRuntime,
+  useMessagePartText,
   useMessageRuntime,
   ThreadPrimitive,
   MessagePrimitive,
@@ -29,7 +30,6 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
-import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -37,10 +37,23 @@ import {
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
+  normalizeAgentChatContextItem,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
+import {
   useAgentDynamicSuggestions,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import {
+  initialSmoothStreamingGraphemeCount,
+  SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
+  smoothStreamingPunctuationDelayMs,
+  smoothStreamingRevealCount,
+  splitStreamingTextGraphemes,
+} from "../shared/streaming-text-smoothing.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type {
   ChatThreadScope,
@@ -52,7 +65,11 @@ import {
   type ContentPart,
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
-import { captureError, trackEvent } from "./analytics.js";
+import { captureError } from "./analytics.js";
+import {
+  AssistantMessageListErrorBoundary,
+  AssistantUiStaleIndexErrorBoundary,
+} from "./assistant-ui-recovery.js";
 import { cn } from "./utils.js";
 import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
@@ -76,6 +93,10 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
+import {
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
 import {
@@ -89,7 +110,10 @@ import {
   type TiptapComposerHandle,
 } from "./composer/TiptapComposer.js";
 import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import type { Reference } from "./composer/types.js";
+import type {
+  AgentComposerLayoutVariant,
+  Reference,
+} from "./composer/types.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
@@ -132,6 +156,14 @@ import {
   IconArrowsMinimize,
   IconPlus,
 } from "@tabler/icons-react";
+
+export {
+  AssistantMessageListErrorBoundary,
+  AssistantUiStaleIndexErrorBoundary,
+  assistantUiRecoverableRenderErrorKind,
+  isAssistantUiRecoverableRenderError,
+  isAssistantUiStaleIndexError,
+} from "./assistant-ui-recovery.js";
 
 class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = "image/*";
@@ -224,6 +256,7 @@ function getFileDataURL(file: File | Blob): Promise<string> {
 // images on the client before we ever serialize them.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
+const SHOW_AGENT_ACTIVITY_STEPS = false;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -271,20 +304,69 @@ async function getImageFileDataURL(file: File): Promise<string> {
 
 type QueuedAttachment = CompleteAttachment;
 type AgentRequestMode = "act" | "plan";
+export type AgentRecoveryAction = "continue" | "retry";
+
+function imageContentTypeFromDataUrl(dataUrl: string): string {
+  const match = /^data:([^;,]+)/.exec(dataUrl);
+  return match?.[1] || "image/jpeg";
+}
+
+function imageExtensionFromContentType(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/gif") return "gif";
+  return "jpg";
+}
+
+function createAgentImageAttachments(
+  images?: readonly string[],
+): QueuedAttachment[] | undefined {
+  const validImages = (images ?? []).filter((image) => image.trim().length > 0);
+  if (validImages.length === 0) return undefined;
+
+  return validImages.map((image, index) => {
+    const contentType = imageContentTypeFromDataUrl(image);
+    const extension = imageExtensionFromContentType(contentType);
+    const name = `image-${index + 1}.${extension}`;
+    return {
+      id: `agent-chat-image-${index + 1}`,
+      type: "image",
+      name,
+      contentType,
+      status: { type: "complete" },
+      content: [{ type: "image", image }],
+    };
+  });
+}
 
 function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
+  recoveryAction?: AgentRecoveryAction,
 ) {
-  const custom: { references?: Reference[]; requestMode?: AgentRequestMode } =
-    {};
+  const custom: {
+    references?: Reference[];
+    requestMode?: AgentRequestMode;
+  } = {};
   if (references && references.length > 0) {
     custom.references = references;
   }
   if (requestMode) {
     custom.requestMode = requestMode;
   }
-  return Object.keys(custom).length > 0 ? { runConfig: { custom } } : {};
+  const options: {
+    runConfig?: { custom: typeof custom };
+    metadata?: { custom: { agentNativeRecoveryAction: AgentRecoveryAction } };
+  } = {};
+  if (Object.keys(custom).length > 0) {
+    options.runConfig = { custom };
+  }
+  if (recoveryAction) {
+    options.metadata = {
+      custom: { agentNativeRecoveryAction: recoveryAction },
+    };
+  }
+  return options;
 }
 
 function escapeQueuedAttachmentAttribute(value: string): string {
@@ -439,6 +521,9 @@ const markdownStyles = `
 .agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
 .agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
 .agent-markdown th { font-weight: 600; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
+.agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after { content: ""; display: inline-block; width: 0.42em; height: 1em; margin-left: 0.12em; border-radius: 999px; background: currentColor; opacity: 0.35; transform: translateY(0.16em); animation: agent-markdown-stream-caret 1.15s ease-in-out infinite; }
+@keyframes agent-markdown-stream-caret { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.58; } }
+@media (prefers-reduced-motion: reduce) { .agent-markdown[data-streaming="true"] > :last-child:not(pre):not(table)::after { animation: none; opacity: 0.28; } }
 `;
 
 /**
@@ -993,19 +1078,260 @@ function markdownUrlTransform(value: string): string {
   return defaultUrlTransform(value);
 }
 
-function MarkdownText() {
+const TextStreamingContext = React.createContext(false);
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = () => setPrefersReducedMotion(media.matches);
+    handleChange();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function sliceGraphemes(
+  targetText: string,
+  graphemes: readonly string[],
+  count: number,
+): string {
+  if (count >= graphemes.length) return targetText;
+  if (count <= 0) return "";
+  return graphemes.slice(0, count).join("");
+}
+
+function useSmoothStreamingText(
+  targetText: string,
+  streaming: boolean,
+  resetKey: string,
+): string {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [visibleText, setVisibleText] = useState(() => {
+    if (!streaming || prefersReducedMotion) return targetText;
+    const graphemes = splitStreamingTextGraphemes(targetText);
+    return sliceGraphemes(
+      targetText,
+      graphemes,
+      initialSmoothStreamingGraphemeCount(graphemes),
+    );
+  });
+  const visibleTextRef = useRef(visibleText);
+  const visibleCountRef = useRef(
+    splitStreamingTextGraphemes(visibleText).length,
+  );
+  const targetTextRef = useRef(targetText);
+  const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
+  const frameRef = useRef<number | null>(null);
+  const lastCommitAtRef = useRef(0);
+  const pauseUntilRef = useRef(0);
+  const resetKeyRef = useRef(resetKey);
+  const stepRef = useRef<(time: number) => void>(() => {});
+
+  const commitVisibleCount = useCallback((nextCount: number) => {
+    const graphemes = targetGraphemesRef.current;
+    const boundedCount = Math.max(0, Math.min(nextCount, graphemes.length));
+    const nextText = sliceGraphemes(
+      targetTextRef.current,
+      graphemes,
+      boundedCount,
+    );
+    visibleCountRef.current = boundedCount;
+    if (visibleTextRef.current !== nextText) {
+      visibleTextRef.current = nextText;
+      setVisibleText(nextText);
+    }
+  }, []);
+
+  const cancelFrame = useCallback(() => {
+    if (
+      frameRef.current != null &&
+      typeof window !== "undefined" &&
+      typeof window.cancelAnimationFrame === "function"
+    ) {
+      window.cancelAnimationFrame(frameRef.current);
+    }
+    frameRef.current = null;
+    pauseUntilRef.current = 0;
+  }, []);
+
+  const scheduleFrame = useCallback(() => {
+    if (frameRef.current != null) return;
+    if (
+      typeof window === "undefined" ||
+      typeof window.requestAnimationFrame !== "function"
+    ) {
+      commitVisibleCount(targetGraphemesRef.current.length);
+      return;
+    }
+
+    frameRef.current = window.requestAnimationFrame((time) => {
+      frameRef.current = null;
+      stepRef.current(time);
+    });
+  }, [commitVisibleCount]);
+
+  stepRef.current = (time) => {
+    const targetGraphemes = targetGraphemesRef.current;
+    const backlog = targetGraphemes.length - visibleCountRef.current;
+    if (backlog <= 0) {
+      pauseUntilRef.current = 0;
+      return;
+    }
+
+    if (pauseUntilRef.current > time) {
+      scheduleFrame();
+      return;
+    }
+
+    const lastCommitAt =
+      lastCommitAtRef.current || time - SMOOTH_STREAMING_COMMIT_INTERVAL_MS;
+    if (
+      time - lastCommitAt < SMOOTH_STREAMING_COMMIT_INTERVAL_MS &&
+      backlog > 1
+    ) {
+      scheduleFrame();
+      return;
+    }
+
+    const revealCount = smoothStreamingRevealCount({
+      backlog,
+      elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
+    });
+
+    if (revealCount > 0) {
+      const nextCount = visibleCountRef.current + revealCount;
+      commitVisibleCount(nextCount);
+      lastCommitAtRef.current = time;
+      const nextBacklog = targetGraphemes.length - visibleCountRef.current;
+      const pauseMs = smoothStreamingPunctuationDelayMs(
+        targetGraphemes[visibleCountRef.current - 1],
+        nextBacklog,
+      );
+      pauseUntilRef.current = pauseMs > 0 ? time + pauseMs : 0;
+    }
+
+    if (visibleCountRef.current < targetGraphemes.length) {
+      scheduleFrame();
+    } else {
+      pauseUntilRef.current = 0;
+    }
+  };
+
+  useEffect(() => {
+    const targetGraphemes = splitStreamingTextGraphemes(targetText);
+    targetTextRef.current = targetText;
+    targetGraphemesRef.current = targetGraphemes;
+
+    const keyChanged = resetKeyRef.current !== resetKey;
+    resetKeyRef.current = resetKey;
+
+    if (!streaming || prefersReducedMotion) {
+      cancelFrame();
+      commitVisibleCount(targetGraphemes.length);
+      return;
+    }
+
+    const visibleNoLongerMatchesTarget =
+      visibleTextRef.current.length > 0 &&
+      !targetText.startsWith(visibleTextRef.current);
+
+    if (
+      keyChanged ||
+      visibleNoLongerMatchesTarget ||
+      visibleCountRef.current > targetGraphemes.length
+    ) {
+      commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
+      lastCommitAtRef.current = 0;
+      pauseUntilRef.current = 0;
+    }
+
+    if (visibleCountRef.current < targetGraphemes.length) {
+      scheduleFrame();
+    }
+  }, [
+    targetText,
+    streaming,
+    prefersReducedMotion,
+    resetKey,
+    cancelFrame,
+    commitVisibleCount,
+    scheduleFrame,
+  ]);
+
+  useEffect(() => cancelFrame, [cancelFrame]);
+
+  return visibleText;
+}
+
+function SmoothMarkdownText({
+  text,
+  streaming,
+  resetKey,
+  statusType = "complete",
+}: {
+  text: string;
+  streaming: boolean;
+  resetKey: string;
+  statusType?: string;
+}) {
   useEffect(() => {
     injectMarkdownStyles();
   }, []);
+
+  const visibleText = useSmoothStreamingText(text, streaming, resetKey);
+  const isVisuallyStreaming = streaming && visibleText !== text;
+
   return (
-    <MarkdownTextPrimitive
-      // assistant-ui's smooth renderer can briefly read past its token tap
-      // cache while React is reconciling streamed messages.
-      smooth={false}
+    <div
       className="agent-markdown break-words"
-      remarkPlugins={[remarkGfm]}
-      components={markdownComponents}
-      urlTransform={markdownUrlTransform}
+      data-status={statusType}
+      data-streaming={isVisuallyStreaming ? "true" : undefined}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+        urlTransform={markdownUrlTransform}
+      >
+        {visibleText}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function MarkdownText() {
+  const textPart = useMessagePartText();
+  const messageRuntime = useMessageRuntime();
+  const message = messageRuntime.getState();
+  const thread = useThread();
+  const textStreaming = React.useContext(TextStreamingContext);
+  const lastMessage = thread.messages[thread.messages.length - 1];
+  const isLastAssistantMessage =
+    message.role === "assistant" && lastMessage?.id === message.id;
+  const statusType =
+    textPart.status?.type ?? message.status?.type ?? "complete";
+
+  return (
+    <SmoothMarkdownText
+      text={textPart.text}
+      streaming={textStreaming && isLastAssistantMessage}
+      resetKey={`${message.id}:${statusType}`}
+      statusType={statusType}
     />
   );
 }
@@ -1671,12 +1997,7 @@ function ToolCallFallback({
 // assistant-ui's runtime). Uses the same visual styling as normal messages.
 
 function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
   const chatRunning = React.useContext(ChatRunningContext);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [content]);
 
   return (
     <div className="flex justify-start">
@@ -1684,18 +2005,13 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
         {content.map((part, i) => {
           if (part.type === "text") {
             return (
-              <div
+              <SmoothMarkdownText
                 key={`reconnect-text-${i}`}
-                className="agent-markdown break-words"
-              >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                  urlTransform={markdownUrlTransform}
-                >
-                  {part.text}
-                </ReactMarkdown>
-              </div>
+                text={part.text}
+                streaming={chatRunning}
+                resetKey={`reconnect-text-${i}`}
+                statusType={chatRunning ? "running" : "complete"}
+              />
             );
           }
           if (part.type === "tool-call") {
@@ -1713,7 +2029,6 @@ function ReconnectStreamMessage({ content }: { content: ContentPart[] }) {
           }
           return null;
         })}
-        <div ref={endRef} />
       </div>
     </div>
   );
@@ -1821,121 +2136,6 @@ function UserMessageText({ text }: { text: string }) {
 
 export function displayableUserMessageText(text: string): string {
   return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
-}
-
-export function isAssistantUiStaleIndexError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /^tapClientLookup: Index \d+ out of bounds \(length: \d+\)$/.test(
-    message,
-  );
-}
-
-type AssistantUiStaleIndexErrorBoundaryProps = {
-  resetKey: string;
-  componentName?: string;
-  children: React.ReactNode;
-};
-
-type AssistantUiStaleIndexErrorBoundaryState = {
-  error: Error | null;
-  retryToken: number;
-};
-
-export class AssistantUiStaleIndexErrorBoundary extends React.Component<
-  AssistantUiStaleIndexErrorBoundaryProps,
-  AssistantUiStaleIndexErrorBoundaryState
-> {
-  state: AssistantUiStaleIndexErrorBoundaryState = {
-    error: null,
-    retryToken: 0,
-  };
-
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-  static getDerivedStateFromError(
-    error: unknown,
-  ): Partial<AssistantUiStaleIndexErrorBoundaryState> {
-    return {
-      error: error instanceof Error ? error : new Error(String(error ?? "")),
-    };
-  }
-
-  componentDidCatch(error: unknown, info: React.ErrorInfo) {
-    if (!isAssistantUiStaleIndexError(error)) return;
-
-    captureError(error, {
-      tags: {
-        component: this.props.componentName ?? "AssistantChat",
-        recoverable: "assistant-ui-stale-message-index",
-      },
-      extra: {
-        resetKey: this.props.resetKey,
-        componentStack: info.componentStack,
-      },
-    });
-
-    if (this.retryTimer) return;
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      this.setState((state) => {
-        if (!state.error || !isAssistantUiStaleIndexError(state.error)) {
-          return null;
-        }
-        return { error: null, retryToken: state.retryToken + 1 };
-      });
-    }, 0);
-  }
-
-  componentDidUpdate(prevProps: AssistantUiStaleIndexErrorBoundaryProps) {
-    if (
-      this.state.error &&
-      isAssistantUiStaleIndexError(this.state.error) &&
-      prevProps.resetKey !== this.props.resetKey
-    ) {
-      this.setState((state) => ({
-        error: null,
-        retryToken: state.retryToken + 1,
-      }));
-    }
-  }
-
-  componentWillUnmount() {
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      if (!isAssistantUiStaleIndexError(this.state.error)) {
-        throw this.state.error;
-      }
-      return null;
-    }
-
-    return (
-      <React.Fragment key={`${this.props.resetKey}:${this.state.retryToken}`}>
-        {this.props.children}
-      </React.Fragment>
-    );
-  }
-}
-
-export function AssistantMessageListErrorBoundary({
-  resetKey,
-  children,
-}: {
-  resetKey: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <AssistantUiStaleIndexErrorBoundary
-      resetKey={resetKey}
-      componentName="AssistantMessageList"
-    >
-      {children}
-    </AssistantUiStaleIndexErrorBoundary>
-  );
 }
 
 function UserMessageAttachments() {
@@ -2249,7 +2449,9 @@ function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const activityTrail = activityTrailFromMetadata(msg);
+  const activityTrail = SHOW_AGENT_ACTIVITY_STEPS
+    ? activityTrailFromMetadata(msg)
+    : [];
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -2322,7 +2524,7 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {isComplete && activityTrail.length > 0 && (
+      {SHOW_AGENT_ACTIVITY_STEPS && isComplete && activityTrail.length > 0 && (
         <RunActivityTrail steps={activityTrail} />
       )}
       {isComplete && (
@@ -2390,12 +2592,21 @@ interface ActivityStep {
   tool?: string;
 }
 
-function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
+function ActivitySteps({
+  steps,
+  className,
+}: {
+  steps: ActivityStep[];
+  className?: string;
+}) {
   if (steps.length === 0) return null;
   const visibleSteps = steps.slice(-4);
   return (
     <div
-      className="max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+      className={cn(
+        "max-w-[85%] rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground",
+        className,
+      )}
       aria-live="polite"
     >
       <div className="space-y-1">
@@ -2412,6 +2623,25 @@ function ActivitySteps({ steps }: { steps: ActivityStep[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function RunningActivityStatus({
+  steps,
+  label,
+}: {
+  steps: ActivityStep[];
+  label: string;
+}) {
+  return (
+    <div className="agent-running-activity shrink-0 px-4 pb-2">
+      <div className="flex flex-col gap-2">
+        {SHOW_AGENT_ACTIVITY_STEPS && (
+          <ActivitySteps steps={steps} className="max-w-full" />
+        )}
+        <ThinkingIndicator label={label} />
       </div>
     </div>
   );
@@ -2678,7 +2908,9 @@ function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   return (
     code === "builder_auth_error" ||
     message.includes("builder authentication failed") ||
-    (isAuthCode && message.includes("invalid token"))
+    (isAuthCode &&
+      (message.includes("invalid token") ||
+        message.includes("personal access token")))
   );
 }
 
@@ -2720,6 +2952,108 @@ function getMessageText(message: unknown): string {
       .trim();
   }
   return typeof content === "string" ? content.trim() : "";
+}
+
+function contentPartFollowKey(part: any): string {
+  const type = typeof part?.type === "string" ? part.type : "unknown";
+  if (type === "text") return `t:${String(part.text ?? "").length}`;
+  if (type === "tool-call") {
+    return [
+      "tool",
+      part.toolCallId ?? "",
+      part.toolName ?? "",
+      part.status?.type ?? "",
+      String(part.argsText ?? "").length,
+      String(part.result ?? "").length,
+      part.mcpApp ? 1 : 0,
+    ].join(":");
+  }
+  if (type === "image") return `image:${String(part.image ?? "").length}`;
+  return `${type}:${String(part.text ?? part.result ?? "").length}`;
+}
+
+function contentFollowKey(content: unknown): string {
+  if (typeof content === "string") return `t:${content.length}`;
+  if (Array.isArray(content))
+    return content.map(contentPartFollowKey).join("|");
+  return "";
+}
+
+function messageFollowKey(message: unknown): string {
+  const msg = ((message as { message?: unknown })?.message ?? message) as {
+    id?: unknown;
+    role?: unknown;
+    status?: { type?: unknown; reason?: unknown };
+    content?: unknown;
+  };
+  return [
+    String(msg?.id ?? ""),
+    String(msg?.role ?? ""),
+    String(msg?.status?.type ?? ""),
+    String(msg?.status?.reason ?? ""),
+    contentFollowKey(msg?.content),
+  ].join(",");
+}
+
+function queuedMessageFollowKey(message: {
+  id: string;
+  text: string;
+  images?: string[];
+  attachments?: QueuedAttachment[];
+  references?: Reference[];
+  requestMode?: AgentRequestMode;
+  recoveryAction?: AgentRecoveryAction;
+}): string {
+  return [
+    message.id,
+    message.text.length,
+    message.images?.length ?? 0,
+    message.attachments?.length ?? 0,
+    message.references?.length ?? 0,
+    message.requestMode ?? "",
+    message.recoveryAction ?? "",
+  ].join(":");
+}
+
+function reconnectContentFollowKey(content: ContentPart[]): string {
+  return content.map(contentPartFollowKey).join("|");
+}
+
+const RECOVERY_USER_MESSAGE_PREFIXES = [
+  "Continue from where you left off",
+  "Continue from where you stopped",
+  "Retry the previous request from a clean approach",
+];
+
+function getRecoveryActionMetadata(
+  message: unknown,
+): AgentRecoveryAction | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const action = meta?.custom?.agentNativeRecoveryAction;
+  return action === "continue" || action === "retry" ? action : null;
+}
+
+function isRecoveryUserMessage(message: unknown): boolean {
+  if (getRecoveryActionMetadata(message)) return true;
+  const text = getMessageText(message);
+  return RECOVERY_USER_MESSAGE_PREFIXES.some((prefix) =>
+    text.startsWith(prefix),
+  );
+}
+
+export function latestNonRecoveryUserMessageText(
+  messages: readonly unknown[],
+): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as { role?: unknown };
+    if (message?.role !== "user") continue;
+    if (isRecoveryUserMessage(message)) continue;
+    const text = getMessageText(message);
+    if (text) return text;
+  }
+  return "";
 }
 
 function RunErrorRecoveryCard({
@@ -3177,9 +3511,19 @@ function PlanModeCallout({
 
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
-  sendMessage(text: string): void;
+  sendMessage(text: string, images?: string[]): void;
+  /** Programmatically prefill the composer without submitting. */
+  prefillMessage(text: string): void;
+  /** Add or replace keyed context for the next composer submission. */
+  setComposerContextItem(item: AgentChatContextItem): void;
+  /** Programmatically send a recovery prompt without replacing the original request. */
+  sendRecoveryMessage(
+    text: string,
+    recoveryAction: AgentRecoveryAction,
+    images?: string[],
+  ): void;
   /** Queue a message to send after the current run finishes */
-  queueMessage(text: string): void;
+  queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
   /** Focus the composer input */
@@ -3251,6 +3595,14 @@ export interface AssistantChatProps {
   composerSlot?: React.ReactNode;
   /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
+  /** Placeholder for the shared composer in its normal idle state. */
+  composerPlaceholder?: string;
+  /** Visual density for the shared composer shell. */
+  composerLayoutVariant?: AgentComposerLayoutVariant;
+  /** Center the composer on a fresh empty chat instead of pinning it low. */
+  centerComposerWhenEmpty?: boolean;
+  /** Hide the default empty-state icon/text/suggestions for custom start screens. */
+  emptyStateDisplay?: "default" | "hidden";
   /** Optional content rendered inside the composer toolbar after the attach button. */
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
@@ -3322,6 +3674,8 @@ export interface AssistantChatProps {
   loadHistoryRepository?: () => Promise<ExportedMessageRepository | null>;
   /** Re-run `loadHistoryRepository` when the host's external transcript changes. */
   historyReloadKey?: string | number | null;
+  /** Smooth the last assistant message while an external transcript is updating. */
+  externalStreaming?: boolean;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -3396,6 +3750,10 @@ const AssistantChatInner = forwardRef<
     onGenerateTitle,
     composerSlot,
     composerAreaClassName,
+    composerPlaceholder,
+    composerLayoutVariant = "default",
+    centerComposerWhenEmpty = false,
+    emptyStateDisplay = "default",
     composerToolbarSlot,
     composerExtraActionButton,
     composerDisabled = false,
@@ -3419,6 +3777,7 @@ const AssistantChatInner = forwardRef<
     providerStatusChecksEnabled = true,
     loadHistoryRepository,
     historyReloadKey,
+    externalStreaming = false,
   },
   ref,
 ) {
@@ -3502,7 +3861,7 @@ const AssistantChatInner = forwardRef<
   // user message and the `performRoundtrip` call that tries to record the
   // assistant placeholder against that user message's id. The internal-bug
   // throw turns into an unhandled rejection that Sentry captures from the
-  // images.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
+  // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
   // it by relinking to the current head whenever the requested parent has
   // gone missing instead of throwing.
   useEffect(() => {
@@ -3548,8 +3907,55 @@ const AssistantChatInner = forwardRef<
       attachments?: QueuedAttachment[];
       references?: Reference[];
       requestMode?: AgentRequestMode;
+      recoveryAction?: AgentRecoveryAction;
     }>
   >([]);
+  const [composerContextItems, setComposerContextItems] = useState<
+    AgentChatContextItem[]
+  >([]);
+  const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
+  const updateComposerContextItems = useCallback(
+    (updater: (previous: AgentChatContextItem[]) => AgentChatContextItem[]) => {
+      setComposerContextItems((previous) => {
+        const next = updater(previous);
+        composerContextItemsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const stageComposerContextItem = useCallback(
+    (rawItem: AgentChatContextItem) => {
+      const item = normalizeAgentChatContextItem(rawItem);
+      if (!item) return;
+      updateComposerContextItems((previous) => {
+        const index = previous.findIndex((current) => current.key === item.key);
+        if (index === -1) return [...previous, item];
+        return previous.map((current, currentIndex) =>
+          currentIndex === index ? item : current,
+        );
+      });
+    },
+    [updateComposerContextItems],
+  );
+  const removeComposerContextItem = useCallback(
+    (key: string) => {
+      updateComposerContextItems((previous) =>
+        previous.filter((item) => item.key !== key),
+      );
+    },
+    [updateComposerContextItems],
+  );
+  const buildComposerContextSubmission = useCallback((text: string) => {
+    const context = formatAgentChatContextItemsForPrompt(
+      composerContextItemsRef.current,
+    );
+    if (!context) return { text, includesContext: false };
+    return {
+      text: appendAgentChatContextToMessage(text, context),
+      includesContext: true,
+    };
+  }, []);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -3583,6 +3989,7 @@ const AssistantChatInner = forwardRef<
   // to an active run the same as running, UNLESS the user has explicitly
   // clicked stop (forceStopped).
   const isRunning = !forceStopped && (isRuntimeRunning || isReconnecting);
+  const textStreaming = isRunning || externalStreaming;
   // UI-only running state — drives the stop button and thinking indicator.
   const showRunningInUI = isRunning;
   const wasRunningRef = useRef(false);
@@ -3900,6 +4307,11 @@ const AssistantChatInner = forwardRef<
           setIsRestoring(false);
         }
       })();
+    } else if (threadId && isNewThread) {
+      // Client-created empty tabs do not have a server row until the first
+      // message is sent. Avoid probing /threads/:id on mount; that request
+      // can only 404 and makes normal app startup look broken in DevTools.
+      setIsRestoring(false);
     } else if (threadId) {
       (async () => {
         try {
@@ -3947,6 +4359,7 @@ const AssistantChatInner = forwardRef<
     importThreadData,
     reconnectActiveRunForThread,
     loadHistoryRepository,
+    isNewThread,
   ]);
 
   useEffect(() => {
@@ -4320,7 +4733,11 @@ const AssistantChatInner = forwardRef<
         tabId?: string;
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (typeof detail?.label === "string" && detail.label.trim()) {
+      if (
+        SHOW_AGENT_ACTIVITY_STEPS &&
+        typeof detail?.label === "string" &&
+        detail.label.trim()
+      ) {
         const label = detail.label.trim();
         const tool = detail.tool?.trim() || undefined;
         setActivityLabel(label);
@@ -4374,21 +4791,22 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           await waitForThreadRunToClear(apiUrl, threadId);
-          const content: Array<
-            { type: "text"; text: string } | { type: "image"; image: string }
-          > = [{ type: "text", text: next.text }];
-          if (next.images) {
-            for (const img of next.images) {
-              content.push({ type: "image", image: img });
-            }
-          }
+          const imageAttachments = createAgentImageAttachments(next.images);
+          const messageAttachments =
+            next.attachments && next.attachments.length > 0
+              ? next.attachments
+              : (imageAttachments ?? []);
           threadRuntime.append({
             role: "user",
-            content,
-            ...(next.attachments && next.attachments.length > 0
-              ? { attachments: next.attachments }
+            content: [{ type: "text", text: next.text }],
+            ...(messageAttachments.length > 0
+              ? { attachments: messageAttachments }
               : {}),
-            ...createUserMessageRunConfig(next.references, next.requestMode),
+            ...createUserMessageRunConfig(
+              next.references,
+              next.requestMode,
+              next.recoveryAction,
+            ),
           } as Parameters<typeof threadRuntime.append>[0]);
         })();
       }, 100);
@@ -4497,6 +4915,8 @@ const AssistantChatInner = forwardRef<
       attachments?: ReadonlyArray<unknown>,
       requestMode?: AgentRequestMode,
       intent: ComposerSubmitIntent = "queued",
+      recoveryAction?: AgentRecoveryAction,
+      includeComposerContext = false,
     ) => {
       materializeFrozenReconnectContent();
       setShowContinue(false);
@@ -4515,7 +4935,16 @@ const AssistantChatInner = forwardRef<
       // exists to stop streaming from yanking the viewport, not to swallow
       // direct sends.
       markNearBottom();
+      const submitted = includeComposerContext
+        ? buildComposerContextSubmission(text)
+        : { text, includesContext: false };
+      const submittedText = submitted.text;
       const queuedAttachments = await serializeQueuedAttachments(attachments);
+      const imageAttachments = createAgentImageAttachments(images);
+      const messageAttachments = [
+        ...(queuedAttachments ?? []),
+        ...(imageAttachments ?? []),
+      ];
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -4535,44 +4964,75 @@ const AssistantChatInner = forwardRef<
               typeof crypto !== "undefined" && crypto.randomUUID
                 ? crypto.randomUUID()
                 : `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            text,
+            text: submittedText,
             images,
-            attachments: queuedAttachments,
+            attachments:
+              messageAttachments.length > 0 ? messageAttachments : undefined,
             references,
             requestMode: effectiveRequestMode,
+            recoveryAction,
           },
         ]);
       } else {
-        const content: Array<
-          { type: "text"; text: string } | { type: "image"; image: string }
-        > = [{ type: "text", text }];
-        if (images) {
-          for (const img of images) {
-            content.push({ type: "image", image: img });
-          }
-        }
         threadRuntime.append({
           role: "user",
-          content,
-          ...(queuedAttachments && queuedAttachments.length > 0
-            ? { attachments: queuedAttachments }
+          content: [{ type: "text", text: submittedText }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
             : {}),
-          ...createUserMessageRunConfig(references, effectiveRequestMode),
+          ...createUserMessageRunConfig(
+            references,
+            effectiveRequestMode,
+            recoveryAction,
+          ),
         } as Parameters<typeof threadRuntime.append>[0]);
       }
+      if (submitted.includesContext) {
+        updateComposerContextItems(() => []);
+      }
     },
-    [execMode, isRunning, materializeFrozenReconnectContent, threadRuntime],
+    [
+      buildComposerContextSubmission,
+      execMode,
+      isRunning,
+      materializeFrozenReconnectContent,
+      threadRuntime,
+      updateComposerContextItems,
+    ],
   );
 
   // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
-      sendMessage(text: string) {
-        addToQueue(text);
+      sendMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
-      queueMessage(text: string) {
-        addToQueue(text);
+      prefillMessage(text: string) {
+        tiptapRef.current?.setText(text);
+        tiptapRef.current?.focus();
+      },
+      setComposerContextItem(item: AgentChatContextItem) {
+        stageComposerContextItem(item);
+        tiptapRef.current?.focus();
+      },
+      sendRecoveryMessage(
+        text: string,
+        recoveryAction: AgentRecoveryAction,
+        images?: string[],
+      ) {
+        addToQueue(
+          text,
+          images,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          recoveryAction,
+        );
+      },
+      queueMessage(text: string, images?: string[]) {
+        addToQueue(text, images);
       },
       isRunning() {
         return thread.isRunning;
@@ -4592,7 +5052,23 @@ const AssistantChatInner = forwardRef<
         };
       },
     }),
-    [addToQueue, messages.length, thread.isRunning, threadRuntime],
+    [
+      addToQueue,
+      messages.length,
+      stageComposerContextItem,
+      thread.isRunning,
+      threadRuntime,
+    ],
+  );
+
+  const autoscrollFollowKey = useMemo(
+    () =>
+      [
+        messages.map(messageFollowKey).join(";"),
+        `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
+        `r:${reconnectContentFollowKey(reconnectContent)}`,
+      ].join(";;"),
+    [messages, queuedMessages, reconnectContent],
   );
 
   const {
@@ -4603,8 +5079,8 @@ const AssistantChatInner = forwardRef<
     scrollToBottom,
     scrollToBottomAfterPaint,
   } = useNearBottomAutoscroll<HTMLDivElement>({
-    followKey: [messages, queuedMessages],
-    streaming: isRunning,
+    followKey: autoscrollFollowKey,
+    streaming: textStreaming,
   });
 
   const scrollToBottomWhileLayoutSettles = useCallback(() => {
@@ -4614,13 +5090,13 @@ const AssistantChatInner = forwardRef<
 
     let stopped = false;
     const observer = new ResizeObserver(() => {
-      if (!stopped) scrollToBottom();
+      if (!stopped && isNearBottomRef.current) scrollToBottom();
     });
     observer.observe(el);
     const timeout = window.setTimeout(() => {
       stopped = true;
       observer.disconnect();
-      scrollToBottom();
+      if (isNearBottomRef.current) scrollToBottom();
     }, 1600);
 
     return () => {
@@ -4628,7 +5104,7 @@ const AssistantChatInner = forwardRef<
       window.clearTimeout(timeout);
       observer.disconnect();
     };
-  }, [scrollToBottom, scrollToBottomAfterPaint]);
+  }, [isNearBottomRef, scrollToBottom, scrollToBottomAfterPaint]);
 
   // Scroll to bottom when a restored thread finishes loading
   const wasRestoringRef = useRef(isRestoring);
@@ -4641,10 +5117,10 @@ const AssistantChatInner = forwardRef<
   }, [isRestoring, scrollToBottomWhileLayoutSettles]);
 
   useEffect(() => {
-    if (!isRunning && isNearBottomRef.current) {
+    if (!textStreaming && isNearBottomRef.current) {
       scrollToBottomAfterPaint();
     }
-  }, [isRunning, scrollToBottomAfterPaint]);
+  }, [textStreaming, scrollToBottomAfterPaint]);
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
   const checkpointCtx = useMemo(
@@ -4662,12 +5138,10 @@ const AssistantChatInner = forwardRef<
     if (!last || last.role !== "assistant") return null;
     return getRunErrorMetadata(last);
   }, [messages]);
-  const lastUserText = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "user") return getMessageText(messages[i]);
-    }
-    return "";
-  }, [messages]);
+  const lastUserText = useMemo(
+    () => latestNonRecoveryUserMessageText(messages),
+    [messages],
+  );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
@@ -4710,447 +5184,532 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  const isFreshEmptyChat =
+    messages.length === 0 &&
+    !isRestoring &&
+    !isReconnecting &&
+    !authError &&
+    !missingApiKey;
+  const centeredEmptyState = centerComposerWhenEmpty && isFreshEmptyChat;
+
+  // Clarifying-question surface: the `ask-question` action writes a
+  // GuidedQuestionPayload to application_state under "guided-questions". The
+  // hook polls that key, and on submit/skip composes the answer as a normal
+  // user turn (via the shared sendToAgentChat) and clears the persisted key so
+  // the question does not reappear.
+  const {
+    questions: guidedQuestions,
+    title: guidedQuestionsTitle,
+    description: guidedQuestionsDescription,
+    skipLabel: guidedQuestionsSkipLabel,
+    submitLabel: guidedQuestionsSubmitLabel,
+    handleSubmit: handleGuidedQuestionsSubmit,
+    handleSkip: handleGuidedQuestionsSkip,
+  } = useGuidedQuestionFlow({
+    stateKey: "guided-questions",
+    queryKey: ["guided-questions"],
+    ...(browserTabId ? { browserTabId } : {}),
+  });
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ChatRunningContext.Provider value={isRunning}>
-          <div
-            className={cn(
-              "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
-              className,
-            )}
-            onDragEnter={handleChatDragEnter}
-            onDragOver={handleChatDragOver}
-            onDragLeave={handleChatDragLeave}
-            onDropCapture={handleChatDropCapture}
-            onDrop={handleChatDrop}
-          >
-            {dropActive && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
-              >
-                <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
-                  Drop to attach
-                </span>
-              </div>
-            )}
-            {showHeader && (
-              <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-                <span className="text-[13px] font-medium text-muted-foreground">
-                  Agent
-                </span>
-                <div className="flex items-center gap-1">
-                  {onSwitchToCli && (
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={onSwitchToCli}
-                            aria-label="Switch to CLI"
-                            className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-                          >
-                            <IconTerminal className="h-3.5 w-3.5" />
-                            CLI
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>Switch to CLI</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Messages area */}
+          <TextStreamingContext.Provider value={textStreaming}>
             <div
-              ref={scrollRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+              data-agent-empty-state={
+                centeredEmptyState ? "centered" : undefined
+              }
+              className={cn(
+                "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
+                className,
+              )}
+              onDragEnter={handleChatDragEnter}
+              onDragOver={handleChatDragOver}
+              onDragLeave={handleChatDragLeave}
+              onDropCapture={handleChatDropCapture}
+              onDrop={handleChatDrop}
             >
-              {authError ? (
-                <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
-                    <IconLock className="h-5 w-5 text-destructive" />
+              {dropActive && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
+                >
+                  <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                    Drop to attach
+                  </span>
+                </div>
+              )}
+              {showHeader && (
+                <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+                  <span className="text-[13px] font-medium text-muted-foreground">
+                    Agent
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {onSwitchToCli && (
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={onSwitchToCli}
+                              aria-label="Switch to CLI"
+                              className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                            >
+                              <IconTerminal className="h-3.5 w-3.5" />
+                              CLI
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Switch to CLI</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
-                  <div className="text-center max-w-[280px]">
-                    <p className="text-sm font-medium text-foreground mb-1">
-                      {authSessionAvailable
-                        ? "Chat session needs refresh"
-                        : authError.sessionExpired
-                          ? "Session expired"
-                          : "Authentication required"}
-                    </p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {authSessionAvailable
-                        ? "You're signed in, but this chat connection needs to reconnect."
-                        : authError.sessionExpired
-                          ? "Your session may have expired. Log out and log back in to reconnect."
-                          : "You need to log in to use the agent."}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {!authError.sessionExpired && !authSessionAvailable && (
+                </div>
+              )}
+
+              {/* Messages area */}
+              <div
+                ref={scrollRef}
+                className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+              >
+                {authError ? (
+                  <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+                      <IconLock className="h-5 w-5 text-destructive" />
+                    </div>
+                    <div className="text-center max-w-[280px]">
+                      <p className="text-sm font-medium text-foreground mb-1">
+                        {authSessionAvailable
+                          ? "Chat session needs refresh"
+                          : authError.sessionExpired
+                            ? "Session expired"
+                            : "Authentication required"}
+                      </p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {authSessionAvailable
+                          ? "You're signed in, but this chat connection needs to reconnect."
+                          : authError.sessionExpired
+                            ? "Your session may have expired. Log out and log back in to reconnect."
+                            : "You need to log in to use the agent."}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      {!authError.sessionExpired && !authSessionAvailable && (
+                        <button
+                          onClick={() => {
+                            const ret =
+                              window.location.pathname + window.location.search;
+                            window.location.href =
+                              agentNativePath("/_agent-native/sign-in") +
+                              `?return=${encodeURIComponent(ret)}`;
+                          }}
+                          className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                        >
+                          Log in
+                        </button>
+                      )}
+                      {authError.sessionExpired && !authSessionAvailable && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await fetch(
+                                agentNativePath("/_agent-native/auth/logout"),
+                                {
+                                  method: "POST",
+                                },
+                              );
+                            } catch {}
+                            window.location.reload();
+                          }}
+                          className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                        >
+                          Log out
+                        </button>
+                      )}
                       <button
                         onClick={() => {
-                          const ret =
-                            window.location.pathname + window.location.search;
-                          window.location.href =
-                            agentNativePath("/_agent-native/sign-in") +
-                            `?return=${encodeURIComponent(ret)}`;
-                        }}
-                        className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
-                      >
-                        Log in
-                      </button>
-                    )}
-                    {authError.sessionExpired && !authSessionAvailable && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await fetch(
-                              agentNativePath("/_agent-native/auth/logout"),
-                              {
-                                method: "POST",
-                              },
-                            );
-                          } catch {}
+                          setAuthError(null);
                           window.location.reload();
                         }}
-                        className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                        className={
+                          authSessionAvailable
+                            ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                            : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                        }
                       >
-                        Log out
+                        Refresh chat
                       </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setAuthError(null);
-                        window.location.reload();
-                      }}
-                      className={
-                        authSessionAvailable
-                          ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
-                          : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
-                      }
-                    >
-                      Refresh chat
-                    </button>
-                  </div>
-                </div>
-              ) : missingApiKey && messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full px-2">
-                  <BuilderSetupCard
-                    onConnected={handleBuilderConnected}
-                    bouncePulse={missingKeyBouncePulse}
-                  />
-                </div>
-              ) : isRestoring ? (
-                <div className="flex flex-col gap-3 p-4">
-                  <div className="flex justify-end">
-                    <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-                    <div className="h-4 w-64 rounded bg-muted animate-pulse" />
-                    <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                  </div>
-                </div>
-              ) : messages.length === 0 && !isReconnecting ? (
-                <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                    <IconMessage className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground text-center max-w-[240px]">
-                    {emptyStateText ?? "How can I help you?"}
-                  </p>
-                  {emptyStateAddon}
-                  {resolvedSuggestions && resolvedSuggestions.length > 0 && (
-                    <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                      {resolvedSuggestions.map((suggestion) => (
-                        <button
-                          key={suggestion}
-                          onClick={() => {
-                            threadRuntime.append({
-                              role: "user",
-                              content: [{ type: "text", text: suggestion }],
-                            });
-                          }}
-                          className="w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          {suggestion}
-                        </button>
-                      ))}
                     </div>
-                  )}
-                </div>
-              ) : (
-                <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
-                  <AssistantMessageListErrorBoundary
-                    resetKey={messageListResetKey}
-                  >
-                    <ThreadPrimitive.Messages
-                      components={{
-                        UserMessage,
-                        AssistantMessage,
-                      }}
-                    />
-                  </AssistantMessageListErrorBoundary>
-                  {missingApiKey && (
+                  </div>
+                ) : missingApiKey && messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full px-2">
                     <BuilderSetupCard
                       onConnected={handleBuilderConnected}
                       bouncePulse={missingKeyBouncePulse}
                     />
-                  )}
-                  {visibleLoopLimit && !showRunningInUI && (
-                    <LoopLimitContinueCard
-                      info={visibleLoopLimit}
-                      onContinue={() => {
-                        setShowContinue(false);
-                        setLoopLimitInfo(null);
-                        addToQueue("Continue from where you left off.");
-                      }}
-                    />
-                  )}
-                  {shouldShowRunError && visibleRunError && (
-                    <RunErrorRecoveryCard
-                      info={visibleRunError}
-                      onContinue={() => {
-                        setRunErrorInfo(null);
-                        addToQueue(
-                          "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
-                        );
-                      }}
-                      onRetry={() => {
-                        setRunErrorInfo(null);
-                        addToQueue(
-                          lastUserText
-                            ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                            : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                        );
-                      }}
-                      onFork={onForkChat}
-                      onDismiss={() => {
-                        if (visibleRunErrorKey) {
-                          setDismissedRunErrorKey(visibleRunErrorKey);
-                        }
-                        setRunErrorInfo(null);
-                      }}
-                    />
-                  )}
-                  {(isReconnecting || reconnectFrozen) &&
-                    reconnectContent.length > 0 && (
-                      <ReconnectStreamMessage content={reconnectContent} />
+                  </div>
+                ) : isRestoring ? (
+                  <div className="flex flex-col gap-3 p-4">
+                    <div className="flex justify-end">
+                      <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                      <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+                      <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                    </div>
+                  </div>
+                ) : messages.length === 0 && !isReconnecting ? (
+                  <div
+                    className={cn(
+                      "agent-empty-state",
+                      emptyStateDisplay === "hidden"
+                        ? "sr-only"
+                        : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
                     )}
-                  {/* Always show the thinking indicator while the agent is working,
-                including during reconnect. The indicator sits BELOW any
-                already-streamed reconnect content so the user sees both
-                "what it did so far" and "it's still working". Swap the label
-                to "Reconnecting" during reconnect so the user knows the
-                system is actively recovering, not just stuck. */}
-                  {showRunningInUI && (
-                    <>
-                      <ActivitySteps steps={activitySteps} />
-                      <ThinkingIndicator
-                        label={
-                          isReconnecting
-                            ? "Reconnecting"
-                            : (activityLabel ?? "Thinking")
-                        }
-                      />
-                    </>
-                  )}
-                  {queuedMessages.map((msg) => {
-                    const displayText = msg.text
-                      .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
-                      .trim();
-                    return (
-                      <div key={msg.id} className="flex justify-end group">
-                        <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                            <IconClock className="h-3 w-3" />
-                            Queued
-                          </div>
-                          {displayText}
-                          {msg.images && msg.images.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-1.5">
-                              {msg.images.map((img, j) => (
-                                <img
-                                  key={j}
-                                  src={img}
-                                  alt=""
-                                  className="h-12 w-12 rounded object-cover border border-border/50"
-                                />
-                              ))}
-                            </div>
-                          )}
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                      <IconMessage className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground text-center max-w-[240px]">
+                      {emptyStateText ?? "How can I help you?"}
+                    </p>
+                    {emptyStateAddon}
+                    {resolvedSuggestions && resolvedSuggestions.length > 0 && (
+                      <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
+                        {resolvedSuggestions.map((suggestion) => (
                           <button
-                            type="button"
-                            onClick={() =>
-                              setQueuedMessages((prev) =>
-                                prev.filter((m) => m.id !== msg.id),
-                              )
-                            }
-                            aria-label="Remove from queue"
-                            className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
+                            key={suggestion}
+                            onClick={() => {
+                              threadRuntime.append({
+                                role: "user",
+                                content: [{ type: "text", text: suggestion }],
+                              });
+                            }}
+                            className="w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
                           >
-                            <IconX className="h-3 w-3" />
+                            {suggestion}
                           </button>
-                        </div>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Scroll to bottom button */}
-            {showScrollToBottom && (
-              <div className="shrink-0 flex justify-center -mb-1">
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
-                  aria-label="Scroll to bottom"
-                >
-                  <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              </div>
-            )}
-
-            {composerSlot}
-            {showPlanModeCallout && (
-              <PlanModeCallout
-                canImplementPlan={canImplementPlan}
-                onImplementPlan={handleImplementPlan}
-                onSwitchToAct={handleSwitchToAct}
-              />
-            )}
-            <SelectionAttachedPill />
-            {/* Input area */}
-            <AgentComposerFrame
-              className={cn(
-                composerAreaClassName,
-                missingApiKey && "cursor-pointer",
-                isComposerDisabled && "opacity-70",
-              )}
-              onClick={
-                missingApiKey
-                  ? () => setMissingKeyBouncePulse((p) => p + 1)
-                  : undefined
-              }
-            >
-              <ComposerAttachmentPreviewStrip />
-              <TiptapComposer
-                focusRef={tiptapRef}
-                disabled={isComposerDisabled}
-                placeholder={
-                  missingApiKey
-                    ? "Connect an AI engine above to start chatting…"
-                    : composerDisabled
-                      ? (composerDisabledPlaceholder ??
-                        "Open Desktop to use this chat.")
-                      : isRunning
-                        ? queuedMessages.length > 0
-                          ? `${queuedMessages.length} queued — send a follow-up...`
-                          : "Send a follow-up..."
-                        : undefined
-                }
-                onSubmit={
-                  isRunning
-                    ? (text, references, attachments, options) =>
-                        void addToQueue(
-                          text,
-                          undefined,
-                          references.length > 0 ? references : undefined,
-                          attachments,
-                          undefined,
-                          options?.intent ?? "immediate",
-                        )
-                    : undefined
-                }
-                onSlashCommand={onSlashCommand}
-                execMode={execMode}
-                onExecModeChange={onExecModeChange}
-                planModeDisabled={planModeDisabled}
-                planModeDisabledReason={planModeDisabledReason}
-                selectedModel={selectedModel ?? defaultModel}
-                selectedEffort={selectedEffort}
-                availableModels={availableModels}
-                onModelChange={onModelChange}
-                onEffortChange={onEffortChange}
-                onConnectProvider={onConnectProvider}
-                toolbarSlot={composerToolbarSlot}
-                plusMenuMode={plusMenuMode}
-                providerConnectStatusEnabled={providerStatusChecksEnabled}
-                draftScope={threadId || tabId}
-                interceptBuildRequestsForBuilder
-                extraActionButton={
-                  composerExtraActionButton || showRunningInUI ? (
-                    <>
-                      {composerExtraActionButton}
-                      {showRunningInUI && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                    )}
+                  </div>
+                ) : (
+                  <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
+                    <AssistantMessageListErrorBoundary
+                      resetKey={messageListResetKey}
+                    >
+                      <ThreadPrimitive.Messages
+                        components={{
+                          UserMessage,
+                          AssistantMessage,
+                        }}
+                      />
+                    </AssistantMessageListErrorBoundary>
+                    {missingApiKey && (
+                      <BuilderSetupCard
+                        onConnected={handleBuilderConnected}
+                        bouncePulse={missingKeyBouncePulse}
+                      />
+                    )}
+                    {visibleLoopLimit && !showRunningInUI && (
+                      <LoopLimitContinueCard
+                        info={visibleLoopLimit}
+                        onContinue={() => {
+                          setShowContinue(false);
+                          setLoopLimitInfo(null);
+                          addToQueue(
+                            "Continue from where you left off.",
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            "queued",
+                            "continue",
+                          );
+                        }}
+                      />
+                    )}
+                    {shouldShowRunError && visibleRunError && (
+                      <RunErrorRecoveryCard
+                        info={visibleRunError}
+                        onContinue={() => {
+                          setRunErrorInfo(null);
+                          addToQueue(
+                            "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. Prefer dedicated app actions over raw database edits when they exist.",
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            "queued",
+                            "continue",
+                          );
+                        }}
+                        onRetry={() => {
+                          setRunErrorInfo(null);
+                          addToQueue(
+                            lastUserText
+                              ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+                              : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            "queued",
+                            "retry",
+                          );
+                        }}
+                        onFork={onForkChat}
+                        onDismiss={() => {
+                          if (visibleRunErrorKey) {
+                            setDismissedRunErrorKey(visibleRunErrorKey);
+                          }
+                          setRunErrorInfo(null);
+                        }}
+                      />
+                    )}
+                    {(isReconnecting || reconnectFrozen) &&
+                      reconnectContent.length > 0 && (
+                        <ReconnectStreamMessage content={reconnectContent} />
+                      )}
+                    {queuedMessages.map((msg) => {
+                      const displayText = msg.text
+                        .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
+                        .trim();
+                      return (
+                        <div key={msg.id} className="flex justify-end group">
+                          <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
+                              <IconClock className="h-3 w-3" />
+                              Queued
+                            </div>
+                            {displayText}
+                            {msg.images && msg.images.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {msg.images.map((img, j) => (
+                                  <img
+                                    key={j}
+                                    src={img}
+                                    alt=""
+                                    className="h-12 w-12 rounded object-cover border border-border/50"
+                                  />
+                                ))}
+                              </div>
+                            )}
                             <button
                               type="button"
-                              onClick={() => {
-                                // Nuclear stop: flip forceStopped so isRunning is false
-                                // immediately. This unblocks submission even if the
-                                // runtime or reconnect state is stuck.
-                                setForceStopped(true);
-                                const activeRun = getActiveRun();
-                                const runIdToAbort =
-                                  reconnectRunIdRef.current ?? activeRun?.runId;
-                                userStoppedRunRef.current = {
-                                  at: Date.now(),
-                                  ...(runIdToAbort
-                                    ? { runId: runIdToAbort }
-                                    : {}),
-                                };
-                                setRunErrorInfo(null);
-                                setDismissedRunErrorKey(null);
-                                if (runIdToAbort) {
-                                  fetch(
-                                    `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
-                                    { method: "POST" },
-                                  ).catch(() => {});
-                                }
-
-                                if (isReconnecting) {
-                                  reconnectAbortRef.current?.abort();
-                                  reconnectAbortRef.current = null;
-                                  reconnectRunIdRef.current = null;
-                                  setIsReconnecting(false);
-                                  setReconnectFrozen(
-                                    reconnectContent.length > 0,
-                                  );
-                                }
-
-                                threadRuntime.cancelRun();
-
-                                window.dispatchEvent(
-                                  new CustomEvent("agentNative.chatRunning", {
-                                    detail: {
-                                      isRunning: false,
-                                      tabId: tabId || threadId,
-                                    },
-                                  }),
-                                );
-                              }}
-                              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                              onClick={() =>
+                                setQueuedMessages((prev) =>
+                                  prev.filter((m) => m.id !== msg.id),
+                                )
+                              }
+                              aria-label="Remove from queue"
+                              className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
                             >
-                              <IconPlayerStop className="h-3.5 w-3.5" />
+                              <IconX className="h-3 w-3" />
                             </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Stop generating</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </>
-                  ) : undefined
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Scroll to bottom button */}
+              {showScrollToBottom && (
+                <div className="shrink-0 flex justify-center -mb-1">
+                  <button
+                    type="button"
+                    onClick={scrollToBottom}
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+                    aria-label="Scroll to bottom"
+                  >
+                    <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              )}
+
+              {composerSlot}
+              {guidedQuestions && guidedQuestions.length > 0 && (
+                <div className="shrink-0 px-3 pb-2 pt-1">
+                  <div className="rounded-lg border border-border bg-card/60 shadow-sm">
+                    <GuidedQuestionFlow
+                      questions={guidedQuestions}
+                      onSubmit={handleGuidedQuestionsSubmit}
+                      onSkip={handleGuidedQuestionsSkip}
+                      {...(guidedQuestionsTitle
+                        ? { title: guidedQuestionsTitle }
+                        : {})}
+                      {...(guidedQuestionsDescription
+                        ? { description: guidedQuestionsDescription }
+                        : {})}
+                      {...(guidedQuestionsSkipLabel
+                        ? { skipLabel: guidedQuestionsSkipLabel }
+                        : {})}
+                      {...(guidedQuestionsSubmitLabel
+                        ? { submitLabel: guidedQuestionsSubmitLabel }
+                        : {})}
+                      className="h-auto items-stretch justify-stretch bg-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+              {showPlanModeCallout && (
+                <PlanModeCallout
+                  canImplementPlan={canImplementPlan}
+                  onImplementPlan={handleImplementPlan}
+                  onSwitchToAct={handleSwitchToAct}
+                />
+              )}
+              <SelectionAttachedPill />
+              {/* Keep live run progress pinned in the composer footer while the
+                completed/collapsed trail remains attached to the transcript. */}
+              {showRunningInUI && (
+                <RunningActivityStatus
+                  steps={activitySteps}
+                  label={
+                    isReconnecting
+                      ? "Reconnecting"
+                      : SHOW_AGENT_ACTIVITY_STEPS
+                        ? (activityLabel ?? "Thinking")
+                        : "Thinking"
+                  }
+                />
+              )}
+              {/* Input area */}
+              <AgentComposerFrame
+                layoutVariant={composerLayoutVariant}
+                className={cn(
+                  composerAreaClassName,
+                  missingApiKey && "cursor-pointer",
+                  isComposerDisabled && "opacity-70",
+                )}
+                onClick={
+                  missingApiKey
+                    ? () => setMissingKeyBouncePulse((p) => p + 1)
+                    : undefined
                 }
-              />
-            </AgentComposerFrame>
-          </div>
+              >
+                <ComposerAttachmentPreviewStrip />
+                <TiptapComposer
+                  focusRef={tiptapRef}
+                  disabled={isComposerDisabled}
+                  placeholder={
+                    missingApiKey
+                      ? "Connect an AI engine above to start chatting…"
+                      : composerDisabled
+                        ? (composerDisabledPlaceholder ??
+                          "Open Desktop to use this chat.")
+                        : isRunning
+                          ? queuedMessages.length > 0
+                            ? `${queuedMessages.length} queued — send a follow-up...`
+                            : "Send a follow-up..."
+                          : composerPlaceholder
+                  }
+                  onSubmit={
+                    isRunning || composerContextItems.length > 0
+                      ? (text, references, attachments, options) =>
+                          void addToQueue(
+                            text,
+                            undefined,
+                            references.length > 0 ? references : undefined,
+                            attachments,
+                            undefined,
+                            options?.intent ?? "immediate",
+                            undefined,
+                            true,
+                          )
+                      : undefined
+                  }
+                  onSlashCommand={onSlashCommand}
+                  execMode={execMode}
+                  onExecModeChange={onExecModeChange}
+                  planModeDisabled={planModeDisabled}
+                  planModeDisabledReason={planModeDisabledReason}
+                  selectedModel={selectedModel ?? defaultModel}
+                  selectedEffort={selectedEffort}
+                  availableModels={availableModels}
+                  onModelChange={onModelChange}
+                  onEffortChange={onEffortChange}
+                  onConnectProvider={onConnectProvider}
+                  toolbarSlot={composerToolbarSlot}
+                  contextItems={composerContextItems}
+                  onRemoveContextItem={removeComposerContextItem}
+                  plusMenuMode={plusMenuMode}
+                  layoutVariant={composerLayoutVariant}
+                  providerConnectStatusEnabled={providerStatusChecksEnabled}
+                  draftScope={threadId || tabId}
+                  interceptBuildRequestsForBuilder
+                  extraActionButton={
+                    composerExtraActionButton || showRunningInUI ? (
+                      <>
+                        {composerExtraActionButton}
+                        {showRunningInUI && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Nuclear stop: flip forceStopped so isRunning is false
+                                  // immediately. This unblocks submission even if the
+                                  // runtime or reconnect state is stuck.
+                                  setForceStopped(true);
+                                  const activeRun = getActiveRun();
+                                  const runIdToAbort =
+                                    reconnectRunIdRef.current ??
+                                    activeRun?.runId;
+                                  userStoppedRunRef.current = {
+                                    at: Date.now(),
+                                    ...(runIdToAbort
+                                      ? { runId: runIdToAbort }
+                                      : {}),
+                                  };
+                                  setRunErrorInfo(null);
+                                  setDismissedRunErrorKey(null);
+                                  if (runIdToAbort) {
+                                    fetch(
+                                      `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                                      { method: "POST" },
+                                    ).catch(() => {});
+                                  }
+
+                                  if (isReconnecting) {
+                                    reconnectAbortRef.current?.abort();
+                                    reconnectAbortRef.current = null;
+                                    reconnectRunIdRef.current = null;
+                                    setIsReconnecting(false);
+                                    setReconnectFrozen(
+                                      reconnectContent.length > 0,
+                                    );
+                                  }
+
+                                  threadRuntime.cancelRun();
+
+                                  window.dispatchEvent(
+                                    new CustomEvent("agentNative.chatRunning", {
+                                      detail: {
+                                        isRunning: false,
+                                        tabId: tabId || threadId,
+                                      },
+                                    }),
+                                  );
+                                }}
+                                className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                              >
+                                <IconPlayerStop className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Stop generating</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </>
+                    ) : undefined
+                  }
+                />
+              </AgentComposerFrame>
+            </div>
+          </TextStreamingContext.Provider>
         </ChatRunningContext.Provider>
       </MessageActionsContext.Provider>
     </CheckpointContext.Provider>

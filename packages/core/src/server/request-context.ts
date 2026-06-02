@@ -63,6 +63,13 @@ export interface RequestContext {
   orgId?: string;
   timezone?: string;
   /**
+   * Set when SSR code reads authenticated request context. The SSR cache layer
+   * uses this as a last-resort leak guard: public shell/data should not read
+   * user/org state during render, but older templates still do. Routes that
+   * need CDN caching should move those reads behind client-side actions/API.
+   */
+  authContextAccessed?: boolean;
+  /**
    * Origin of the inbound request (e.g. `http://127.0.0.1:8100`). Set by the
    * MCP mount from the request headers so actions that build externally
    * fetchable URLs (e.g. design `export-coding-handoff`'s signed raw-code URL)
@@ -167,7 +174,9 @@ export function runWithRequestContext<T>(
  * process-wide CLI fallbacks such as `AGENT_USER_EMAIL` or "latest session".
  */
 export function getRequestContext(): RequestContext | undefined {
-  return als.getStore();
+  const store = als.getStore();
+  markAuthContextAccess(store);
+  return store;
 }
 
 /**
@@ -191,7 +200,10 @@ export function hasRequestContext(): boolean {
  */
 export function getRequestUserEmail(): string | undefined {
   const store = als.getStore();
-  if (store !== undefined) return store.userEmail;
+  if (store !== undefined) {
+    if (store.userEmail) markAuthContextAccess(store);
+    return store.userEmail;
+  }
   return process.env.AGENT_USER_EMAIL;
 }
 
@@ -204,7 +216,10 @@ export function getRequestUserEmail(): string | undefined {
  */
 export function getRequestUserName(): string | undefined {
   const store = als.getStore();
-  if (store !== undefined) return store.userName;
+  if (store !== undefined) {
+    if (store.userName) markAuthContextAccess(store);
+    return store.userName;
+  }
   return process.env.AGENT_USER_NAME;
 }
 
@@ -217,8 +232,22 @@ export function getRequestUserName(): string | undefined {
  */
 export function getRequestOrgId(): string | undefined {
   const store = als.getStore();
-  if (store !== undefined) return store.orgId;
+  if (store !== undefined) {
+    if (store.orgId) markAuthContextAccess(store);
+    return store.orgId;
+  }
   return process.env.AGENT_ORG_ID;
+}
+
+function markAuthContextAccess(ctx: RequestContext | undefined) {
+  if (!ctx) return;
+  if (ctx.userEmail || ctx.userName || ctx.orgId) {
+    ctx.authContextAccessed = true;
+  }
+}
+
+export function hasAuthContextAccess(ctx: RequestContext | undefined): boolean {
+  return Boolean(ctx?.authContextAccessed);
 }
 
 /**

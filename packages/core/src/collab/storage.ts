@@ -19,24 +19,80 @@ async function ensureTable(): Promise<void> {
           doc_id TEXT PRIMARY KEY,
           yjs_state TEXT NOT NULL,
           text_snapshot TEXT NOT NULL DEFAULT '',
+          version INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT NOT NULL DEFAULT (${nowDefault})
         )
       `);
-    })();
+      try {
+        await client.execute(
+          `ALTER TABLE _collab_docs ADD COLUMN version INTEGER NOT NULL DEFAULT 0`,
+        );
+      } catch {
+        // Existing deployments already have the column after the first run.
+      }
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
 
-/** Load Yjs state as Uint8Array, or null if not found. */
-export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
+export interface YDocStateRecord {
+  state: Uint8Array;
+  version: number;
+}
+
+/** Load Yjs state plus optimistic concurrency version. */
+export async function loadYDocRecord(
+  docId: string,
+): Promise<YDocStateRecord | null> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT yjs_state FROM _collab_docs WHERE doc_id = ?`,
+    sql: `SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?`,
     args: [docId],
   });
   if (rows.length === 0) return null;
-  return base64ToUint8Array(rows[0].yjs_state as string);
+  return {
+    state: base64ToUint8Array(rows[0].yjs_state as string),
+    version: Number(rows[0].version ?? 0),
+  };
+}
+
+/** Load Yjs state as Uint8Array, or null if not found. */
+export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
+  const record = await loadYDocRecord(docId);
+  return record?.state ?? null;
+}
+
+/** Save only if the stored row still has the version the caller merged from. */
+export async function trySaveYDocState(
+  docId: string,
+  state: Uint8Array,
+  textSnapshot: string,
+  expectedVersion: number | null,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const b64 = uint8ArrayToBase64(state);
+  const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+  if (expectedVersion === null) {
+    const result = await client.execute({
+      sql: isPostgres()
+        ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
+        : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
+      args: [docId, b64, textSnapshot],
+    });
+    return result.rowsAffected > 0;
+  }
+
+  const result = await client.execute({
+    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
+    args: [b64, textSnapshot, docId, expectedVersion],
+  });
+  return result.rowsAffected > 0;
 }
 
 /** Save Yjs state (Uint8Array) and a plain-text snapshot. */
@@ -49,11 +105,23 @@ export async function saveYDocState(
   const client = getDbExec();
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-  await client.execute({
+  const updated = await client.execute({
+    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
+    args: [b64, textSnapshot, docId],
+  });
+  if (updated.rowsAffected > 0) return;
+
+  const inserted = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, updated_at) VALUES (?, ?, ?, ${nowExpr}) ON CONFLICT (doc_id) DO UPDATE SET yjs_state = EXCLUDED.yjs_state, text_snapshot = EXCLUDED.text_snapshot, updated_at = EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO _collab_docs (doc_id, yjs_state, text_snapshot, updated_at) VALUES (?, ?, ?, ${nowExpr})`,
+      ? `INSERT INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr}) ON CONFLICT (doc_id) DO NOTHING`
+      : `INSERT OR IGNORE INTO _collab_docs (doc_id, yjs_state, text_snapshot, version, updated_at) VALUES (?, ?, ?, 0, ${nowExpr})`,
     args: [docId, b64, textSnapshot],
+  });
+  if (inserted.rowsAffected > 0) return;
+
+  await client.execute({
+    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ?`,
+    args: [b64, textSnapshot, docId],
   });
 }
 

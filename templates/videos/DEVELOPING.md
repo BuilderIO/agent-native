@@ -115,14 +115,14 @@ The routing system uses React Router v7 framework mode with file-based routing:
 
 ### Database (Cloud Deployment)
 
-By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
+Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
 
 **Environment variables:**
 
-| Variable              | Required         | Description                                                |
-| --------------------- | ---------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
+| Variable              | Required                        | Description                                                                |
+| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
+| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
 
 ## Build & Dev Commands
 

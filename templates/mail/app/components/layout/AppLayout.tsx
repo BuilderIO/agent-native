@@ -47,9 +47,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
+  DevDatabaseLink,
   FeedbackButton,
   NotificationsBell,
   agentNativePath,
@@ -185,6 +185,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // When the user swipes a row to snooze, we need to snooze that specific
@@ -222,7 +223,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     );
   }, [location.pathname, navigate, searchParams]);
   // Remember which view (and label tab) the user was in before searching —
-  // SearchBar always routes searches through /inbox?q=..., so on clear we'd
+  // SearchBar always routes searches through /all?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
   // label-filtered tab back into plain Inbox.
   const preSearchViewRef = useRef<{ view: string; label: string | null }>({
@@ -1100,6 +1101,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
           <div className="flex-1" />
 
+          {headerActions && (
+            <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
+            </div>
+          )}
+
           {/* Search — stays visible while a search is active so the
                   user always knows what they searched */}
           {searchFocused || activeSearchQuery ? (
@@ -1503,6 +1510,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </div>
 
                 <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                  <DevDatabaseLink />
                   <FeedbackButton className="min-w-0 flex-1" />
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1799,6 +1807,7 @@ function StandardLayout({ children }: AppLayoutProps) {
               </div>
 
               <div className="flex items-center gap-1 border-t border-border/20 px-2 py-2">
+                <DevDatabaseLink />
                 <FeedbackButton className="min-w-0 flex-1" />
                 <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>
@@ -2100,7 +2109,7 @@ function AccountPopover({
   onToggleAccount,
   onRemoveAccount,
 }: {
-  accounts: Array<{ email: string; photoUrl?: string }>;
+  accounts: Array<{ email: string; displayName?: string; photoUrl?: string }>;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
   onRemoveAccount: (email: string) => void;
@@ -2173,8 +2182,16 @@ function AccountPopover({
                 imageClassName="h-6 w-6 rounded-full object-cover shrink-0"
                 fallbackClassName="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0"
               />
-              <span className="text-[13px] text-foreground/80 truncate flex-1">
-                {account.email}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[13px] text-foreground/80">
+                  {account.displayName || account.email}
+                </span>
+                {account.displayName &&
+                  account.displayName !== account.email && (
+                    <span className="truncate text-[11px] text-muted-foreground/60">
+                      {account.email}
+                    </span>
+                  )}
               </span>
               <button
                 onClick={() => {

@@ -12,6 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getActiveOrganizationId } from "../server/lib/meetings.js";
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
     "List companies extracted from meeting attendee email domains. Supports search.",
@@ -38,9 +42,9 @@ export default defineAction({
     const conditions: any[] = [eq(schema.companies.organizationId, orgId)];
 
     if (args.search) {
-      const pat = `%${args.search.toLowerCase()}%`;
+      const pat = `%${escapeLike(args.search.toLowerCase())}%`;
       conditions.push(
-        sql`(LOWER(${schema.companies.name}) LIKE ${pat} OR LOWER(${schema.companies.domain}) LIKE ${pat})`,
+        sql`(LOWER(${schema.companies.name}) LIKE ${pat} ESCAPE '\\' OR LOWER(${schema.companies.domain}) LIKE ${pat} ESCAPE '\\')`,
       );
     }
 

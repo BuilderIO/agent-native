@@ -5,11 +5,9 @@ import {
   jiraGetMyself,
 } from "./jira-api.js";
 import {
-  getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
-  hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 
@@ -168,7 +166,17 @@ export async function getClient(email?: string): Promise<{
   if (!tokens || !tokens.cloud_id) return null;
 
   const accountId = account.accountId;
-  const accessToken = await getValidAccessToken(accountId, tokens);
+  const ownerForRefresh: string =
+    email ??
+    ("owner" in account && typeof account.owner === "string"
+      ? account.owner
+      : undefined) ??
+    accountId;
+  const accessToken = await getValidAccessToken(
+    accountId,
+    tokens,
+    ownerForRefresh,
+  );
 
   return {
     accessToken,

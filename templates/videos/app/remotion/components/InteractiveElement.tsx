@@ -1,4 +1,5 @@
 import React, { ReactNode } from "react";
+import { useCurrentFrame } from "remotion";
 import { useHoverAnimationSmooth } from "../hooks/useHoverAnimationSmooth";
 import type { CursorFrame } from "../hooks/useCursorHistory";
 import {
@@ -85,6 +86,8 @@ export const InteractiveElement: React.FC<InteractiveElementProps> = ({
   onClick,
   children,
 }) => {
+  const frame = useCurrentFrame();
+
   // Determine cursor type (custom or default for element type)
   const effectiveCursorType = cursorType ?? getCursorTypeForElement(type);
 
@@ -104,13 +107,9 @@ export const InteractiveElement: React.FC<InteractiveElementProps> = ({
   // Track click events
   React.useEffect(() => {
     if (hover.isClicking && onClick) {
-      // Find current frame from cursor history
-      const currentFrame = cursorHistory[cursorHistory.length - 1];
-      if (currentFrame) {
-        onClick(0); // TODO: Pass actual frame number
-      }
+      onClick(frame);
     }
-  }, [hover.isClicking, onClick, cursorHistory]);
+  }, [frame, hover.isClicking, onClick]);
 
   // Render children with state
   const content =

@@ -13,6 +13,7 @@ import {
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -34,9 +35,6 @@ const BARE_ROUTES = new Set(["/issue"]);
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
-  if (BARE_ROUTES.has(location.pathname)) {
-    return <>{children}</>;
-  }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -63,6 +61,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
 
   const projects = projectsData?.values || [];
   const boards = boardsData?.values || [];
@@ -209,6 +211,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {!sidebarCollapsed && (
               <div className="mb-1">
                 <ExtensionsSidebarSection />
+              </div>
+            )}
+            {!sidebarCollapsed && (
+              <div className="mb-1">
+                <DevDatabaseLink />
               </div>
             )}
             {!sidebarCollapsed && (

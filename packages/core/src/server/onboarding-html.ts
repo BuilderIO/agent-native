@@ -18,6 +18,14 @@ import {
   resolveBuiltInAuthMarketing,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
+import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -76,6 +84,7 @@ export interface OnboardingHtmlOptions {
    */
   requestHost?: string;
   requestPath?: string;
+  requestOrigin?: string;
   /**
    * Optional preflight copy shown before redirecting through Google sign-in.
    * Use this when a hosted app needs to warn about provider-specific consent
@@ -115,6 +124,9 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const hasMarketing = !!marketing;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
+  const socialImageUrl = opts.requestOrigin
+    ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
+    : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH);
   const esc = (s: string) =>
     s
       .replace(/&/g, "&amp;")
@@ -243,10 +255,12 @@ ${googleNoticeBodyHtml}
     align-items: center;
     gap: 0.375rem;
     font-size: 0.8125rem;
-    color: #71717a;
+    font-weight: 600;
+    color: #00B5FF;
     text-decoration: none;
+    transition: color 0.15s ease;
   }
-  .oss-link:hover { color: #a1a1aa; }
+  .oss-link:hover { color: #33C4FF; }
   .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
   .marketing-actions {
     display: flex;
@@ -344,7 +358,7 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
       }      <div class="marketing-actions">
 ${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()">Run Locally</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
-        Open source
+        100% free and open source
       </a>
       </div>
 ${
@@ -540,7 +554,16 @@ ${
   hasMarketing
     ? `<meta name="description" content="${esc(marketing!.tagline)}">
 <meta property="og:title" content="${esc(marketing!.appName)}">
-<meta property="og:description" content="${esc(marketing!.tagline)}">`
+<meta property="og:description" content="${esc(marketing!.tagline)}">
+<meta property="og:image" content="${esc(socialImageUrl)}">
+<meta property="og:image:secure_url" content="${esc(socialImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${esc(socialImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`
     : ""
 }
 <style>
@@ -586,7 +609,7 @@ ${
     border-radius: 6px;
   }
   .tab.active {
-    background: #1e1e1e;
+    background: #3a3a3a;
     color: #fff;
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
@@ -1065,7 +1088,7 @@ ${
         return;
       }
       __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
-      window.location.href = ret || '/';
+      __anRedirectToSignedInApp(ret);
     }
     function __anGetReturnPath() {
       try {
@@ -1074,6 +1097,53 @@ ${
       } catch(e) {}
       return window.location.pathname + window.location.search;
     }
+    function __anMountedPathname(pathname) {
+      var base = __anBasePath();
+      if (base && pathname.indexOf(base + '/') === 0) return pathname.slice(base.length);
+      if (base && pathname === base) return '/';
+      return pathname || '/';
+    }
+    function __anIsAuthEntryPath(pathname) {
+      var p = __anMountedPathname(pathname);
+      return p === '/login' || p === '/signup' || p === '/_agent-native/sign-in';
+    }
+    function __anGetSignedInReturnPath() {
+      try {
+        var inner = new URLSearchParams(window.location.search).get('return');
+        if (inner) return inner;
+      } catch(e) {}
+      if (__anIsAuthEntryPath(window.location.pathname)) return __anPath('/');
+      return window.location.pathname + window.location.search + window.location.hash;
+    }
+    function __anWithAuthCacheBypass(ret) {
+      try {
+        var url = new URL(ret || __anPath('/'), window.location.origin);
+        url.searchParams.set('${AUTH_REDIRECT_QUERY_PARAM}', Date.now().toString(36));
+        return url.pathname + url.search + url.hash;
+      } catch(e) {
+        var fallback = ret || __anPath('/');
+        var hashIndex = fallback.indexOf('#');
+        var beforeHash = hashIndex === -1 ? fallback : fallback.slice(0, hashIndex);
+        var hash = hashIndex === -1 ? '' : fallback.slice(hashIndex);
+        var sep = beforeHash.indexOf('?') === -1 ? '?' : '&';
+        return beforeHash + sep + '${AUTH_REDIRECT_QUERY_PARAM}=' + Date.now().toString(36) + hash;
+      }
+    }
+    function __anRedirectToSignedInApp(ret) {
+      window.location.replace(__anWithAuthCacheBypass(ret || __anGetSignedInReturnPath()));
+    }
+    (function __anRedirectIfAlreadySignedIn() {
+      fetch(__anPath('/_agent-native/auth/session'), {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+      }).then(function(res) {
+        if (!res.ok) return null;
+        return res.json().catch(function() { return null; });
+      }).then(function(data) {
+        if (data && data.email && !data.error) __anRedirectToSignedInApp();
+      }).catch(function() {});
+    })();
     var __anBuilderPreviewSeen = false;
     function __anRememberBuilderPreview() {
       __anBuilderPreviewSeen = true;
@@ -1416,7 +1486,7 @@ ${
         body: JSON.stringify({ email: email, password: password }),
       });
       if (res.ok) {
-        window.location.reload();
+        __anRedirectToSignedInApp();
         return { ok: true };
       }
       var data = await res.json().catch(function() { return {}; });
@@ -1448,7 +1518,7 @@ ${
         });
         var data = await res.json().catch(function() { return {}; });
         if (res.ok && data && data.email && !data.error) {
-          window.location.reload();
+          __anRedirectToSignedInApp();
           return;
         }
         var loginResult = await signInWithPendingSignup();
@@ -1615,7 +1685,7 @@ ${
         if (loginRes.ok) {
           msg.textContent = 'Account created — signing you in…';
           msg.classList.add('show', 'success');
-          window.location.reload();
+          __anRedirectToSignedInApp();
           return;
         }
           btn.disabled = false;
@@ -1737,7 +1807,7 @@ ${
         }),
       });
       if (res.ok) {
-        window.location.reload();
+        __anRedirectToSignedInApp();
         return;
       }
       var data = await res.json().catch(function() { return {}; });

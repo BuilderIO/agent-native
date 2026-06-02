@@ -3,9 +3,14 @@ import {
   IconArrowBarDown,
   IconArrowBarUp,
   IconAlertTriangle,
+  IconDownload,
+  IconDotsVertical,
   IconExternalLink,
+  IconFileTypeHtml,
+  IconFileTypePdf,
   IconLinkOff,
   IconLoader2,
+  IconMarkdown,
   IconSearch,
   IconFileText,
   IconPlus,
@@ -18,6 +23,17 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
   AgentToggleButton,
@@ -49,6 +65,63 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
+type ExportFormat = "pdf" | "markdown" | "html";
+
+interface ExportDocumentResult {
+  filename: string;
+  mimeType: string;
+  content: string;
+  format: ExportFormat;
+  print: boolean;
+}
+
+function downloadExportFile(result: ExportDocumentResult) {
+  const blob = new Blob([result.content], { type: result.mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = window.document.createElement("a");
+  link.href = url;
+  link.download = result.filename;
+  window.document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printExportHtml(result: ExportDocumentResult) {
+  const iframe = window.document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  window.document.body.appendChild(iframe);
+
+  const frameWindow = iframe.contentWindow;
+  const frameDocument = frameWindow?.document;
+  if (!frameWindow || !frameDocument) {
+    iframe.remove();
+    throw new Error("Could not open the print preview.");
+  }
+
+  const cleanup = () => {
+    setTimeout(() => iframe.remove(), 500);
+  };
+
+  frameWindow.addEventListener("afterprint", cleanup, { once: true });
+  frameDocument.open();
+  frameDocument.write(result.content);
+  frameDocument.close();
+
+  window.setTimeout(() => {
+    frameWindow.focus();
+    frameWindow.print();
+  }, 100);
+
+  window.setTimeout(cleanup, 60_000);
+}
+
 function NotionIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 100 100" className={cn("notion-logo-icon", className)}>
@@ -69,6 +142,7 @@ function NotionIcon({ className }: { className?: string }) {
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
+  documentContent?: string;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -81,6 +155,7 @@ interface DocumentToolbarProps {
 export function DocumentToolbar({
   documentId,
   documentTitle,
+  documentContent,
   activeUsers,
   agentPresent,
   agentActive,
@@ -95,7 +170,12 @@ export function DocumentToolbar({
     false,
   );
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
+  const { data: syncStatus } = useDocumentSyncStatus(
+    canEdit ? documentId : null,
+    {
+      autoSync,
+    },
+  );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -104,6 +184,7 @@ export function DocumentToolbar({
   const setDocumentDiscoverability = useActionMutation(
     "set-document-discoverability",
   );
+  const exportDocument = useActionMutation("export-document");
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -114,9 +195,6 @@ export function DocumentToolbar({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [resolvingDirection, setResolvingDirection] = useState<
-    "pull" | "push" | null
-  >(null);
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
   const [creatingParentPageId, setCreatingParentPageId] = useState<
     string | null
@@ -127,8 +205,6 @@ export function DocumentToolbar({
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
   const hasConflict = syncStatus?.hasConflict ?? false;
-  const requiresExplicitCreateParent = connection?.mode === "api_key";
-
   const isWorking =
     linkDocument.isPending ||
     unlinkDocument.isPending ||
@@ -275,37 +351,6 @@ export function DocumentToolbar({
     }
   }, [unlinkDocument]);
 
-  const handleResolve = useCallback(
-    (direction: "pull" | "push") => {
-      setResolvingDirection(direction);
-      resolveConflict.mutate(
-        { direction },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["action"] });
-            queryClient.invalidateQueries({
-              queryKey: ["document-sync", documentId],
-            });
-            toast.success(
-              direction === "pull"
-                ? "Resolved — pulled from Notion."
-                : "Resolved — pushed local version.",
-            );
-            setResolvingDirection(null);
-            setOpen(false);
-          },
-          onError: (error) => {
-            setResolvingDirection(null);
-            toast.error(
-              error instanceof Error ? error.message : "Resolve failed.",
-            );
-          },
-        },
-      );
-    },
-    [resolveConflict, queryClient, documentId],
-  );
-
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
       if (parentPageIdOrUrl) setCreatingParentPageId(parentPageIdOrUrl);
@@ -332,6 +377,38 @@ export function DocumentToolbar({
     toast.info("Set up Notion in the sidebar first — click the Notion icon.");
     setOpen(false);
   };
+
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      try {
+        const result = (await exportDocument.mutateAsync({
+          id: documentId,
+          format,
+          title: documentTitle,
+          content: documentContent,
+        })) as ExportDocumentResult;
+
+        if (result.print) {
+          printExportHtml(result);
+          toast.success("Print dialog opened", {
+            description: "Choose Save as PDF to finish the export.",
+          });
+          return;
+        }
+
+        downloadExportFile(result);
+        toast.success(
+          `Exported ${format === "markdown" ? "Markdown" : "HTML"}`,
+        );
+      } catch (error) {
+        toast.error("Export failed", {
+          description:
+            error instanceof Error ? error.message : "Something went wrong",
+        });
+      }
+    },
+    [documentContent, documentId, documentTitle, exportDocument],
+  );
 
   return (
     <>
@@ -377,24 +454,70 @@ export function DocumentToolbar({
           variant="compact"
         />
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setHistoryOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-            >
-              <IconHistory size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Version history</TooltipContent>
-        </Tooltip>
-
         <VersionHistoryPanel
           documentId={documentId}
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           canRestore={canEdit}
         />
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  aria-label="More page actions"
+                >
+                  <IconDotsVertical size={16} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>More page actions</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                <IconHistory className="mr-2 h-4 w-4" />
+                Version history
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
+                {exportDocument.isPending ? (
+                  <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <IconDownload className="mr-2 h-4 w-4" />
+                )}
+                Export
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("pdf")}
+                >
+                  <IconFileTypePdf className="mr-2 h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("markdown")}
+                >
+                  <IconMarkdown className="mr-2 h-4 w-4" />
+                  Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportDocument.isPending}
+                  onSelect={() => void handleExport("html")}
+                >
+                  <IconFileTypeHtml className="mr-2 h-4 w-4" />
+                  HTML
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {canEdit ? (
           <Popover open={open} onOpenChange={setOpen}>
@@ -615,35 +738,28 @@ export function DocumentToolbar({
                   <div className="max-h-64 overflow-y-auto border-t border-border">
                     {/* Create new page option */}
                     <div className="p-1.5 border-b border-border">
-                      {requiresExplicitCreateParent ? (
-                        <p className="px-2.5 py-2 text-xs text-muted-foreground">
-                          Notion API-key connections need a parent page shared
-                          with the integration. Pick where to create this page.
-                        </p>
-                      ) : (
-                        <button
-                          onClick={() => handleCreateAndLink()}
-                          disabled={isWorking}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
-                        >
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                            {createAndLink.isPending ? (
-                              <IconLoader2
-                                size={14}
-                                className="animate-spin text-muted-foreground"
-                              />
-                            ) : (
-                              <IconPlus
-                                size={14}
-                                className="text-muted-foreground"
-                              />
-                            )}
-                          </span>
-                          <span className="text-xs font-medium">
-                            Create new page in Notion
-                          </span>
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleCreateAndLink()}
+                        disabled={isWorking}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                      >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                          {createAndLink.isPending ? (
+                            <IconLoader2
+                              size={14}
+                              className="animate-spin text-muted-foreground"
+                            />
+                          ) : (
+                            <IconPlus
+                              size={14}
+                              className="text-muted-foreground"
+                            />
+                          )}
+                        </span>
+                        <span className="text-xs font-medium">
+                          Create new page in Notion
+                        </span>
+                      </button>
                     </div>
 
                     {searchLoading ? (
@@ -698,30 +814,28 @@ export function DocumentToolbar({
                                 ) : null}
                               </div>
                             </button>
-                            {requiresExplicitCreateParent && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    onClick={() => handleCreateAndLink(page.id)}
-                                    disabled={isWorking}
-                                    className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
-                                    aria-label={`Create new page inside ${page.title}`}
-                                  >
-                                    {creatingParentPageId === page.id ? (
-                                      <IconLoader2
-                                        size={13}
-                                        className="animate-spin"
-                                      />
-                                    ) : (
-                                      <IconPlus size={13} />
-                                    )}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  Create new page inside this page
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleCreateAndLink(page.id)}
+                                  disabled={isWorking}
+                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                                  aria-label={`Create new page inside ${page.title}`}
+                                >
+                                  {creatingParentPageId === page.id ? (
+                                    <IconLoader2
+                                      size={13}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <IconPlus size={13} />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Create new page inside this page
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         ))}
                       </div>

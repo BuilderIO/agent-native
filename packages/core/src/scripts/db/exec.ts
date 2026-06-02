@@ -22,7 +22,11 @@ import {
   buildScopingSqlite,
   type ScopingContext,
 } from "./scoping.js";
-import { assertNoSensitiveFrameworkTables } from "./safety.js";
+import {
+  assertNoRawDbAccessControlWrite,
+  assertNoSchemaQualifiedTables,
+  assertNoSensitiveFrameworkTables,
+} from "./safety.js";
 import { createSqliteScriptClient } from "./sqlite-client.js";
 
 function isPostgresUrl(url: string): boolean {
@@ -198,6 +202,8 @@ function validateWriteSql(sql: string, index: number): string {
     );
   }
   assertNoSensitiveFrameworkTables(normalized, "write");
+  assertNoRawDbAccessControlWrite(normalized);
+  assertNoSchemaQualifiedTables(normalized, "write");
   return normalized;
 }
 
@@ -288,8 +294,21 @@ function normalizePostgresSql(sql: string, args: unknown[]): string {
 }
 
 /**
- * For INSERT statements targeting a table with owner_email / org_id columns,
- * auto-inject the current user's email and org ID if not already present.
+ * SQLite/standard SQL forms that create a new row and therefore need
+ * owner_email / org_id auto-injected:
+ *   INSERT INTO …, INSERT OR {ROLLBACK,ABORT,FAIL,IGNORE,REPLACE} INTO …,
+ *   REPLACE INTO … (shorthand for INSERT OR REPLACE INTO).
+ * Used by both injectOwnership and qualifySqliteWrite so the two stay in sync.
+ */
+const INSERT_OR_REPLACE_INTO =
+  "(?:INSERT(?:\\s+OR\\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?|REPLACE)\\s+INTO";
+
+/**
+ * For INSERT/REPLACE statements targeting a table with owner_email / org_id
+ * columns, auto-inject the current user's email and org ID if not already
+ * present. REPLACE and the `INSERT OR <action>` conflict forms also create a
+ * row under the current user, so they are injected too — otherwise the row
+ * lands unowned and is invisible to the writer under scoping.
  *
  * Handles the explicit column list form:
  *   INSERT INTO table (col1, col2) VALUES (val1, val2)
@@ -302,10 +321,12 @@ function injectOwnership(sql: string, scoping: ScopingContext): string {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .trim()
     .toUpperCase();
-  if (!upper.startsWith("INSERT")) return sql;
+  if (!upper.startsWith("INSERT") && !upper.startsWith("REPLACE")) return sql;
 
-  // Extract table name: INSERT INTO <table> ...
-  const match = sql.match(/INSERT\s+INTO\s+["']?(\w+)["']?/i);
+  // Extract table name: INSERT [OR ...] INTO <table> / REPLACE INTO <table>
+  const match = sql.match(
+    new RegExp(`${INSERT_OR_REPLACE_INTO}\\s+["']?(\\w+)["']?`, "i"),
+  );
   if (!match) return sql;
 
   const tableName = match[1];
@@ -339,7 +360,10 @@ function injectOwnership(sql: string, scoping: ScopingContext): string {
 
   // Try to inject into explicit column list: INSERT INTO t (cols) VALUES (vals)
   const colListMatch = sql.match(
-    /(INSERT\s+INTO\s+["']?\w+["']?\s*)\(([^)]+)\)(\s*VALUES\s*)\(([^)]+)\)/i,
+    new RegExp(
+      `(${INSERT_OR_REPLACE_INTO}\\s+["']?\\w+["']?\\s*)\\(([^)]+)\\)(\\s*VALUES\\s*)\\(([^)]+)\\)`,
+      "i",
+    ),
   );
   if (colListMatch) {
     const [, prefix, cols, valueKeyword, vals] = colListMatch;
@@ -434,7 +458,10 @@ function qualifySqliteWrite(sql: string, scoping: ScopingContext): string {
   }
 
   return sql.replace(
-    /^\s*(INSERT\s+INTO|REPLACE\s+INTO)\s+(?:"([^"]+)"|'([^']+)'|(\w+))/i,
+    new RegExp(
+      `^\\s*(${INSERT_OR_REPLACE_INTO})\\s+(?:"([^"]+)"|'([^']+)'|(\\w+))`,
+      "i",
+    ),
     (match, keyword, quotedDouble, quotedSingle, bare) => {
       const tableName = quotedDouble ?? quotedSingle ?? bare;
       if (

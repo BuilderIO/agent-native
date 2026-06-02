@@ -31,7 +31,7 @@ import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
 import { useFolders } from "@/hooks/use-folders";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { FeedbackButton } from "@agent-native/core/client";
+import { DevDatabaseLink, FeedbackButton } from "@agent-native/core/client";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   Tooltip,
@@ -64,14 +64,12 @@ export function Sidebar({
     onNavigate,
     onDelete,
     onPropsChange,
-    onTitleChange,
     onCompSettingsChange,
   } = useComposition();
 
   const {
     tracks: timelineTracks,
     selectedTrackId,
-    selectTrack: onSelectTrack,
     updateTrack: onUpdateTrack,
     addTrack: onAddTrack,
   } = useTimeline();
@@ -601,6 +599,7 @@ export function Sidebar({
         </div>
 
         <div className="border-t border-border px-3 py-1.5 shrink-0 space-y-2">
+          <DevDatabaseLink />
           <FeedbackButton />
           <OrgSwitcher />
         </div>

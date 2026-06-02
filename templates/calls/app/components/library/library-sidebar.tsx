@@ -21,6 +21,7 @@ import {
 import { useTheme } from "next-themes";
 import {
   AgentNativeIcon,
+  DevDatabaseLink,
   FeedbackButton,
   useActionQuery,
   useActionMutation,
@@ -513,6 +514,7 @@ function SidebarFooter() {
   return (
     <div className="border-t border-border p-2">
       <div className="mb-2">
+        <DevDatabaseLink />
         <FeedbackButton />
       </div>
 

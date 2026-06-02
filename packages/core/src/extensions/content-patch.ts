@@ -274,7 +274,7 @@ function applySectionEdit(
   } else if (edit.op === "wrap-section") {
     replacement = edit.before + inner + edit.after;
   } else {
-    replacement = keepMarkers ? "" : "";
+    replacement = "";
   }
 
   return {

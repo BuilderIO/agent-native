@@ -9,21 +9,13 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
+  assertWorkspaceAccess,
+  resolveWorkspaceIdForAction,
 } from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { accessFilter } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -59,16 +51,18 @@ export default defineAction({
     ];
 
     if (args.callId) {
+      const [call] = await db
+        .select({ workspaceId: schema.calls.workspaceId })
+        .from(schema.calls)
+        .where(eq(schema.calls.id, args.callId))
+        .limit(1);
+      if (!call) throw new Error(`Call not found: ${args.callId}`);
+      await assertWorkspaceAccess(call.workspaceId);
       conditions.push(eq(schema.snippets.callId, args.callId));
     } else {
-      let workspaceId = args.workspaceId ?? null;
-      if (!workspaceId) {
-        const current = (await readAppState("current-workspace")) as {
-          id?: string;
-        } | null;
-        workspaceId = current?.id ?? null;
-      }
-      if (!workspaceId) workspaceId = await resolveDefaultWorkspaceId();
+      const workspaceId = await resolveWorkspaceIdForAction({
+        workspaceId: args.workspaceId,
+      });
       conditions.push(eq(schema.snippets.workspaceId, workspaceId));
     }
 
@@ -84,7 +78,8 @@ export default defineAction({
     if (callIds.length > 0) {
       const parentRows = await db
         .select({ id: schema.calls.id, title: schema.calls.title })
-        .from(schema.calls);
+        .from(schema.calls)
+        .where(inArray(schema.calls.id, callIds));
       for (const row of parentRows) {
         if (callIds.includes(row.id)) parentTitles.set(row.id, row.title);
       }
@@ -110,12 +105,3 @@ export default defineAction({
     return { snippets, count: snippets.length };
   },
 });
-
-// Silence unused-import warnings in environments that tree-shake type-only deps.
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void getCurrentOwnerEmail;
-void assertAccess;
-void writeAppState;

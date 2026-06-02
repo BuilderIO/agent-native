@@ -47,8 +47,9 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 
-export function meta({ params }: { params: { recordingId?: string } }) {
+export function meta() {
   return [{ title: "Clip recording · Clips" }];
 }
 
@@ -62,14 +63,6 @@ export function HydrateFallback() {
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
 
-function isStorageSetupFailureReason(
-  reason: string | null | undefined,
-): boolean {
-  return /video storage is not connected|file upload provider|storage provider|connect builder|s3-compatible/i.test(
-    reason ?? "",
-  );
-}
-
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
     reason ?? "",
@@ -80,6 +73,14 @@ function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
   if (!trimmed) return null;
   return trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
+}
+
+function nativeSaveFailureMessage(reason: string | null | undefined): string {
+  const text = reason ?? "";
+  if (/too large|compression/i.test(text)) {
+    return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
+  }
+  return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
 }
 
 function parseTimeParam(raw: string | null): number {
@@ -240,10 +241,17 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? "AI request failed");
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: (result: any) =>
-      toast.success(
-        result?.updated ? "Title updated" : "Title generation queued",
-      ),
+    onSuccess: (result: any) => {
+      if (result?.updated) {
+        toast.success("Title updated");
+      } else if (result?.skipped) {
+        toast.message("Transcript is not ready yet", {
+          description: "Try again after transcription finishes.",
+        });
+      } else {
+        toast.success("Title generation queued");
+      }
+    },
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
@@ -398,7 +406,7 @@ export default function RecordingPage() {
     const displayReason = explicitFailure
       ? (rawFailureReason ?? "You can retry from the library.")
       : nativeSaveFailed
-        ? "The desktop recorder finished, but Clips could not upload and save the video."
+        ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
           ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
           : "Uploading and assembling your video — this usually takes just a few seconds.";
@@ -406,7 +414,7 @@ export default function RecordingPage() {
     const label = storageSetupFailure
       ? "Connect storage to finish saving this clip."
       : nativeSaveFailed
-        ? "Oops, that clip did not save."
+        ? "Upload paused; clip saved locally."
         : isFailure
           ? "Something went wrong while saving this clip."
           : "Finishing up your clip…";
@@ -649,13 +657,6 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
-          {canDelete ? (
-            <DeleteRecordingMenu
-              recordingId={recording.id}
-              onDeleted={() => navigate("/library", { replace: true })}
-            />
-          ) : null}
-
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
@@ -670,6 +671,13 @@ export default function RecordingPage() {
               Share
             </Button>
           </ShareRecordingPopover>
+
+          {canDelete ? (
+            <DeleteRecordingMenu
+              recordingId={recording.id}
+              onDeleted={() => navigate("/library", { replace: true })}
+            />
+          ) : null}
         </header>
 
         <div

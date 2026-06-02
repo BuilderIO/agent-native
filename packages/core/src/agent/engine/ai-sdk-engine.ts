@@ -28,6 +28,7 @@ import {
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export type { AISDKProvider } from "../model-config.js";
 
@@ -148,6 +149,10 @@ const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
 
 function googleThinkingBudget(effort: string) {
   if (effort === "low") return 1024;
+  // "medium" is a normalized effort for Gemini models; without this case it
+  // fell through to the -1 ("dynamic/unlimited") fallback, so selecting
+  // medium effort silently uncapped the thinking budget.
+  if (effort === "medium") return 4096;
   if (effort === "high") return 8000;
   if (effort === "xhigh") return 16_000;
   if (effort === "max") return 32_000;
@@ -296,7 +301,10 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: opts.maxOutputTokens ?? 32768,
+        maxOutputTokens: resolveMaxOutputTokensForEngine(
+          this.name,
+          opts.maxOutputTokens,
+        ),
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),

@@ -3527,6 +3527,7 @@ function TranscriptPanel({
           adapterReloadKey={controller}
           loadHistoryRepository={loadHistoryRepository}
           historyReloadKey={historyReloadKey}
+          externalStreaming={runIsActive}
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
             <CodeAgentChatComposerSlot
@@ -3679,15 +3680,6 @@ function getRunProgressPercent(run: CodeAgentRun): number {
     return Math.round((run.passedTaskCount / run.taskCount) * 100);
   }
   return run.status === "completed" || run.phase === "complete" ? 100 : 0;
-}
-
-function getRunProgressLabel(run: CodeAgentRun): string {
-  if (run.progress?.total && run.progress.total > 0) {
-    const label = run.progress.label ?? "tasks";
-    return `${run.progress.completed}/${run.progress.total} ${label.toLowerCase()}`;
-  }
-  if (isMigrationRun(run)) return `${run.taskCount} tasks`;
-  return run.status;
 }
 
 function hasMissingCredentialSignal(

@@ -252,10 +252,17 @@ function configuredKeysMissingFromRows(
   const missing = new Set<string>();
   const config = panel.config;
   if (config?.xKey && !rowKeys.has(config.xKey)) missing.add(config.xKey);
-  if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
-  for (const key of config?.yKeys ?? []) {
-    if (!rowKeys.has(key)) missing.add(key);
+
+  // Pivoted charts turn the configured value column into one column per
+  // discovered series. After that transform, yKey/yKeys are no longer active
+  // output columns, so do not warn that the original value column is absent.
+  if (!config?.pivot) {
+    if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
+    for (const key of config?.yKeys ?? []) {
+      if (!rowKeys.has(key)) missing.add(key);
+    }
   }
+
   for (const col of config?.columns ?? []) {
     if (!rowKeys.has(col.key)) missing.add(col.key);
     if (col.linkKey && !rowKeys.has(col.linkKey)) missing.add(col.linkKey);
@@ -1067,81 +1074,80 @@ function HeatmapRenderer({
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
-  const { xKey, valueKey, rowKey, xValues, yValues, grid, stats } =
-    useMemo(() => {
-      if (rows.length === 0) {
-        return {
-          xKey: "",
-          valueKey: "",
-          rowKey: "",
-          xValues: [] as string[],
-          yValues: [] as string[],
-          grid: new Map<string, number>(),
-          stats: new Map<string, { mean: number; std: number }>(),
-        };
-      }
-      const cols = Object.keys(rows[0]);
-      const sample = rows[0] as Record<string, unknown>;
-      const xK =
-        cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
-      const valK =
-        cfg?.yKey ||
-        cols.find((c) => c !== xK && typeof sample[c] === "number") ||
-        cols[1] ||
-        "";
-      const rowK =
-        cfg?.color ||
-        cols.find(
-          (c) => c !== xK && c !== valK && typeof sample[c] === "string",
-        ) ||
-        "";
-
-      const xs: string[] = [];
-      const ys: string[] = [];
-      const seenX = new Set<string>();
-      const seenY = new Set<string>();
-      const g = new Map<string, number>();
-      for (const r of rows) {
-        const xv = String(r[xK] ?? "");
-        const yv = rowK ? String(r[rowK] ?? "") : "";
-        const v = Number(r[valK]);
-        if (!seenX.has(xv)) {
-          seenX.add(xv);
-          xs.push(xv);
-        }
-        if (!seenY.has(yv)) {
-          seenY.add(yv);
-          ys.push(yv);
-        }
-        if (Number.isFinite(v)) g.set(`${xv}\u0000${yv}`, v);
-      }
-
-      const s = new Map<string, { mean: number; std: number }>();
-      for (const xv of xs) {
-        const vals: number[] = [];
-        for (const yv of ys) {
-          const v = g.get(`${xv}\u0000${yv}`);
-          if (v != null) vals.push(v);
-        }
-        if (vals.length === 0) {
-          s.set(xv, { mean: 0, std: 0 });
-          continue;
-        }
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        const variance =
-          vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
-        s.set(xv, { mean, std: Math.sqrt(variance) });
-      }
+  const { valueKey, rowKey, xValues, yValues, grid, stats } = useMemo(() => {
+    if (rows.length === 0) {
       return {
-        xKey: xK,
-        valueKey: valK,
-        rowKey: rowK,
-        xValues: xs,
-        yValues: ys,
-        grid: g,
-        stats: s,
+        xKey: "",
+        valueKey: "",
+        rowKey: "",
+        xValues: [] as string[],
+        yValues: [] as string[],
+        grid: new Map<string, number>(),
+        stats: new Map<string, { mean: number; std: number }>(),
       };
-    }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
+    }
+    const cols = Object.keys(rows[0]);
+    const sample = rows[0] as Record<string, unknown>;
+    const xK =
+      cfg?.xKey || cols.find((c) => typeof sample[c] === "string") || cols[0];
+    const valK =
+      cfg?.yKey ||
+      cols.find((c) => c !== xK && typeof sample[c] === "number") ||
+      cols[1] ||
+      "";
+    const rowK =
+      cfg?.color ||
+      cols.find(
+        (c) => c !== xK && c !== valK && typeof sample[c] === "string",
+      ) ||
+      "";
+
+    const xs: string[] = [];
+    const ys: string[] = [];
+    const seenX = new Set<string>();
+    const seenY = new Set<string>();
+    const g = new Map<string, number>();
+    for (const r of rows) {
+      const xv = String(r[xK] ?? "");
+      const yv = rowK ? String(r[rowK] ?? "") : "";
+      const v = Number(r[valK]);
+      if (!seenX.has(xv)) {
+        seenX.add(xv);
+        xs.push(xv);
+      }
+      if (!seenY.has(yv)) {
+        seenY.add(yv);
+        ys.push(yv);
+      }
+      if (Number.isFinite(v)) g.set(`${xv}\u0000${yv}`, v);
+    }
+
+    const s = new Map<string, { mean: number; std: number }>();
+    for (const xv of xs) {
+      const vals: number[] = [];
+      for (const yv of ys) {
+        const v = g.get(`${xv}\u0000${yv}`);
+        if (v != null) vals.push(v);
+      }
+      if (vals.length === 0) {
+        s.set(xv, { mean: 0, std: 0 });
+        continue;
+      }
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const variance =
+        vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+      s.set(xv, { mean, std: Math.sqrt(variance) });
+    }
+    return {
+      xKey: xK,
+      valueKey: valK,
+      rowKey: rowK,
+      xValues: xs,
+      yValues: ys,
+      grid: g,
+      stats: s,
+    };
+  }, [rows, cfg?.xKey, cfg?.yKey, cfg?.color]);
 
   if (rows.length === 0 || !valueKey) {
     return (

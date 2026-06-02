@@ -113,6 +113,14 @@ export interface AgentChatRequest {
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
+  /**
+   * Stable identity for the logical assistant turn this request belongs to.
+   * The client sends the SAME turnId for the initial POST and every
+   * auto-continuation re-POST of one turn, so the server can fold each
+   * continuation run's output onto a single durable assistant message instead
+   * of dropping the earlier chunks. Defaults to the run id when absent.
+   */
+  turnId?: string;
   /** Execution mode for this turn. Plan mode is read-only and proposes before acting. */
   mode?: "act" | "plan";
   /** Per-request model override (ephemeral, from the composer model picker). */

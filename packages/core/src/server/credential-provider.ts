@@ -95,6 +95,11 @@ const BUILDER_CREDENTIAL_KEYS = [
   "BUILDER_USER_ID",
   "BUILDER_ORG_NAME",
   "BUILDER_ORG_KIND",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
 ] as const;
 
 function isBuilderCredentialKey(key: string): boolean {
@@ -154,11 +159,27 @@ interface BuilderResolvedCredentials {
   userId: string | null;
   orgName: string | null;
   orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
   source: Exclude<BuilderCredentialSource, "env">;
 }
 
 function isCompleteBuilderConnection(creds: BuilderResolvedCredentials) {
   return Boolean(creds.privateKey && creds.publicKey);
+}
+
+function readOptionalBuilderBoolean(
+  value: string | null | undefined,
+): boolean | null {
+  if (value == null || value === "") return null;
+  return /^(1|true)$/i.test(value);
+}
+
+export function isBuilderPrivateKey(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().startsWith("bpk-");
 }
 
 async function readBuilderCredentialScope(
@@ -179,6 +200,13 @@ async function readBuilderCredentialScope(
     userId: map.get("BUILDER_USER_ID") ?? null,
     orgName: map.get("BUILDER_ORG_NAME") ?? null,
     orgKind: map.get("BUILDER_ORG_KIND") ?? null,
+    subscription: map.get("BUILDER_SUBSCRIPTION") ?? null,
+    subscriptionLevel: map.get("BUILDER_SUBSCRIPTION_LEVEL") ?? null,
+    subscriptionName: map.get("BUILDER_SUBSCRIPTION_NAME") ?? null,
+    isEnterprise: readOptionalBuilderBoolean(map.get("BUILDER_IS_ENTERPRISE")),
+    isFreeAccount: readOptionalBuilderBoolean(
+      map.get("BUILDER_IS_FREE_ACCOUNT"),
+    ),
     source: scope === "workspace" ? "workspace" : scope,
   };
 }
@@ -400,6 +428,15 @@ export async function resolveHasBuilderPrivateKey(): Promise<boolean> {
 }
 
 /**
+ * Check whether the current request has the complete Builder credential bundle
+ * needed for Builder-backed assistant/image-generation calls.
+ */
+export async function resolveHasCompleteBuilderConnection(): Promise<boolean> {
+  const creds = await resolveBuilderCredentials();
+  return !!(creds.privateKey && creds.publicKey);
+}
+
+/**
  * Resolve where the effective Builder assistant connection came from. This
  * intentionally requires a complete private+public key pair from one scope so
  * status UIs don't report a mixed user/org credential set as connected.
@@ -424,11 +461,38 @@ export async function resolveBuilderCredentials(): Promise<{
   userId: string | null;
   orgName: string | null;
   orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
 }> {
   const scoped = await resolveScopedBuilderCredentials();
   if (scoped) {
-    const { privateKey, publicKey, userId, orgName, orgKind } = scoped;
-    return { privateKey, publicKey, userId, orgName, orgKind };
+    const {
+      privateKey,
+      publicKey,
+      userId,
+      orgName,
+      orgKind,
+      subscription,
+      subscriptionLevel,
+      subscriptionName,
+      isEnterprise,
+      isFreeAccount,
+    } = scoped;
+    return {
+      privateKey,
+      publicKey,
+      userId,
+      orgName,
+      orgKind,
+      subscription,
+      subscriptionLevel,
+      subscriptionName,
+      isEnterprise,
+      isFreeAccount,
+    };
   }
   const privateKey = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv("BUILDER_PRIVATE_KEY") ?? null)
@@ -445,7 +509,37 @@ export async function resolveBuilderCredentials(): Promise<{
   const orgKind = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv("BUILDER_ORG_KIND") ?? null)
     : null;
-  return { privateKey, publicKey, userId, orgName, orgKind };
+  const subscription = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION") ?? null)
+    : null;
+  const subscriptionLevel = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION_LEVEL") ?? null)
+    : null;
+  const subscriptionName = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION_NAME") ?? null)
+    : null;
+  const isEnterprise = canUseBuilderDeployCredentialFallbackForRequest()
+    ? readOptionalBuilderBoolean(
+        readDeployCredentialEnv("BUILDER_IS_ENTERPRISE"),
+      )
+    : null;
+  const isFreeAccount = canUseBuilderDeployCredentialFallbackForRequest()
+    ? readOptionalBuilderBoolean(
+        readDeployCredentialEnv("BUILDER_IS_FREE_ACCOUNT"),
+      )
+    : null;
+  return {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  };
 }
 
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
@@ -592,9 +686,27 @@ export async function writeBuilderCredentials(
     userId?: string | null;
     orgName?: string | null;
     orgKind?: string | null;
+    subscription?: string | null;
+    subscriptionLevel?: string | null;
+    subscriptionName?: string | null;
+    isEnterprise?: boolean | null;
+    isFreeAccount?: boolean | null;
   },
   options?: { orgId?: string | null; role?: string | null },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
+  const privateKey = creds.privateKey.trim();
+  const publicKey = creds.publicKey.trim();
+  if (!isBuilderPrivateKey(privateKey)) {
+    throw new Error(
+      "Builder returned a credential that is not a Builder private key (expected bpk-...). Restart the Builder connect flow and choose a space that can issue a private key.",
+    );
+  }
+  if (!publicKey) {
+    throw new Error(
+      "Builder did not return a public API key. Restart the Builder connect flow.",
+    );
+  }
+
   const { writeAppSecret, deleteAppSecret } =
     await import("../secrets/storage.js");
   const target = resolveCredentialWriteScope(
@@ -622,8 +734,8 @@ export async function writeBuilderCredentials(
   await Promise.all(cleanups);
 
   const entries: Array<{ key: string; value: string }> = [
-    { key: "BUILDER_PRIVATE_KEY", value: creds.privateKey },
-    { key: "BUILDER_PUBLIC_KEY", value: creds.publicKey },
+    { key: "BUILDER_PRIVATE_KEY", value: privateKey },
+    { key: "BUILDER_PUBLIC_KEY", value: publicKey },
   ];
   if (creds.userId) {
     entries.push({ key: "BUILDER_USER_ID", value: creds.userId });
@@ -633,6 +745,33 @@ export async function writeBuilderCredentials(
   }
   if (creds.orgKind) {
     entries.push({ key: "BUILDER_ORG_KIND", value: creds.orgKind });
+  }
+  if (creds.subscription) {
+    entries.push({ key: "BUILDER_SUBSCRIPTION", value: creds.subscription });
+  }
+  if (creds.subscriptionLevel) {
+    entries.push({
+      key: "BUILDER_SUBSCRIPTION_LEVEL",
+      value: creds.subscriptionLevel,
+    });
+  }
+  if (creds.subscriptionName) {
+    entries.push({
+      key: "BUILDER_SUBSCRIPTION_NAME",
+      value: creds.subscriptionName,
+    });
+  }
+  if (typeof creds.isEnterprise === "boolean") {
+    entries.push({
+      key: "BUILDER_IS_ENTERPRISE",
+      value: String(creds.isEnterprise),
+    });
+  }
+  if (typeof creds.isFreeAccount === "boolean") {
+    entries.push({
+      key: "BUILDER_IS_FREE_ACCOUNT",
+      value: String(creds.isFreeAccount),
+    });
   }
   await Promise.all(
     entries.map(({ key, value }) =>
@@ -645,8 +784,8 @@ export async function writeBuilderCredentials(
     ),
   );
   await clearBuilderCredentialAuthFailure({
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
+    privateKey,
+    publicKey,
   });
   return target;
 }

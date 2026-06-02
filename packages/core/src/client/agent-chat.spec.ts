@@ -29,7 +29,13 @@ vi.stubGlobal("window", {
   },
 });
 
-const { sendToAgentChat, generateTabId } = await import("./agent-chat.js");
+const {
+  addContextToAgentChat,
+  formatAgentChatContextItemsForPrompt,
+  generateTabId,
+  sendToAgentChat,
+  setContextToAgentChat,
+} = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
 
 async function flushMicrotasks() {
@@ -71,6 +77,18 @@ describe("sendToAgentChat", () => {
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.message).toBe("hello");
+  });
+
+  it("includes submitted image data in the postMessage payload", () => {
+    sendToAgentChat({
+      message: "describe this image",
+      images: ["data:image/png;base64,abc"],
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
   });
 
   it("opens the local sidebar before posting to a top-level chat listener", () => {
@@ -324,6 +342,47 @@ describe("sendToAgentChat", () => {
     const id2 = sendToAgentChat({ message: "b" });
     expect(id1).not.toBe(id2);
   });
+
+  it("posts keyed context to the active chat without submitting", () => {
+    setContextToAgentChat({
+      key: ".thing#hello",
+      title: "Selected Element",
+      context: "<div>Hello</div>",
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload).toEqual({
+      type: "agentNative.setChatContext",
+      data: {
+        key: ".thing#hello",
+        title: "Selected Element",
+        context: "<div>Hello</div>",
+      },
+    });
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
+  });
+
+  it("uses addContextToAgentChat as an alias for replacing keyed context", () => {
+    addContextToAgentChat({
+      key: "cart",
+      title: "Cart",
+      context: "Line item A",
+      openSidebar: false,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(parentPostMessageSpy.mock.calls[0][0].type).toBe(
+      "agentNative.setChatContext",
+    );
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:prepare",
+    ]);
+  });
 });
 
 describe("generateTabId", () => {
@@ -335,5 +394,20 @@ describe("generateTabId", () => {
   it("generates unique ids", () => {
     const ids = new Set(Array.from({ length: 100 }, () => generateTabId()));
     expect(ids.size).toBe(100);
+  });
+});
+
+describe("formatAgentChatContextItemsForPrompt", () => {
+  it("formats multiple context nuggets as titled hidden prompt sections", () => {
+    expect(
+      formatAgentChatContextItemsForPrompt([
+        {
+          key: "a",
+          title: "Selected Element",
+          context: "<button>Buy</button>",
+        },
+        { key: "b", title: "Cart", context: "2 items" },
+      ]),
+    ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
   });
 });

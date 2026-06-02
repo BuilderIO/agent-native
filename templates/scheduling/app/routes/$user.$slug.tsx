@@ -5,8 +5,9 @@ import {
   resolveEventTypeSlug,
 } from "@agent-native/scheduling/server";
 import { Booker } from "@/components/booker/Booker";
+import { buildSocialOgImageUrl, socialImageMeta } from "@/lib/social-og";
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const ownerEmail = params.user!;
   const slug = params.slug!;
   const eventType =
@@ -14,7 +15,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
     (await resolveEventTypeSlug({ ownerEmail, slug }));
   if (!eventType || eventType.hidden)
     throw new Response("Not found", { status: 404 });
-  return { eventType, ownerEmail };
+  const name = ownerEmail.split("@")[0];
+  const title = `${eventType.title} with ${name}`;
+  return {
+    eventType,
+    ownerEmail,
+    ogImageUrl: buildSocialOgImageUrl({
+      request,
+      title,
+      subtitle: "Agent-Native Scheduling",
+    }),
+  };
 }
 
 export function meta({
@@ -23,16 +34,27 @@ export function meta({
   data?: {
     eventType: { title: string; description?: string | null };
     ownerEmail: string;
+    ogImageUrl?: string;
   };
 }) {
   if (!data) return [{ title: "Book a meeting" }];
   const name = data.ownerEmail.split("@")[0];
+  const title = `${data.eventType.title} with ${name}`;
   return [
-    { title: `${data.eventType.title} with ${name}` },
+    { title },
     {
       name: "description",
       content: data.eventType.description || `Book a meeting with ${name}.`,
     },
+    { property: "og:title", content: title },
+    {
+      property: "og:description",
+      content: data.eventType.description || `Book a meeting with ${name}.`,
+    },
+    { property: "og:type", content: "website" },
+    ...(data.ogImageUrl
+      ? socialImageMeta(data.ogImageUrl, "Agent-Native Scheduling booking link")
+      : []),
   ];
 }
 

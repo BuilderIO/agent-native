@@ -19,7 +19,7 @@ import { HeaderActionsProvider } from "./HeaderActions";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;
-const MIN_SIDEBAR_WIDTH = 180;
+const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).

@@ -21,15 +21,17 @@ mod system_audio;
 mod tray;
 mod tray_meetings;
 mod util;
+mod whisper_model;
+mod whisper_speech;
 
 use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor, TrayMeetings, VoiceWakePopover,
+    RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
 };
-use util::{is_recording_active, set_capture_included};
+use util::{configure_overlay_behavior, is_recording_active, set_capture_included};
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
 // has *something* to display even if `icons/tray.png` is missing on disk. The
@@ -46,6 +48,7 @@ pub fn run() {
             // over focus and neither popover shows.
             if let Some(window) = app.get_webview_window("popover") {
                 set_capture_included(&window);
+                configure_overlay_behavior(&window);
                 position_popover(app, &window);
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -101,6 +104,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_resume,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_discard_upload,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
@@ -113,6 +117,7 @@ pub fn run() {
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
+            meetings_watcher::meetings_snooze,
             // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
@@ -125,8 +130,6 @@ pub fn run() {
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,
-            system_audio::system_audio_start,
-            system_audio::system_audio_stop,
             system_audio::meeting_audio_start,
             system_audio::meeting_audio_stop,
             // silence detector — Granola-style auto-stop heuristics
@@ -135,6 +138,9 @@ pub fn run() {
             // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
+            // whisper model management
+            whisper_model::whisper_model_status,
+            whisper_model::whisper_model_download,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -155,20 +161,27 @@ pub fn run() {
         .manage(DictationEnabled::default())
         .manage(DictationActive::default())
         .manage(VoiceWakePopover::default())
+        .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
-            // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
-            // in dev here. In unbundled dev runs, Accessory mode sometimes
-            // prevents the tray icon from registering in the macOS menu bar at
-            // all. Production builds (.app bundle) ship with LSUIElement=1 in
-            // Info.plist, which is the proper way to get pure menu-bar behavior.
-            #[cfg(all(target_os = "macos", not(debug_assertions)))]
+            // Keeps the app from yanking the user out of fullscreen when the
+            // popover appears. Production bundles reinforce this with LSUIElement=1.
+            #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+
+            util::build_popover_window(app).map_err(|err| {
+                eprintln!("[clips-tray] popover build failed: {err}");
+                err
+            })?;
+
+            if let Err(err) = notifications::show_meeting_notification_window(app.handle()) {
+                println!("[clips-tray] show meeting notification failed: {err}");
             }
 
             tray::build_tray(app)?;
@@ -186,6 +199,33 @@ pub fn run() {
             // server URL via `meetings_watcher_set_server_url` once the
             // popover boots.
             meetings_watcher::spawn_watcher(app.handle().clone());
+
+            // Pre-download the Whisper model in the background so the first
+            // meeting doesn't pay the ~142 MB download cost mid-call. Skipped
+            // when the user has disabled the model in Settings.
+            #[cfg(target_os = "macos")]
+            {
+                let cfg = config::feature_config(app.handle());
+                if cfg.whisper_model_enabled
+                    && !whisper_model::custom_model_override()
+                {
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match whisper_model::ensure_model(&app_handle).await {
+                            Ok(_) => {
+                                let _ = app_handle.emit("whisper:model-ready", ());
+                            }
+                            Err(e) => {
+                                eprintln!("[clips-tray] startup model download failed: {e}");
+                                let _ = app_handle.emit(
+                                    "whisper:model-error",
+                                    serde_json::json!({ "error": e }),
+                                );
+                            }
+                        }
+                    });
+                }
+            }
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
             // The 250ms guard is the important bit — during the tray-click

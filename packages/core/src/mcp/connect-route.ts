@@ -16,12 +16,11 @@
  *        POST /connect/device/authorize  (session) → binds user to the code
  *        POST /connect/device/poll       (unauth)  → mints + returns the token
  *
- * The minted token reuses the existing A2A signer (`signA2AToken`) — no new
- * crypto. We only add a random `jti` + `scope: "mcp-connect"` claim so it can
- * be revoked. `verifyAuth` already verifies A2A_SECRET JWTs and extracts
- * `sub`/`org_domain`, so a minted token works against `/_agent-native/mcp`
- * with no verify changes for the happy path (the revoke check is the only
- * addition there).
+ * When A2A_SECRET exists, the minted token reuses the existing A2A signer
+ * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
+ * it can be revoked. Deployments without A2A_SECRET mint the same standard MCP
+ * OAuth access-token format used by remote MCP OAuth, signed with the auth
+ * secret fallback and bound to the exact MCP resource URL.
  *
  * Node-only (crypto + the A2A signer), bundled alongside the other framework
  * routes. Dialect-agnostic SQL lives in `connect-store.ts`.
@@ -50,15 +49,21 @@ import {
   finishDeviceCodeMint,
   releaseDeviceCodeMint,
   expireDeviceCode,
+  MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
+import {
+  MCP_OAUTH_DEFAULT_SCOPE,
+  signMcpOAuthAccessToken,
+} from "./oauth-token.js";
 
 /** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
+const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 // Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
@@ -192,26 +197,26 @@ function clampTtlDays(input: unknown): number {
 }
 
 /**
- * Mint a connect-scoped JWT and record it. The JWT is signed by the existing
- * A2A signer (HS256 over A2A_SECRET); we add a random `jti` and
- * `scope: "mcp-connect"` so the token is individually revocable. The token
- * value is returned to the caller exactly once and never persisted.
+ * Mint a connect-scoped JWT and record it. The token value is returned to the
+ * caller exactly once and never persisted; only the random `jti` is stored for
+ * revocation.
  */
 async function mintConnectToken(params: {
   email: string;
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
+  appUrl: string;
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
   const jti = randomUUID();
-  // signA2AToken signs { sub: email, org_domain? } over A2A_SECRET (global)
-  // or the org secret. We extend its claims via the standard jose builder by
-  // re-using the same signer with extra claims threaded through `options`.
-  const token = await signA2AToken(params.email, orgDomain, undefined, {
-    preferGlobalSecret: true,
+  const token = await signConnectToken({
+    ownerEmail: params.email,
+    orgId: params.orgId,
+    orgDomain,
+    appUrl: params.appUrl,
     expiresIn: `${params.ttlDays}d`,
-    extraClaims: { jti, scope: MCP_CONNECT_SCOPE },
+    jti,
   });
   await recordMintedToken({
     jti,
@@ -222,17 +227,49 @@ async function mintConnectToken(params: {
   return { token, jti };
 }
 
+async function signConnectToken(params: {
+  ownerEmail: string;
+  orgId: string | null | undefined;
+  orgDomain: string | undefined;
+  appUrl: string;
+  expiresIn: string;
+  jti: string;
+}): Promise<string> {
+  if (process.env.A2A_SECRET?.trim()) {
+    return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
+      preferGlobalSecret: true,
+      expiresIn: params.expiresIn,
+      extraClaims: { jti: params.jti, scope: MCP_CONNECT_SCOPE },
+    });
+  }
+
+  return signMcpOAuthAccessToken({
+    ownerEmail: params.ownerEmail,
+    orgId: params.orgId ?? null,
+    orgDomain: params.orgDomain ?? null,
+    clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+    scope: MCP_OAUTH_DEFAULT_SCOPE,
+    resource: mcpResourceUrl(params.appUrl),
+    issuer: params.appUrl,
+    jti: params.jti,
+    expiresIn: params.expiresIn,
+  });
+}
+
 function mcpResultPayload(
   appUrl: string,
   options: McpConnectRouteOptions,
   auth: { token?: string; ownerEmail?: string },
 ) {
-  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const mcpUrl = mcpResourceUrl(appUrl);
   const name = serverName(appUrl, options);
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+  }
+  if (auth.token || auth.ownerEmail) {
+    headers[MCP_FULL_CATALOG_HEADER] = "1";
   }
   return {
     token: auth.token ?? "",
@@ -245,6 +282,10 @@ function mcpResultPayload(
     },
     cli: `agent-native connect ${appUrl}`,
   };
+}
+
+function mcpResourceUrl(appUrl: string): string {
+  return `${appUrl}/_agent-native/mcp`;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +337,98 @@ function renderConnectPage(params: {
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
+  const setupHtml = safeUserCode
+    ? ""
+    : `
+  <div class="mcp-url-block">
+    <div class="section-label">Your MCP URL</div>
+    <div class="url-row">
+      <code id="mcpUrlValue">${safeMcpUrl}</code>
+      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
+    </div>
+  </div>
+
+  <details id="assistantSetup" class="hosts">
+    <summary>
+      <span class="connections-title">Assistant setup</span>
+      <span class="connections-state">MCP URL guides</span>
+      <span class="chev" aria-hidden="true"></span>
+    </summary>
+    <div class="hosts-body">
+      <div class="section-label">Pick your AI assistant</div>
+      <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
+        <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
+        <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
+        <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
+        <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
+        <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
+        <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
+      </div>
+      <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
+        <ol>
+          <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
+          <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
+          <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
+          <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        </ol>
+        <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
+        <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
+        <ol>
+          <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
+          <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
+          <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
+        </ol>
+        <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
+        <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="cursor">
+        <ol>
+          <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
+          <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
+          <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
+        </ol>
+        <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="claude-code">
+        <p>In your terminal, run:</p>
+        <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
+        <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
+        <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="codex">
+        <p>In your terminal, run:</p>
+        <pre id="codexCmd">${safeCodexCmd}</pre>
+        <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
+        <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
+      </div>
+      <div class="tab-panel" role="tabpanel" data-panel="other">
+        <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
+        <pre id="genericConfig">${safeGenericConfig}</pre>
+        <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
+      </div>
+    </div>
+  </details>`;
+  const tokenAdvancedOptionsHtml = safeUserCode
+    ? ""
+    : `
+        <details class="advanced">
+          <summary>
+            Advanced options
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="label">Label (optional)</label>
+              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+            </div>
+            <div class="field">
+              <label for="ttl">Expires in (days, 1–365)</label>
+              <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
+            </div>
+          </div>
+        </details>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -529,7 +662,26 @@ function renderConnectPage(params: {
     font-size: 0.78rem; color: var(--text);
   }
   .url-row .ghost { flex: 0 0 auto; }
-  .hosts { margin: 0 0 1rem; }
+  .hosts {
+    margin: 0 0 1rem; border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); padding: 0.35rem 0;
+  }
+  .hosts > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 0.55rem;
+    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+  }
+  .hosts > summary::-webkit-details-marker { display: none; }
+  .hosts > summary:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 6px;
+  }
+  .hosts > summary .chev {
+    width: 7px; height: 7px; border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
+    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+  }
+  .hosts[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
+  .hosts-body { padding: 0.15rem 0 0.25rem; }
   .tabs {
     display: flex; flex-wrap: wrap; gap: 0.25rem;
     border-bottom: 1px solid var(--border); margin-bottom: 0.75rem;
@@ -578,14 +730,19 @@ function renderConnectPage(params: {
   .primary-link {
     display: inline-flex; align-items: center; justify-content: center;
     gap: 0.35rem; min-height: 36px; padding: 0.45rem 0.85rem;
-    background: var(--accent); color: var(--accent-fg);
-    border: 1px solid var(--accent); border-radius: 8px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 8px;
     font-size: 0.86rem; font-weight: 650; text-decoration: none;
-    cursor: pointer; width: 100%; text-align: center;
+    cursor: pointer; width: auto; max-width: 100%; text-align: center;
     margin: 0.5rem 0 0.2rem;
   }
-  .primary-link:hover { background: #e4e4e7; border-color: #e4e4e7; }
-  .primary-link.compact { width: auto; min-width: 0; }
+  .tab-panel a.primary-link {
+    color: var(--text); text-decoration: none;
+  }
+  .primary-link:hover {
+    background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
+  }
+  .primary-link.compact { min-width: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
@@ -634,69 +791,7 @@ function renderConnectPage(params: {
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
 
-  <div class="mcp-url-block">
-    <div class="section-label">Your MCP URL</div>
-    <div class="url-row">
-      <code id="mcpUrlValue">${safeMcpUrl}</code>
-      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
-    </div>
-  </div>
-
-  <div class="hosts">
-    <div class="section-label">Pick your AI assistant</div>
-    <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
-      <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
-      <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
-      <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
-      <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
-      <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
-      <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
-    </div>
-    <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
-      <ol>
-        <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
-        <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
-        <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
-        <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-      </ol>
-      <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
-      <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
-      <ol>
-        <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
-        <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
-        <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-      </ol>
-      <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
-      <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="cursor">
-      <ol>
-        <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
-        <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
-        <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
-      </ol>
-      <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="claude-code">
-      <p>In your terminal, run:</p>
-      <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
-      <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
-      <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="codex">
-      <p>In your terminal, run:</p>
-      <pre id="codexCmd">${safeCodexCmd}</pre>
-      <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
-      <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
-    </div>
-    <div class="tab-panel" role="tabpanel" data-panel="other">
-      <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
-      <pre id="genericConfig">${safeGenericConfig}</pre>
-      <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
-    </div>
-  </div>
+  ${setupHtml}
 
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
@@ -708,22 +803,7 @@ function renderConnectPage(params: {
       <div id="msg" class="msg"></div>
       <div id="mintForm">
         <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
-        <details class="advanced">
-          <summary>
-            Advanced options
-            <span class="chev" aria-hidden="true"></span>
-          </summary>
-          <div class="advanced-body">
-            <div class="field">
-              <label for="label">Label (optional)</label>
-              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
-            </div>
-            <div class="field">
-              <label for="ttl">Expires in (days, 1–365)</label>
-              <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
-            </div>
-          </div>
-        </details>
+        ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
         <div class="result-title">Connection token created</div>
@@ -882,8 +962,6 @@ function renderConnectPage(params: {
     var btn = this;
     btn.disabled = true;
     clearMsg();
-    var label = document.getElementById("label").value || undefined;
-    var ttlDays = parseInt(document.getElementById("ttl").value, 10) || undefined;
     try {
       if (USER_CODE) {
         var a = await postJson("/device/authorize", { user_code: USER_CODE });
@@ -944,6 +1022,10 @@ function renderConnectPage(params: {
         }, 2000);
         return;
       } else {
+        var labelEl = document.getElementById("label");
+        var ttlEl = document.getElementById("ttl");
+        var label = labelEl ? labelEl.value || undefined : undefined;
+        var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
         var m = await postJson("/token", { label: label, ttlDays: ttlDays });
         if (!m.ok) {
           btn.disabled = false;
@@ -1041,18 +1123,9 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
-    if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(event)) {
-        return json(
-          mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
-        );
-      }
+    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
       return json(
-        {
-          error:
-            "This deployment has no A2A_SECRET configured, so connect tokens cannot be minted.",
-        },
-        503,
+        mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
       );
     }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -1070,6 +1143,7 @@ export async function handleMcpConnect(
         orgId: session.orgId,
         label,
         ttlDays,
+        appUrl,
       });
       return json(mcpResultPayload(appUrl, options, { token }));
     } catch {
@@ -1156,25 +1230,22 @@ export async function handleMcpConnect(
       return json({ status: "pending" });
     }
     // status === "approved" && ownerEmail bound → mint exactly once.
-    if (!process.env.A2A_SECRET) {
-      if (canUseDevOpenConnect(event)) {
-        const consumed = await consumeDeviceCode(
-          deviceCode,
-          `dev-open-${randomUUID()}`,
-        );
-        if (!consumed) {
-          const fresh = await getDeviceCode(deviceCode);
-          if (fresh?.status === "consumed") return json({ status: "consumed" });
-          return json({ status: "pending" });
-        }
-        return json({
-          status: "approved",
-          ...mcpResultPayload(appUrl, options, {
-            ownerEmail: row.ownerEmail,
-          }),
-        });
+    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
+      const consumed = await consumeDeviceCode(
+        deviceCode,
+        `dev-open-${randomUUID()}`,
+      );
+      if (!consumed) {
+        const fresh = await getDeviceCode(deviceCode);
+        if (fresh?.status === "consumed") return json({ status: "consumed" });
+        return json({ status: "pending" });
       }
-      return json({ status: "error", error: "A2A_SECRET not configured" }, 503);
+      return json({
+        status: "approved",
+        ...mcpResultPayload(appUrl, options, {
+          ownerEmail: row.ownerEmail,
+        }),
+      });
     }
     try {
       const jti = randomUUID();
@@ -1189,10 +1260,13 @@ export async function handleMcpConnect(
       let token: string;
       try {
         const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
-        token = await signA2AToken(claimed.ownerEmail!, orgDomain, undefined, {
-          preferGlobalSecret: true,
+        token = await signConnectToken({
+          ownerEmail: claimed.ownerEmail!,
+          orgId: claimed.orgId,
+          orgDomain,
+          appUrl,
           expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
-          extraClaims: { jti, scope: MCP_CONNECT_SCOPE },
+          jti,
         });
         await recordMintedToken({
           jti,

@@ -6,8 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
+  assistantUiRecoverableRenderErrorKind,
   displayableUserMessageText,
+  isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
+  latestNonRecoveryUserMessageText,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -20,6 +23,48 @@ describe("displayableUserMessageText", () => {
   });
 });
 
+describe("latestNonRecoveryUserMessageText", () => {
+  it("skips recovery prompts when finding the original user request", () => {
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Build a CS operations tool" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I stopped before finishing" }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Continue from where you stopped. Use the partial work above.",
+          },
+        ],
+        metadata: { custom: { agentNativeRecoveryAction: "continue" } },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I stopped again" }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Retry the previous request from a clean approach.\n\nOriginal request:\n\nBuild a CS operations tool",
+          },
+        ],
+      },
+    ];
+
+    expect(latestNonRecoveryUserMessageText(messages)).toBe(
+      "Build a CS operations tool",
+    );
+  });
+});
+
 describe("isAssistantUiStaleIndexError", () => {
   it("matches assistant-ui stale message index crashes", () => {
     expect(
@@ -29,8 +74,58 @@ describe("isAssistantUiStaleIndexError", () => {
     ).toBe(true);
   });
 
+  it("does not match other assistant-ui recoverable errors", () => {
+    expect(
+      isAssistantUiStaleIndexError(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe(false);
+  });
+
   it("ignores unrelated errors", () => {
     expect(isAssistantUiStaleIndexError(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("assistantUiRecoverableRenderErrorKind", () => {
+  it("matches assistant-ui stale message index crashes", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error("tapClientLookup: Index 79 out of bounds (length: 78)"),
+      ),
+    ).toBe("assistant-ui-stale-message-index");
+  });
+
+  it("matches React fiber unmount crashes from assistant-ui composer teardown", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Tried to unmount a fiber that is already unmounted. This is a React internal error.",
+        ),
+      ),
+    ).toBe("assistant-ui-react-fiber-unmount");
+  });
+
+  it("matches duplicate resource-key crashes from assistant-ui composer state", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe("assistant-ui-duplicate-resource-key");
+  });
+
+  it("ignores unrelated errors", () => {
+    expect(assistantUiRecoverableRenderErrorKind(new Error("boom"))).toBeNull();
+  });
+});
+
+describe("isAssistantUiRecoverableRenderError", () => {
+  it("matches assistant-ui duplicate resource key crashes", () => {
+    expect(
+      isAssistantUiRecoverableRenderError(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -87,6 +182,35 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  class ParentErrorBoundary extends React.Component<
+    {
+      children: React.ReactNode;
+      onError: (error: Error) => void;
+    },
+    { error: Error | null }
+  > {
+    state: { error: Error | null } = { error: null };
+
+    static getDerivedStateFromError(error: unknown) {
+      return {
+        error: error instanceof Error ? error : new Error(String(error ?? "")),
+      };
+    }
+
+    componentDidCatch(error: unknown) {
+      this.props.onError(
+        error instanceof Error ? error : new Error(String(error ?? "")),
+      );
+    }
+
+    render() {
+      if (this.state.error) {
+        return React.createElement("div", null, "Parent caught");
+      }
+      return this.props.children;
+    }
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
@@ -129,5 +253,138 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     });
 
     expect(container.textContent).toContain("Recovered composer");
+  });
+
+  it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {
+    let renders = 0;
+    function FlakyComposer() {
+      renders += 1;
+      if (renders === 1) {
+        throw new Error(
+          "Tried to unmount a fiber that is already unmounted. This is a React internal error.",
+        );
+      }
+      return React.createElement("div", null, "Recovered composer");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "AssistantChat" },
+          React.createElement(FlakyComposer),
+        ),
+      );
+    });
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Recovered composer");
+  });
+
+  it("remounts any assistant-ui subtree after a duplicate resource key error", async () => {
+    let renders = 0;
+    function FlakyComposer() {
+      renders += 1;
+      if (renders === 1) {
+        throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+      }
+      return React.createElement("div", null, "Recovered resources");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "PromptComposer" },
+          React.createElement(FlakyComposer),
+        ),
+      );
+    });
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Recovered resources");
+  });
+
+  it("escalates persistent recoverable render errors after a retry budget", async () => {
+    const caught: Error[] = [];
+    function BrokenComposer() {
+      throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          ParentErrorBoundary,
+          { onError: (error) => caught.push(error) },
+          React.createElement(
+            AssistantUiStaleIndexErrorBoundary,
+            { resetKey: "thread-1", componentName: "PromptComposer" },
+            React.createElement(BrokenComposer),
+          ),
+        ),
+      );
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+
+    expect(caught).toHaveLength(1);
+    expect(caught[0].message).toContain("Duplicate key");
+    expect(container.textContent).toContain("Parent caught");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resets the recoverable retry budget after a successful remount", async () => {
+    const caught: Error[] = [];
+    let failuresRemaining = 2;
+    function FlakyComposer({ cycle }: { cycle: number }) {
+      if (failuresRemaining > 0) {
+        failuresRemaining -= 1;
+        throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+      }
+      return React.createElement("div", null, `Recovered resources ${cycle}`);
+    }
+
+    function renderCycle(cycle: number) {
+      root.render(
+        React.createElement(
+          ParentErrorBoundary,
+          { onError: (error) => caught.push(error) },
+          React.createElement(
+            AssistantUiStaleIndexErrorBoundary,
+            { resetKey: "thread-1", componentName: "PromptComposer" },
+            React.createElement(FlakyComposer, { cycle }),
+          ),
+        ),
+      );
+    }
+
+    act(() => renderCycle(1));
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+    expect(container.textContent).toContain("Recovered resources 1");
+
+    failuresRemaining = 2;
+    act(() => renderCycle(2));
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+
+    expect(caught).toHaveLength(0);
+    expect(container.textContent).toContain("Recovered resources 2");
   });
 });

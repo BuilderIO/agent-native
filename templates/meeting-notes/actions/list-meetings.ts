@@ -10,7 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -95,7 +95,7 @@ export default defineAction({
 
     // Fetch attendee counts
     const ids = rows.map((r) => r.id);
-    let attendeeCounts: Record<string, number> = {};
+    const attendeeCounts: Record<string, number> = {};
     if (ids.length) {
       for (const id of ids) {
         const countRows = await db

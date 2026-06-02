@@ -1,13 +1,5 @@
-/**
- * List dictionary terms.
- *
- * Usage:
- *   pnpm action list-dictionary
- *   pnpm action list-dictionary --search="kubernetes"
- */
-
 import { defineAction } from "@agent-native/core";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
@@ -33,7 +25,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    const whereClauses = [
+    const whereClauses: SQL[] = [
       eq(schema.dictationDictionary.ownerEmail, ownerEmail),
     ];
 

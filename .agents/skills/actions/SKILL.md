@@ -5,6 +5,8 @@ description: >-
   for app operations — the agent calls them as tools, the frontend calls them
   as HTTP endpoints. Use when creating a new action, adding an API integration,
   or wiring up frontend data fetching.
+metadata:
+  internal: true
 ---
 
 # Agent Actions
@@ -12,6 +14,8 @@ description: >-
 ## Rule
 
 Actions in `actions/` are the **single source of truth** for app operations. The agent calls them as tools, and the framework auto-exposes them as HTTP endpoints at `/_agent-native/actions/:name`. The frontend calls those endpoints using React Query hooks. No duplicate `/api/` routes needed.
+
+Before creating any custom REST/API route for app data, inspect `actions/` and the action table in `AGENTS.md`. If an action already exists, call it directly from the agent or with `useActionQuery` / `useActionMutation` from the UI. If the capability is missing, create or update a `defineAction`. Do not add `/api/*`, `server/routes/*`, or other pass-through endpoints whose main job is to call, repackage, or re-export an action.
 
 ## Why
 
@@ -45,13 +49,28 @@ export default defineAction({
 
 The `schema` field accepts a Zod schema (or any Standard Schema-compatible library). It provides runtime validation with clear error messages (400 for HTTP, error result for agent), full TypeScript type inference for `run()` args, and auto-generated JSON Schema for the agent's tool definition. `zod` is a dependency of all templates.
 
+When an action reads or writes app data, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not use raw SQL, `getDbExec()`, or dialect-specific schema imports in normal actions unless there is a documented reason Drizzle cannot express the query.
+
 Tips:
 - Use `.describe()` for parameter descriptions
 - Use `.optional()` for optional params
-- Use `z.coerce.number()` / `z.coerce.boolean()` for params that arrive as strings from HTTP
+- Use `z.coerce.number()` for numeric params that arrive as strings from HTTP.
+  For booleans, use an explicit string parser/helper instead of
+  `z.coerce.boolean()` because JavaScript treats any non-empty string,
+  including `"false"`, as truthy.
 - Use `z.enum(["draft", "published"])` for constrained values
 
 The legacy `parameters` field (plain JSON Schema object) still works as a fallback but does not provide runtime validation or type inference.
+
+## Decision Order
+
+When you need app data or a mutation:
+
+1. **Use an existing action** if one already performs the operation.
+2. **Create or extend a `defineAction`** when the agent and UI both need a new operation.
+3. **Create a custom route only for route-only concerns** such as uploads, streaming, webhooks, OAuth callbacks, or a non-JSON protocol.
+
+Do not build an umbrella REST API to make actions "easier" to call. Actions are already callable by agents, CLIs, React hooks, HTTP, MCP/A2A exposure, and external hosts through the framework.
 
 ### The `http` Option
 
@@ -161,7 +180,7 @@ Most operations should be actions. You only need custom routes in `server/routes
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
 
-If it's a standard CRUD operation or data query, use an action instead.
+If it's a standard CRUD operation, data query, or a wrapper around an action, use the action instead.
 
 ## Legacy Pattern (bare export)
 
@@ -185,9 +204,12 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Return structured data.** Return objects/arrays, not `JSON.stringify()`.
 - **Use `http: { method: "GET" }`** for read-only actions. Default is POST.
 - **Use `http: false`** for agent-only actions (`navigate`, `view-screen`).
+- **Document reusable actions.** If a new action should be called by agents outside one narrow screen, update `AGENTS.md` with when to use it, important args, and which return fields to preserve.
+- **Promote workflow-heavy actions to skills.** If the action is part of a provider-backed, cross-app, MCP/A2A, or multi-step workflow, create or update a skill in `.agents/skills/` and add app-skill visibility (`internal`, `exported`, or `both`) when it should ship through a marketplace.
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
+- **Do not re-export actions as REST.** The mounted `/_agent-native/actions/:name` endpoint is the REST surface; duplicating it under `/api/*` creates drift and hides the operation from agents.
 
 ## Common Patterns
 

@@ -14,6 +14,7 @@ interface VariantGridProps {
   selectedId?: string;
   onSelect: (id: string) => void;
   onUse: (id: string) => void;
+  compact?: boolean;
 }
 
 export function VariantGrid({
@@ -21,25 +22,58 @@ export function VariantGrid({
   selectedId,
   onSelect,
   onUse,
+  compact = false,
 }: VariantGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [internalSelectedId, setInternalSelectedId] = useState<
+    string | undefined
+  >(selectedId);
+  const activeSelectedId = selectedId ?? internalSelectedId;
+  const previewScale = compact ? 0.36 : 0.5;
+  const previewSize = `${100 / previewScale}%`;
 
-  // Determine grid layout based on variant count
-  const gridClass =
-    variants.length <= 1
+  // The same grid renders both in the full editor and in compact MCP App
+  // embeds, so it needs to wrap instead of squeezing previews into slivers.
+  const gridClass = compact
+    ? variants.length <= 1
       ? "grid-cols-1"
       : variants.length === 2
-        ? "grid-cols-2"
+        ? "grid-cols-1 min-[520px]:grid-cols-2"
         : variants.length === 3
-          ? "grid-cols-3"
-          : "grid-cols-2";
+          ? "grid-cols-1 min-[520px]:grid-cols-2 min-[820px]:grid-cols-3"
+          : "grid-cols-1 min-[520px]:grid-cols-2 min-[880px]:grid-cols-3"
+    : variants.length <= 1
+      ? "grid-cols-1"
+      : variants.length === 2
+        ? "grid-cols-1 sm:grid-cols-2"
+        : variants.length === 3
+          ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
+          : "grid-cols-1 sm:grid-cols-2";
 
   return (
-    <div className="flex h-full w-full flex-col bg-background p-6">
-      <div className={cn("grid flex-1 gap-4", gridClass)}>
+    <div
+      className={cn(
+        "flex h-full w-full flex-col overflow-y-auto bg-background",
+        compact ? "p-3" : "p-3 sm:p-4 lg:p-6",
+      )}
+    >
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-3 sm:gap-4",
+          compact
+            ? "auto-rows-[minmax(190px,1fr)]"
+            : "auto-rows-[minmax(260px,1fr)]",
+          gridClass,
+        )}
+      >
         {variants.map((variant) => {
-          const isSelected = selectedId === variant.id;
+          const isSelected = activeSelectedId === variant.id;
           const isHovered = hoveredId === variant.id;
+          const showAction = isSelected || isHovered;
+          const selectVariant = () => {
+            setInternalSelectedId(variant.id);
+            onSelect(variant.id);
+          };
 
           return (
             <div
@@ -50,9 +84,17 @@ export function VariantGrid({
             >
               {/* Preview frame */}
               <div
-                onClick={() => onSelect(variant.id)}
+                onClick={selectVariant}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  selectVariant();
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Preview ${variant.label}`}
                 className={cn(
-                  "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10",
+                  "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isSelected
                     ? "border-primary"
                     : "border-transparent hover:border-muted-foreground/30",
@@ -63,11 +105,11 @@ export function VariantGrid({
                   srcDoc={wrapContent(variant.content)}
                   className="pointer-events-none h-full w-full origin-top-left"
                   style={{
-                    width: "200%",
-                    height: "200%",
-                    transform: "scale(0.5)",
+                    width: previewSize,
+                    height: previewSize,
+                    transform: `scale(${previewScale})`,
                   }}
-                  sandbox="allow-same-origin"
+                  sandbox="allow-scripts"
                   title={variant.label}
                 />
 
@@ -78,8 +120,8 @@ export function VariantGrid({
                   </div>
                 )}
 
-                {/* Hover overlay with "Use this one" */}
-                {isHovered && (
+                {/* Commit action appears after hover or selection, including touch. */}
+                {showAction && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <Button
                       size="sm"
@@ -87,8 +129,9 @@ export function VariantGrid({
                         e.stopPropagation();
                         onUse(variant.id);
                       }}
+                      aria-label={`Use ${variant.label}`}
                     >
-                      Use this one
+                      Use this direction
                     </Button>
                   </div>
                 )}
@@ -113,17 +156,31 @@ export function VariantGrid({
   );
 }
 
-/** Wrap raw HTML content in a minimal document for the iframe */
+/** Prepare generated HTML for the iframe preview without changing full docs. */
 function wrapContent(content: string): string {
+  const previewStyle = `<style data-agent-native-preview>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body { margin: 0; background: #fff; }
+  </style>`;
+  const trimmed = content.trim();
+
+  if (/<!doctype\s+html|<html[\s>]/i.test(trimmed)) {
+    if (/<\/head>/i.test(trimmed)) {
+      return trimmed.replace(/<\/head>/i, `${previewStyle}</head>`);
+    }
+    return trimmed.replace(
+      /<html([^>]*)>/i,
+      `<html$1><head>${previewStyle}</head>`,
+    );
+  }
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0a; overflow: hidden; }
-  </style>
+  ${previewStyle}
 </head>
-<body>${content}</body>
+<body>${trimmed}</body>
 </html>`;
 }

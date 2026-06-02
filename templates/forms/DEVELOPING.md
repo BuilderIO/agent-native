@@ -8,7 +8,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 7, TypeScript, Vite, TailwindCSS
 - **Backend**: Nitro (via @agent-native/core)
-- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
+- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
 - **UI**: Radix UI + Lucide icons + shadcn/ui
 - **Captcha**: Cloudflare Turnstile (opt-in)
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
@@ -33,12 +33,12 @@ server/
 shared/
   types.ts       # Form, FormField, FormResponse types
 actions/         # Agent-callable scripts
-data/            # SQLite database file (app.db)
+data/            # Local development SQLite file only
 ```
 
 ## Database Schema (Drizzle ORM)
 
-Form data lives in SQLite (`data/app.db`) via Drizzle ORM:
+Form data lives in SQL via Drizzle ORM. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes so the same code runs across SQLite, Postgres, libSQL/Turso, D1, and other supported backends:
 
 | Table       | Contents                                                           |
 | ----------- | ------------------------------------------------------------------ |
@@ -100,11 +100,11 @@ If not set, captcha is silently skipped (works fine in dev without it).
 
 ### Local (default)
 
-Works out of the box with local SQLite via `@libsql/client`. Just set `ACCESS_TOKEN` for auth.
+Works out of the box with local SQLite via `@libsql/client`. This local file is for development only; containers, previews, and serverless deploys can reset their filesystem. Just set `ACCESS_TOKEN` for auth.
 
-### Cloud Database (Turso)
+### Persistent SQL Database
 
-Set `DATABASE_URL` to a Turso database URL (e.g. `libsql://your-db.turso.io`) and `DATABASE_AUTH_TOKEN` to your Turso auth token. The same `@libsql/client` driver handles both local and remote seamlessly.
+Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
 
 ### Cloudflare Pages + D1
 

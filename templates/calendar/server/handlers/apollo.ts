@@ -6,24 +6,17 @@ import {
 } from "h3";
 import { readBody } from "@agent-native/core/server";
 import {
-  appStateGet,
-  appStatePut,
-  appStateDelete,
-} from "@agent-native/core/application-state";
+  getIntegrationKey,
+  saveIntegrationKey,
+  deleteIntegrationKey,
+} from "../lib/integration-credentials.js";
 
-const SESSION_ID = "local";
-
-async function getApolloKey(): Promise<string | undefined> {
-  const data = await appStateGet(SESSION_ID, "apollo");
-  return (data as any)?.apiKey || undefined;
-}
-
-// GET /api/apollo/status
-export const apolloStatus = defineEventHandler(async (_event: H3Event) => {
-  return { connected: !!(await getApolloKey()) };
+// GET /api/apollo/status — never returns the key, only connection state.
+export const apolloStatus = defineEventHandler(async (event: H3Event) => {
+  return { connected: !!(await getIntegrationKey(event, "apollo")) };
 });
 
-// PUT /api/apollo/key
+// PUT /api/apollo/key — store the key in the encrypted per-user vault.
 export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   const { apiKey } = body;
@@ -31,13 +24,21 @@ export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  await appStatePut(SESSION_ID, "apollo", { apiKey });
+  const ok = await saveIntegrationKey(event, "apollo", apiKey);
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to connect Apollo" };
+  }
   return { connected: true };
 });
 
 // DELETE /api/apollo/key
-export const apolloDeleteKey = defineEventHandler(async (_event: H3Event) => {
-  await appStateDelete(SESSION_ID, "apollo");
+export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
+  const ok = await deleteIntegrationKey(event, "apollo");
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to disconnect Apollo" };
+  }
   return { connected: false };
 });
 
@@ -53,7 +54,7 @@ export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "email query param required" };
   }
 
-  const apiKey = await getApolloKey();
+  const apiKey = await getIntegrationKey(event, "apollo");
   if (!apiKey) {
     setResponseStatus(event, 401);
     return { error: "Apollo API key not configured" };

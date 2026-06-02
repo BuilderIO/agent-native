@@ -1,6 +1,6 @@
 ---
 title: "Authentication"
-description: "Better Auth integration with email/password, social providers, organizations, and access tokens."
+description: "Better Auth integration with email/password, social providers, organizations, and MCP bearer credentials."
 ---
 
 # Authentication
@@ -12,15 +12,14 @@ Agent-native apps use [Better Auth](https://better-auth.com) for authentication 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. The behavior depends on your environment:
 
 - **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
-- **`ACCESS_TOKEN`:** Simple shared token for production.
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-Local development uses the same Better Auth flow as production — there is no dev-mode shim. The first time you load a template, you'll be sent to the onboarding page to create an account. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
+Local development uses the same Better Auth flow as production — there is no dev auth bypass, and `getSession()` never falls back to a `local@localhost` sentinel. The first time you load a template the framework auto-creates a throwaway dev account and signs you in, so you are not stuck at a login wall (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to use the normal signup page). `AUTH_MODE=local` only affects CLI/agent identity resolution (which signed-in dev user `pnpm action` runs as) — it is not a browser login bypass. Email verification is skipped by default in development (and when no email provider is configured), so signup is just an email + password.
 
 ## Better Auth (Default) {#better-auth}
 
-When no `ACCESS_TOKEN` is set, Better Auth powers authentication. It provides:
+By default, Better Auth powers authentication. It provides:
 
 - Email/password registration and login
 - Social providers (Google, GitHub, and 35+ others)
@@ -31,7 +30,7 @@ When no `ACCESS_TOKEN` is set, Better Auth powers authentication. It provides:
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
 
 - `GET /_agent-native/auth/session` — get current session
-- `POST /_agent-native/auth/login` — email/password or token login
+- `POST /_agent-native/auth/login` — email/password login
 - `POST /_agent-native/auth/register` — create account
 - `POST /_agent-native/auth/logout` — sign out
 
@@ -111,11 +110,11 @@ Better Auth's organization plugin is built into the framework. Every app support
 - Switching active organization
 - Per-org data scoping via `org_id` columns
 
-The active organization flows automatically through the system: `session.orgId` → `AGENT_ORG_ID` → SQL scoping. See the [Security & Data Scoping](/docs/security) docs for details.
+The active org is tracked on the session as `session.orgId`, and switching orgs changes the data the user and agent see. Data scoping itself happens further down the stack — see [Security & Data Scoping](/docs/security#data-scoping) for the full `session.orgId → AGENT_ORG_ID → SQL` pipeline and the access guards. The [Multi-Tenancy](/docs/multi-tenancy) docs cover the org-management surface.
 
-## Access Tokens {#access-tokens}
+## Static MCP Bearer Tokens {#access-tokens}
 
-For simple deployments, set `ACCESS_TOKEN` (single) or `ACCESS_TOKENS` (comma-separated) as environment variables:
+`ACCESS_TOKEN` and `ACCESS_TOKENS` are not browser auth and do not make an app private. They remain only as static bearer credentials for MCP/connect clients that cannot use the OAuth flow.
 
 ```bash
 # Single token
@@ -125,7 +124,7 @@ ACCESS_TOKEN=my-secret-token
 ACCESS_TOKENS=token1,token2,token3
 ```
 
-When access tokens are configured, users see a token login page. Sessions are cookie-based with 30-day expiry.
+Configuring these variables never renders a token login page for visitors. Web sign-in stays on Better Auth or your custom `getSession` provider.
 
 ## Remote MCP OAuth {#remote-mcp-oauth}
 
@@ -284,7 +283,7 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                                                               |
 | `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                                                               |
 | `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                                                               |
-| `ACCESS_TOKEN`                 | Simple shared token auth                                                                                                          |
-| `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                                                     |
+| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth                                                                  |
+| `ACCESS_TOKENS`                | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                 |
 | `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                |
 | `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |

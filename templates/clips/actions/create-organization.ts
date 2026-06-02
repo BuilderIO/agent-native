@@ -12,10 +12,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { createOrganization } from "@agent-native/core/org";
 import { z } from "zod";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -33,19 +33,17 @@ export default defineAction({
     );
 
     // Clips-specific sidecar — organization_settings uses TEXT timestamps.
-    const exec = getDbExec();
     const nowIso = new Date().toISOString();
-    if (isPostgres()) {
-      await exec.execute({
-        sql: `INSERT INTO organization_settings (organization_id, brand_color, default_visibility, created_at, updated_at) VALUES (?, '#18181B', 'private', ?, ?) ON CONFLICT (organization_id) DO NOTHING`,
-        args: [id, nowIso, nowIso],
-      });
-    } else {
-      await exec.execute({
-        sql: `INSERT OR IGNORE INTO organization_settings (organization_id, brand_color, default_visibility, created_at, updated_at) VALUES (?, '#18181B', 'private', ?, ?)`,
-        args: [id, nowIso, nowIso],
-      });
-    }
+    await getDb()
+      .insert(schema.organizationSettings)
+      .values({
+        organizationId: id,
+        brandColor: "#18181B",
+        defaultVisibility: "private",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      })
+      .onConflictDoNothing();
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

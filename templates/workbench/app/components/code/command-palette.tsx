@@ -17,6 +17,10 @@ interface FileNode {
   type: "file" | "dir";
 }
 
+interface FileTreeNode extends FileNode {
+  children?: FileTreeNode[];
+}
+
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (next: boolean) => void;
@@ -27,11 +31,11 @@ interface CommandPaletteProps {
 /**
  * Cmd+K / Cmd+P quick file switcher.
  *
- * The palette eagerly loads two levels of the workspace tree on open
- * (depth=2 keeps the response small for medium repos), then cmdk's
+ * The palette eagerly loads three levels of the workspace tree on open
+ * (depth=3 keeps the response small for medium repos), then cmdk's
  * built-in fuzzy match filters as the user types. When typing a query
  * that matches no top-level paths, falls back to substring search
- * across files in case the file lives deeper than depth=2 — that
+ * across files in case the file lives deeper than depth=3 — that
  * second query only fires for queries >= 2 chars to avoid flooding
  * the server on every keystroke.
  */
@@ -66,16 +70,16 @@ export function CommandPalette({
       const body = await res.json();
       // Flatten depth=3 into a flat file list for cmdk filtering.
       const flat: FileNode[] = [];
-      function walk(nodes: any[], parent: string) {
+      function walk(nodes: FileTreeNode[]) {
         for (const n of nodes) {
           if (n.type === "file") {
             flat.push({ name: n.name, path: n.path, type: "file" });
           } else if (n.type === "dir" && Array.isArray(n.children)) {
-            walk(n.children, n.path);
+            walk(n.children);
           }
         }
       }
-      walk(Array.isArray(body.nodes) ? body.nodes : [], ".");
+      walk(Array.isArray(body.nodes) ? body.nodes : []);
       return { nodes: flat };
     },
     enabled: open && Boolean(workspaceId),

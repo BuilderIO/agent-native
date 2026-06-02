@@ -4,6 +4,7 @@ import {
   withMcpServersFolder,
   type TreeNode,
 } from "./use-resources.js";
+import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 
 function fileNode(
   path: string,
@@ -66,33 +67,53 @@ describe("withAgentScratchFolder", () => {
 });
 
 describe("withMcpServersFolder", () => {
-  it("adds built-in capabilities to the MCP folder", () => {
-    const result = withMcpServersFolder([], [], {
-      builtins: [
+  it("adds configured MCP servers to the MCP folder", () => {
+    const result = withMcpServersFolder(
+      [],
+      [
         {
+          id: "zapier",
           scope: "user",
-          capability: {
-            id: "browser-chrome-devtools",
-            serverId: "chrome-devtools",
-            name: "Chrome DevTools",
-            description: "Attach to Chrome.",
-            command: "npx",
-            args: ["-y", "chrome-devtools-mcp@0.26.0"],
-            exclusiveGroup: "browser",
-            available: true,
-            enabled: { user: false, org: false },
-            mergedIds: {},
-            status: {},
-          },
+          name: "Zapier",
+          url: "https://mcp.zapier.example/mcp",
+          createdAt: 123,
+          mergedId: "user_hash_zapier",
+          status: { state: "unknown" },
         },
       ],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("mcp-servers");
+    expect(result[0].children?.[0].kind).toBe("mcp-server");
+    expect(result[0].children?.[0].resource?.id).toBe("mcp:user:zapier");
+  });
+
+  it("adds built-in MCP capabilities to the MCP folder", () => {
+    const capability: BuiltinCapability = {
+      id: "browser-playwright",
+      serverId: "builtin-browser-playwright",
+      name: "Browser",
+      description: "Control a local browser for QA.",
+      command: "npx",
+      args: ["playwright-mcp"],
+      exclusiveGroup: "browser",
+      available: true,
+      enabled: { user: true, org: false },
+      mergedIds: { user: "user_builtin_browser" },
+      status: { user: { state: "connected", toolCount: 9 } },
+    };
+
+    const result = withMcpServersFolder([], [], {
+      builtins: [{ capability, scope: "user" }],
     });
 
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("mcp-servers");
     expect(result[0].children?.[0].kind).toBe("mcp-builtin");
+    expect(result[0].children?.[0].mcpBuiltinMeta?.scopeEnabled).toBe(true);
     expect(result[0].children?.[0].resource?.id).toBe(
-      "mcp-builtin:user:browser-chrome-devtools",
+      "mcp-builtin:user:browser-playwright",
     );
   });
 });

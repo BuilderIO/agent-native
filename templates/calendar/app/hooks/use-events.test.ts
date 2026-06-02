@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CalendarEvent } from "@shared/api";
 import {
+  applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
@@ -99,5 +100,119 @@ describe("calendar event list cache helpers", () => {
     );
 
     expect(next?.map((event) => event.id)).toEqual(["event-3"]);
+  });
+
+  it("optimistically updates the event and self attendee RSVP status", () => {
+    const event = calendarEvent({
+      source: "google",
+      accountEmail: "me@example.com",
+      responseStatus: "needsAction",
+      attendees: [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+        },
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          responseStatus: "needsAction",
+          self: true,
+        },
+      ],
+    });
+
+    const next = applyCalendarEventRsvp(
+      [event],
+      event.id,
+      "declined",
+      "single",
+      "me@example.com",
+      "I have a conflict",
+    );
+
+    expect(next?.[0]?.responseStatus).toBe("declined");
+    expect(next?.[0]?.attendees?.find((a) => a.self)).toMatchObject({
+      responseStatus: "declined",
+      comment: "I have a conflict",
+    });
+    expect(next?.[0]?.attendees?.[0]?.responseStatus).toBe("accepted");
+  });
+
+  it("optimistically clears a self attendee RSVP note", () => {
+    const event = calendarEvent({
+      source: "google",
+      accountEmail: "me@example.com",
+      responseStatus: "declined",
+      attendees: [
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          responseStatus: "declined",
+          comment: "I have a conflict",
+          self: true,
+        },
+      ],
+    });
+
+    const next = applyCalendarEventRsvp(
+      [event],
+      event.id,
+      "accepted",
+      "single",
+      "me@example.com",
+      "",
+    );
+
+    expect(next?.[0]?.responseStatus).toBe("accepted");
+    expect(next?.[0]?.attendees?.find((a) => a.self)).toMatchObject({
+      responseStatus: "accepted",
+      comment: undefined,
+    });
+  });
+
+  it("optimistically updates this and following recurring RSVP instances", () => {
+    const past = calendarEvent({
+      id: "past",
+      recurringEventId: "series-1",
+      start: "2026-05-15T16:00:00.000Z",
+      end: "2026-05-15T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
+    const target = calendarEvent({
+      id: "target",
+      recurringEventId: "series-1",
+      start: "2026-05-22T16:00:00.000Z",
+      end: "2026-05-22T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
+    const future = calendarEvent({
+      id: "future",
+      recurringEventId: "series-1",
+      start: "2026-05-29T16:00:00.000Z",
+      end: "2026-05-29T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
+    const otherSeries = calendarEvent({
+      id: "other-series",
+      recurringEventId: "series-2",
+      start: "2026-05-29T16:00:00.000Z",
+      end: "2026-05-29T17:00:00.000Z",
+      responseStatus: "accepted",
+    });
+
+    const next = applyCalendarEventRsvp(
+      [past, target, future, otherSeries],
+      target.id,
+      "tentative",
+      "thisAndFollowing",
+    );
+
+    expect(next?.map((event) => [event.id, event.responseStatus])).toEqual([
+      ["past", "accepted"],
+      ["target", "tentative"],
+      ["future", "tentative"],
+      ["other-series", "accepted"],
+    ]);
   });
 });

@@ -47,6 +47,7 @@ export interface MigrateCliOptions {
   appName?: string;
   target?: string;
   planOnly?: boolean;
+  planFile?: string;
   emit?: boolean;
   emitDir?: string;
   appSurface?: boolean;
@@ -188,6 +189,10 @@ export function parseMigrateArgs(argv: string[]): MigrateCliOptions {
       opts.appSurface = true;
     } else if (arg === "--plan-only") {
       opts.planOnly = true;
+    } else if (arg === "--plan-file" && argv[i + 1]) {
+      opts.planFile = argv[++i];
+    } else if (arg.startsWith("--plan-file=")) {
+      opts.planFile = arg.slice("--plan-file=".length);
     } else if (arg === "--last") {
       opts.last = true;
     } else if (!arg.startsWith("-")) {
@@ -286,6 +291,7 @@ export async function emitOwnAgentDossier(
   }
 
   fs.mkdirSync(dossierRoot, { recursive: true });
+  const planInputs = await readMigrationPlanInputs(opts, cwd);
   const written = new Set<string>();
   const write = (relativePath: string, content: string) => {
     const filePath = path.join(dossierRoot, relativePath);
@@ -301,7 +307,7 @@ export async function emitOwnAgentDossier(
   const templateAgents = readTextIfExists(
     templateDir ? path.join(templateDir, "AGENTS.md") : undefined,
   );
-  write("AGENTS.md", renderDossierAgentsMd(source, templateAgents));
+  write("AGENTS.md", renderDossierAgentsMd(source, templateAgents, planInputs));
 
   for (const copied of copyMigrationSkills(templateDir, dossierRoot)) {
     written.add(copied);
@@ -322,13 +328,18 @@ export async function emitOwnAgentDossier(
     }
   }
 
-  write("MIGRATION_PLAYBOOK.md", renderMigrationPlaybook(source));
+  if (planInputs) {
+    write("02-plan-inputs.json", `${JSON.stringify(planInputs, null, 2)}\n`);
+  }
+
+  write("MIGRATION_PLAYBOOK.md", renderMigrationPlaybook(source, planInputs));
   write(
     "source.json",
     `${JSON.stringify(
       {
         source,
         target: opts.target ?? DEFAULT_TARGET,
+        planInputs,
         createdAt: new Date().toISOString(),
         usedMigrateHelpers,
       },
@@ -350,7 +361,8 @@ export function isExpectedMigrationCliError(error: unknown): boolean {
   return (
     message.startsWith("Usage: agent-native migrate") ||
     message.startsWith("Refusing to emit dossier inside sourceRoot") ||
-    message.startsWith("Refusing to write ")
+    message.startsWith("Refusing to write ") ||
+    message.startsWith("Could not read migration plan file ")
   );
 }
 
@@ -372,6 +384,7 @@ async function scaffoldOrResumeWorkbench(
   const appName = opts.appName ?? DEFAULT_APP_NAME;
   const target = opts.target ?? DEFAULT_TARGET;
   const outputRoot = path.resolve(cwd, opts.output ?? DEFAULT_OUTPUT);
+  const planInputs = await readMigrationPlanInputs(opts, cwd);
   const appDirBefore = resolveScaffoldedAppDir(cwd, appName);
   const existing = fs.existsSync(appDirBefore);
 
@@ -395,6 +408,7 @@ async function scaffoldOrResumeWorkbench(
         outputRoot,
         target,
         planOnly: Boolean(opts.planOnly),
+        planInputs,
         createdAt: new Date().toISOString(),
       },
       null,
@@ -416,6 +430,7 @@ async function createMigrationCodeAgentSession(
   }
 
   const outputRoot = path.resolve(cwd, opts.output ?? DEFAULT_OUTPUT);
+  const planInputs = await readMigrationPlanInputs(opts, cwd);
   if (source.sourceRoot) {
     assertOutsideSourceRoot(source.sourceRoot, outputRoot, "outputRoot");
   }
@@ -439,6 +454,7 @@ async function createMigrationCodeAgentSession(
       sourceRoot: source.sourceRoot,
       outputRoot,
       target: opts.target ?? DEFAULT_TARGET,
+      planInputs,
     },
   });
   appendCodeAgentTranscriptEvent({
@@ -449,6 +465,7 @@ async function createMigrationCodeAgentSession(
       source,
       outputRoot,
       target: opts.target ?? DEFAULT_TARGET,
+      planInputs,
     },
   });
   appendCodeAgentTranscriptEvent({
@@ -490,6 +507,7 @@ async function createMigrationCodeAgentSession(
       dossierRoot,
       dossierFiles: dossier.files,
       artifactFiles: dossier.files.map((file) => path.join(dossierRoot, file)),
+      planInputs,
       usedMigrateHelpers: dossier.usedMigrateHelpers,
       resumeCommand: "agent-native code resume --last",
       attachCommand: "agent-native code attach --last",
@@ -863,6 +881,7 @@ function migrateUsage(): string {
     "  --description, --describe    Source description for any-input migrations",
     "  --emit [dir]                 Emit an own-agent dossier without recording a session",
     "  --out <path>                 Generated output path for the migration session",
+    "  --plan-file <path>           Custom migration profile JSON or notes",
     "  --app-surface, --workbench   Scaffold the legacy hidden migration detail app",
     "  --name <name>                Legacy app-surface name (default: migration)",
     "  --target <name>              Migration target (default: agent-native)",
@@ -936,6 +955,143 @@ function resolveDossierRoot(
 ): string {
   if (opts.emitDir) return path.resolve(cwd, opts.emitDir);
   return defaultDossierRoot(source, cwd);
+}
+
+async function readMigrationPlanInputs(
+  opts: MigrateCliOptions,
+  cwd: string,
+): Promise<unknown | null> {
+  if (!opts.planFile) return null;
+  const filePath = path.resolve(cwd, opts.planFile);
+  let text = "";
+  try {
+    text = fs.readFileSync(filePath, "utf-8");
+  } catch (error) {
+    throw new Error(
+      `Could not read migration plan file ${filePath}: ${migrationCliErrorMessage(error)}`,
+    );
+  }
+
+  try {
+    const migratePackage = "@agent-native/migrate";
+    const migrate = (await import(migratePackage)) as {
+      parseMigrationPlanInputsText?: (
+        text: string,
+        sourceLabel?: string,
+      ) => unknown;
+    };
+    const parsed = migrate.parseMigrationPlanInputsText?.(
+      text,
+      path.basename(filePath),
+    );
+    if (migrate.parseMigrationPlanInputsText) return parsed ?? null;
+  } catch {
+    // The dossier writer can run without the migrate package being bundled.
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return isRecognizedPlanInputJson(parsed) ? parsed : null;
+  } catch {
+    return inferMigrationPlanInputsFromText(text, path.basename(filePath));
+  }
+}
+
+function isRecognizedPlanInputJson(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return [
+    "summary",
+    "notes",
+    "aem",
+    "builder",
+    "headless",
+    "jquery",
+    "verification",
+  ].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function inferMigrationPlanInputsFromText(
+  text: string,
+  sourceLabel: string,
+): Record<string, unknown> {
+  const lower = text.toLowerCase();
+  const planInputs: Record<string, unknown> = {
+    summary: firstMeaningfulLine(text) ?? sourceLabel,
+    notes: text.trim(),
+  };
+  const mentionsAem =
+    /\baem\b|adobe experience manager|content fragment|experience fragment|sling|htl|jcr|vault|dam/.test(
+      lower,
+    );
+  const mentionsBuilder = /\bbuilder\b|fusion|publish|visual editor/.test(
+    lower,
+  );
+  const mentionsHeadless = /akeneo|akineo|headless|dynamic pages?/.test(lower);
+  const mentionsJQuery = /\bjquery\b|\$\(|clientlib/.test(lower);
+
+  if (mentionsAem) {
+    planInputs.aem = {
+      modes: ["enterprise"],
+      contentFragmentPolicy: mentionsHeadless ? "headless" : "manual",
+      experienceFragmentPolicy: mentionsBuilder
+        ? "builder-section"
+        : "react-component",
+      componentPolicy: mentionsBuilder
+        ? "builder-registered-component"
+        : "react-component",
+    };
+  }
+  if (mentionsBuilder) {
+    planInputs.builder = {
+      enabled: true,
+      componentRegistration: "register",
+      routeOwnership: [
+        {
+          pattern: "static/low-change pages",
+          owner: "builder-page",
+          notes:
+            "Use Builder for static or low-change public pages that benefit from visual management.",
+        },
+      ],
+    };
+  }
+  if (mentionsHeadless) {
+    planInputs.headless = {
+      provider:
+        lower.includes("akeneo") || lower.includes("akineo")
+          ? "Akeneo"
+          : "headless",
+      routePatterns: ["dynamic pages"],
+    };
+    const builder = planInputs.builder as
+      | { routeOwnership?: Array<Record<string, string>> }
+      | undefined;
+    if (builder) {
+      builder.routeOwnership = [
+        ...(builder.routeOwnership ?? []),
+        {
+          pattern: "dynamic pages",
+          owner: "headless",
+          notes:
+            "Route dynamic pages through the approved headless source instead of treating Builder as a content dump.",
+        },
+      ];
+    }
+  }
+  if (mentionsJQuery) {
+    planInputs.jquery = { policy: "rewrite" };
+  }
+  return planInputs;
+}
+
+function firstMeaningfulLine(text: string): string | undefined {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, "").trim())
+    .find(Boolean)
+    ?.slice(0, 140);
 }
 
 function defaultDossierRoot(source: SourceSpec, cwd: string): string {
@@ -1260,6 +1416,7 @@ No local source path was provided, so this dossier does not include file-level I
 function renderDossierAgentsMd(
   source: SourceSpec,
   templateAgents: string | null,
+  planInputs: unknown | null,
 ): string {
   return `# Migration Dossier Agent Instructions
 
@@ -1278,11 +1435,13 @@ ${source.description ? `- Description: ${source.description}\n` : ""}
 - Keep app-owned data in SQL, expose operations as actions, and route AI work through the agent chat.
 - Use 01-assessment.md and ir.json when present. If they are incomplete, update the assessment before implementation.
 - Record manual gaps and verification evidence. Do not present a migration as complete without checks.
+${planInputs ? "- Treat `02-plan-inputs.json` as binding planning input. Do not approve output writes until the generated task list covers it.\n" : ""}
 
 ## Files In This Dossier
 
 - \`MIGRATION_PLAYBOOK.md\` - ordered workflow for Agent-Native Code/Desktop.
 - \`01-assessment.md\` - initial source assessment.
+- \`02-plan-inputs.json\` - custom route ownership, AEM, Builder, jQuery, or verification profile when present.
 - \`ir.json\` - source inventory when available.
 - \`.agents/skills/migration*/SKILL.md\` - extra instruction packs when available from the migration goal surface.
 
@@ -1290,7 +1449,10 @@ ${templateAgents ? `## Migration Goal Surface Instructions\n\n${templateAgents.t
 `;
 }
 
-function renderMigrationPlaybook(source: SourceSpec): string {
+function renderMigrationPlaybook(
+  source: SourceSpec,
+  planInputs: unknown | null,
+): string {
   return `# Migration Playbook
 
 ## 1. Intake Any Input
@@ -1302,6 +1464,8 @@ Source: ${formatSourceForDisplay(source)}
 ## 2. Build The Migration Map
 
 Classify routes, public pages, logged-in app surfaces, API endpoints, data stores, auth, jobs, client state, assets, and direct LLM calls. Update \`01-assessment.md\` when you learn more.
+
+${planInputs ? "Use `02-plan-inputs.json` as the customer-specific migration profile. Apply its route ownership, AEM evidence, Builder registration, headless, jQuery, and verification constraints before approving output writes.\n" : ""}
 
 ## 3. Apply Agent-Native Rules
 

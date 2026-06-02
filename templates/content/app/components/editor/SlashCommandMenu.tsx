@@ -15,13 +15,13 @@ import {
   IconCode,
   IconMinus,
   IconTable as TableIcon,
-  IconSparkles,
+  IconWand,
   IconArrowUp,
   IconInfoCircle,
+  IconMusic,
   IconPhoto,
   IconFileText,
   IconDatabase,
-  IconMusic,
   IconVideo,
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/popover";
 import { useCreateContentDatabase } from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 
 interface SlashCommandMenuProps {
@@ -82,6 +81,10 @@ export function shouldOpenGenerateOnSpace(editor: Editor) {
   if ($from.parentOffset !== 0) return false;
 
   return $from.parent.textContent.trim().length === 0;
+}
+
+export function parseSlashCommandQuery(textBeforeCursor: string) {
+  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
 }
 
 const commands: CommandItem[] = [
@@ -206,7 +209,7 @@ const commands: CommandItem[] = [
       editor
         .chain()
         .focus()
-        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: false })
         .run(),
   },
 ];
@@ -350,8 +353,6 @@ export function SlashCommandMenu({
   const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const imageInsertPosRef = useRef<number | null>(null);
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -424,7 +425,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: "Generate",
     description: "Generate content with AI",
-    icon: IconSparkles,
+    icon: IconWand,
     action: () => {
       openGeneratePopover(position);
     },
@@ -432,11 +433,14 @@ export function SlashCommandMenu({
 
   const imageCommand: CommandItem = {
     title: "Image",
-    description: "Upload image",
+    description: "Upload or embed image",
     icon: IconPhoto,
     action: (editor) => {
-      imageInsertPosRef.current = editor.state.selection.from;
-      imageInputRef.current?.click();
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
+        .run();
     },
   };
 
@@ -448,14 +452,7 @@ export function SlashCommandMenu({
       editor
         .chain()
         .focus()
-        .insertContent({
-          type: "notionBlockAtom",
-          attrs: {
-            tagName: "video",
-            attrsJson: "{}",
-            label: "Video",
-          },
-        })
+        .insertContent({ type: "video", attrs: { src: null } })
         .run();
     },
   };
@@ -468,14 +465,7 @@ export function SlashCommandMenu({
       editor
         .chain()
         .focus()
-        .insertContent({
-          type: "notionBlockAtom",
-          attrs: {
-            tagName: "audio",
-            attrsJson: "{}",
-            label: "Audio",
-          },
-        })
+        .insertContent({ type: "audio", attrs: { src: null } })
         .run();
     },
   };
@@ -555,42 +545,6 @@ export function SlashCommandMenu({
 
   function handleGenerateSubmit() {
     submitGeneratePrompt(generatePrompt);
-  }
-
-  async function handleImageFilePicked(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-
-    const toastId = toast.loading("Uploading image...");
-    try {
-      const src = await uploadImageFile(file);
-      const imageBlock = {
-        type: "image",
-        attrs: { src, alt: file.name },
-      };
-      const insertPos = imageInsertPosRef.current;
-      imageInsertPosRef.current = null;
-
-      if (insertPos !== null) {
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(
-            Math.min(insertPos, editor.state.doc.content.size),
-            imageBlock,
-          )
-          .run();
-      } else {
-        editor.chain().focus().insertContent(imageBlock).run();
-      }
-      toast.success("Image added", { id: toastId });
-    } catch (error) {
-      imageInsertPosRef.current = null;
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
-    }
   }
 
   const executeCommand = useCallback(
@@ -700,18 +654,26 @@ export function SlashCommandMenu({
     const handleTransaction = () => {
       const { state } = editor;
       const { from } = state.selection;
-      const textBefore = state.doc.textBetween(
-        Math.max(0, from - 20),
-        from,
-        "\n",
-      );
+      const { $from } = state.selection;
+      if (!$from.parent.isTextblock) {
+        if (isOpen) {
+          setIsOpen(false);
+          setIsTurnInto(false);
+          setQuery("");
+          slashPosRef.current = null;
+        }
+        return;
+      }
 
-      const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
+      const blockStart = $from.start();
+      const textBefore = state.doc.textBetween(blockStart, from, "\n");
+      const slashQuery = parseSlashCommandQuery(textBefore);
 
-      if (slashMatch) {
-        const slashStart = from - slashMatch[0].length;
+      if (slashQuery !== null) {
+        const slashIndex = textBefore.lastIndexOf("/");
+        const slashStart = blockStart + slashIndex;
         slashPosRef.current = slashStart;
-        setQuery(slashMatch[1]);
+        setQuery(slashQuery);
         setSelectedIndex(0);
 
         // Detect "turn into" mode: "/" is at start of a non-empty block
@@ -719,7 +681,7 @@ export function SlashCommandMenu({
         const parentNode = resolved.parent;
         const offsetInParent = resolved.parentOffset;
         const blockHasOtherContent =
-          parentNode.textContent.length > slashMatch[0].length;
+          parentNode.textContent.length > textBefore.length - slashIndex;
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 
@@ -752,16 +714,6 @@ export function SlashCommandMenu({
 
   return (
     <>
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        tabIndex={-1}
-        aria-hidden="true"
-        onChange={handleImageFilePicked}
-      />
-
       {/* Slash command menu */}
       {isOpen && position && filteredCommands.length > 0 && (
         <div
@@ -837,7 +789,7 @@ export function SlashCommandMenu({
           >
             <div className="p-4 pb-3">
               <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconSparkles size={14} className="text-muted-foreground" />
+                <IconWand size={14} className="text-muted-foreground" />
                 Generate with AI
               </p>
               <textarea

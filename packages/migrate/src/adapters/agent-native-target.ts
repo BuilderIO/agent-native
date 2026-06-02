@@ -97,7 +97,7 @@ export async function verifyAgentNativeConformance(
     "app/root.tsx",
     "server/plugins/agent-chat.ts",
   ];
-  const missing = [];
+  const missing: string[] = [];
   for (const file of requiredFiles) {
     try {
       await fs.access(path.join(context.run.outputRoot, file));

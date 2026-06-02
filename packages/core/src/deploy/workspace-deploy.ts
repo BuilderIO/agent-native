@@ -28,6 +28,10 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  collectImmutableAssetPaths,
+  IMMUTABLE_ASSET_CACHE_HEADERS,
+} from "./immutable-assets.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -168,6 +172,7 @@ export async function runWorkspaceDeploy(
 
   if (preset === "netlify") {
     writeNetlifyRedirects(distDir, apps);
+    writeNetlifyHeaders(distDir, apps);
   } else if (preset === "vercel") {
     writeVercelBuildConfig(vercelOutputDir, apps);
   } else {
@@ -218,7 +223,9 @@ function buildOneApp(
     ...process.env,
     NITRO_PRESET: preset,
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: app,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app,
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
@@ -481,8 +488,33 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
 }
 
+function writeNetlifyHeaders(distDir: string, apps: string[]): void {
+  const blocks = apps.flatMap((app) => {
+    const staticDir = path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app);
+    return collectImmutableAssetPaths(staticDir).flatMap((assetPath) => [
+      netlifyHeaderBlock(`/${app}${assetPath}`),
+      netlifyHeaderBlock(`/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}${assetPath}`),
+    ]);
+  });
+
+  if (blocks.length === 0) return;
+  fs.writeFileSync(path.join(distDir, "_headers"), blocks.join("\n\n") + "\n");
+}
+
+function netlifyHeaderBlock(pathname: string): string {
+  return [
+    pathname,
+    ...Object.entries(IMMUTABLE_ASSET_CACHE_HEADERS).map(
+      ([name, value]) => `  ${name}: ${value}`,
+    ),
+  ].join("\n");
+}
+
 function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
-  const routes: Array<Record<string, any>> = [{ handle: "filesystem" }];
+  const routes: Array<Record<string, any>> = [
+    ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
+    { handle: "filesystem" },
+  ];
 
   if (apps.includes("dispatch")) {
     routes.push(
@@ -527,6 +559,24 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
     path.join(outputDir, "config.json"),
     JSON.stringify(config, null, 2) + "\n",
   );
+}
+
+function vercelImmutableAssetHeaderRoutes(
+  outputDir: string,
+  apps: string[],
+): Array<Record<string, any>> {
+  return apps.flatMap((app) => {
+    const staticDir = path.join(outputDir, "static", app);
+    return collectImmutableAssetPaths(staticDir).map((assetPath) => ({
+      src: vercelRouteSrc(`/${app}${assetPath}`),
+      headers: IMMUTABLE_ASSET_CACHE_HEADERS,
+      continue: true,
+    }));
+  });
+}
+
+function vercelRouteSrc(pathname: string): string {
+  return pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function vercelRedirect(src: string, location: string): Record<string, any> {
@@ -653,11 +703,13 @@ function setBasePathEnv() {
   processRef.env ??= {};
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
@@ -723,11 +775,13 @@ function setBasePathEnv() {
   processRef.env ??= {};
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     APP_BASE_PATH: basePath,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
     AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
     VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
     VITE_APP_BASE_PATH: basePath,
     VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
     VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},

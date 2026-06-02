@@ -50,24 +50,29 @@ export type AgentAutoContinueReason =
   | "stream_ended"
   | "stale_run";
 
+export type AgentActivityTrailEntry = { label: string; tool?: string };
+
 export class AgentAutoContinueSignal extends Error {
   readonly reason: AgentAutoContinueReason;
   readonly maxIterations?: number;
+  readonly activityTrail: AgentActivityTrailEntry[];
 
   constructor(options: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
+    activityTrail?: AgentActivityTrailEntry[];
   }) {
     super(`Agent run needs automatic continuation: ${options.reason}`);
     this.name = "AgentAutoContinueSignal";
     this.reason = options.reason;
     this.maxIterations = options.maxIterations;
+    this.activityTrail = options.activityTrail ?? [];
   }
 }
 
 export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
 
-type ActivityTrailEntry = { label: string; tool?: string };
+type ActivityTrailEntry = AgentActivityTrailEntry;
 
 function appendActivityTrail(
   trail: ActivityTrailEntry[],
@@ -315,10 +320,14 @@ export function processEvent(
   }
 
   if (ev.type === "tool_done") {
+    // Normalize identically to tool_start (which stores `ev.tool ?? "unknown"`)
+    // so a tool_done frame with an undefined tool name still matches its
+    // pending tool-call entry instead of leaving it forever unresolved.
+    const doneTool = ev.tool ?? "unknown";
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
-          detail: { tool: ev.tool ?? "unknown", result: ev.result },
+          detail: { tool: doneTool, result: ev.result },
         }),
       );
     }
@@ -326,7 +335,7 @@ export function processEvent(
       const part = content[i];
       if (
         part.type === "tool-call" &&
-        part.toolName === ev.tool &&
+        part.toolName === doneTool &&
         part.result === undefined
       ) {
         part.result = ev.result ?? "";
@@ -654,7 +663,9 @@ export async function* readSSEStream(
         if (result) yield withStreamMetadata(result);
         if (action === "auto_continue") {
           throw new AgentAutoContinueSignal(
-            autoContinue ?? { reason: "stream_ended" },
+            autoContinue
+              ? { ...autoContinue, activityTrail: [...activityTrail] }
+              : { reason: "stream_ended", activityTrail: [...activityTrail] },
           );
         }
         if (
@@ -686,7 +697,10 @@ export async function* readSSEStream(
   // abnormal here: a healthy run emits a terminal `done` event. Treat this as
   // recoverable so the adapter can first reconnect to the run, then continue
   // from durable history if the producer is gone.
-  throw new AgentAutoContinueSignal({ reason: "stream_ended" });
+  throw new AgentAutoContinueSignal({
+    reason: "stream_ended",
+    activityTrail: [...activityTrail],
+  });
 }
 
 /**
@@ -706,6 +720,11 @@ export async function readSSEStreamRaw(
   const decoder = new TextDecoder();
   let buf = "";
   let lastMeaningfulEventAt = Date.now();
+  // Tracks whether the most recent content state was already pushed via
+  // onUpdate inside the loop, so the post-loop flush below doesn't emit the
+  // identical content a second time when the stream closes without a terminal
+  // event.
+  let emittedLatestContent = false;
 
   try {
     while (true) {
@@ -768,6 +787,7 @@ export async function readSSEStreamRaw(
 
       if (updated) {
         onUpdate([...content]);
+        emittedLatestContent = true;
       }
       if (
         !sawDataEvent &&
@@ -783,6 +803,6 @@ export async function readSSEStreamRaw(
       // See readSSEStream: cancellation may race lock release in browsers.
     }
   }
-  if (content.length > 0) onUpdate([...content]);
+  if (content.length > 0 && !emittedLatestContent) onUpdate([...content]);
   throw new AgentAutoContinueSignal({ reason: "stream_ended" });
 }

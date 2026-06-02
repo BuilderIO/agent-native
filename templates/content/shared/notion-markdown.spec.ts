@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  VISUAL_INDENT,
   parseNfmForEditor,
   normalizeNfmForNotion,
   normalizeNfmForStorage,
   serializeEditorToNfm,
 } from "./notion-markdown";
+
+const EDITOR_INDENT = "&emsp;&emsp;";
 
 describe("parseNfmForEditor", () => {
   describe("empty-block handling", () => {
@@ -35,21 +38,28 @@ describe("parseNfmForEditor", () => {
     });
   });
 
-  describe("tab-indented plain text → blockquote", () => {
-    it("converts single-tab indent to blockquote", () => {
+  describe("tab-indented plain text → visual indent", () => {
+    it("converts single-tab indent to visual indentation", () => {
       const result = parseNfmForEditor("parent\n\tchild");
-      expect(result).toContain("> child");
+      expect(result).toContain(`${EDITOR_INDENT}child`);
+      expect(result).not.toContain("> child");
       expect(result).not.toContain("\tchild");
     });
 
-    it("converts double-tab indent to nested blockquote", () => {
+    it("converts double-tab indent to nested visual indentation", () => {
       const result = parseNfmForEditor("parent\n\t\tgrandchild");
-      expect(result).toContain("> > grandchild");
+      expect(result).toContain(`${EDITOR_INDENT.repeat(2)}grandchild`);
     });
 
-    it("converts triple-tab indent to triply-nested blockquote", () => {
+    it("converts triple-tab indent to triply-nested visual indentation", () => {
       const result = parseNfmForEditor("parent\n\t\t\tdeep");
-      expect(result).toContain("> > > deep");
+      expect(result).toContain(`${EDITOR_INDENT.repeat(3)}deep`);
+    });
+
+    it("normalizes legacy two-nbsp visual indents to tab-backed visual indentation", () => {
+      const result = parseNfmForEditor("parent\n&nbsp;&nbsp;child");
+      expect(result).toContain(`${EDITOR_INDENT}child`);
+      expect(result).not.toContain("&nbsp;&nbsp;child");
     });
 
     it("converts indented list items without a list parent to blockquote lists", () => {
@@ -176,7 +186,7 @@ describe("parseNfmForEditor", () => {
         "</details>",
       ].join("\n");
       const result = parseNfmForEditor(input);
-      expect(result).toContain("<blockquote>");
+      expect(result).toContain(`<p>${VISUAL_INDENT}child text</p>`);
     });
 
     it("does not modify content outside toggle", () => {
@@ -185,6 +195,20 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("plain text");
       expect(result).toContain("more text");
+    });
+
+    it("keeps indented Notion toggle blocks out of markdown code blocks", () => {
+      const input = [
+        "parent",
+        "\t<details>",
+        "\t<summary>agents doing</summary>",
+        "\t</details>",
+      ].join("\n");
+      const result = parseNfmForEditor(input);
+      expect(result).toContain('<details data-nfm-indent="1">');
+      expect(result).toContain("<summary>agents doing</summary>");
+      expect(result).not.toMatch(/^\t<details/m);
+      expect(result).not.toMatch(/^ {4}<details/m);
     });
 
     it("keeps bullets in a single <ul> even with blank lines between items", () => {
@@ -307,10 +331,9 @@ describe("parseNfmForEditor", () => {
       expect(result).toBe("- a\n- b");
     });
 
-    it("inserts blank line after blockquote before non-blockquote", () => {
+    it("inserts blank line after visual indent before non-indented text", () => {
       const result = parseNfmForEditor("parent\n\tchild\nnext paragraph");
-      // blockquote (> child) should be followed by blank line before "next paragraph"
-      expect(result).toMatch(/> child\n\nnext paragraph/);
+      expect(result).toContain(`${EDITOR_INDENT}child\n\nnext paragraph`);
     });
 
     it("inserts blank line before --- to prevent setext heading", () => {
@@ -356,7 +379,7 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("## Heading");
       expect(result).toContain("- item");
-      expect(result).toContain("> indented");
+      expect(result).toContain(`${EDITOR_INDENT}indented`);
     });
 
     it("handles empty input", () => {
@@ -372,8 +395,9 @@ describe("parseNfmForEditor", () => {
 
     it("preserves markdown links in indented text", () => {
       const result = parseNfmForEditor("\t[link text](https://example.com)");
-      // Link text should be in a blockquote, preserving the markdown
-      expect(result).toContain("> [link text](https://example.com)");
+      expect(result).toContain(
+        `${EDITOR_INDENT}[link text](https://example.com)`,
+      );
     });
   });
 
@@ -541,6 +565,25 @@ describe("normalizeNfmForNotion", () => {
         "\t- item 1",
         "\tplain child",
         "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("turns editor-only toggle indent attrs back into real Notion tabs", () => {
+    const result = normalizeNfmForNotion(
+      [
+        '<details data-nfm-indent="2">',
+        "<summary>Indented toggle</summary>",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(result).toBe(
+      [
+        "\t\t<details>",
+        "\t\t<summary>Indented toggle</summary>",
+        "\t\t\t<empty-block/>",
+        "\t\t</details>",
       ].join("\n"),
     );
   });

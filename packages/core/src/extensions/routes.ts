@@ -17,9 +17,12 @@ import { getDbExec, isPostgres } from "../db/client.js";
 import {
   listExtensions,
   getExtension,
+  getExtensionHistoryVersion,
+  listExtensionHistory,
   createExtension,
   updateExtension,
   updateExtensionContent,
+  restoreExtensionHistoryVersion,
   deleteExtension,
   hideExtension,
   unhideExtension,
@@ -200,6 +203,48 @@ async function dispatch(
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
     return html;
+  }
+
+  // GET /:id/history — list saved snapshots for an extension
+  if (method === "GET" && parts.length === 2 && parts[1] === "history") {
+    const limitParam = event.url?.searchParams?.get("limit");
+    const limit =
+      limitParam === null || limitParam === undefined
+        ? undefined
+        : Number(limitParam);
+    const includeContent =
+      event.url?.searchParams?.get("includeContent") === "true";
+    return {
+      history: await listExtensionHistory(parts[0], {
+        limit,
+        includeContent,
+      }),
+    };
+  }
+
+  // GET /:id/history/:version — fetch one snapshot plus its previous-version diff
+  if (method === "GET" && parts.length === 3 && parts[1] === "history") {
+    const detail = await getExtensionHistoryVersion(parts[0], parts[2]);
+    if (!detail) {
+      setResponseStatus(event, 404);
+      return { error: "Extension history version not found" };
+    }
+    return detail;
+  }
+
+  // POST /:id/history/:version/restore — restore display metadata + content
+  if (
+    method === "POST" &&
+    parts.length === 4 &&
+    parts[1] === "history" &&
+    parts[3] === "restore"
+  ) {
+    const restored = await restoreExtensionHistoryVersion(parts[0], parts[2]);
+    if (!restored) {
+      setResponseStatus(event, 404);
+      return { error: "Extension history version not found" };
+    }
+    return extensionResponse(restored);
   }
 
   // GET /:id
@@ -492,7 +537,11 @@ async function handleProxy(
   const rawBody = body.body;
 
   let resolvedUrl = rawUrl;
-  let resolvedHeaders = JSON.stringify(rawHeaders);
+  // Resolve secret references per header value rather than over a single
+  // JSON.stringify(headers) blob. A secret value containing a double-quote
+  // would corrupt that JSON, the later JSON.parse would throw, and the request
+  // would silently fall back to the *unresolved* headers (placeholders intact).
+  const parsedHeaders: Record<string, string> = {};
   let resolvedBody = rawBody;
   const allSecretValues: string[] = [];
   const allResolvedKeys: ResolvedKeyReference[] = [];
@@ -506,13 +555,15 @@ async function handleProxy(
     allSecretValues.push(...urlResult.secretValues);
     allResolvedKeys.push(...(urlResult.resolvedKeys ?? []));
 
-    const headerResult = await resolveKeyReferencesWithRequestScopes(
-      resolvedHeaders,
-      userEmail,
-    );
-    resolvedHeaders = headerResult.resolved;
-    allSecretValues.push(...headerResult.secretValues);
-    allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
+    for (const [hk, hv] of Object.entries(rawHeaders)) {
+      const headerResult = await resolveKeyReferencesWithRequestScopes(
+        typeof hv === "string" ? hv : String(hv),
+        userEmail,
+      );
+      parsedHeaders[hk] = headerResult.resolved;
+      allSecretValues.push(...headerResult.secretValues);
+      allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
+    }
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferencesWithRequestScopes(
@@ -550,12 +601,7 @@ async function handleProxy(
     }
   }
 
-  let headers: Record<string, string>;
-  try {
-    headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
-  } catch {
-    headers = sanitizeOutboundHeaders(rawHeaders);
-  }
+  const headers = sanitizeOutboundHeaders(parsedHeaders);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -759,7 +805,7 @@ const DESTRUCTIVE_SQL_RE =
 // integrations, notifications, scheduling, sharing/orgs), and Postgres
 // catalogs that would let a extension enumerate or read internals.
 const SENSITIVE_SQL_RE =
-  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
 // Refuses positional INSERTs (no column list). `INSERT INTO recordings VALUES
 // (...)` would let a extension stuff arbitrary owner_email values into a row.

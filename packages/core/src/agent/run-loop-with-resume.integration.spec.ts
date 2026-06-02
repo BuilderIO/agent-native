@@ -61,7 +61,7 @@ function fakeEngineWithGatewayTimeoutThenSuccess(): {
         yield {
           type: "stop",
           reason: "error",
-          error: "Builder gateway timed out after 55s",
+          error: "Builder gateway timed out after 45s",
           errorCode: "builder_gateway_timeout",
         };
         return;

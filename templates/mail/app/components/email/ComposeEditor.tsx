@@ -17,6 +17,10 @@ import { ComposeSlashMenu } from "./ComposeSlashMenu";
 import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
 import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
 import {
+  shouldApplyComposeContent,
+  COMPOSE_TYPING_GRACE_MS,
+} from "./compose-draft-context";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -73,6 +77,11 @@ export const ComposeEditor = forwardRef<
   ref,
 ) {
   const isSettingContent = useRef(false);
+  // Last time the user actually typed (not merely had focus). Used to let an
+  // external/agent edit reconcile in even while the editor is focused but idle,
+  // without yanking text out from under in-progress keystrokes.
+  const lastTypedAtRef = useRef(0);
+  const pendingComposeContentRef = useRef<string | null>(null);
   const onChangeRef = useRef(onChange);
   const onSendRef = useRef(onSend);
   const onCloseRef = useRef(onClose);
@@ -132,7 +141,11 @@ export const ComposeEditor = forwardRef<
       },
     },
     onUpdate: ({ editor }) => {
+      // Only a genuine local keystroke marks the user as "actively typing".
+      // setContent (external/agent reconcile) sets isSettingContent first, so
+      // those updates don't extend the typing grace window.
       if (isSettingContent.current) return;
+      lastTypedAtRef.current = Date.now();
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
         onChangeRef.current(md);
@@ -142,18 +155,62 @@ export const ComposeEditor = forwardRef<
     },
   });
 
-  // Sync content from outside (when the agent updates compose-{id} app-state)
+  // Reconcile external content into the editor when the agent (or another
+  // surface) updates compose-{id} app-state — the `compose-drafts` query
+  // refetches and feeds the new body in via `content`. We adopt it live even
+  // while the editor is focused, EXCEPT when the user is actively typing right
+  // now; in that case we retry shortly so the edit still lands once they pause.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const currentMd = (editor.storage as any).markdown.getMarkdown();
-    if (currentMd !== content) {
-      if (editor.isFocused) {
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const run = () => {
+      if (cancelled || !editor || editor.isDestroyed) return;
+      const currentMd = (editor.storage as any).markdown.getMarkdown();
+
+      if (
+        content !== currentMd &&
+        content !== pendingComposeContentRef.current
+      ) {
+        pendingComposeContentRef.current = content;
+      }
+
+      const nextContent = pendingComposeContentRef.current;
+      if (nextContent == null) return;
+      if (currentMd === nextContent) {
+        pendingComposeContentRef.current = null;
         return;
       }
+
+      if (
+        !shouldApplyComposeContent({
+          currentMarkdown: currentMd,
+          nextContent,
+          editorFocused: editor.isFocused,
+          lastTypedAt: lastTypedAtRef.current,
+          now: Date.now(),
+        })
+      ) {
+        // Differs but the user is mid-keystroke — re-check once they pause so
+        // the agent edit still appears without clobbering their typing.
+        retryTimer = setTimeout(run, COMPOSE_TYPING_GRACE_MS);
+        return;
+      }
+
+      pendingComposeContentRef.current = null;
       isSettingContent.current = true;
-      editor.commands.setContent(content);
+      editor.commands.setContent(nextContent);
       isSettingContent.current = false;
-    }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [content, editor]);
 
   const [showLinkDialog, setShowLinkDialog] = useState(false);

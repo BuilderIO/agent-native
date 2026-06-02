@@ -471,7 +471,45 @@ type DesktopOpenRequest = {
   app?: string;
   goalId?: string;
   path?: string;
+  softOpen?: boolean;
   runId?: string;
+};
+
+type DesktopShortcutBehavior = "toggle" | "show";
+
+type DesktopShortcutBinding = {
+  id: string;
+  accelerator: string;
+  app: string;
+  view?: string;
+  behavior: DesktopShortcutBehavior;
+  enabled: boolean;
+};
+
+type DesktopShortcutRegistration = {
+  id: string;
+  registered: boolean;
+  error?: string;
+};
+
+type DesktopShortcutSettings = {
+  bindings: DesktopShortcutBinding[];
+  registrations: DesktopShortcutRegistration[];
+};
+
+type DesktopShortcutUpsertRequest = {
+  id?: string;
+  accelerator: string;
+  app: string;
+  view?: string;
+  behavior?: DesktopShortcutBehavior;
+  enabled?: boolean;
+};
+
+type DesktopShortcutUpdateResult = {
+  ok: boolean;
+  settings: DesktopShortcutSettings;
+  error?: string;
 };
 
 type LocalAppFolderInfo = {
@@ -507,6 +545,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: { key: string; shiftKey: boolean; altKey?: boolean }) => void,
     ): () => void;
+    loadBindings(): Promise<DesktopShortcutSettings>;
+    upsertBinding(
+      request: DesktopShortcutUpsertRequest,
+    ): Promise<DesktopShortcutUpdateResult>;
+    removeBinding(id: string): Promise<DesktopShortcutUpdateResult>;
   };
 
   setActiveApp(appId: string): void;

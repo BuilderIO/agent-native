@@ -11,6 +11,8 @@ import {
   agentNativePath,
   sendToAgentChat,
   usePinchZoom,
+  useAvatarUrl,
+  type CollabUser,
 } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
@@ -194,7 +196,10 @@ function stripBuilderIds(html: string): string {
 
 interface SlideEditorProps {
   slide: Slide;
-  onUpdateSlide: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -245,6 +250,74 @@ interface SlideEditorProps {
    *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
    *  agent retry commands. */
   deckId?: string;
+  /** Other users (besides the current user) currently viewing/editing THIS
+   *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
+   *  knows before they clobber someone else's last-writer-wins text edit. */
+  presentUsers?: CollabUser[];
+}
+
+/**
+ * Soft same-slide presence indicator. Renders a small stacked-avatar chip on
+ * the canvas when another user is on the SAME slide the current user is
+ * editing — a non-blocking heads-up so people don't unknowingly clobber each
+ * other's edits (sync is last-writer-wins at deck granularity). No hard lock:
+ * it only warns. Reuses the avatar + tooltip pattern from the sidebar.
+ */
+function SamePresenceAvatar({ user }: { user: CollabUser }) {
+  const avatarUrl = useAvatarUrl(user.email);
+  const initial = (user.name || user.email).slice(0, 1).toUpperCase();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="-ml-1.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-white ring-2 ring-popover first:ml-0"
+          style={{
+            backgroundColor: avatarUrl ? undefined : user.color,
+            fontSize: 9,
+          }}
+          aria-label={`${user.name} is on this slide`}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initial
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {user.name} ({user.email}) is on this slide
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
+  if (users.length === 0) return null;
+  const visible = users.slice(0, 3);
+  const overflow = users.length - visible.length;
+  const label =
+    users.length === 1
+      ? `${users[0].name} is here`
+      : `${users.length} others here`;
+  return (
+    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg backdrop-blur">
+      <div className="flex items-center">
+        {visible.map((u) => (
+          <SamePresenceAvatar key={u.email} user={u} />
+        ))}
+        {overflow > 0 && (
+          <span className="-ml-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[9px] font-medium leading-none text-muted-foreground ring-2 ring-popover">
+            +{overflow}
+          </span>
+        )}
+      </div>
+      <span className="font-medium leading-none">{label}</span>
+    </div>
+  );
 }
 
 /** Selection outline rendered over a selected image */
@@ -431,6 +504,7 @@ export default function SlideEditor({
   slideId,
   slideTitle,
   deckId,
+  presentUsers = [],
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
@@ -647,6 +721,28 @@ export default function SlideEditor({
   useEffect(() => {
     onUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  const inlineEditDraftRef = useRef<{
+    slideId: string;
+    content: string;
+  } | null>(null);
+  const previousSlideIdRef = useRef(slide.id);
+
+  const readCurrentSlideContentHtml = useCallback(() => {
+    const slideContent = containerRef.current?.querySelector(
+      ".slide-content",
+    ) as HTMLElement | null;
+    return slideContent ? stripBuilderIds(slideContent.innerHTML) : null;
+  }, []);
+
+  const captureInlineEditDraft = useCallback(
+    (slideId = slide.id) => {
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        inlineEditDraftRef.current = { slideId, content: html };
+      }
+    },
+    [readCurrentSlideContentHtml, slide.id],
+  );
 
   /** Exit edit mode, saving changes to slide.content */
   const exitInlineEdit = useCallback(() => {
@@ -655,49 +751,62 @@ export default function SlideEditor({
       el.contentEditable = "false";
       el.removeAttribute("data-editing-block");
 
-      const slideContent = containerRef.current?.querySelector(
-        ".slide-content",
-      ) as HTMLElement | null;
-      if (slideContent) {
-        const html = stripBuilderIds(slideContent.innerHTML);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
         onUpdateSlideRef.current({ content: html });
       }
+      inlineEditDraftRef.current = null;
       return null;
     });
-  }, []);
+  }, [readCurrentSlideContentHtml]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
-  const enterInlineEdit = useCallback((el: HTMLElement) => {
-    el.contentEditable = "true";
-    el.setAttribute("data-editing-block", "true");
-    // Don't override the selection. The browser's native double-click
-    // word-select (or single-click caret) is already on the element from the
-    // user's gesture; re-selecting from JS clobbers it. focus() on an
-    // element that already contains the selection preserves it in modern
-    // browsers, so it's safe to keep for keyboard delivery.
-    el.focus({ preventScroll: true });
-    setEditingEl(el);
-  }, []);
+  const enterInlineEdit = useCallback(
+    (el: HTMLElement) => {
+      el.contentEditable = "true";
+      el.setAttribute("data-editing-block", "true");
+      captureInlineEditDraft(slide.id);
+      // Don't override the selection. The browser's native double-click
+      // word-select (or single-click caret) is already on the element from the
+      // user's gesture; re-selecting from JS clobbers it. focus() on an
+      // element that already contains the selection preserves it in modern
+      // browsers, so it's safe to keep for keyboard delivery.
+      el.focus({ preventScroll: true });
+      setEditingEl(el);
+    },
+    [captureInlineEditDraft, slide.id],
+  );
 
   // Exit edit mode when switching slides — save pending content first so
   // typing isn't lost when the user clicks a different slide in the sidebar.
   useEffect(() => {
+    const previousSlideId = previousSlideIdRef.current;
+    if (previousSlideId === slide.id) return;
+
+    const draft = inlineEditDraftRef.current;
     setEditingEl((el) => {
       if (el) {
         el.contentEditable = "false";
         el.removeAttribute("data-editing-block");
-        // Save whatever was typed before the slide switched.
-        const slideContent = containerRef.current?.querySelector(
-          ".slide-content",
-        ) as HTMLElement | null;
-        if (slideContent) {
-          const html = stripBuilderIds(slideContent.innerHTML);
-          onUpdateSlideRef.current({ content: html });
-        }
       }
       return null;
     });
+
+    if (draft?.slideId === previousSlideId) {
+      onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
+      inlineEditDraftRef.current = null;
+    }
+
+    previousSlideIdRef.current = slide.id;
   }, [slide.id]);
+
+  useEffect(() => {
+    if (!editingEl) return;
+    const editingSlideId = slide.id;
+    const handleInput = () => captureInlineEditDraft(editingSlideId);
+    editingEl.addEventListener("input", handleInput);
+    return () => editingEl.removeEventListener("input", handleInput);
+  }, [captureInlineEditDraft, editingEl, slide.id]);
 
   // Global keyboard handling while inline-editing
   useEffect(() => {
@@ -1372,6 +1481,15 @@ export default function SlideEditor({
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
                           <AgentPresenceChip active={agentActive} />
+                        </div>
+                      )}
+                      {presentUsers.length > 0 && (
+                        <div
+                          className={`absolute right-2 z-10 ${
+                            agentActive ? "top-11" : "top-2"
+                          }`}
+                        >
+                          <SameSlidePresenceIndicator users={presentUsers} />
                         </div>
                       )}
                       {overflowInfo && !readOnly && !agentActive && (

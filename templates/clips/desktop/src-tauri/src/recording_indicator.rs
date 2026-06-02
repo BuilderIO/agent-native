@@ -33,7 +33,8 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBui
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, primary_monitor_physical_size, set_capture_excluded, show_without_activation,
+    build_overlay_url, configure_overlay_behavior, set_capture_excluded, show_without_activation,
+    tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
@@ -63,6 +64,7 @@ const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
 const PILL_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -76,6 +78,10 @@ fn scale_factor(app: &AppHandle) -> f64 {
     app.get_webview_window("popover")
         .and_then(|w| w.scale_factor().ok())
         .unwrap_or(2.0)
+}
+
+fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
+    (OVERLAY_SHADOW_GUTTER_LOGICAL * scale_factor(app).max(1.0)).round() as u32
 }
 
 /// Persist the last-known pill position so the next `show` re-opens at the
@@ -188,22 +194,22 @@ fn save_pill_position_to_disk(app: &AppHandle, x: i32, y: i32) {
 fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let bottom_margin = (PILL_BOTTOM_MARGIN_LOGICAL as f64 * scale) as i32;
-    let (mw, mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
-    let x = ((mw as i32 - w as i32) / 2).max(0);
-    let y = (mh as i32 - h as i32 - bottom_margin).max(0);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
+    let x = (mx + (mw as i32 - w as i32) / 2).max(mx);
+    let y = (my + mh as i32 - h as i32 - bottom_margin).max(my);
     (x, y)
 }
 
 fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
-    let (mw, mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
-    let x = (mw as i32 - w as i32 - right_margin).max(0);
-    let y = ((mh as i32 - h as i32) / 2).max(0);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
+    let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
+    let y = (my + (mh as i32 - h as i32) / 2).max(my);
     (x, y)
 }
 
-fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
+fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let scale = scale_factor(app);
     let detached = PILL_DETACHED.load(Ordering::Relaxed);
     // Detached mode ignores the `expanded` flag — the floating pill is a
@@ -221,14 +227,20 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     (w, h)
 }
 
+fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
+    let (content_w, content_h) = pill_content_size_physical(app, expanded);
+    let gutter = overlay_shadow_gutter_physical(app);
+    (content_w + gutter * 2, content_h + gutter * 2)
+}
+
 /// Default top-right anchor (physical px) for detached mode.
 fn default_top_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let top_margin = (PILL_DETACHED_TOP_MARGIN_LOGICAL as f64 * scale) as i32;
     let right_margin = (PILL_DETACHED_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
-    let (mw, _mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
-    let x = (mw as i32 - w as i32 - right_margin).max(0);
-    let y = top_margin.max(0);
+    let (mx, my, mw, _mh) = tray_monitor_physical_rect(app);
+    let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
+    let y = (my + top_margin).max(my);
     (x, y)
 }
 
@@ -243,9 +255,9 @@ fn anchored_rect(
     previous_position: Option<(i32, i32, u32, u32)>,
 ) -> (u32, u32, i32, i32) {
     let (w, h) = pill_size_physical(app, expanded);
-    let (mw, mh) = primary_monitor_physical_size(app).unwrap_or((2880, 1800));
-    let max_x = (mw as i32 - w as i32).max(0);
-    let max_y = (mh as i32 - h as i32).max(0);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
+    let max_x = (mx + mw as i32 - w as i32).max(mx);
+    let max_y = (my + mh as i32 - h as i32).max(my);
 
     // Detached mode has its own persisted position file so the user can
     // drag the floating pill anywhere on the right edge / corner without
@@ -253,7 +265,7 @@ fn anchored_rect(
     // main app is in front.
     if PILL_DETACHED.load(Ordering::Relaxed) {
         let (x, y) = match load_detached_position(app) {
-            Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y)),
+            Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y)),
             None => default_top_right(app, w, h),
         };
         return (w, h, x, y);
@@ -263,12 +275,12 @@ fn anchored_rect(
         if let Some((px, py, prev_w, prev_h)) = previous_position {
             let prev_right = px + prev_w as i32;
             let prev_center_y = py + prev_h as i32 / 2;
-            let x = (prev_right - w as i32).clamp(0, max_x);
-            let y = (prev_center_y - h as i32 / 2).clamp(0, max_y);
+            let x = (prev_right - w as i32).clamp(mx, max_x);
+            let y = (prev_center_y - h as i32 / 2).clamp(my, max_y);
             return (w, h, x, y);
         }
         let (x, y) = match load_meeting_position(app) {
-            Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y)),
+            Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y)),
             None => default_center_right(app, w, h),
         };
         return (w, h, x, y);
@@ -279,15 +291,15 @@ fn anchored_rect(
         // pinned. New top-left = (prev_center_x - new_w/2, prev_bottom - new_h).
         let prev_center_x = px + prev_w as i32 / 2;
         let prev_bottom = py + prev_h as i32;
-        let x = (prev_center_x - w as i32 / 2).clamp(0, max_x);
-        let y = (prev_bottom - h as i32).clamp(0, max_y);
+        let x = (prev_center_x - w as i32 / 2).clamp(mx, max_x);
+        let y = (prev_bottom - h as i32).clamp(my, max_y);
         return (w, h, x, y);
     }
 
     // First show — prefer the user's last persisted position, otherwise
     // default bottom-center.
     let (x, y) = match load_pill_position(app) {
-        Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y)),
+        Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y)),
         None => default_bottom_center(app, w, h),
     };
     (w, h, x, y)
@@ -331,6 +343,7 @@ pub async fn recording_pill_show(
                 "mode": mode_str,
             }),
         );
+        configure_overlay_behavior(&existing);
         show_without_activation(&existing);
         return Ok(());
     }
@@ -356,6 +369,7 @@ pub async fn recording_pill_show(
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
+    configure_overlay_behavior(&win);
     show_without_activation(&win);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.

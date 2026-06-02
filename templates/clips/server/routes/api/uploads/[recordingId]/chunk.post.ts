@@ -28,8 +28,16 @@ import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { getEventOwnerContext } from "../../../../lib/recordings.js";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  listAppState,
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
+
+const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+const RECORDING_TOO_LARGE_REASON =
+  "Recording is too large to process. Clips now compresses before upload; please update the app and try again, or record a shorter clip / lower-resolution screen.";
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",
@@ -57,6 +65,22 @@ function toBase64(bytes: Uint8Array): string {
     bin += String.fromCharCode(bytes[i]);
   }
   return btoa(bin);
+}
+
+function stateNumber(
+  value: Record<string, unknown> | null | undefined,
+  key: string,
+): number | undefined {
+  const raw = value?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+async function sumPersistedChunkBytes(recordingId: string): Promise<number> {
+  const chunks = await listAppState(`recording-chunks-${recordingId}-`);
+  return chunks.reduce(
+    (total, entry) => total + (stateNumber(entry.value, "bytes") ?? 0),
+    0,
+  );
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -92,7 +116,10 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
-  const MAX_CHUNK_BYTES = 6 * 1024 * 1024; // 6MB cap (5MB client + slack)
+  // Netlify functions have a 6 MB buffered request cap, but binary requests
+  // are base64 encoded by the gateway and effectively cap out around 4.5 MB.
+  // Keep our own cap lower so dev/local failures match production.
+  const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
   const contentLength = Number(getHeader(event, "content-length") || 0);
   if (contentLength > MAX_CHUNK_BYTES) {
     setResponseStatus(event, 413);
@@ -119,6 +146,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        failureReason: schema.recordings.failureReason,
         ownerEmail: schema.recordings.ownerEmail,
       })
       .from(schema.recordings)
@@ -135,6 +163,25 @@ export default defineEventHandler(async (event: H3Event) => {
         ownerEmail,
       });
       throw createError({ statusCode: 404, message: "Recording not found" });
+    }
+
+    const failedUploadResponse = (reason: string, bytes?: number) => {
+      setResponseStatus(
+        event,
+        reason === RECORDING_TOO_LARGE_REASON ? 413 : 409,
+      );
+      return {
+        ok: false,
+        error: reason,
+        bytesReceived: bytes,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+      };
+    };
+
+    if (existing.status === "failed") {
+      return failedUploadResponse(
+        existing.failureReason ?? "Recording upload has already failed.",
+      );
     }
 
     const raw = await readRawBody(event, false);
@@ -159,6 +206,82 @@ export default defineEventHandler(async (event: H3Event) => {
     // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
 
+    const uploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    );
+    const uploadState =
+      uploadStateRaw && typeof uploadStateRaw === "object"
+        ? uploadStateRaw
+        : null;
+    const failedReason =
+      typeof uploadState?.failureReason === "string"
+        ? uploadState.failureReason
+        : RECORDING_TOO_LARGE_REASON;
+    if (uploadState?.status === "failed") {
+      return failedUploadResponse(failedReason);
+    }
+    let bytesReceived = stateNumber(uploadState, "bytesReceived") ?? 0;
+
+    const stopIfUploadFailed = async () => {
+      const latestState = await readAppState(`recording-upload-${recordingId}`);
+      const latestReason =
+        latestState && typeof latestState.failureReason === "string"
+          ? latestState.failureReason
+          : "Recording upload has already failed.";
+      if (latestState?.status === "failed") {
+        return failedUploadResponse(latestReason);
+      }
+
+      const [current] = await db
+        .select({
+          status: schema.recordings.status,
+          failureReason: schema.recordings.failureReason,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, recordingId));
+      if (current?.status === "failed") {
+        const reason =
+          current.failureReason ?? "Recording upload has already failed.";
+        await writeAppState(`recording-upload-${recordingId}`, {
+          recordingId,
+          status: "failed",
+          failureReason: reason,
+          bytesReceived: await sumPersistedChunkBytes(recordingId),
+          maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+          updatedAt: new Date().toISOString(),
+        });
+        return failedUploadResponse(reason);
+      }
+      return null;
+    };
+
+    const failRecordingTooLarge = async (nextBytes: number) => {
+      const now = new Date().toISOString();
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureReason: RECORDING_TOO_LARGE_REASON,
+          updatedAt: now,
+        })
+        .where(eq(schema.recordings.id, recordingId));
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "failed",
+        failureReason: RECORDING_TOO_LARGE_REASON,
+        bytesReceived: nextBytes,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        updatedAt: now,
+      });
+      setResponseStatus(event, 413);
+      return {
+        ok: false,
+        error: RECORDING_TOO_LARGE_REASON,
+        bytesReceived: nextBytes,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+      };
+    };
+
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
     if (bytes.byteLength > 0) {
@@ -166,6 +289,15 @@ export default defineEventHandler(async (event: H3Event) => {
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
       const chunkKey = `recording-chunks-${recordingId}-${paddedIndex}`;
+      const previousChunk = await readAppState(chunkKey);
+      const previousBytes = stateNumber(previousChunk, "bytes") ?? 0;
+      const persistedBytesBefore = await sumPersistedChunkBytes(recordingId);
+      const nextBytes =
+        Math.max(0, persistedBytesBefore - previousBytes) + bytes.byteLength;
+
+      if (nextBytes > MAX_RECORDING_UPLOAD_BYTES) {
+        return failRecordingTooLarge(nextBytes);
+      }
 
       await writeAppState(chunkKey, {
         recordingId,
@@ -175,11 +307,17 @@ export default defineEventHandler(async (event: H3Event) => {
         data: toBase64(bytes),
         createdAt: new Date().toISOString(),
       });
+      bytesReceived = await sumPersistedChunkBytes(recordingId);
+      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+        return failRecordingTooLarge(bytesReceived);
+      }
     }
 
     // Update upload progress (best-effort). If total is unknown we treat it as
     // indeterminate and keep progress at its last known value.
     if (total > 0) {
+      const failedResponse = await stopIfUploadFailed();
+      if (failedResponse) return failedResponse;
       const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
@@ -187,9 +325,13 @@ export default defineEventHandler(async (event: H3Event) => {
         progress,
         chunksReceived: index + 1,
         totalChunks: total,
+        bytesReceived,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         mimeType,
         updatedAt: new Date().toISOString(),
       });
+      const failedAfterStateWrite = await stopIfUploadFailed();
+      if (failedAfterStateWrite) return failedAfterStateWrite;
 
       await db
         .update(schema.recordings)
@@ -197,12 +339,37 @@ export default defineEventHandler(async (event: H3Event) => {
           uploadProgress: progress,
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.recordings.id, recordingId));
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            eq(schema.recordings.status, existing.status),
+          ),
+        );
+    } else if (bytes.byteLength > 0) {
+      const failedResponse = await stopIfUploadFailed();
+      if (failedResponse) return failedResponse;
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "uploading",
+        chunksReceived: index + 1,
+        bytesReceived,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        mimeType,
+        updatedAt: new Date().toISOString(),
+      });
+      const failedAfterStateWrite = await stopIfUploadFailed();
+      if (failedAfterStateWrite) return failedAfterStateWrite;
     }
 
     // Final chunk — kick off finalize. We await so the client gets a single
     // "done" response with the final URL (instead of needing to poll).
     if (isFinal) {
+      bytesReceived = await sumPersistedChunkBytes(recordingId);
+      if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
+        return failRecordingTooLarge(bytesReceived);
+      }
+      const failedResponse = await stopIfUploadFailed();
+      if (failedResponse) return failedResponse;
       debugLog("[chunk] isFinal — invoking finalize", { recordingId });
       try {
         const result = await finalizeRecording.run({

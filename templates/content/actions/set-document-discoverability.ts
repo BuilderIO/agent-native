@@ -81,12 +81,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    console.log(
-      `${args.hideFromSearch ? "Hid" : "Listed"} document ${id}` +
-        (ids.length > 1 ? ` and ${ids.length - 1} child page(s)` : "") +
-        " in organization discovery.",
-    );
-
     return {
       ok: true,
       id,

@@ -9,6 +9,7 @@ import type {
   AnimatedPropertyConfig,
   AnimationKeyframe,
 } from "@/types/elementAnimations";
+import { debug } from "@/utils/debug";
 
 /**
  * Type-safe animation property builder
@@ -367,10 +368,10 @@ export function initializeDefaultAnimations(
       current[compositionId] &&
       current[compositionId].length > 0
     ) {
-      console.log(
-        `✅ Animations for "${compositionId}" already initialized:`,
-        current[compositionId].length,
-      );
+      debug.verbose("Animations already initialized", {
+        compositionId,
+        count: current[compositionId].length,
+      });
       return;
     }
 
@@ -386,23 +387,18 @@ export function initializeDefaultAnimations(
     });
 
     if (validationErrors.length > 0) {
-      console.error(
-        `❌ Invalid animations for "${compositionId}":`,
-        validationErrors,
-      );
+      debug.error("Invalid animations", { compositionId, validationErrors });
       return;
     }
 
     current[compositionId] = animations;
     localStorage.setItem(KEY, JSON.stringify(current));
-    console.log(
-      `🎬 Initialized ${animations.length} animations for "${compositionId}"`,
-    );
+    debug.verbose("Initialized animations", {
+      compositionId,
+      count: animations.length,
+    });
   } catch (err) {
-    console.error(
-      `❌ Failed to initialize animations for "${compositionId}":`,
-      err,
-    );
+    debug.error("Failed to initialize animations", { compositionId, err });
   }
 }
 
@@ -438,8 +434,11 @@ export function clearCompositionAnimations(compositionId: string): void {
     const data: Record<string, ElementAnimation[]> = JSON.parse(stored);
     delete data[compositionId];
     localStorage.setItem(KEY, JSON.stringify(data));
-    console.log(`🗑️ Cleared animations for "${compositionId}"`);
+    debug.verbose("Cleared composition animations", { compositionId });
   } catch (err) {
-    console.error(`❌ Failed to clear animations for "${compositionId}":`, err);
+    debug.error("Failed to clear composition animations", {
+      compositionId,
+      err,
+    });
   }
 }

@@ -20,7 +20,7 @@ export async function onBookingCreated(booking: Booking): Promise<void> {
 }
 
 export async function onBookingRescheduled(
-  original: Booking,
+  _original: Booking,
   next: Booking,
 ): Promise<void> {
   await materializeReminders(next, "reschedule");

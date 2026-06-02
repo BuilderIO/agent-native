@@ -9,43 +9,18 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, asc, eq, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
+import {
+  organizations,
+  orgInvitations,
+  orgMembers,
+} from "@agent-native/core/org";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { getDbExec } from "@agent-native/core/db";
 import {
   getCurrentOwnerEmail,
   requireOrganizationAccess,
 } from "../server/lib/recordings.js";
-
-interface OrgRow {
-  id: string;
-  name: string;
-  created_at: number | string | null;
-}
-
-interface SettingsRow {
-  brand_color: string | null;
-  brand_logo_url: string | null;
-  default_visibility: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-interface MemberRow {
-  id: string;
-  email: string | null;
-  role: string | null;
-  joined_at: number | string | null;
-}
-
-interface InvitationRow {
-  id: string;
-  email: string | null;
-  role: string | null;
-  status: string | null;
-  created_at: number | string | null;
-}
 
 export default defineAction({
   description:
@@ -61,18 +36,21 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const exec = getDbExec();
     const ownerEmail = getCurrentOwnerEmail();
 
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
 
-    const orgRes = await exec.execute({
-      sql: `SELECT id, name, created_at FROM organizations WHERE id = ? LIMIT 1`,
-      args: [organizationId],
-    });
-    const org = (orgRes.rows as OrgRow[])[0];
+    const [org] = await db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        createdAt: organizations.createdAt,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
     if (!org) {
       return {
         organization: null,
@@ -84,33 +62,55 @@ export default defineAction({
       };
     }
 
-    const settingsRes = await exec.execute({
-      sql: `SELECT brand_color, brand_logo_url, default_visibility, created_at, updated_at FROM organization_settings WHERE organization_id = ? LIMIT 1`,
-      args: [organizationId],
-    });
-    const settings = (settingsRes.rows as SettingsRow[])[0] ?? null;
+    const [settings] = await db
+      .select({
+        brandColor: schema.organizationSettings.brandColor,
+        brandLogoUrl: schema.organizationSettings.brandLogoUrl,
+        defaultVisibility: schema.organizationSettings.defaultVisibility,
+      })
+      .from(schema.organizationSettings)
+      .where(eq(schema.organizationSettings.organizationId, organizationId))
+      .limit(1);
 
-    const memberRes = await exec.execute({
-      sql: `SELECT id, email, role, joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
-      args: [organizationId],
-    });
-    const members = (memberRes.rows as MemberRow[]).map((m) => ({
-      id: String(m.id),
-      email: m.email ?? "",
-      role: m.role ?? "member",
-      joinedAt: m.joined_at !== null ? Number(m.joined_at) : null,
+    const memberRows = await db
+      .select({
+        id: orgMembers.id,
+        email: orgMembers.email,
+        role: orgMembers.role,
+        joinedAt: orgMembers.joinedAt,
+      })
+      .from(orgMembers)
+      .where(eq(orgMembers.orgId, organizationId))
+      .orderBy(asc(orgMembers.joinedAt));
+    const members = memberRows.map((m) => ({
+      id: m.id,
+      email: m.email,
+      role: m.role,
+      joinedAt: Number(m.joinedAt),
     }));
 
-    const inviteRes = await exec.execute({
-      sql: `SELECT id, email, role, status, created_at FROM org_invitations WHERE org_id = ? AND status = 'pending' ORDER BY created_at DESC`,
-      args: [organizationId],
-    });
-    const invitations = (inviteRes.rows as InvitationRow[]).map((i) => ({
-      id: String(i.id),
-      email: i.email ?? "",
+    const inviteRows = await db
+      .select({
+        id: orgInvitations.id,
+        email: orgInvitations.email,
+        role: orgInvitations.role,
+        status: orgInvitations.status,
+        createdAt: orgInvitations.createdAt,
+      })
+      .from(orgInvitations)
+      .where(
+        and(
+          eq(orgInvitations.orgId, organizationId),
+          eq(orgInvitations.status, "pending"),
+        ),
+      )
+      .orderBy(desc(orgInvitations.createdAt));
+    const invitations = inviteRows.map((i) => ({
+      id: i.id,
+      email: i.email,
       role: i.role ?? "member",
-      status: i.status ?? "pending",
-      createdAt: i.created_at !== null ? Number(i.created_at) : null,
+      status: i.status,
+      createdAt: Number(i.createdAt),
     }));
 
     const [spaces, folders] = await Promise.all([
@@ -139,10 +139,10 @@ export default defineAction({
       organization: {
         id: org.id,
         name: org.name,
-        brandColor: settings?.brand_color ?? "#18181B",
-        brandLogoUrl: settings?.brand_logo_url ?? null,
-        defaultVisibility: settings?.default_visibility ?? "private",
-        createdAt: org.created_at !== null ? Number(org.created_at) : null,
+        brandColor: settings?.brandColor ?? "#18181B",
+        brandLogoUrl: settings?.brandLogoUrl ?? null,
+        defaultVisibility: settings?.defaultVisibility ?? "private",
+        createdAt: Number(org.createdAt),
       },
       members,
       spaces: spaces.map((s) => ({

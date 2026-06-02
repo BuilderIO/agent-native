@@ -15,12 +15,15 @@ import {
   bumpRunProgress,
   reapIfStale,
   ensureTerminalRunEvent,
+  setRunError,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 
 export interface ActiveRun {
   runId: string;
   threadId: string;
+  /** Logical-turn identity (see StartRunOptions.turnId). Defaults to runId. */
+  turnId: string;
   events: RunEvent[];
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
@@ -35,11 +38,44 @@ const threadToRun = new Map<string, string>();
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
-/** Default run chunk budget for hosted/serverless deploys. */
-export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 55_000;
+/**
+ * Default run chunk budget for hosted/serverless deploys.
+ *
+ * This MUST fire before the two upstream hard walls that otherwise kill a run
+ * mid-turn with no chance to hand off:
+ *   1. The Builder model gateway hard-caps a single model call at 45s
+ *      (builder-engine.ts MAX_BUILDER_GATEWAY_TIMEOUT_MS) — not raisable.
+ *   2. Serverless functions are hard-killed around 60-65s (the heartbeat then
+ *      reaps the row as a stale_run).
+ * Production data showed every cutoff landing in the 44-70s window with ZERO
+ * auto_continue events ever emitted — i.e. the old 45s default raced the 45s
+ * gateway and lost, and per-template overrides (e.g. 240_000) pushed it past
+ * BOTH walls so it could never fire. 40s leaves ~5s of headroom under the
+ * gateway wall to abort, persist the partial turn, write the terminal event,
+ * and emit a clean auto_continue so the client resumes seamlessly.
+ */
+export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
-/** Default SQL retention for completed/errored run event logs (24 hours). */
+/**
+ * Hard ceiling for the hosted soft timeout. On a hosted runtime the
+ * auto_continue soft timeout can never usefully exceed this — the gateway
+ * (45s) / function (~60s) walls kill the run first, so a larger configured or
+ * env value just guarantees the cutoff is a hard error instead of a graceful
+ * hand-off. Any resolved value above this is clamped down when hosted. Local
+ * dev (non-hosted) is left alone so long-running local turns aren't chunked.
+ */
+export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
+
+/** Default SQL retention for completed run event logs (24 hours). */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Default SQL retention for errored/aborted run event logs (7 days). Kept
+ * longer than completed runs so cut-off / failed chats survive for pattern
+ * analysis (listErroredRuns) — these are rare and small, and they are exactly
+ * the runs we need to study to keep hardening reliability.
+ */
+export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * How recently a terminal run must have started for `/runs/active` to surface
@@ -57,6 +93,11 @@ export interface StartRunOptions {
   /** Opt into the hosted/serverless default chunk budget. Only callers with
    * automatic continuation support should enable this. */
   useHostedSoftTimeoutDefault?: boolean;
+  /** Stable identity for the logical assistant turn this run belongs to. A
+   * turn may span several continuation runs (each chunk is its own run); they
+   * share one `turnId` so the durable assistant message can be folded across
+   * them instead of dropped per-run. Defaults to the runId (turn == run). */
+  turnId?: string;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -91,15 +132,26 @@ export function resolveRunSoftTimeoutMs(
   overrideMs?: number,
   options?: ResolveRunSoftTimeoutOptions,
 ): number {
+  const hosted = isHostedRuntime();
+  // A configured/env soft timeout that exceeds the upstream walls can never
+  // actually fire (the gateway/function kills the run first), so clamp it down
+  // on hosted runtimes. This is what makes auto_continue reach the client
+  // instead of the run dying as builder_gateway_timeout / stale_run. `0` means
+  // "disabled" and is never clamped up.
+  const clampHosted = (ms: number): number =>
+    hosted && ms > HOSTED_SOFT_TIMEOUT_CEILING_MS
+      ? HOSTED_SOFT_TIMEOUT_CEILING_MS
+      : ms;
+
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
-    return Math.max(0, overrideMs);
+    return clampHosted(Math.max(0, overrideMs));
   }
   const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
   if (envValue !== undefined) {
     const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
+    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
   }
-  return options?.useHostedDefault && isHostedRuntime()
+  return options?.useHostedDefault && hosted
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
     : 0;
 }
@@ -111,6 +163,15 @@ export function resolveCompletedRunRetentionMs(): number {
     if (Number.isFinite(raw) && raw >= 0) return raw;
   }
   return DEFAULT_COMPLETED_RUN_RETENTION_MS;
+}
+
+export function resolveErroredRunRetentionMs(): number {
+  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
+  if (envValue !== undefined) {
+    const raw = Number(envValue);
+    if (Number.isFinite(raw) && raw >= 0) return raw;
+  }
+  return DEFAULT_ERRORED_RUN_RETENTION_MS;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -168,6 +229,7 @@ export function startRun(
   const run: ActiveRun = {
     runId,
     threadId,
+    turnId: options?.turnId ?? runId,
     events: [],
     status: "running",
     subscribers: new Set(),
@@ -181,7 +243,9 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertRunPromise = insertRun(runId, threadId).catch(() => {});
+  const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
+    () => {},
+  );
 
   // Throttle the durable progress timestamp to at most once per second so
   // a chatty token-by-token stream doesn't translate into one DB write per
@@ -393,25 +457,46 @@ export function startRun(
       //    immediately, so emitting it earlier recreates the final-message
       //    race this manager is meant to avoid.
       if (finalStatus === "completed" || finalStatus === "errored") {
-        const terminal: RunEvent =
+        // Choose the terminal event payload (done / the stashed terminal /
+        // a synthesized error). NOTE: the `seq` carried by
+        // `pendingTerminalEvent` was captured by `send()` at stash time as
+        // `run.events.length` and is NOT authoritative — if the runFn emitted
+        // any more events before it actually stopped on the abort signal,
+        // those events were pushed and reused that same seq. Persisting the
+        // terminal event with the stale seq would collide with an
+        // already-persisted streaming event and get silently dropped by
+        // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
+        // client would never see the terminal/continuation signal. We always
+        // re-stamp the seq at emit time (max-seq+1) just below.
+        const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
-            ? (pendingTerminalEvent ?? {
-                seq: run.events.length,
-                event: { type: "done" },
-              })
+            ? (pendingTerminalEvent?.event ?? { type: "done" })
             : pendingTerminalEvent?.event.type === "error"
-              ? pendingTerminalEvent
-              : {
-                  seq: pendingTerminalEvent?.seq ?? run.events.length,
-                  event: {
+              ? pendingTerminalEvent.event
+              : pendingTerminalEvent?.event.type === "auto_continue"
+                ? // The run was checkpointed at a soft-timeout/loop boundary and
+                  // is recoverable: the partial turn is in agent_run_events and
+                  // the continuation run will re-attempt the thread_data save.
+                  // Even though the completion save failed (finalStatus stays
+                  // "errored" for SQL/diagnostics), re-emit the auto_continue so
+                  // the client resumes instead of seeing a dead chat.
+                  pendingTerminalEvent.event
+                : {
                     type: "error",
                     error: completionError
                       ? "Agent response could not be saved."
                       : "Agent run ended unexpectedly",
-                  },
-                };
+                  };
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
+          // Assign the seq at EMIT time, not at stash time. `run.events` is a
+          // contiguous 0-based log, so `run.events.length` is the next free
+          // seq and can never collide with an event that was pushed after the
+          // terminal event was stashed.
+          const terminal: RunEvent = {
+            seq: run.events.length,
+            event: terminalEvent,
+          };
           try {
             await emitRunEvent(terminal, { surfacePersistenceError: true });
           } catch (err) {
@@ -443,6 +528,38 @@ export function startRun(
         // the heartbeat-stale path.
       }
 
+      // 5b. Record terminal failure classification for errored runs so
+      //     cut-off / failed chats are queryable for pattern analysis. Read
+      //     the actual error event the run emitted (errorCode + message) so
+      //     diagnostics reflect the real cause (builder_gateway_timeout,
+      //     stale_run, context_length_exceeded, completion_error, …).
+      if (finalStatus === "errored") {
+        let errorCode: string | undefined;
+        let errorDetail: string | undefined;
+        for (let i = run.events.length - 1; i >= 0; i--) {
+          const ev = run.events[i].event as {
+            type: string;
+            error?: string;
+            errorCode?: string;
+            details?: string;
+          };
+          if (ev.type === "error") {
+            errorCode = ev.errorCode;
+            errorDetail = ev.error ?? ev.details;
+            break;
+          }
+        }
+        if (completionError && !errorCode) {
+          errorCode = "completion_error";
+          errorDetail =
+            errorDetail ??
+            (completionError instanceof Error
+              ? completionError.message
+              : String(completionError));
+        }
+        await setRunError(runId, errorCode ?? "unknown", errorDetail);
+      }
+
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
@@ -450,7 +567,10 @@ export function startRun(
           threadToRun.delete(threadId);
         }
       }, CLEANUP_DELAY_MS);
-      cleanupOldRuns(resolveCompletedRunRetentionMs()).catch(() => {});
+      cleanupOldRuns(
+        resolveCompletedRunRetentionMs(),
+        resolveErroredRunRetentionMs(),
+      ).catch(() => {});
     });
 
   // On Cloudflare Workers, keep the isolate alive for this run
@@ -587,6 +707,11 @@ function subscribeFromSQL(
           // Read new events from SQL
           const events = await getRunEventsSince(runId, lastSeq);
           for (const { seq, eventData } of events) {
+            // Advance the cursor first, before any parse/enqueue branch can
+            // `continue`/`return`. Otherwise a single corrupt (unparseable)
+            // event row is re-fetched on every poll tick forever, wedging the
+            // SSE stream open and never delivering a terminal event.
+            lastSeq = seq + 1;
             let parsed: any;
             try {
               parsed = JSON.parse(eventData);
@@ -603,7 +728,6 @@ function subscribeFromSQL(
               cancelled = true;
               return;
             }
-            lastSeq = seq + 1;
 
             // Close on terminal events
             if (isTerminalRunEvent(parsed)) {
@@ -624,6 +748,8 @@ function subscribeFromSQL(
               // Run ended — do one final event read, then close
               const finalEvents = await getRunEventsSince(runId, lastSeq);
               for (const { seq, eventData } of finalEvents) {
+                // Advance first — see the main poll loop above for why.
+                lastSeq = seq + 1;
                 let parsed: any;
                 try {
                   parsed = JSON.parse(eventData);
@@ -640,7 +766,6 @@ function subscribeFromSQL(
                   cancelled = true;
                   return;
                 }
-                lastSeq = seq + 1;
                 if (isTerminalRunEvent(parsed)) {
                   if (pingTimer) clearInterval(pingTimer);
                   controller.close();

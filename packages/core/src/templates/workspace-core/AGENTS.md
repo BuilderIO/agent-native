@@ -14,8 +14,10 @@ agent should know.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
-  work, and read `.agents/skills/delegate-to-agent/SKILL.md` before building
-  agent-driven UI or "AI" features.
+  work. When selected UI data should become hidden context for the user's next
+  prompt without submitting anything, use `setContextToAgentChat()` with a
+  stable `key`. Read `.agents/skills/delegate-to-agent/SKILL.md` before
+  building agent-driven UI or "AI" features.
 - Put shared code in `packages/shared` only when multiple apps need it.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`.
 - Store shared runtime configuration in the workspace root `.env`; use
@@ -74,8 +76,17 @@ create `defineAction` files in `actions/`, mark reads with
 `http: { method: "GET" }`, and call them from React with `useActionQuery` /
 `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*` for
 the same data unless the route is for uploads, streaming, webhooks, OAuth, or
-another route-only concern. Action-backed UI is what makes agent-created or
+another route-only concern. Do not add routes whose main job is to wrap,
+proxy, or re-export an action; the action endpoint already exists at
+`/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
+
+App database code must be provider-agnostic. Define schemas with
+`@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's
+query builder and portable `drizzle-orm` operators. Do not import from
+`drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
+for additive migrations, health checks, or carefully scoped maintenance, and
+never write SQLite-only or Postgres-only product code.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the

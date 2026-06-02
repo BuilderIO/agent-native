@@ -1,5 +1,5 @@
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { getEventTypeById } from "@agent-native/scheduling/server";
 
@@ -37,19 +37,10 @@ import {
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
-  IconBrandGoogle,
-  IconBrandTeams,
-  IconBrandZoom,
   IconCopy,
   IconExternalLink,
-  IconLink,
-  IconMapPin,
-  IconPhone,
   IconPlus,
   IconTrash,
-  IconUser,
-  IconVideo,
-  IconX,
 } from "@tabler/icons-react";
 import {
   ConferencingSelector,

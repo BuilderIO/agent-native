@@ -113,7 +113,6 @@ export function EventDialog({
 
   if (!event) return null;
 
-  const isGoogle = event.source === "google";
   const color = getEventDisplayColor(event, prefs);
 
   async function handleSave() {

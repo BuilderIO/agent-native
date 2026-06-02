@@ -51,6 +51,7 @@ const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
+const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code": "Claude Code",
@@ -62,7 +63,7 @@ const CLIENT_LABELS: Record<ClientId, string> = {
 const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code": ".mcp.json or ~/.claude.json",
   "claude-code-cli": ".mcp.json or ~/.claude.json",
-  codex: "~/.codex/config.toml",
+  codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
 };
 
@@ -189,6 +190,10 @@ export function normalizeUrl(raw: string): string {
 export function resolveClients(client: string): ClientId[] {
   const c = (client ?? "all").toLowerCase();
   if (c === "all" || c === "") return [...CLIENTS];
+  if (c.includes(",")) {
+    const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
+    if (clients.length > 0) return clients;
+  }
   if ((CLIENTS as string[]).includes(c)) return [c as ClientId];
   throw new Error(
     `Unknown --client "${client}". Use: all, ${CLIENTS.join(", ")}`,
@@ -410,6 +415,12 @@ export function supportsRemoteMcpOAuth(client: ClientId): boolean {
 
 function clientLabelList(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
+}
+
+function withFullCatalogHeader(
+  headers: Record<string, string> | undefined,
+): Record<string, string> {
+  return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
@@ -1133,7 +1144,9 @@ async function devHeadersForApp(params: {
   if (ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = ownerEmail;
   }
-  return Object.keys(headers).length ? headers : undefined;
+  return Object.keys(headers).length
+    ? withFullCatalogHeader(headers)
+    : undefined;
 }
 
 function connectableApps(includeHidden = false): ConnectableApp[] {
@@ -1468,7 +1481,7 @@ async function connectOne(
         token,
         scope,
         baseDir,
-        headers,
+        withFullCatalogHeader(headers),
       ),
     );
   }

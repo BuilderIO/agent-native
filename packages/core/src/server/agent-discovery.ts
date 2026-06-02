@@ -67,6 +67,18 @@ const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
   ).map((template) => template.name),
 );
 
+function normalizeAgentId(id: string): string {
+  const normalized = id.trim().toLowerCase();
+  if (
+    normalized === "image" ||
+    normalized === "images" ||
+    normalized === "asset"
+  ) {
+    return "assets";
+  }
+  return normalized;
+}
+
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 export const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
@@ -245,8 +257,8 @@ export function shouldIncludeRemoteAgentManifest(
 ): boolean {
   const id = manifest.id?.trim();
   if (!id) return false;
-  const normalizedId = id.toLowerCase();
-  const normalizedSelfAppId = selfAppId?.trim().toLowerCase();
+  const normalizedId = normalizeAgentId(id);
+  const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
   if (normalizedSelfAppId && normalizedId === normalizedSelfAppId) {
     return false;
   }
@@ -257,15 +269,16 @@ export function shouldIncludeRemoteAgentManifest(
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
  */
 export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
-  return BUILTIN_AGENTS.filter((app) => app.id !== selfAppId && app.url).map(
-    (app) => ({
-      id: app.id,
-      name: app.name,
-      description: app.description,
-      url: resolveAgentUrl(app),
-      color: app.color,
-    }),
-  );
+  const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
+  return BUILTIN_AGENTS.filter(
+    (app) => app.id !== normalizedSelfAppId && app.url,
+  ).map((app) => ({
+    id: app.id,
+    name: app.name,
+    description: app.description,
+    url: resolveAgentUrl(app),
+    color: app.color,
+  }));
 }
 
 /**
@@ -304,6 +317,7 @@ export async function discoverAgents(
         const manifest = parseRemoteAgentManifest(full.content, r.path);
         if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
           continue;
+        const manifestId = normalizeAgentId(manifest.id);
 
         // If the resource override carries a localhost URL but we're running
         // in production (e.g. a stale dev-time seed got promoted to the prod
@@ -321,16 +335,32 @@ export async function discoverAgents(
           typeof url === "string" &&
           /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
         ) {
-          const builtin = agentsById.get(manifest.id);
+          const builtin = agentsById.get(manifestId);
           if (builtin?.url) url = builtin.url;
         }
 
-        agentsById.set(manifest.id, {
-          id: manifest.id,
-          name: manifest.name,
+        const builtin = agentsById.get(manifestId);
+        const isLegacyAssetsManifest =
+          manifest.id.trim().toLowerCase() !== manifestId;
+        if (isLegacyAssetsManifest && builtin?.url) {
+          try {
+            if (new URL(url).hostname === "images.agent-native.com") {
+              url = builtin.url;
+            }
+          } catch {
+            url = builtin.url;
+          }
+        }
+
+        agentsById.set(manifestId, {
+          id: manifestId,
+          name:
+            isLegacyAssetsManifest && builtin?.name
+              ? builtin.name
+              : manifest.name,
           description: manifest.description || "",
           url,
-          color: manifest.color || "#6B7280",
+          color: manifest.color || builtin?.color || "#6B7280",
         });
       } catch {
         // Skip unreadable resources
@@ -356,7 +386,7 @@ export async function findAgent(
   idOrName: string,
   selfAppId?: string,
 ): Promise<DiscoveredAgent | undefined> {
-  const lower = idOrName.toLowerCase();
+  const lower = normalizeAgentId(idOrName);
   const agents = await discoverAgents(selfAppId);
   return agents.find((a) => a.id === lower || a.name.toLowerCase() === lower);
 }

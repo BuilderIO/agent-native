@@ -324,6 +324,14 @@ export function useDbSync(
       };
       source.onerror = () => {
         sseConnected = false;
+        // When the browser gives up permanently (HTTP error → readyState
+        // CLOSED), it won't auto-reconnect. Drop the ref so a later
+        // connectEvents() (on focus/visibility) can establish a fresh stream;
+        // otherwise the non-null closed `eventSource` blocks reconnection and
+        // we'd be stuck on polling-only forever.
+        if (source.readyState === EventSource.CLOSED) {
+          eventSource = null;
+        }
         schedulePoll();
       };
       source.onmessage = (message) => {
@@ -348,8 +356,10 @@ export function useDbSync(
           versionRef,
           interval,
         );
+        if (stopped) return;
         applyEvents(data.events ?? [], data.version);
       } catch (err) {
+        if (stopped) return;
         if (isAuthFailure(err)) {
           authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
           closeEvents();
@@ -533,6 +543,14 @@ export function useScreenRefreshKey(
       };
       source.onerror = () => {
         sseConnected = false;
+        // When the browser gives up permanently (HTTP error → readyState
+        // CLOSED), it won't auto-reconnect. Drop the ref so a later
+        // connectEvents() (on focus/visibility) can establish a fresh stream;
+        // otherwise the non-null closed `eventSource` blocks reconnection and
+        // we'd be stuck on polling-only forever.
+        if (source.readyState === EventSource.CLOSED) {
+          eventSource = null;
+        }
         schedulePoll();
       };
       source.onmessage = (message) => {
@@ -557,8 +575,10 @@ export function useScreenRefreshKey(
           versionRef,
           interval,
         );
+        if (stopped) return;
         applyEvents(data.events ?? [], data.version);
       } catch (err) {
+        if (stopped) return;
         if (isAuthFailure(err)) {
           authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
           closeEvents();

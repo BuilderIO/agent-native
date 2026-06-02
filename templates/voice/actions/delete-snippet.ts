@@ -1,10 +1,3 @@
-/**
- * Delete a text expansion snippet.
- *
- * Usage:
- *   pnpm action delete-snippet --id=<id>
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
@@ -39,7 +32,6 @@ export default defineAction({
       .where(eq(schema.dictationSnippets.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Deleted snippet ${args.id}`);
     return { id: args.id, deleted: true };
   },
 });

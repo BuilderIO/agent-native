@@ -9,22 +9,13 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { filterInboxScopedThreadMessages } from "../server/lib/gmail-query.js";
+import {
+  buildGmailEmailSearchQuery,
+  filterInboxScopedThreadMessages,
+} from "../server/lib/gmail-query.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
+import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
-
-const VIEW_QUERIES: Record<string, string> = {
-  // Exclude SENT so replies the user wrote (which Gmail labels with both
-  // INBOX and SENT) don't appear in the inbox alongside received messages.
-  inbox: "in:inbox -in:sent",
-  unread: "is:unread in:inbox -in:sent",
-  starred: "is:starred",
-  sent: "in:sent",
-  drafts: "in:drafts",
-  archive: "-in:inbox -in:sent -in:drafts -in:trash",
-  trash: "in:trash",
-  all: "",
-};
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -150,11 +141,11 @@ export default defineAction({
     return {
       url: buildDeepLink({
         app: "mail",
-        view: "inbox",
-        params: { label: view, search },
+        view,
+        params: { q: search },
       }),
       label: "Open list in Mail",
-      view: "inbox",
+      view,
     };
   },
   run: async (args) => {
@@ -170,15 +161,7 @@ export default defineAction({
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
       if (query) {
-        const q = query.toLowerCase();
-        emails = emails.filter(
-          (e) =>
-            e.subject?.toLowerCase().includes(q) ||
-            e.snippet?.toLowerCase().includes(q) ||
-            e.body?.toLowerCase().includes(q) ||
-            e.from?.name?.toLowerCase().includes(q) ||
-            e.from?.email?.toLowerCase().includes(q),
-        );
+        emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
       }
       if (accountFilter) {
         emails = emails.filter(
@@ -204,8 +187,7 @@ export default defineAction({
         }),
       );
 
-      const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-      const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
+      const gmailQuery = buildGmailEmailSearchQuery({ view, q: query });
       const effectiveQuery =
         view === "all" && !query ? "" : gmailQuery || "in:inbox -in:sent";
       const { messages, errors, resultSizeEstimate } = await listGmailMessages(
@@ -298,15 +280,7 @@ export default defineAction({
     }
 
     if (query) {
-      const q = query.toLowerCase();
-      emails = emails.filter(
-        (e) =>
-          e.subject?.toLowerCase().includes(q) ||
-          e.snippet?.toLowerCase().includes(q) ||
-          e.body?.toLowerCase().includes(q) ||
-          e.from?.name?.toLowerCase().includes(q) ||
-          e.from?.email?.toLowerCase().includes(q),
-      );
+      emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
     }
 
     emails = latestPerThread(emails).slice(0, limit);

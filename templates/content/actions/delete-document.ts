@@ -71,15 +71,8 @@ export default defineAction({
       id,
       existing.ownerEmail as string,
     );
-    const childCount = deleted.length - 1;
 
-    // Trigger UI refresh
     await writeAppState("refresh-signal", { ts: Date.now() });
-
-    const msg =
-      `Deleted "${existing.title}" (${id})` +
-      (childCount > 0 ? ` and ${childCount} child document(s)` : "");
-    console.log(msg);
 
     return { success: true, deleted: deleted.length };
   },

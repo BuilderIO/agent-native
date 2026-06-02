@@ -1,58 +1,47 @@
 # Documents — Agent Guide
 
-You are the AI assistant for this Notion-like document editor. You can create, read, update, search, and organize documents. All data lives in SQL (SQLite, Postgres, Turso, etc. via `DATABASE_URL`).
+Documents is an agent-native editor for docs, comments, media blocks, sharing,
+and Notion-connected content. The agent edits documents through actions and
+application state shared with the UI.
 
-This is an **agent-native** app built with `@agent-native/core`.
+Detailed document editing, Notion, storage, and UI rules live in
+`.agents/skills/`.
 
-**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
+## Core Rules
 
-**Context is automatic** — the current screen state (navigation, open document, document tree) is included with every message as a `<current-screen>` block. You don't need to call `view-screen` before every action. Use `view-screen` only when you need a refreshed snapshot mid-conversation. If `<current-screen>` already includes the open document and tree, do not call `get-document`, `list-documents`, or `view-screen` just to re-read the same context; answer or edit from the context you already have unless the user asks for a different document or explicitly needs a fresh read.
-
-## Resources
-
-Resources are SQL-backed persistent files for notes, learnings, and context.
-
-**At the start of a new thread, read these resources once if they are not already present in chat history (both personal and shared scopes):**
-
-1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
-
-**Update the `LEARNINGS.md` resource when you learn something important.**
-
-In chat, use the `resources` tool (`action: list`, `read`, `write`, or `delete`) rather than repeatedly calling legacy `resource-*` names. Do not re-read `AGENTS.md` or `LEARNINGS.md` during continuation/retry turns if their contents are already in the conversation.
-
-| Action      | Args                                                               | Purpose                 |
-| ----------- | ------------------------------------------------------------------ | ----------------------- |
-| `resources` | `action=read path=<path> [scope=personal\|shared]`                 | Read a resource         |
-| `resources` | `action=write path=<path> content=<text> [scope=personal\|shared]` | Write/update a resource |
-| `resources` | `action=list [prefix=<path>] [scope=personal\|shared\|all]`        | List resources          |
-| `resources` | `action=delete path=<path> [scope=personal\|shared]`               | Delete a resource       |
-
-## Skills
-
-Read the skill files in `.agents/skills/` for detailed patterns:
-
-- **document-editing** — How to create, read, update, delete documents via scripts
-- **notion-integration** — How Notion sync works: linking, pulling, pushing
-- **storing-data** — Settings and config in SQL via settings API
-- **delegate-to-agent** — UI never calls LLMs directly
-- **actions** — Complex operations as `pnpm action <name>`
-- **real-time-sync** — Real-time UI sync via SSE (DB change events)
-- **frontend-design** — Build distinctive, production-grade UI
-
-For code editing and development guidance, read `DEVELOPING.md`.
+- Use actions for documents, blocks, comments, media, sharing, navigation, and
+  Notion integration. Do not mutate document rows directly unless a skill says to
+  and access checks are preserved.
+- Notion workspace access is per-user OAuth only. Never read `NOTION_API_KEY`
+  from `process.env`, never save a user-entered Notion token through
+  `/_agent-native/env-vars`, and require editor access for routes that pull or
+  push Notion content.
+- Preserve user-authored content. Prefer targeted edits over wholesale rewrites
+  unless requested.
+- For cross-app or Slack artifact requests, create/update the document artifact
+  through the app action path so it remains visible and shareable.
+- Use `view-screen` when the active document, selected block, comment, or Notion
+  context is unclear.
+- Use framework sharing actions for document visibility and grants.
+- Keep public/exported content server-renderable where relevant.
 
 ## Application State
 
-Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
+- `navigation` exposes document, selected block, comment, media, and Notion view
+  context.
+- `navigate` moves the UI to documents, comments, media, and settings surfaces.
+- Use actions for full document content and comment context.
 
-| State Key        | Purpose                             | Direction                  |
-| ---------------- | ----------------------------------- | -------------------------- |
-| `navigation`     | Current view and open document ID   | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot)         | Agent -> UI (auto-deleted) |
-| `refresh-signal` | Trigger UI to refetch document list | Agent -> UI                |
+## Skills
 
-### Navigation state (read what the user sees)
+Read the relevant skill before deeper work:
+
+- `document-editing` for structured document updates.
+- `notion-integration` for connected Notion workflows.
+- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
+  and `shadcn-ui` for framework work.
+
+## Navigation State
 
 ```json
 {

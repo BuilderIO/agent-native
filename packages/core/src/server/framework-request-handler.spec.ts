@@ -30,6 +30,28 @@ async function dispatch(nitroApp: any, pathname: string) {
   return next();
 }
 
+async function dispatchViaGeneratedMiddleware(nitroApp: any, pathname: string) {
+  const event = {
+    method: "GET",
+    url: new URL(`http://example.test${pathname}`),
+    path: pathname,
+    context: {},
+  };
+  const route = {
+    data: {
+      handler: () => ({ fellThrough: true }),
+    },
+  };
+  const middleware = nitroApp.h3["~getMiddleware"](event, route);
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const handler = middleware[index++];
+    if (!handler) return route.data.handler();
+    return handler(event, next);
+  };
+  return next();
+}
+
 describe("framework request handler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
@@ -52,6 +74,43 @@ describe("framework request handler", () => {
       mountedPathname: "/_agent-native/extensions/extension-1/render",
       pathname: "/extension-1/render",
     });
+  });
+
+  it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      pathname: event.url.pathname,
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({
+      mountPrefix: "/_agent-native/ping",
+      pathname: "/",
+    });
+  });
+
+  it("rewraps the generated dispatcher if Nitro replaces it later", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", () => ({ ok: "first" }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({ ok: "first" });
+
+    nitroApp.h3["~getMiddleware"] = () => [];
+    getH3App(nitroApp).use("/_agent-native/builder/status", () => ({
+      ok: "second",
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/builder/status"),
+    ).resolves.toEqual({ ok: "second" });
   });
 
   it("dispatches with a mount-relative event.path for legacy handlers", async () => {

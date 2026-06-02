@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { parseSpaceIds, parseJson } from "../server/lib/calls.js";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -65,7 +65,7 @@ export default defineAction({
     }
 
     const db = getDb();
-    const call: any = access.resource;
+    const call = access.resource as typeof schema.calls.$inferSelect;
 
     const [transcript] = await db
       .select()

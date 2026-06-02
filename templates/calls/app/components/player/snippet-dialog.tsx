@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   Dialog,
@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { IconPlayerPlay, IconPlayerPause } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
 import { appBasePath, useActionMutation } from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
 
@@ -305,9 +304,7 @@ function RangeTimeline({
         className="relative w-full h-8 rounded-md bg-muted select-none"
       >
         <div
-          className={cn(
-            "absolute top-0 bottom-0 bg-foreground/20 border-l-2 border-r-2 border-foreground cursor-grab",
-          )}
+          className="absolute top-0 bottom-0 bg-foreground/20 border-l-2 border-r-2 border-foreground cursor-grab"
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
           onMouseDown={(e) => startDrag("body", e)}
         />

@@ -60,10 +60,11 @@ assertFilesExist("videos", [
   "c.$compositionId.tsx",
   "components.tsx",
   "design-systems.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "team.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
   "$.tsx",
 ]);
 
@@ -72,12 +73,13 @@ assertFilesExist("slides", [
   "deck.$id.tsx",
   "deck.$id_.present.tsx",
   "design-systems.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "share.$token.tsx",
   "slide.tsx",
   "team.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
 ]);
 
 assertFilesExist("clips", [
@@ -87,9 +89,10 @@ assertFilesExist("clips", [
   "_app.library.folder.$folderId.tsx",
   "_app.spaces.$spaceId.tsx",
   "_app.spaces.$spaceId.folder.$folderId.tsx",
-  "_app.tools.tsx",
-  "_app.tools._index.tsx",
-  "_app.tools.$id.tsx",
+  "_app.extensions.tsx",
+  "_app.extensions._index.tsx",
+  "_app.extensions.$id.tsx",
+  "_app.extensions.$id.$slug.tsx",
   "download.tsx",
   "embed.$shareId.tsx",
   "invite.$token.tsx",
@@ -108,9 +111,10 @@ assertFilesExist("calls", [
   "_app.calls.$callId.tsx",
   "_app.calls.$callId.edit.tsx",
   "_app.snippets.$snippetId.tsx",
-  "_app.tools.tsx",
-  "_app.tools._index.tsx",
-  "_app.tools.$id.tsx",
+  "_app.extensions.tsx",
+  "_app.extensions._index.tsx",
+  "_app.extensions.$id.tsx",
+  "_app.extensions.$id.$slug.tsx",
   "_app.upload.tsx",
   "embed.$callId.tsx",
   "embed-snippet.$snippetId.tsx",
@@ -125,11 +129,12 @@ assertFilesExist("design", [
   "design-systems.tsx",
   "design-systems_.setup.tsx",
   "examples.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "observability.tsx",
   "present.$id.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
 ]);
 
 assertMatches(
@@ -210,8 +215,8 @@ const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
 };
 assert.equal(
   videosPackage.scripts?.typecheck,
-  "echo 'skipping typecheck (pre-existing errors)'",
-  "videos typecheck skip must stay explicit and intentional until the template is cleaned up",
+  "agent-native typecheck",
+  "videos is now cleaned up and must run the real typecheck (not the skip placeholder)",
 );
 
 console.log("qa-template-route-matrix: clean");

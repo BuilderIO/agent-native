@@ -6,6 +6,7 @@ import {
   getRequestTimezone,
   getRequestContext,
   hasRequestContext,
+  hasAuthContextAccess,
 } from "./request-context.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,6 +149,20 @@ describe("server/request-context", () => {
         expect(hasRequestContext()).toBe(true);
         expect(getRequestContext()).toEqual({});
         expect(getRequestUserEmail()).toBeUndefined();
+      });
+    });
+
+    it("marks contexts when authenticated request identity is read", () => {
+      runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+        const ctx = getRequestContext();
+        expect(hasAuthContextAccess(ctx)).toBe(true);
+      });
+    });
+
+    it("does not mark anonymous contexts as auth-accessed", () => {
+      runWithRequestContext({}, () => {
+        expect(getRequestUserEmail()).toBeUndefined();
+        expect(hasAuthContextAccess(getRequestContext())).toBe(false);
       });
     });
 

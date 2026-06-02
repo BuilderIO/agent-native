@@ -22,8 +22,10 @@ import type {
   EngineTool,
   EngineMessage,
   EngineContentPart,
+  EngineEvent,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import {
   backfillEngineMessagesToolResults,
   stringifyToolUseInputForGateway,
@@ -654,6 +656,50 @@ function maxRetriesForError(err: unknown): number {
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
+const MAX_SELECTION_CONTEXT_CHARS = 8_000;
+const MAX_RESOURCE_INVENTORY_ITEMS = 40;
+const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
+
+/**
+ * Hard cap on the `<current-screen>` block injected into EVERY user message.
+ *
+ * The screen snapshot comes from the template's `view-screen` action, which can
+ * be unbounded — e.g. a recording/meeting page returns the full transcript +
+ * every segment. Injected on every turn with no cap, that single block can blow
+ * past the model's context window and hard-error the chat with
+ * `context_length_exceeded` (observed: a brand-new "hi" message failing because
+ * an open recording's transcript shipped in `<current-screen>`). Keep this to a
+ * compact page summary; the agent can call `view-screen` (or a data action like
+ * `get-recording-player-data`) for full detail on demand.
+ */
+const MAX_SCREEN_CONTEXT_CHARS = 10_000;
+
+function capScreenContext(text: string): string {
+  if (text.length <= MAX_SCREEN_CONTEXT_CHARS) return text;
+  return `${text.slice(0, MAX_SCREEN_CONTEXT_CHARS)}\n\n…[current-screen snapshot truncated after ${MAX_SCREEN_CONTEXT_CHARS.toLocaleString()} chars to protect the context window. Call the view-screen action for the full snapshot, or a data action (e.g. get-recording-player-data) for full transcripts.]`;
+}
+
+function capSelectionContext(text: string): string {
+  if (text.length <= MAX_SELECTION_CONTEXT_CHARS) return text;
+  return `${text.slice(0, MAX_SELECTION_CONTEXT_CHARS)}\n\n…[selection truncated after ${MAX_SELECTION_CONTEXT_CHARS.toLocaleString()} chars. Ask the user or use an app data action if the omitted text is required.]`;
+}
+
+function compactInventoryDescription(description: string): string {
+  const oneLine = description.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS) {
+    return oneLine;
+  }
+  return `${oneLine.slice(0, MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS - 1)}…`;
+}
+
+function limitInventoryLines(lines: string[], label: string): string[] {
+  if (lines.length <= MAX_RESOURCE_INVENTORY_ITEMS) return lines;
+  const omitted = lines.length - MAX_RESOURCE_INVENTORY_ITEMS;
+  return [
+    ...lines.slice(0, MAX_RESOURCE_INVENTORY_ITEMS),
+    `  … ${omitted} more ${label} omitted; use resource-list/resource-read for the full inventory.`,
+  ];
+}
 
 function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -725,15 +771,15 @@ function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
   const ms = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error("aborted"));
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(new Error("aborted"));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -1100,6 +1146,7 @@ export const AGENT_INTERNAL_CONTINUE_PROMPT =
 export type AgentLoopContinuationReason =
   | "run_timeout"
   | "loop_limit"
+  | "max_tokens"
   | "stream_ended"
   | "gateway_timeout"
   | "network_interrupted";
@@ -1111,13 +1158,15 @@ export function appendAgentLoopContinuation(
   const note =
     reason === "loop_limit"
       ? "The previous run reached an internal step budget."
-      : reason === "stream_ended"
-        ? "The previous stream ended before the agent sent a final completion signal."
-        : reason === "gateway_timeout"
-          ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-          : reason === "network_interrupted"
-            ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-            : "The previous run reached an internal execution budget.";
+      : reason === "max_tokens"
+        ? "The previous LLM call reached the model output-token cap before the response finished."
+        : reason === "stream_ended"
+          ? "The previous stream ended before the agent sent a final completion signal."
+          : reason === "gateway_timeout"
+            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
+            : reason === "network_interrupted"
+              ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+              : "The previous run reached an internal execution budget.";
   messages.push({
     role: "user",
     content: [
@@ -1377,6 +1426,7 @@ export async function runAgentLoop(opts: {
   orgId?: string | null;
   reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
+  maxOutputTokens?: number;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
@@ -1428,6 +1478,9 @@ export async function runAgentLoop(opts: {
 
     let assistantContent: EngineContentPart[] | undefined;
     let bufferedAssistantText = "";
+    let terminalStopReason:
+      | Extract<EngineEvent, { type: "stop" }>["reason"]
+      | undefined;
     const toolCallErrors = new Map<
       string,
       { name: string; input: unknown; error: string }
@@ -1436,6 +1489,7 @@ export async function runAgentLoop(opts: {
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
       bufferedAssistantText = "";
+      terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
         const streamOpts = {
@@ -1444,6 +1498,10 @@ export async function runAgentLoop(opts: {
           messages,
           tools,
           abortSignal: signal,
+          maxOutputTokens: resolveMaxOutputTokensForEngine(
+            engine.name,
+            opts.maxOutputTokens,
+          ),
           reasoningEffort: opts.reasoningEffort,
           providerOptions: opts.providerOptions,
         };
@@ -1508,11 +1566,14 @@ export async function runAgentLoop(opts: {
             usage.outputTokens += event.outputTokens;
             usage.cacheReadTokens += event.cacheReadTokens ?? 0;
             usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
-          } else if (event.type === "stop" && event.reason === "error") {
-            throw new EngineError(event.error ?? "Engine stream error", {
-              errorCode: event.errorCode,
-              upgradeUrl: event.upgradeUrl,
-            });
+          } else if (event.type === "stop") {
+            terminalStopReason = event.reason;
+            if (event.reason === "error") {
+              throw new EngineError(event.error ?? "Engine stream error", {
+                errorCode: event.errorCode,
+                upgradeUrl: event.upgradeUrl,
+              });
+            }
           }
         }
 
@@ -1591,6 +1652,11 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
+      if (terminalStopReason === "max_tokens") {
+        flushBufferedAssistantText();
+        appendAgentLoopContinuation(messages, "max_tokens");
+        continue;
+      }
       const guard = opts.finalResponseGuard
         ? await opts.finalResponseGuard({
             messages,
@@ -1638,6 +1704,13 @@ export async function runAgentLoop(opts: {
       }
       break;
     }
+
+    // Reached only when the model made tool calls (toolCallParts.length > 0),
+    // i.e. it's about to do more work and produce a *new* final answer. Give
+    // that next final-answer cycle a fresh guard-retry budget; otherwise
+    // finalGuardRetries stays at 1 from a prior cycle and the guard is
+    // permanently disabled for the rest of a long multi-step run.
+    finalGuardRetries = 0;
 
     flushBufferedAssistantText();
 
@@ -1772,9 +1845,32 @@ export async function runAgentLoop(opts: {
               reject(new Error("Tool call timed out after 60 seconds")),
             );
           }),
+          // Stop waiting on the tool when the run itself is aborted (e.g. the
+          // run-manager soft timeout, or a user cancel). Without this leg the
+          // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
+          // the run signal has already fired.
+          new Promise<never>((_, reject) => {
+            if (signal.aborted) {
+              reject(new Error("Run aborted"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("Run aborted")),
+              { once: true },
+            );
+          }),
         ]);
         const mcpResult = isMcpActionResult(raw) ? raw : null;
         const rawForAgent = mcpResult ? mcpResult.text : raw;
+        if (
+          mcpResult &&
+          mcpResult.raw &&
+          typeof mcpResult.raw === "object" &&
+          (mcpResult.raw as Record<string, unknown>).isError === true
+        ) {
+          isError = true;
+        }
         mcpApp = mcpResult?.mcpApp;
         // Demo mode: the agent must see the same fake data the UI shows, so
         // it can't read out a real name/email on a live screen share. Redact
@@ -1875,7 +1971,12 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): ParallelBatchKind | null => {
       const entry = actions[toolCall.name];
-      if (!entry || entry.readOnly === true) return "read";
+      // Unknown tool name → serialize (null), don't fold it into the read-only
+      // parallel batch. Misclassifying it as "read" lets it run via Promise.all
+      // alongside genuine reads, which can reorder it ahead of a later mutating
+      // call and break the model's intended sequencing.
+      if (!entry) return null;
+      if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
     };
@@ -1972,6 +2073,7 @@ export function createProductionAgentHandler(
       attachments,
       displayMessage,
       internalContinuation,
+      turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
@@ -2178,7 +2280,7 @@ export function createProductionAgentHandler(
               typeof result === "string"
                 ? result
                 : JSON.stringify(result, null, 2);
-            return `\n\n<current-screen>\n${screenText}\n</current-screen>`;
+            return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
           }
         } else {
           const navigation = await readAppStateForBrowserTab(
@@ -2186,7 +2288,7 @@ export function createProductionAgentHandler(
             requestBrowserTabId,
           );
           if (navigation) {
-            return `\n\n<current-screen>\n${JSON.stringify(navigation, null, 2)}\n</current-screen>`;
+            return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
           }
         }
       } catch {
@@ -2246,7 +2348,7 @@ export function createProductionAgentHandler(
         return (
           `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
           `Treat this as the immediate context to act on:\n` +
-          `<selection>\n${sel.text}\n</selection>`
+          `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
         );
       } catch {
         // DB not ready — skip silently
@@ -2263,8 +2365,12 @@ export function createProductionAgentHandler(
       if (options.skipFilesContext) return filesContext;
       if (history.length === 0) {
         try {
-          const { resourceListAccessible, SHARED_OWNER, resourceGet } =
-            await import("../resources/store.js");
+          const {
+            resourceListAccessible,
+            SHARED_OWNER,
+            WORKSPACE_OWNER,
+            resourceGet,
+          } = await import("../resources/store.js");
           const {
             getResourceKind,
             parseCustomAgentProfile,
@@ -2272,8 +2378,13 @@ export function createProductionAgentHandler(
             parseSkillMetadata,
           } = await import("../resources/metadata.js");
           const ownerEmail = getRequestUserEmail();
+          const orgId = getRequestOrgId();
           if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(ownerEmail);
+          const allResources = await resourceListAccessible(
+            ownerEmail,
+            undefined,
+            { userEmail: ownerEmail, orgId },
+          );
 
           if (allResources.length > 0) {
             const fileLines: string[] = [];
@@ -2281,7 +2392,12 @@ export function createProductionAgentHandler(
             const agentLines: string[] = [];
             const jobLines: string[] = [];
             for (const r of allResources) {
-              const scope = r.owner === SHARED_OWNER ? "shared" : "personal";
+              const scope =
+                r.owner === WORKSPACE_OWNER
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
               const kind = getResourceKind(r.path);
               if (kind === "file") {
                 fileLines.push(`  ${r.path} (${scope})`);
@@ -2298,45 +2414,52 @@ export function createProductionAgentHandler(
                 kind === "agent" ||
                 kind === "remote-agent"
               ) {
-                const full = await resourceGet(r.id);
+                const full = await resourceGet(r.id, {
+                  userEmail: ownerEmail,
+                  orgId,
+                });
                 if (!full) continue;
                 if (kind === "skill") {
                   const skill = parseSkillMetadata(full.content, r.path);
                   skillLines.push(
-                    `  ${skill?.name || r.path} — ${skill?.description || r.path} (${scope}, ${r.path})`,
+                    `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
                   );
                 } else if (kind === "agent") {
                   const agent = parseCustomAgentProfile(full.content, r.path);
                   agentLines.push(
-                    `  ${agent?.name || r.path} — ${agent?.description || "Custom workspace agent"} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
                   );
                 } else {
                   const agent = parseRemoteAgentManifest(full.content, r.path);
                   agentLines.push(
-                    `  ${agent?.name || r.path} — ${agent?.description || "Connected A2A agent"} (${scope}, remote via ${r.path})`,
+                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
                   );
                 }
               }
             }
             const blocks: string[] = [];
             if (fileLines.length > 0) {
+              const lines = limitInventoryLines(fileLines, "files");
               blocks.push(
-                `<available-files>\nFiles in the workspace:\n${fileLines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
+                `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a file's contents, use the resource-read action with the file path.\n</available-files>`,
               );
             }
             if (skillLines.length > 0) {
+              const lines = limitInventoryLines(skillLines, "skills");
               blocks.push(
-                `<available-skills>\nSkills in the workspace:\n${skillLines.join("\n")}\n</available-skills>`,
+                `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n</available-skills>`,
               );
             }
             if (agentLines.length > 0) {
+              const lines = limitInventoryLines(agentLines, "agents");
               blocks.push(
-                `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
+                `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
               );
             }
             if (jobLines.length > 0) {
+              const lines = limitInventoryLines(jobLines, "jobs");
               blocks.push(
-                `<available-jobs>\nScheduled tasks in the workspace:\n${jobLines.join("\n")}\n</available-jobs>`,
+                `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
               );
             }
             filesContext =
@@ -2807,6 +2930,13 @@ export function createProductionAgentHandler(
       {
         softTimeoutMs: options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
+        // Fold continuation runs of one logical turn onto a single durable
+        // assistant message. Falls back to the runId (turn == run) when the
+        // client doesn't supply a turnId.
+        turnId:
+          typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId,
       },
     );
 

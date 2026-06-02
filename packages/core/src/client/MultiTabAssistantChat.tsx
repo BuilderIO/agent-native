@@ -45,6 +45,11 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  appendAgentChatContextToMessage,
+  normalizeAgentChatContextItem,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -57,6 +62,12 @@ interface ModelSelection {
   model: string;
   engine?: string;
   effort?: ReasoningEffort;
+}
+
+interface PendingSend {
+  message: string;
+  images?: string[];
+  submit: boolean;
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -706,6 +717,8 @@ export type MultiTabAssistantChatProps = Omit<
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active thread and open tabs from localStorage. */
+  restoreActiveThread?: boolean;
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
   /**
@@ -725,6 +738,7 @@ export function MultiTabAssistantChat({
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
+  restoreActiveThread = true,
   browserTabId,
   scope = null,
   ...props
@@ -735,7 +749,6 @@ export function MultiTabAssistantChat({
     isLoading,
     createThread,
     switchThread,
-    deleteThread,
     detachThread,
     forkThread,
     saveThreadData,
@@ -743,7 +756,7 @@ export function MultiTabAssistantChat({
     searchThreads,
     refreshThreads,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope);
+  } = useChatThreads(apiUrl, storageKey, scope, { restoreActiveThread });
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -756,7 +769,10 @@ export function MultiTabAssistantChat({
   // Mark the active tab as mounted so it persists when switched away
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
-  const pendingSends = useRef<Map<string, string>>(new Map());
+  const pendingSends = useRef<Map<string, PendingSend>>(new Map());
+  const pendingContextItems = useRef<Map<string, AgentChatContextItem[]>>(
+    new Map(),
+  );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
@@ -782,6 +798,26 @@ export function MultiTabAssistantChat({
     setModelSelectionVersion((version) => version + 1);
   }, []);
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
+
+  const setContextInTab = useCallback(
+    (threadId: string, item: AgentChatContextItem) => {
+      const ref = chatRefs.current.get(threadId);
+      if (ref) {
+        ref.setComposerContextItem(item);
+        return;
+      }
+      const existing = pendingContextItems.current.get(threadId) ?? [];
+      const index = existing.findIndex((current) => current.key === item.key);
+      const next =
+        index === -1
+          ? [...existing, item]
+          : existing.map((current, currentIndex) =>
+              currentIndex === index ? item : current,
+            );
+      pendingContextItems.current.set(threadId, next);
+    },
+    [],
+  );
 
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
@@ -1023,6 +1059,10 @@ export function MultiTabAssistantChat({
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+    if (!restoreActiveThread && activeThreadId) {
+      for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
+      return [activeThreadId];
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1047,6 +1087,10 @@ export function MultiTabAssistantChat({
     if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
     openTabsKeyRef.current = OPEN_TABS_KEY;
     initializedRef.current = false;
+    if (!restoreActiveThread) {
+      setOpenTabIds(activeThreadId ? [activeThreadId] : []);
+      return;
+    }
     try {
       const saved = localStorage.getItem(OPEN_TABS_KEY);
       if (saved) {
@@ -1059,7 +1103,7 @@ export function MultiTabAssistantChat({
       }
     } catch {}
     setOpenTabIds([]);
-  }, [OPEN_TABS_KEY]);
+  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
 
   // Look up the active thread's actual scope from the list — when the
   // user opens a chat from history that was scoped to a different
@@ -1262,6 +1306,19 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
+      if (event.data?.type === "agentNative.setChatContext") {
+        const item = normalizeAgentChatContextItem(event.data.data);
+        if (!item) return;
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar !== false) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        setContextInTab(currentTabId, item);
+        return;
+      }
       if (event.data?.type !== "agentNative.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
@@ -1273,6 +1330,14 @@ export function MultiTabAssistantChat({
       const tabId = event.data.data?.tabId;
       const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
+      const submit = event.data.data?.submit !== false;
+      const rawImages = event.data.data?.images;
+      const images = Array.isArray(rawImages)
+        ? rawImages.filter(
+            (image): image is string =>
+              typeof image === "string" && image.length > 0,
+          )
+        : undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -1284,7 +1349,7 @@ export function MultiTabAssistantChat({
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
       const fullMessage = context
-        ? `${message}\n\n<context>\n${context}\n</context>`
+        ? appendAgentChatContextToMessage(message, context)
         : message;
 
       const sendToTab = (threadId: string) => {
@@ -1312,9 +1377,17 @@ export function MultiTabAssistantChat({
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
-          ref.sendMessage(fullMessage);
+          if (submit) {
+            ref.sendMessage(fullMessage, images);
+          } else {
+            ref.prefillMessage(fullMessage);
+          }
         } else {
-          pendingSends.current.set(threadId, fullMessage);
+          pendingSends.current.set(threadId, {
+            message: fullMessage,
+            images,
+            submit,
+          });
         }
       };
 
@@ -1342,16 +1415,37 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     createThread,
     postMessageSubmissionsDisabled,
+    setContextInTab,
     switchThread,
   ]);
 
   // Process pending sends when refs mount
   useEffect(() => {
-    for (const [tabId, message] of pendingSends.current) {
+    const pendingTabIds = new Set([
+      ...pendingSends.current.keys(),
+      ...pendingContextItems.current.keys(),
+    ]);
+    for (const tabId of pendingTabIds) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => ref.sendMessage(message), 50);
-        pendingSends.current.delete(tabId);
+        const pendingContext = pendingContextItems.current.get(tabId);
+        if (pendingContext) {
+          for (const item of pendingContext) {
+            ref.setComposerContextItem(item);
+          }
+          pendingContextItems.current.delete(tabId);
+        }
+        const pending = pendingSends.current.get(tabId);
+        if (pending) {
+          setTimeout(() => {
+            if (pending.submit) {
+              ref.sendMessage(pending.message, pending.images);
+            } else {
+              ref.prefillMessage(pending.message);
+            }
+          }, 50);
+          pendingSends.current.delete(tabId);
+        }
       }
     }
   }, [openTabIds]);
@@ -1407,6 +1501,7 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      pendingContextItems.current.delete(tabId);
       newThreadIds.current.delete(tabId);
       threadModelRef.current.delete(tabId);
       // Clean up parent map and sub-agent names
@@ -1491,6 +1586,29 @@ export function MultiTabAssistantChat({
       window.removeEventListener("agent-chat:new-chat", handleNewChat);
     };
   }, [closeTab, closeAllTabs, addTab]);
+
+  useEffect(() => {
+    const handleOpenThread = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { threadId?: unknown; newThread?: unknown }
+        | undefined;
+      const threadId =
+        typeof detail?.threadId === "string" ? detail.threadId : "";
+      if (!threadId) return;
+
+      if (detail?.newThread === true) {
+        newThreadIds.current.add(threadId);
+      }
+      setOpenTabIds((prev) =>
+        prev.includes(threadId) ? prev : [...prev, threadId],
+      );
+      switchThread(threadId);
+    };
+
+    window.addEventListener("agent-chat:open-thread", handleOpenThread);
+    return () =>
+      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
+  }, [switchThread]);
 
   const clearActiveTab = useCallback(() => {
     addTab();
@@ -1617,6 +1735,7 @@ export function MultiTabAssistantChat({
             threadData: "",
             title,
             preview: message.slice(0, 120),
+            titleSource: "generated",
           });
         }
       });
@@ -1737,11 +1856,11 @@ export function MultiTabAssistantChat({
     tabCount: openTabIds.length,
   };
 
-  // No full-shell skeleton: the hook seeds an optimistic activeThreadId
-  // synchronously so the chat shell + composer can paint on first render.
-  // Per-thread restore (existing chats with history) shows its own message-area
-  // skeleton inside AssistantChat — header and composer stay visible.
-  if (isLoading && !activeThreadId) {
+  // Wait for the first thread-list pass before mounting restored tabs. Saved
+  // localStorage ids may be empty client-only tabs or old ids from another
+  // deployment; rendering AssistantChat before validation causes harmless but
+  // noisy /threads/:id 404s during app startup.
+  if (isLoading) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}
@@ -2015,8 +2134,9 @@ export function MultiTabAssistantChat({
                   apiUrl={apiUrl}
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
-                    handle?.sendMessage(
+                    handle?.sendRecoveryMessage(
                       "Continue from where you left off and finish my last request. Do not repeat completed work.",
+                      "continue",
                     );
                   }}
                 />

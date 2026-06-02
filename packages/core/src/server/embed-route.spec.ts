@@ -177,6 +177,47 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
   });
 
+  it.each([
+    "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
+  ])(
+    "returns the signed app route directly for %s transplant fetches",
+    async (origin) => {
+      consumeEmbedSessionTicket.mockResolvedValue({
+        ownerEmail: "steve@example.com",
+        orgId: "builder",
+        targetPath: "/inbox",
+        scope: "full",
+        expiresAt: Date.now() + 60_000,
+      });
+
+      const handler = createEmbedStartRouteHandler();
+
+      const res: Response = await handler(
+        fakeEvent(
+          "GET",
+          { ticket: "ticket-123", __an_mcp_chat_bridge: "1" },
+          {
+            accept: "application/json",
+            origin,
+            "x-agent-native-embed-transplant": "1",
+          },
+        ),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("application/json");
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
+        "X-Agent-Native-Embed-Transplant",
+      );
+      await expect(res.json()).resolves.toEqual({
+        location:
+          "/inbox?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
+      });
+    },
+  );
+
   it("allows opaque sandboxed MCP app frames to fetch embed start redirects", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "steve@example.com",

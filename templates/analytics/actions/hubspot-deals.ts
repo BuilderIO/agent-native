@@ -5,6 +5,7 @@ import {
   getDealPipelines,
   getDealOwners,
   getVisiblePipelines,
+  searchHubSpotObjects,
   type Deal,
   type Pipeline,
 } from "../server/lib/hubspot";
@@ -83,9 +84,31 @@ function enrichDeal(
   return { ...deal, properties };
 }
 
+function recordToDeal(record: {
+  id: string;
+  properties: Record<string, string | null | undefined>;
+}): Deal {
+  return {
+    id: record.id,
+    properties: {
+      dealname: record.properties.dealname ?? "",
+      dealstage: record.properties.dealstage ?? "",
+      amount: record.properties.amount ?? null,
+      closedate: record.properties.closedate ?? null,
+      createdate: record.properties.createdate ?? "",
+      hs_lastmodifieddate: record.properties.hs_lastmodifieddate ?? "",
+      pipeline: record.properties.pipeline ?? "",
+      hubspot_owner_id: record.properties.hubspot_owner_id ?? null,
+      hs_deal_stage_probability:
+        record.properties.hs_deal_stage_probability ?? null,
+      ...record.properties,
+    },
+  };
+}
+
 export default defineAction({
   description:
-    "Get all HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields.",
+    "Get HubSpot deals with normalized stage, pipeline, owner, forecast, and NBM fields. Use query for a specific customer/deal/account deep dive instead of fetching all deals.",
   schema: z.object({
     properties: StringListSchema.describe(
       "Optional comma-separated extra HubSpot deal property names to include.",
@@ -94,11 +117,37 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional owner name filter, case-insensitive."),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "Optional HubSpot deal search query, such as a company name, deal name, domain, or keyword. Use for customer/deal deep dives.",
+      ),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(25)
+      .describe("Maximum records to return when query is provided."),
+    after: z
+      .string()
+      .optional()
+      .describe("Optional HubSpot pagination cursor for query results."),
   }),
   http: { method: "GET" },
-  run: async ({ properties, owner }) => {
-    const [allDeals, allPipelines, owners] = await Promise.all([
-      getAllDeals(properties),
+  run: async ({ properties, owner, query, limit = 25, after }) => {
+    const trimmedQuery = query?.trim();
+    const [dealResult, allPipelines, owners] = await Promise.all([
+      trimmedQuery
+        ? searchHubSpotObjects({
+            objectType: "deals",
+            query: trimmedQuery,
+            properties,
+            limit,
+            after,
+          })
+        : getAllDeals(properties),
       getDealPipelines(),
       getDealOwners(),
     ]);
@@ -107,8 +156,11 @@ export default defineAction({
     const visibleIds = new Set(visiblePipelines.map((p) => p.id));
     const lookups = stageLookups(visiblePipelines);
     const ownerFilter = owner?.trim().toLowerCase();
-    const deals = allDeals
-      .filter((d) => visibleIds.has(d.properties.pipeline))
+    const rawDeals = Array.isArray(dealResult)
+      ? dealResult
+      : dealResult.records.map(recordToDeal);
+    const deals = rawDeals
+      .filter((d) => visibleIds.has(String(d.properties.pipeline)))
       .map((deal) => enrichDeal(deal, lookups, owners))
       .filter((deal) => {
         if (!ownerFilter) return true;
@@ -123,6 +175,16 @@ export default defineAction({
       stageLabels: lookups.stageLabels,
       pipelineLabels: lookups.pipelineLabels,
       total: deals.length,
+      count: deals.length,
+      query: trimmedQuery || null,
+      nextAfter: Array.isArray(dealResult) ? null : dealResult.nextAfter,
+      ...(Array.isArray(dealResult)
+        ? {}
+        : {
+            searchedProperties: dealResult.properties,
+            guidance:
+              "Searched HubSpot deals directly for the named account/deal. For a deep dive, enrich these deal records with hubspot-records for associated company/contact/ticket context when needed.",
+          }),
     };
   },
 });

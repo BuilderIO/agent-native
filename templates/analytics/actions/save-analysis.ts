@@ -13,6 +13,9 @@ import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
 import { hasDataQueryAttempt } from "../server/lib/real-data-actions";
 
+const MAX_RESULT_MARKDOWN_CHARS = 60_000;
+const MAX_RESULT_DATA_JSON_CHARS = 80_000;
+
 function parseJsonArg(value: unknown, label: string): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -54,11 +57,64 @@ function stopWithoutEvidence(): never {
   );
 }
 
+function stopOversizedAnalysisPayload(
+  field: "resultMarkdown" | "resultData",
+  size: number,
+  limit: number,
+): never {
+  throw new AgentActionStopError(
+    `I couldn't save this analysis because ${field} was too large (${size.toLocaleString()} characters, max ${limit.toLocaleString()}). Answer in chat, or save a compact artifact with IDs, metrics, coded themes, and short excerpts instead of raw transcript/tool-result dumps.`,
+    {
+      errorCode: "analysis_payload_too_large",
+      toolResult: JSON.stringify(
+        {
+          error: "analysis_payload_too_large",
+          field,
+          size,
+          limit,
+          message:
+            "save-analysis accepts compact evidence only. Do not include full Gong transcripts, full tool outputs, or bulk raw provider payloads in resultMarkdown/resultData.",
+          stopped: true,
+        },
+        null,
+        2,
+      ),
+    },
+  );
+}
+
+function assertCompactAnalysisPayload(args: {
+  resultMarkdown: string;
+  resultData?: Record<string, unknown>;
+}) {
+  if (args.resultMarkdown.length > MAX_RESULT_MARKDOWN_CHARS) {
+    stopOversizedAnalysisPayload(
+      "resultMarkdown",
+      args.resultMarkdown.length,
+      MAX_RESULT_MARKDOWN_CHARS,
+    );
+  }
+
+  let resultDataJson: string;
+  try {
+    resultDataJson = JSON.stringify(args.resultData);
+  } catch {
+    resultDataJson = "";
+  }
+  if (resultDataJson.length > MAX_RESULT_DATA_JSON_CHARS) {
+    stopOversizedAnalysisPayload(
+      "resultData",
+      resultDataJson.length,
+      MAX_RESULT_DATA_JSON_CHARS,
+    );
+  }
+}
+
 export default defineAction({
   description:
-    "Save an ad-hoc analysis. Stores the analysis question, instructions for re-running, data sources used, and the results. " +
+    "Save an ad-hoc analysis as a reusable artifact. Do not call this for ordinary in-chat analysis or deep-dive answers unless the user explicitly asks to save/create a reusable analysis, or this turn is re-running an existing saved analysis. Stores the analysis question, instructions for re-running, data sources used, and compact results. " +
     "This creates a reusable analysis that anyone can re-run later to get updated results. " +
-    "Call this only after you've gathered real evidence and include non-empty resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records.",
+    "Call this only after you've gathered real evidence and include non-empty, compact resultData with structured evidence from those data-source action results. For qualitative analyses, resultData may include call/message IDs, short transcript excerpts, coded themes, mention counts, and sentiment labels derived from actual source records. Never include full Gong transcripts, full tool outputs, or bulk raw provider payloads.",
   schema: z.object({
     id: z
       .string()
@@ -90,9 +146,13 @@ export default defineAction({
       ),
     resultMarkdown: z
       .string()
+      .max(
+        MAX_RESULT_MARKDOWN_CHARS,
+        `resultMarkdown must be ${MAX_RESULT_MARKDOWN_CHARS} characters or fewer`,
+      )
       .describe(
         "The full analysis results formatted as Markdown. Include tables, key findings, and conclusions. " +
-          "This is what users see when they load the analysis.",
+          "This is what users see when they load the analysis. Keep it under 60000 characters and do not paste raw transcripts or full tool outputs.",
       ),
     resultData: z
       .preprocess(
@@ -100,7 +160,7 @@ export default defineAction({
         z.record(z.string(), z.unknown()),
       )
       .describe(
-        "Required structured data (JSON) backing the analysis. Include raw query results, row samples, aggregate metrics, call/message IDs, transcript/message excerpts, coded theme counts, sentiment labels, and any explicit provider error details from the real data-source actions used.",
+        "Required compact structured data (JSON) backing the analysis. Include row samples, aggregate metrics, call/message IDs, short transcript/message excerpts, coded theme counts, sentiment labels, and explicit provider error details from the real data-source actions used. Do not include full transcripts, full tool outputs, or raw provider payload dumps.",
       ),
   }),
   http: false,
@@ -123,6 +183,7 @@ export default defineAction({
     ) {
       stopWithoutEvidence();
     }
+    assertCompactAnalysisPayload(args);
     const { orgId, email } = resolveScope();
     await upsertAnalysis(
       args.id,

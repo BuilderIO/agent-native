@@ -1,5 +1,29 @@
 # @agent-native/migrate
 
+## 0.0.7
+
+### Patch Changes
+
+- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
+## 0.0.6
+
+### Patch Changes
+
+- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
+
+## 0.0.5
+
+### Patch Changes
+
+- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
+
+## 0.0.4
+
+### Patch Changes
+
+- daeb0a9: Add custom migration plan inputs for AEM, Builder, headless, jQuery, and verification planning.
+
 ## 0.0.3
 
 ### Patch Changes

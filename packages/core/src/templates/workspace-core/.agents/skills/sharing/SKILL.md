@@ -144,11 +144,17 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 
+const ownerEmail = getRequestUserEmail();
+// Never fall back to a sentinel like "local@localhost" — that pools every
+// unauthenticated write into one shared tenant (see the 2026-04-29 leak and
+// guard-no-localhost-fallback). Throw / 401 when there is no session instead.
+if (!ownerEmail) throw new Error("Not authenticated");
+
 await db.insert(schema.decks).values({
   id: nanoid(),
   title,
   data,
-  ownerEmail: getRequestUserEmail() ?? "local@localhost",
+  ownerEmail,
   orgId: getRequestOrgId(),
   // visibility defaults to 'private'
   // ...

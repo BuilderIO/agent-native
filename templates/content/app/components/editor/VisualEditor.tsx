@@ -6,7 +6,7 @@ import {
   mergeAttributes,
 } from "@tiptap/react";
 import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
-import Collaboration from "@tiptap/extension-collaboration";
+import Collaboration, { isChangeOrigin } from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { Doc as YDoc } from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -23,32 +23,45 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { useEffect, useRef, useMemo, useState } from "react";
-import { IconPhoto } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { TableHoverControls } from "./TableHoverControls";
 import { ImageNode } from "./extensions/ImageNode";
+import { VideoNode } from "./extensions/VideoNode";
+import { AudioNode } from "./extensions/AudioNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
-  notionEditorExtensions,
+  type NotionPageLink,
 } from "./extensions/NotionExtensions";
+import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import { DragHandle } from "./extensions/DragHandle";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
-  parseNfmForEditor,
-  serializeEditorToNfm,
-} from "@shared/notion-markdown";
+  isReconcileLeadClient,
+  AGENT_CLIENT_ID,
+} from "@agent-native/core/client";
 import {
   getImageFiles,
+  getAudioFiles,
+  getVideoFiles,
+  hasAudioFiles,
   hasImageFiles,
+  hasVideoFiles,
+  audioUploadErrorMessage,
   imageUploadErrorMessage,
+  uploadAudioFile,
   uploadImageFile,
+  uploadVideoFile,
+  videoUploadErrorMessage,
 } from "./image-upload";
 
 /**
@@ -453,32 +466,40 @@ const NotionToggleBodyPlaceholder = Extension.create({
  * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
  * so list sinking still works and we only kick in for non-list blocks.
  */
-const NotionBlockIndent = Extension.create({
-  name: "notionBlockIndent",
-  priority: 50,
-  addKeyboardShortcuts() {
-    const inHandled = (editor: any) =>
-      editor.isActive("listItem") ||
-      editor.isActive("taskItem") ||
-      editor.isActive("tableCell") ||
-      editor.isActive("tableHeader") ||
-      editor.isActive("codeBlock");
-
+const CustomTable = BaseTable.extend({
+  addAttributes() {
     return {
-      Tab: ({ editor }) => {
-        if (inHandled(editor)) return false;
-        return editor.chain().focus().wrapIn("blockquote").run();
+      ...this.parent?.(),
+      // Notion table structure attributes — preserved so the NFM converter can
+      // round-trip header rows/columns, full-width tables, and column colors.
+      headerRow: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-row") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerRow ? { "data-header-row": "true" } : {},
       },
-      "Shift-Tab": ({ editor }) => {
-        if (inHandled(editor)) return false;
-        if (!editor.isActive("blockquote")) return false;
-        return editor.chain().focus().lift("blockquote").run();
+      headerColumn: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-column") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerColumn ? { "data-header-column": "true" } : {},
+      },
+      fitPageWidth: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-fit-page-width") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.fitPageWidth ? { "data-fit-page-width": "true" } : {},
+      },
+      colMeta: {
+        default: null,
+        parseHTML: () => null,
+        renderHTML: () => ({}),
       },
     };
   },
-});
-
-const CustomTable = BaseTable.extend({
   addStorage() {
     return {
       markdown: {
@@ -541,19 +562,173 @@ const CustomTable = BaseTable.extend({
   },
 });
 
+const NotionTableHeader = TableHeader.extend({
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "td",
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+        class: "notion-table-header-cell",
+      }),
+      0,
+    ];
+  },
+});
+
+function getNodeChildren(node: ProseMirrorNode | null | undefined) {
+  const children: ProseMirrorNode[] = [];
+  node?.forEach((child) => children.push(child));
+  return children;
+}
+
+function isTableHeaderNode(cell: ProseMirrorNode | undefined) {
+  return cell?.type.name === "tableHeader";
+}
+
+function normalizeTableHeaderCells(
+  table: ProseMirrorNode,
+  tableCellType: ProseMirrorNode["type"],
+  tableHeaderType: ProseMirrorNode["type"],
+) {
+  const rows = getNodeChildren(table);
+  if (rows.length === 0) return table;
+
+  const firstRowCells = getNodeChildren(rows[0]);
+  const hasHeaderRow =
+    firstRowCells.length > 0 && firstRowCells.every(isTableHeaderNode);
+  const hasHeaderColumn = rows.every((row) =>
+    isTableHeaderNode(getNodeChildren(row)[0]),
+  );
+  let changed = false;
+
+  const normalizedRows = rows.map((row, rowIndex) => {
+    const cells = getNodeChildren(row);
+    let rowChanged = false;
+    const normalizedCells = cells.map((cell, columnIndex) => {
+      const targetType =
+        (hasHeaderRow && rowIndex === 0) ||
+        (hasHeaderColumn && columnIndex === 0)
+          ? tableHeaderType
+          : tableCellType;
+
+      if (cell.type === targetType) return cell;
+
+      changed = true;
+      rowChanged = true;
+      return targetType.create(cell.attrs, cell.content, cell.marks);
+    });
+
+    return rowChanged ? row.copy(Fragment.fromArray(normalizedCells)) : row;
+  });
+
+  return changed ? table.copy(Fragment.fromArray(normalizedRows)) : table;
+}
+
+const normalizeTableHeadersPluginKey = new PluginKey("normalizeTableHeaders");
+
+function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
+  const tableCellType = state.schema.nodes.tableCell;
+  const tableHeaderType = state.schema.nodes.tableHeader;
+  if (!tableCellType || !tableHeaderType) return null;
+
+  let transaction = state.tr;
+  let changed = false;
+
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "table") return true;
+
+    const normalizedTable = normalizeTableHeaderCells(
+      node,
+      tableCellType,
+      tableHeaderType,
+    );
+    if (normalizedTable !== node) {
+      transaction = transaction.replaceWith(
+        pos,
+        pos + node.nodeSize,
+        normalizedTable,
+      );
+      changed = true;
+    }
+
+    return false;
+  });
+
+  return changed
+    ? transaction.setMeta(normalizeTableHeadersPluginKey, true)
+    : null;
+}
+
+function dispatchNormalizeTableHeaders(view: EditorView) {
+  const transaction = buildNormalizeTableHeadersTransaction(view.state);
+  if (transaction) {
+    view.dispatch(transaction);
+  }
+}
+
+const NormalizeTableHeaders = Extension.create({
+  name: "normalizeTableHeaders",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: normalizeTableHeadersPluginKey,
+        appendTransaction(transactions, _oldState, newState) {
+          if (
+            transactions.some((transaction) =>
+              transaction.getMeta(normalizeTableHeadersPluginKey),
+            ) ||
+            !transactions.some((transaction) => transaction.docChanged)
+          ) {
+            return null;
+          }
+
+          return buildNormalizeTableHeadersTransaction(newState);
+        },
+        view(view) {
+          let destroyed = false;
+
+          queueMicrotask(() => {
+            if (!destroyed) {
+              dispatchNormalizeTableHeaders(view);
+            }
+          });
+
+          return {
+            destroy() {
+              destroyed = true;
+            },
+          };
+        },
+      }),
+    ];
+  },
+});
+
 interface VisualEditorProps {
   documentId?: string;
   content: string;
+  /**
+   * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
+   * edit (agent / Notion / peer-via-SQL) apart from a stale autosave echo or a
+   * lagging poll — only newer content is reconciled into the live editor.
+   */
+  contentUpdatedAt?: string | null;
   onChange: (markdown: string) => void;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
+  /** Shared awareness instance for collaborative cursors/presence. */
+  awareness?: Awareness | null;
   /** Current user info for cursor labels. */
-  user?: { name: string; color: string };
+  user?: { name: string; color: string; email?: string };
   editable?: boolean;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  notionPageLinks?: NotionPageLink[];
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
+
+export type { NotionPageLink };
 
 export function shouldSeedCollaborativeContent({
   content,
@@ -572,11 +747,75 @@ export function shouldSeedCollaborativeContent({
   return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
 }
 
+export function shouldApplyExternalContentSync({
+  docChanged,
+  content,
+  lastEmittedMarkdown,
+  currentMarkdown,
+  nextMarkdown,
+  contentUpdatedAt,
+  lastAppliedUpdatedAt,
+  isLeadClient,
+  editorFocused,
+  lastTypedAt,
+  now,
+}: {
+  docChanged: boolean;
+  content: string;
+  lastEmittedMarkdown: string;
+  currentMarkdown: string;
+  nextMarkdown: string;
+  /** Server updatedAt for the incoming `content`. */
+  contentUpdatedAt?: string | null;
+  /** updatedAt of the content this editor currently reflects. */
+  lastAppliedUpdatedAt?: string | null;
+  /** Whether this client is the elected applier (see isReconcileLeadClient). */
+  isLeadClient: boolean;
+  editorFocused: boolean;
+  lastTypedAt: number;
+  now: number;
+}): boolean {
+  // Editor already shows the incoming content — e.g. a peer's edit arrived via
+  // Yjs first, or this is our own state. Nothing to apply.
+  if (currentMarkdown === nextMarkdown) return false;
+
+  // Our own save echoing back from the server.
+  if (content === lastEmittedMarkdown) return false;
+
+  // Only adopt content that is genuinely NEWER than what this editor already
+  // reflects. An older-or-equal `updatedAt` is a lagging poll / stale snapshot
+  // and must never overwrite live edits — this is what stops the "agent edit
+  // reverts on next poll" whack-a-mole. A fresh mount / doc-switch has no
+  // baseline yet, so it always adopts the loaded content.
+  const externalNewer =
+    docChanged ||
+    !lastAppliedUpdatedAt ||
+    (!!contentUpdatedAt && contentUpdatedAt > lastAppliedUpdatedAt);
+  if (!externalNewer) return false;
+
+  // Exactly one client (the lead) applies an authoritative snapshot into the
+  // shared Y.Doc; every other client receives it through Yjs. Without this, N
+  // clients would each diff the same snapshot into the CRDT and duplicate the
+  // changed region. Mount / doc-switch loads are local-only, so always allowed.
+  if (!isLeadClient && !docChanged) return false;
+
+  // Don't yank text out from under someone typing this instant; the caller
+  // retries shortly so the edit still lands once they pause.
+  const typingRightNow = editorFocused && now - lastTypedAt < 1500;
+  if (typingRightNow && !docChanged) return false;
+
+  return true;
+}
+
 interface VisualEditorExtensionOptions {
+  documentId?: string;
   ydoc?: YDoc | null;
   localAwareness?: Awareness | null;
-  user?: { name: string; color: string } | null;
+  user?: { name: string; color: string; email?: string } | null;
+  onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
 
 function hasAncestorType(
@@ -600,6 +839,89 @@ function hasAncestorType(
 
     return false;
   });
+}
+
+type MediaNodeType = "image" | "video" | "audio";
+
+function mediaNodeLabel(typeName: MediaNodeType) {
+  if (typeName === "image") return "Image";
+  if (typeName === "video") return "Video";
+  return "Audio";
+}
+
+function createMediaUploadId(kind: MediaNodeType) {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `${kind}-upload-${random}`;
+}
+
+interface PendingMediaUpload {
+  file: File;
+  uploadId: string;
+}
+
+function insertPendingMediaNodes(
+  view: EditorView,
+  typeName: MediaNodeType,
+  files: File[],
+  position: number,
+): PendingMediaUpload[] {
+  const nodeType = view.state.schema.nodes[typeName];
+  if (!nodeType) {
+    throw new Error(
+      `${mediaNodeLabel(typeName)} blocks are not available in this editor.`,
+    );
+  }
+
+  let insertPos = Math.min(position, view.state.doc.content.size);
+  let tr = view.state.tr;
+  const pendingUploads: PendingMediaUpload[] = [];
+
+  for (const file of files) {
+    const uploadId = createMediaUploadId(typeName);
+    const node = nodeType.create(
+      typeName === "image"
+        ? { src: null, alt: "", uploadId }
+        : { src: null, uploadId },
+    );
+    tr = tr.insert(insertPos, node);
+    insertPos = Math.min(insertPos + node.nodeSize, tr.doc.content.size);
+    pendingUploads.push({ file, uploadId });
+  }
+
+  view.dispatch(tr.scrollIntoView());
+  return pendingUploads;
+}
+
+function updatePendingMediaNode(
+  view: EditorView,
+  typeName: MediaNodeType,
+  uploadId: string,
+  attrs: Record<string, unknown>,
+) {
+  let found = false;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === typeName && node.attrs.uploadId === uploadId) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        ...attrs,
+        uploadId: null,
+      });
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found) {
+    view.dispatch(tr);
+  }
+  return found;
 }
 
 function getVisualEditorPlaceholder({
@@ -652,12 +974,20 @@ function getVisualEditorPlaceholder({
   return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
 }
 
-async function uploadAndInsertImageFiles(
+export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
 ): Promise<void> {
   if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "image", files, position);
+  } catch (error) {
+    toast.error(imageUploadErrorMessage(error));
+    return;
+  }
 
   const toastId = toast.loading(
     files.length === 1
@@ -665,39 +995,150 @@ async function uploadAndInsertImageFiles(
       : `Uploading ${files.length} images...`,
   );
 
-  try {
-    let insertPos = Math.min(position, view.state.doc.content.size);
-    const imageType = view.state.schema.nodes.image;
-    if (!imageType) {
-      throw new Error("Image blocks are not available in this editor.");
-    }
+  let failed = 0;
+  let firstError: unknown = null;
 
-    for (const file of files) {
-      const src = await uploadImageFile(file);
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadImageFile(pending.file);
       if (!view.dom.isConnected) return;
-
-      const node = imageType.create({ src, alt: file.name });
-      const tr = view.state.tr.insert(insertPos, node).scrollIntoView();
-      view.dispatch(tr);
-      insertPos = Math.min(
-        insertPos + node.nodeSize,
-        view.state.doc.content.size,
-      );
+      updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "image", pending.uploadId, {});
+      }
     }
+  }
 
+  if (failed === 0) {
     toast.success(files.length === 1 ? "Image added" : "Images added", {
       id: toastId,
     });
+  } else if (files.length === 1) {
+    toast.error(imageUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} image uploads failed. ${imageUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
+  }
+}
+
+export async function uploadAndInsertVideoFiles(
+  view: EditorView,
+  files: File[],
+  position: number,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "video", files, position);
   } catch (error) {
-    toast.error(imageUploadErrorMessage(error), { id: toastId });
+    toast.error(videoUploadErrorMessage(error));
+    return;
+  }
+
+  const toastId = toast.loading(
+    files.length === 1
+      ? "Uploading video..."
+      : `Uploading ${files.length} videos...`,
+  );
+
+  let failed = 0;
+  let firstError: unknown = null;
+
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadVideoFile(pending.file);
+      if (!view.dom.isConnected) return;
+      updatePendingMediaNode(view, "video", pending.uploadId, { src });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "video", pending.uploadId, {});
+      }
+    }
+  }
+
+  if (failed === 0) {
+    toast.success(files.length === 1 ? "Video added" : "Videos added", {
+      id: toastId,
+    });
+  } else if (files.length === 1) {
+    toast.error(videoUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} video uploads failed. ${videoUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
+  }
+}
+
+export async function uploadAndInsertAudioFiles(
+  view: EditorView,
+  files: File[],
+  position: number,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  let pendingUploads: PendingMediaUpload[];
+  try {
+    pendingUploads = insertPendingMediaNodes(view, "audio", files, position);
+  } catch (error) {
+    toast.error(audioUploadErrorMessage(error));
+    return;
+  }
+
+  const toastId = toast.loading(
+    files.length === 1
+      ? "Uploading audio..."
+      : `Uploading ${files.length} audio files...`,
+  );
+
+  let failed = 0;
+  let firstError: unknown = null;
+
+  for (const pending of pendingUploads) {
+    try {
+      const src = await uploadAudioFile(pending.file);
+      if (!view.dom.isConnected) return;
+      updatePendingMediaNode(view, "audio", pending.uploadId, { src });
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+      if (view.dom.isConnected) {
+        updatePendingMediaNode(view, "audio", pending.uploadId, {});
+      }
+    }
+  }
+
+  if (failed === 0) {
+    toast.success(files.length === 1 ? "Audio added" : "Audio files added", {
+      id: toastId,
+    });
+  } else if (files.length === 1) {
+    toast.error(audioUploadErrorMessage(firstError), { id: toastId });
+  } else {
+    toast.error(
+      `${failed} of ${files.length} audio uploads failed. ${audioUploadErrorMessage(firstError)}`,
+      { id: toastId },
+    );
   }
 }
 
 export function createVisualEditorExtensions({
+  documentId,
   ydoc,
   localAwareness,
   user,
+  onImageComment,
   onJoinTitle,
+  resolveNotionPageLink,
+  onOpenNotionPageLink,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return [
     StarterKit.configure({
@@ -733,22 +1174,38 @@ export function createVisualEditorExtensions({
     }),
     ImageNode.configure({
       HTMLAttributes: { class: "notion-image" },
+      documentId,
+      onImageComment,
+    }),
+    VideoNode.configure({
+      HTMLAttributes: { class: "notion-video" },
+      documentId,
+      onVideoComment: onImageComment,
+    }),
+    AudioNode.configure({
+      HTMLAttributes: { class: "notion-audio" },
+      documentId,
+      onAudioComment: onImageComment,
     }),
     CustomTable.configure({
       resizable: false,
       HTMLAttributes: { class: "notion-table" },
     }),
     TableRow,
-    TableHeader,
+    NotionTableHeader,
     TableCell,
-    ...notionEditorExtensions,
+    NormalizeTableHeaders,
+    ...createNotionEditorExtensions({
+      resolvePageLink: resolveNotionPageLink,
+      onOpenPageLink: onOpenNotionPageLink,
+    }),
+    ...notionFidelityExtensions,
     DragHandle,
     TypographyReplacements,
     NotionMarkdownShortcuts,
     MarkdownPasteDetection,
     SelectAllDocument,
     JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-    NotionBlockIndent,
     Markdown.configure({
       html: true,
       transformPastedText: true,
@@ -771,106 +1228,233 @@ export function createVisualEditorExtensions({
 export function VisualEditor({
   documentId,
   content,
+  contentUpdatedAt,
   onChange,
   ydoc,
+  awareness,
   user,
   editable = true,
   onComment,
   onJoinTitle,
+  notionPageLinks = [],
+  onOpenNotionPageLink,
 }: VisualEditorProps) {
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const notionPageLinksRef = useRef(notionPageLinks);
+  notionPageLinksRef.current = notionPageLinks;
+  const resolveNotionPageLink = useCallback((notionPageId: string) => {
+    const normalized = notionPageId.replace(/-/g, "").toLowerCase();
+    return (
+      notionPageLinksRef.current.find(
+        (link) =>
+          link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
+      ) ?? null
+    );
+  }, []);
   const prevDocIdRef = useRef(documentId);
   // Track the last content the editor emitted via onChange, so we can
-  // distinguish external SQL changes (Notion pull) from our own saves.
+  // distinguish external SQL changes (agent/Notion/peer) from our own saves.
   const lastEmittedRef = useRef<string>("");
-  // Tracks the last time the user actually typed (not just had focus). The
-  // focus guard in the content-sync effect uses this so a Notion pull or
-  // agent edit can still apply when the user is idle but happens to have
-  // the editor focused — without yanking in-progress typing.
+  // Tracks the last time the user actually typed (not just had focus), so an
+  // external edit can still apply when the user is idle but happens to have the
+  // editor focused — without yanking in-progress typing.
   const lastTypedAtRef = useRef<number>(0);
+  // updatedAt of the content this editor currently reflects. An older-or-equal
+  // refetch is a stale snapshot and is ignored; a newer one is an intentional
+  // external edit and is applied. Starts null (no baseline) so the FIRST run
+  // reconciles a stale Y.Doc against authoritative SQL content — e.g. when an
+  // agent edited the closed doc and the persisted collab state lags behind.
+  const lastAppliedUpdatedAtRef = useRef<string | null>(null);
 
-  // Create Awareness instance locally (same module as CollaborationCursor uses)
-  const localAwareness = useMemo(() => {
+  // Reuse the synced Awareness instance when provided; fall back for tests or
+  // non-template embedders that only pass a Y.Doc.
+  const fallbackAwareness = useMemo(() => {
+    if (awareness) return null;
     if (!ydoc) return null;
     const a = new Awareness(ydoc);
     if (user) {
       a.setLocalStateField("user", user);
     }
     return a;
-  }, [ydoc]);
+  }, [awareness, ydoc]);
+  const localAwareness = awareness ?? fallbackAwareness;
 
   // Update user info when it changes
   useEffect(() => {
     if (localAwareness && user) {
       localAwareness.setLocalStateField("user", user);
     }
-  }, [localAwareness, user?.name, user?.color]);
+  }, [localAwareness, user?.name, user?.email, user?.color]);
+
+  // Whether this client is the one that applies authoritative external snapshots
+  // (agent / Notion / full-rewrite edits) into the shared Y.Doc. Exactly one
+  // client does, so the changed region isn't inserted once per open editor.
+  const [isLeadClient, setIsLeadClient] = useState(true);
+  // Count of OTHER human collaborators currently present. When >0, a peer's edit
+  // also arrives through Yjs, so the SQL-content reconcile must wait-and-recheck
+  // to avoid applying the same change twice (Yjs + setContent → duplicated text).
+  const peerCountRef = useRef(0);
+  useEffect(() => {
+    if (!localAwareness || !ydoc) {
+      setIsLeadClient(true);
+      peerCountRef.current = 0;
+      return;
+    }
+    const update = () => {
+      setIsLeadClient(isReconcileLeadClient(localAwareness, ydoc.clientID));
+      // Count only VISIBLE peers — a backgrounded peer can't make live Yjs
+      // edits, so it shouldn't trigger the dual-path race defer below.
+      let peers = 0;
+      localAwareness.getStates().forEach((state, clientId) => {
+        if (clientId === ydoc.clientID) return; // self
+        if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
+        const s = state as { user?: unknown; visible?: boolean };
+        if (s && s.user && s.visible !== false) peers += 1;
+      });
+      peerCountRef.current = peers;
+    };
+    update();
+    localAwareness.on("change", update);
+    // Re-elect when our own visibility flips: the lead must be a visible client.
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      localAwareness.off("change", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [localAwareness, ydoc]);
 
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      localAwareness?.destroy();
+      fallbackAwareness?.destroy();
     };
-  }, [localAwareness]);
+  }, [fallbackAwareness]);
 
   const extensions = useMemo(
     () =>
       createVisualEditorExtensions({
+        documentId,
         ydoc,
         localAwareness,
         user,
+        onImageComment: onComment,
         onJoinTitle,
+        resolveNotionPageLink,
+        onOpenNotionPageLink,
       }),
-    [ydoc, localAwareness, user?.name, user?.color, onJoinTitle],
+    [
+      documentId,
+      ydoc,
+      localAwareness,
+      user?.name,
+      user?.email,
+      user?.color,
+      onComment,
+      onJoinTitle,
+      resolveNotionPageLink,
+      onOpenNotionPageLink,
+    ],
   );
 
   const editor = useEditor({
     extensions,
-    content: parseNfmForEditor(content),
+    // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
+    // the seed effect populates an empty doc and the reconcile applies external
+    // edits. Passing `content` here would make the editor initialize from the
+    // prop AND the Y.Doc, firing an initial (non-remote) update that could
+    // autosave a stale value over newer SQL. Only seed `content` when there is
+    // no ydoc (tests / non-collaborative embedders).
+    content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
         class: "notion-editor",
       },
       handleDrop(view, event) {
-        setIsDraggingImage(false);
+        setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
 
-        const files = getImageFiles(event.dataTransfer.files);
-        if (files.length === 0) return false;
+        const imageFiles = getImageFiles(event.dataTransfer.files);
+        const videoFiles = getVideoFiles(event.dataTransfer.files);
+        const audioFiles = getAudioFiles(event.dataTransfer.files);
+        if (
+          imageFiles.length === 0 &&
+          videoFiles.length === 0 &&
+          audioFiles.length === 0
+        ) {
+          return false;
+        }
 
         event.preventDefault();
         const coords = view.posAtCoords({
           left: event.clientX,
           top: event.clientY,
         });
-        void uploadAndInsertImageFiles(
-          view,
-          files,
-          coords?.pos ?? view.state.selection.from,
-        );
+        const position = coords?.pos ?? view.state.selection.from;
+        if (imageFiles.length > 0) {
+          void uploadAndInsertImageFiles(view, imageFiles, position);
+        }
+        if (videoFiles.length > 0) {
+          void uploadAndInsertVideoFiles(view, videoFiles, position);
+        }
+        if (audioFiles.length > 0) {
+          void uploadAndInsertAudioFiles(view, audioFiles, position);
+        }
         return true;
       },
       handlePaste(view, event) {
         if (!view.editable || !event.clipboardData) return false;
 
-        const files = getImageFiles(event.clipboardData.files);
-        if (files.length === 0) return false;
+        const imageFiles = getImageFiles(event.clipboardData.files);
+        const videoFiles = getVideoFiles(event.clipboardData.files);
+        const audioFiles = getAudioFiles(event.clipboardData.files);
+        if (
+          imageFiles.length === 0 &&
+          videoFiles.length === 0 &&
+          audioFiles.length === 0
+        ) {
+          return false;
+        }
 
         event.preventDefault();
-        void uploadAndInsertImageFiles(view, files, view.state.selection.from);
+        if (imageFiles.length > 0) {
+          void uploadAndInsertImageFiles(
+            view,
+            imageFiles,
+            view.state.selection.from,
+          );
+        }
+        if (videoFiles.length > 0) {
+          void uploadAndInsertVideoFiles(
+            view,
+            videoFiles,
+            view.state.selection.from,
+          );
+        }
+        if (audioFiles.length > 0) {
+          void uploadAndInsertAudioFiles(
+            view,
+            audioFiles,
+            view.state.selection.from,
+          );
+        }
         return true;
       },
       handleDOMEvents: {
         dragover(view, event) {
-          if (!view.editable || !hasImageFiles(event.dataTransfer)) {
+          if (
+            !view.editable ||
+            (!hasImageFiles(event.dataTransfer) &&
+              !hasVideoFiles(event.dataTransfer) &&
+              !hasAudioFiles(event.dataTransfer))
+          ) {
             return false;
           }
           event.preventDefault();
           event.dataTransfer!.dropEffect = "copy";
-          setIsDraggingImage(true);
+          setIsDraggingMedia(true);
           return true;
         },
         dragleave(view, event) {
@@ -880,19 +1464,24 @@ export function VisualEditor({
             !(event.relatedTarget instanceof Node) ||
             !wrapper.contains(event.relatedTarget)
           ) {
-            setIsDraggingImage(false);
+            setIsDraggingMedia(false);
           }
           return false;
         },
       },
     },
     editable,
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor, transaction }) => {
       if (isSettingContent.current) return;
+      // Never persist remote-originated changes (the initial Yjs state load or a
+      // peer's edit arriving via sync). Autosaving those would write a possibly
+      // STALE Y.Doc back over newer SQL content — clobbering an agent edit that
+      // hasn't been reconciled yet. Each client only saves its OWN local edits;
+      // a peer's edit is saved by the peer that made it.
+      if (transaction && isChangeOrigin(transaction)) return;
       lastTypedAtRef.current = Date.now();
       try {
-        const md = (editor.storage as any).markdown.getMarkdown();
-        const normalized = serializeEditorToNfm(md);
+        const normalized = docToNfm(editor.getJSON() as any);
         // Don't save empty content when Collaboration hasn't seeded yet —
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
@@ -918,10 +1507,11 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed || !ydoc || !content) return;
     // Skip if already seeded for this document
     if (seededDocRef.current === documentId) return;
+    // Only the lead client seeds an empty shared doc, so two clients opening a
+    // brand-new doc at once don't both seed and duplicate the content.
+    if (!isLeadClient) return;
     const fragment = ydoc.getXmlFragment("default");
-    const currentMd = serializeEditorToNfm(
-      (editor.storage as any).markdown.getMarkdown(),
-    );
+    const currentMd = docToNfm(editor.getJSON() as any);
     if (
       shouldSeedCollaborativeContent({
         content,
@@ -930,64 +1520,117 @@ export function VisualEditor({
       })
     ) {
       isSettingContent.current = true;
-      editor.commands.setContent(parseNfmForEditor(content));
+      editor.commands.setContent(nfmToDoc(content));
       isSettingContent.current = false;
+      if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
     }
     seededDocRef.current = documentId ?? null;
-  }, [editor, ydoc, content, documentId]);
+  }, [editor, ydoc, content, documentId, isLeadClient, contentUpdatedAt]);
 
-  // Sync content from outside (e.g. Notion pull, update-document action).
-  // When ydoc is bound, applying content through the editor via setContent
-  // propagates through TipTap's Collaboration extension to Y.XmlFragment,
-  // which then flows to the server and other clients via the collab update
-  // channel. We detect echoes of our own saves via lastEmittedRef to avoid
-  // clobbering user edits in progress.
+  // Reconcile authoritative external content (agent edit, Notion pull, or a peer
+  // edit mirrored to SQL) into the live editor. Driven by `updatedAt`: only
+  // content genuinely newer than what this editor already reflects is applied,
+  // so a lagging poll can never revert live edits. The lead client applies it
+  // through the real markdown pipeline (so new block structure renders) and the
+  // Yjs CRDT propagates the result to every other client and persists it.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const docChanged = documentId !== prevDocIdRef.current;
     if (docChanged) prevDocIdRef.current = documentId;
-    const nextEditorContent = parseNfmForEditor(content);
-    const currentMd = serializeEditorToNfm(
-      (editor.storage as any).markdown.getMarkdown(),
-    );
-    const normalizedNext = serializeEditorToNfm(nextEditorContent);
-    if (currentMd === normalizedNext) return;
 
-    // If the incoming content matches what we just emitted, it's our own
-    // save echoing back via the poll — skip to avoid a needless re-render.
-    if (content === lastEmittedRef.current) return;
-
-    // Skip sync while the user is actively typing (unless the doc switched)
-    // so we don't yank their in-progress edits. We only block if the user
-    // has TYPED in the last 2s — having focus alone isn't enough, otherwise
-    // a Notion pull that happens while the user has the editor focused but
-    // idle would leave them stuck on the pre-pull content.
-    const typedRecently = Date.now() - lastTypedAtRef.current < 2000;
-    if (editor.isFocused && typedRecently && !docChanged) return;
-
-    // Defer to a microtask so we don't trigger flushSync during a React
-    // render — TipTap's setContent dispatches PM transactions that may
-    // synchronously update React-owned state via the Collaboration extension.
     let cancelled = false;
-    queueMicrotask(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // When peers are present, a peer's edit also arrives through Yjs. Wait one
+    // poll cycle (+margin) and re-check before applying via setContent, so we
+    // don't insert the same change the Yjs sync is about to deliver (which would
+    // duplicate the edited region). Agent/Notion edits never come through Yjs,
+    // so they survive the wait and still apply.
+    const PEER_SETTLE_MS = 2500;
+
+    const run = (deferred = false) => {
       if (cancelled || !editor || editor.isDestroyed) return;
-      isSettingContent.current = true;
-      // Use addToHistory: false so cmd+z doesn't erase loaded content.
-      // External content changes (load, sync) should never be undoable.
-      editor
-        .chain()
-        .command(({ tr }) => {
-          tr.setMeta("addToHistory", false);
-          return true;
+      const nextEditorContent = nfmToDoc(content);
+      const currentMd = docToNfm(editor.getJSON() as any);
+      const normalizedNext = canonicalizeNfm(content);
+
+      // Already in sync, or our own echo: advance the applied watermark so a
+      // later write is correctly recognized as newer, then stop. (After a peer's
+      // Yjs edit lands during a deferred wait, this is what makes us no-op.)
+      if (currentMd === normalizedNext || content === lastEmittedRef.current) {
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        return;
+      }
+
+      if (
+        !shouldApplyExternalContentSync({
+          docChanged,
+          content,
+          lastEmittedMarkdown: lastEmittedRef.current,
+          currentMarkdown: currentMd,
+          nextMarkdown: normalizedNext,
+          contentUpdatedAt,
+          lastAppliedUpdatedAt: lastAppliedUpdatedAtRef.current,
+          isLeadClient,
+          editorFocused: editor.isFocused,
+          lastTypedAt: lastTypedAtRef.current,
+          now: Date.now(),
         })
-        .setContent(nextEditorContent)
-        .run();
-      isSettingContent.current = false;
-    });
+      ) {
+        // If we only deferred because the user is typing right now, re-check
+        // shortly so the external edit still lands once they pause.
+        const externalNewer =
+          docChanged ||
+          !lastAppliedUpdatedAtRef.current ||
+          (!!contentUpdatedAt &&
+            contentUpdatedAt > lastAppliedUpdatedAtRef.current);
+        const typingRightNow =
+          editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
+        if (externalNewer && isLeadClient && typingRightNow) {
+          retryTimer = setTimeout(() => run(deferred), 700);
+        }
+        return;
+      }
+
+      // Race guard: with collaborators present, let Yjs deliver a peer's edit
+      // first. Defer once and re-check — if it was a peer edit, the equality
+      // check above will no-op next pass; if it was an agent/Notion edit, it
+      // still differs and we apply it below.
+      if (!deferred && !docChanged && peerCountRef.current > 0) {
+        retryTimer = setTimeout(() => run(true), PEER_SETTLE_MS);
+        return;
+      }
+
+      // Defer to a microtask so we don't trigger flushSync during a React
+      // render — TipTap's setContent dispatches PM transactions that may
+      // synchronously update React-owned state via the Collaboration extension.
+      queueMicrotask(() => {
+        if (cancelled || !editor || editor.isDestroyed) return;
+        isSettingContent.current = true;
+        // addToHistory: false so cmd+z doesn't erase externally-loaded content.
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(nextEditorContent)
+          .run();
+        isSettingContent.current = false;
+        if (contentUpdatedAt)
+          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        lastEmittedRef.current = normalizedNext;
+      });
+    };
+
+    run();
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [content, editor, documentId, ydoc]);
+  }, [content, contentUpdatedAt, editor, documentId, isLeadClient]);
 
   if (!editor) {
     return (
@@ -1002,7 +1645,7 @@ export function VisualEditor({
 
   return (
     <div
-      className={`visual-editor-wrapper${isDraggingImage ? " visual-editor-wrapper--dragging" : ""}`}
+      className={`visual-editor-wrapper${isDraggingMedia ? " visual-editor-wrapper--dragging" : ""}`}
     >
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
@@ -1012,11 +1655,13 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable ? <TableHoverControls editor={editor} /> : null}
-      {editable && isDraggingImage ? (
+      {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
             <IconPhoto size={16} />
-            <span>Drop image</span>
+            <IconVideo size={16} />
+            <IconMusic size={16} />
+            <span>Drop media</span>
           </div>
         </div>
       ) : null}

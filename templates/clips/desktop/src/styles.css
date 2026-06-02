@@ -22,6 +22,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
+  --popover-shadow-gutter: 12px;
+  --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md:
@@ -75,6 +77,10 @@ body {
   overflow: visible;
 }
 
+body[data-clips-route="popover"] {
+  overflow: hidden;
+}
+
 html[data-clips-route]:not([data-clips-route="popover"]),
 body[data-clips-route]:not([data-clips-route="popover"]) {
   width: 100vw;
@@ -93,9 +99,18 @@ button {
   background: transparent;
 }
 
+body[data-clips-route="popover"] #root {
+  min-height: 100vh;
+  padding: var(--popover-shadow-gutter);
+}
+
 body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 100vh;
   overflow: hidden;
+}
+
+body[data-clips-route="recording-pill"] #root {
+  padding: var(--overlay-shadow-gutter);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -115,7 +130,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
-  max-height: 100vh;
+  max-height: calc(
+    100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
+  );
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -902,6 +919,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-direction: column;
   gap: 2px;
   padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .readiness-item {
@@ -1622,6 +1642,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   white-space: nowrap;
 }
 
+.pending-upload-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .pending-upload-retry {
   height: 28px;
   border: 1px solid #bfdbfe;
@@ -1642,12 +1668,63 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity 120ms;
 }
 
+.pending-upload-discard {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #2563eb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-folder {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
 .pending-upload-retry:hover {
   background: #dbeafe;
   border-color: #93c5fd;
 }
 
-.pending-upload-retry:disabled {
+.pending-upload-folder:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-discard:hover {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.pending-upload-retry:disabled,
+.pending-upload-folder:disabled,
+.pending-upload-discard:disabled {
   cursor: default;
   opacity: 0.6;
 }
@@ -1823,9 +1900,32 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     color: #dbeafe;
   }
 
+  .pending-upload-discard {
+    background: rgba(15, 23, 42, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #bfdbfe;
+  }
+
+  .pending-upload-folder {
+    background: rgba(15, 23, 42, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
   .pending-upload-retry:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-folder:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-discard:hover {
+    background: rgba(127, 29, 29, 0.34);
+    border-color: rgba(248, 113, 113, 0.62);
+    color: #fecaca;
   }
 
   .error-banner {
@@ -1880,10 +1980,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  /* No glow — the bare white numeral is crisper on camera than a
-     haloed one, which tends to bloom and lose edge detail in the
-     recorded output. */
-  animation: cd-pop 0.85s ease-out forwards;
+  -webkit-text-stroke: 1px rgba(17, 24, 39, 0.22);
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.48),
+    0 12px 34px rgba(0, 0, 0, 0.36),
+    0 0 2px rgba(0, 0, 0, 0.72);
+  animation: cd-pop 1s ease-out forwards;
   line-height: 1;
 }
 
@@ -1898,6 +2000,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-pill);
   background: rgba(10, 12, 16, 0.28);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
   color: rgba(255, 255, 255, 0.58);
   font-size: 11px;
   font-weight: 500;
@@ -1973,7 +2076,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 28px 36px;
   border-radius: 22px;
   background: rgba(20, 22, 28, 0.94);
@@ -1985,6 +2088,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   min-width: 260px;
+  max-width: min(420px, calc(100vw - 48px));
 }
 
 /*
@@ -2015,12 +2119,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   text-align: center;
 }
 
+.finalizing-progress {
+  width: 220px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.finalizing-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.88);
+  transition: width 180ms ease;
+}
+
 .finalizing-sub {
   font-size: 12px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.65);
   text-align: center;
   margin-top: -4px;
+  max-width: 340px;
+  line-height: 1.35;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2049,9 +2170,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   cursor: grab;
 }
@@ -2163,23 +2281,35 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .toolbar-v {
   position: fixed;
-  inset: 0;
+  left: var(--overlay-shadow-gutter);
+  top: var(--overlay-shadow-gutter);
+  width: 72px;
+  height: 150px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
   /* Equal inset on all four sides from the pill edge to the buttons. */
   padding: 10px;
+  overflow: hidden;
   border-radius: 24px;
   background: rgba(20, 22, 28, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
+  transition:
+    height 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toolbar-v:hover,
+.toolbar-v:focus-within {
+  height: 234px;
+  border-radius: 26px;
 }
 
 .toolbar-v:active {
@@ -2189,6 +2319,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .toolbar-v-stop {
   width: 30px;
   height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  flex: 0 0 30px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   border: none;
   /* orange-500 — a touch softer than the red-orange we had before. */
@@ -2198,6 +2332,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .toolbar-v-stop:hover {
@@ -2216,7 +2351,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-block;
 }
 
+.toolbar-v-spinner {
+  animation: toolbar-v-spin 0.8s linear infinite;
+}
+
+@keyframes toolbar-v-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .toolbar-v-time {
+  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 600;
@@ -2227,6 +2373,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .toolbar-v-pause {
   width: 30px;
   height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  flex: 0 0 30px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
@@ -2235,11 +2385,68 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .toolbar-v-pause:hover {
   background: rgba(255, 255, 255, 0.1);
   color: white;
+}
+
+.toolbar-v-hover-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 130ms ease-out,
+    transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toolbar-v:hover .toolbar-v-hover-actions,
+.toolbar-v:focus-within .toolbar-v-hover-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.toolbar-v-action {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  flex: 0 0 40px;
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.toolbar-v-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.toolbar-v-action:active {
+  transform: scale(0.94);
+}
+
+.toolbar-v-action-danger:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .toolbar-v-paused {
@@ -2251,20 +2458,31 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    (no recorder to drive yet). Greyed out + not-allowed cursor makes the
    "not yet" affordance obvious. */
 .toolbar-v-disabled .toolbar-v-stop,
-.toolbar-v-disabled .toolbar-v-pause {
+.toolbar-v-disabled .toolbar-v-pause,
+.toolbar-v-disabled .toolbar-v-action {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
   cursor: not-allowed;
   pointer-events: auto;
 }
 .toolbar-v-disabled .toolbar-v-stop:hover,
-.toolbar-v-disabled .toolbar-v-pause:hover {
+.toolbar-v-disabled .toolbar-v-pause:hover,
+.toolbar-v-disabled .toolbar-v-action:hover {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.35);
 }
 .toolbar-v-stop:disabled,
-.toolbar-v-pause:disabled {
+.toolbar-v-pause:disabled,
+.toolbar-v-action:disabled {
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolbar-v,
+  .toolbar-v-hover-actions,
+  .toolbar-v-action {
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2289,12 +2507,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
  */
 .bubble-wrapper {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
   /* Transparent background — the Tauri window is `transparent: true`,
-     so the shadow + circle below paint through. */
+     so the circular camera surface below paints through. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
@@ -2312,9 +2530,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  /* Drop shadow only — no brand ring. The bubble is the user's face;
-     a bright purple halo competes with what matters visually. */
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   /* Position context for absolute children (close X, canvas). */
   position: relative;
   /* Cursor hint — the drag region is here. */
@@ -2407,7 +2622,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   z-index: 3;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .bubble-close:hover {
@@ -2433,7 +2647,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   z-index: 3;
   /* Cursor over the pill should not be a grab cursor (we're not dragging
      the bubble when clicking its controls). */
@@ -3084,7 +3297,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
    the words being recognized in real time. */
 .flow-bar-root {
   position: fixed;
-  inset: 0;
+  inset: var(--overlay-shadow-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3140,9 +3353,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.35);
   color: white;
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
@@ -3482,5 +3692,447 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
   100% {
     opacity: 0.6;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: recording pill                                                    */
+/* ------------------------------------------------------------------------- */
+
+.pill-outer {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.pill-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  border-radius: 16px;
+  background: rgba(24, 24, 27, 0.95);
+  color: white;
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.pill-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.pill-header-detached {
+  height: 40px;
+  padding: 0 8px;
+}
+
+.pill-dot {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pill-dot-active {
+  background: #ef4444;
+  animation: pill-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.pill-dot-paused {
+  background: #a1a1aa;
+}
+
+@keyframes pill-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-timer {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-wave-dual {
+  display: flex;
+  height: 20px;
+  width: 48px;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pill-wave-canvas-half {
+  height: 50%;
+  width: 100%;
+  display: block;
+}
+
+.pill-wave-canvas {
+  height: 20px;
+  width: 48px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.pill-mode {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #d4d4d8;
+}
+
+.pill-stop-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #ef4444;
+  color: white;
+  border: none;
+  transition:
+    background 120ms,
+    opacity 120ms;
+}
+
+.pill-stop-btn:hover:not(:disabled) {
+  background: #f87171;
+}
+
+.pill-stop-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-expand-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #e4e4e7;
+  border: none;
+  background: transparent;
+  transition: background 120ms;
+}
+
+.pill-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-drag-handle {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 4px;
+  width: 40px;
+  cursor: pointer;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  border: none;
+  transition: background 120ms;
+}
+
+.pill-drag-handle:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Whisper model status row in Settings */
+
+.whisper-status {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+.whisper-status-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.whisper-status-ready {
+  color: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-status-ready {
+    color: #4ade80;
+  }
+}
+
+.whisper-status-disabled,
+.whisper-status-missing {
+  color: #b45309;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-status-disabled,
+  .whisper-status-missing {
+    color: #fbbf24;
+  }
+}
+
+.whisper-status-path {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--fg-subtle);
+  word-break: break-all;
+}
+
+.whisper-status-downloading {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.whisper-progress-bar {
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.whisper-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #16a34a;
+  transition: width 300ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-progress-fill {
+    background: #4ade80;
+  }
+}
+
+.whisper-progress-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-download-btn {
+  flex-shrink: 0;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 8px;
+  transition: background 120ms;
+}
+
+.whisper-download-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* ---- */
+
+.pill-error {
+  margin: 0 10px 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.pill-divider {
+  margin: 0 12px;
+  height: 1px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-transcript-area {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.lt-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f4f4f5;
+}
+
+.lt-empty {
+  color: #71717a;
+}
+
+.lt-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.lt-row-you {
+  align-items: flex-end;
+}
+
+.lt-row-them {
+  align-items: flex-start;
+}
+
+.lt-row-pending {
+  opacity: 0.6;
+}
+
+.lt-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.lt-time {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  opacity: 0.55;
+}
+
+.lt-row-you .lt-label {
+  color: rgba(252, 211, 77, 0.8);
+}
+
+.lt-row-them .lt-label {
+  color: rgba(125, 211, 252, 0.8);
+}
+
+.lt-bubble {
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: 16px;
+  word-break: break-word;
+}
+
+.lt-row-you .lt-bubble {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fffbeb;
+  border-bottom-right-radius: 4px;
+}
+
+.lt-row-them .lt-bubble {
+  background: rgba(14, 165, 233, 0.2);
+  color: #f0f9ff;
+  border-bottom-left-radius: 4px;
+}
+
+.pill-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+
+.pill-pause-btn {
+  display: inline-flex;
+  height: 32px;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  border: none;
+  transition: background 120ms;
+}
+
+.pill-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.pill-stop-footer-btn {
+  margin-left: auto;
+  display: inline-flex;
+  height: 32px;
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  border: none;
+  transition:
+    background 120ms,
+    opacity 120ms;
+}
+
+.pill-stop-footer-btn:hover:not(:disabled) {
+  background: #f87171;
+}
+
+.pill-stop-footer-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-spinner {
+  animation: pill-spin 0.8s linear infinite;
+}
+
+@keyframes pill-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

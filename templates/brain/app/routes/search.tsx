@@ -130,7 +130,7 @@ export default function SearchRoute() {
     <div className="min-h-full bg-background">
       <PageHeader
         eyebrow="Search"
-        title="Search company memory"
+        title="Search company knowledge"
         description="Search reviewed knowledge, raw captures, and source records, then open the cited Brain record or original source."
         actions={
           <Badge variant="outline" className="gap-2">
@@ -278,13 +278,13 @@ export default function SearchRoute() {
           <EmptyActionState
             title={
               hasFilters
-                ? "No memory matches these filters"
-                : "Start with a company-memory search"
+                ? "No knowledge matches these filters"
+                : "Start with a company knowledge search"
             }
             detail={
               hasFilters
                 ? "Broaden the query or clear a filter."
-                : "Enter a phrase to search cited company memory."
+                : "Enter a phrase to search cited company knowledge."
             }
           />
         )}
@@ -307,7 +307,7 @@ function SearchResultRow({
     result.source?.title ??
     result.sourceProvider ??
     result.provider ??
-    "Company memory";
+    "Company knowledge";
   const internalHref = internalResultHref(result);
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
@@ -394,7 +394,7 @@ function SearchResultDetails({
     result.sourceTitle ??
     result.source?.title ??
     result.citation?.captureTitle ??
-    "Company memory";
+    "Company knowledge";
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
   const internalHref = internalResultHref(result);

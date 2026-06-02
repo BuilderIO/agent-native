@@ -17,6 +17,7 @@ export default defineAction({
         "knowledge",
         "review",
         "proposals",
+        "extensions",
         "ops",
         "settings",
       ])
@@ -25,6 +26,7 @@ export default defineAction({
     captureId: z.string().optional(),
     knowledgeId: z.string().optional(),
     proposalId: z.string().optional(),
+    extensionId: z.string().optional(),
     query: z.string().optional(),
     type: z.enum(["knowledge", "capture", "source", "all"]).optional(),
     provider: z.string().optional(),

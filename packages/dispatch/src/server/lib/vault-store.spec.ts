@@ -24,11 +24,13 @@ vi.mock("../../db/index.js", async (importOriginal) => {
 import {
   cleanupSyncedCredentialKeysIfUnused,
   credentialStoreScopeForVaultCtx,
+  isTrustedEnvVarSyncAgentUrl,
   syncSecretsToCredentialStore,
 } from "./vault-store.js";
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("credentialStoreScopeForVaultCtx", () => {
@@ -51,6 +53,29 @@ describe("credentialStoreScopeForVaultCtx", () => {
       scope: "workspace",
       scopeId: "solo:owner@example.test",
     });
+  });
+});
+
+describe("isTrustedEnvVarSyncAgentUrl", () => {
+  it("allows localhost development app URLs", () => {
+    expect(isTrustedEnvVarSyncAgentUrl("http://localhost:9201")).toBe(true);
+    expect(isTrustedEnvVarSyncAgentUrl("http://127.0.0.1:9201")).toBe(true);
+  });
+
+  it("allows same-origin workspace app URLs from deploy metadata", () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+
+    expect(
+      isTrustedEnvVarSyncAgentUrl("https://workspace.example.test/slides"),
+    ).toBe(true);
+  });
+
+  it("rejects remote custom agent origins", () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+
+    expect(isTrustedEnvVarSyncAgentUrl("https://attacker.example.test")).toBe(
+      false,
+    );
   });
 });
 

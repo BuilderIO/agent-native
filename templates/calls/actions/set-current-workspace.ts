@@ -8,21 +8,8 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  parseSpaceIds,
-  stringifySpaceIds,
-  parseJson,
-  resolveDefaultWorkspaceId,
-} from "../server/lib/calls.js";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  writeAppState,
-  readAppState,
-} from "@agent-native/core/application-state";
+import { assertWorkspaceAccess } from "../server/lib/calls.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -32,13 +19,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args) => {
-    const db = getDb();
-    const [row] = await db
-      .select()
-      .from(schema.workspaces)
-      .where(eq(schema.workspaces.id, args.id))
-      .limit(1);
-    if (!row) throw new Error(`Workspace not found: ${args.id}`);
+    const row = await assertWorkspaceAccess(args.id);
 
     await writeAppState("current-workspace", {
       id: row.id,
@@ -59,13 +40,3 @@ export default defineAction({
     };
   },
 });
-
-void getCurrentOwnerEmail;
-void nanoid;
-void parseSpaceIds;
-void stringifySpaceIds;
-void parseJson;
-void resolveDefaultWorkspaceId;
-void readAppState;
-void accessFilter;
-void assertAccess;

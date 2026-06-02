@@ -2,6 +2,7 @@ import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Link } from "react-router";
 import { trackEvent } from "@agent-native/core/client";
+import { TemplateDocsLink } from "./template-docs";
 
 export { trackEvent };
 
@@ -115,6 +116,21 @@ export const templates = [
     description:
       "Full-page company chat over cited memory from approved Slack, Clips, Granola, GitHub, and transcript sources, with review gates, evals, and shared connection readiness built in.",
     color: "#8B5CF6",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800",
+  },
+  {
+    name: "Assets",
+    slug: "assets",
+    replaces:
+      "Replaces or augments DAMs, brand asset libraries, and AI media generators",
+    cliCommand: "npx @agent-native/core create my-assets-app --template assets",
+    demoUrl: "https://assets.agent-native.com",
+    description:
+      "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+    color: "#0F766E",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
   },
   {
     name: "Design",
@@ -154,7 +170,7 @@ export const templates = [
 export type Template = (typeof templates)[number];
 
 export const featuredTemplates = templates.filter(
-  (template) => !["brain", "video"].includes(template.slug),
+  (template) => template.slug !== "video",
 );
 
 function CliPopoverContent({ template }: { template: Template }) {
@@ -214,7 +230,7 @@ function CliPopoverContent({ template }: { template: Template }) {
       <div className="border-t border-[var(--code-border)] px-3 py-1.5 text-[10px] text-[var(--fg-secondary)]">
         Paste into your terminal.{" "}
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to="/docs/getting-started"
           className="text-[var(--docs-accent)] no-underline hover:underline"
         >
@@ -289,19 +305,11 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
-        <Link
-          prefetch="render"
-          to={`/templates/${template.slug}`}
-          onClick={() =>
-            trackEvent("click view docs", {
-              template: template.slug,
-              location: "card",
-            })
-          }
+        <TemplateDocsLink
+          template={template}
+          location="card"
           className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-        >
-          View Docs
-        </Link>
+        />
       </div>
     </div>
   );
@@ -311,7 +319,7 @@ export function TemplateCard({ template }: { template: Template }) {
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
       <Link
-        prefetch="render"
+        data-an-prefetch="render"
         to={`/templates/${template.slug}`}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
@@ -342,7 +350,7 @@ export function TemplateCard({ template }: { template: Template }) {
       </Link>
       <h3 className="text-base font-semibold">
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to={`/templates/${template.slug}`}
           className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >

@@ -1,9 +1,14 @@
 /**
  * Save a native transcript for a recording.
  *
- * Called by the web client (Web Speech API) and desktop client (macOS Speech)
- * immediately when recording stops. Native transcripts are available
- * instantly with no API-key requirement and are the primary transcript source.
+ * Called by the web client (Web Speech API) and desktop client (whispher).
+ * Native transcripts are available instantly with no API-key requirement
+ * and are the primary transcript source. Always replaces the stored transcript with `fullText`. If `segments` are
+ * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
+ * stored verbatim; otherwise evenly-paced segments are synthesized from the
+ * text. Live capture that OWNS the transcript (meeting flushes re-sending the
+ * cumulative text + segments) passes `overwriteReady: true` to keep updating
+ * its own already-"ready" transcript past the first flush.
  *
  * Usage:
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
@@ -19,15 +24,31 @@ import regenerateTitle, {
   queueTitleRegenerationRequest,
 } from "./regenerate-title.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import { booleanParam } from "./lib/cli-params.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify(buildCaptionSegmentsFromText(fullText));
 }
 
+// Real transcript segments supplied by a caller that already has accurate
+// timestamps (e.g. the desktop Whisper engine). When present these are stored
+// verbatim instead of synthesizing timings from the text.
+const segmentSchema = z
+  .object({
+    startMs: z.number().nonnegative(),
+    endMs: z.number().nonnegative(),
+    text: z.string(),
+    // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
+    source: z.enum(["mic", "system"]).optional(),
+  })
+  .refine((s) => s.startMs <= s.endMs, {
+    message: "startMs must be <= endMs",
+  });
+
 export default defineAction({
   description:
-    "Save a native transcript (Web Speech API or macOS Speech) for a recording. Provides an instant transcript with no API key required.",
+    "Save a native transcript (Web Speech API, macOS Speech, or Whisper) for a recording. Replaces the stored transcript with fullText; stores real `segments` timestamps verbatim when given, else synthesizes them. Pass overwriteReady=true for live capture that owns the transcript and re-sends cumulative text/segments (e.g. meeting flushes).",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     fullText: z
@@ -36,9 +57,20 @@ export default defineAction({
       .default("")
       .describe("Full transcript text from native speech recognition"),
     source: z
-      .enum(["web-speech", "macos-native"])
+      .enum(["web-speech", "macos-native", "whisper"])
       .optional()
       .describe("Native transcription source"),
+    segments: z
+      .array(segmentSchema)
+      .optional()
+      .describe(
+        "Real transcript segments with accurate timestamps (ms). When provided, stored verbatim instead of synthesizing timings from fullText.",
+      ),
+    overwriteReady: booleanParam
+      .default(false)
+      .describe(
+        "Replace even an already-segmented 'ready' transcript. Used by live capture that owns the transcript and re-sends the cumulative text/segments on every flush (e.g. meeting transcription). Default false protects a finished transcript from a later lower-confidence native pass.",
+      ),
     failureReason: z
       .string()
       .optional()
@@ -50,7 +82,12 @@ export default defineAction({
     const now = new Date().toISOString();
     const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
-    const segmentsJson = nativeSegmentsJson(fullText);
+    // Prefer real caller-supplied segment timestamps; otherwise
+    // synthesize evenly-paced segments from the text.
+    const segmentsJson =
+      args.segments && args.segments.length > 0
+        ? JSON.stringify(args.segments)
+        : nativeSegmentsJson(fullText);
 
     const [current] = await db
       .select({
@@ -125,8 +162,10 @@ export default defineAction({
 
     if (current) {
       // Don't overwrite an already-segmented cloud/native transcript with a
-      // later lower-confidence native pass.
-      if (hasReadySegments) {
+      // later lower-confidence native pass — UNLESS the caller owns this
+      // transcript and is intentionally re-sending its cumulative text +
+      // segments (overwriteReady, e.g. live meeting flushes).
+      if (hasReadySegments && !args.overwriteReady) {
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,

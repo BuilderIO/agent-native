@@ -9,11 +9,7 @@
  */
 
 import { createRequire } from "node:module";
-import type {
-  AgentEngine,
-  EngineCapabilities,
-  EngineStreamOptions,
-} from "./types.js";
+import type { AgentEngine, EngineCapabilities } from "./types.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {

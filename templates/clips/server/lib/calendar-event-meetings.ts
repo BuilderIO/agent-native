@@ -118,6 +118,15 @@ export async function resolveCalendarAccessToken(
       clientSecret,
     });
   } catch {
+    // TODO(needs-reauth classification): a transient refresh failure (network
+    // error / 5xx / timeout) is indistinguishable here from a permanent one
+    // (invalid_grant / invalid_token / unauthorized): both surface to the
+    // caller as a bare `null`, which the caller translates to
+    // `new Error("Token refresh failed")` -> shouldMarkNeedsReauth -> the
+    // account is flagged "needs-reauth" even on a blip. Distinguishing the two
+    // safely would require either changing this function's return contract or
+    // moving error recording out of the callers (a caller-contract change),
+    // both of which are out of scope, so we leave the existing behavior intact.
     return null;
   }
   if (!refreshed.access_token) return null;

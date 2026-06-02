@@ -103,4 +103,21 @@ describe("processHtmlImages", () => {
     expect(html).toContain("#filterSource");
     expect(html).toContain("#symbol");
   });
+
+  it("removes remote SVG presentation attribute URLs", () => {
+    const input = [
+      "<svg>",
+      '<rect fill="url(https://cdn.example.com/gradient.svg#g)" filter="url(#shadow)"></rect>',
+      '<path mask="url(&quot;https://cdn.example.com/mask.svg#m&quot;)" marker-start="url(#arrow)"></path>',
+      "</svg>",
+    ].join("");
+
+    const [html, blockedCount] = processHtmlImages(input, "block-all");
+
+    expect(blockedCount).toBe(2);
+    expect(html).not.toContain("https://cdn.example.com/gradient.svg");
+    expect(html).not.toContain("https://cdn.example.com/mask.svg");
+    expect(html).toContain("url(#shadow)");
+    expect(html).toContain("url(#arrow)");
+  });
 });

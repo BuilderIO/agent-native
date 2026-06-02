@@ -59,9 +59,17 @@ export default defineAction({
         ];
       });
 
+      // Neutralize CSV/formula injection: a cell that begins with =,+,-,@,tab,
+      // or CR is interpreted as a formula by Excel/LibreOffice/Sheets. Response
+      // values come from anonymous public submitters, so prefix any such cell
+      // with a single quote so spreadsheets treat it as literal text.
+      const neutralize = (cell: string) =>
+        /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
       const csv = [headers, ...rows]
         .map((row) =>
-          row.map((cell: string) => `"${cell.replace(/"/g, '""')}"`).join(","),
+          row
+            .map((cell: string) => `"${neutralize(cell).replace(/"/g, '""')}"`)
+            .join(","),
         )
         .join("\n");
 

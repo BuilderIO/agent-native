@@ -5,7 +5,6 @@
  * required steps. Clicking clears the dismissal flag so the panel reappears.
  */
 
-import React from "react";
 import { IconChecklist } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
 import { useDevMode } from "../use-dev-mode.js";

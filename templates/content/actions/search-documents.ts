@@ -63,12 +63,6 @@ export default defineAction({
       .orderBy(sql`${schema.documents.updatedAt} DESC`)
       .limit(args.limit);
 
-    if (docs.length === 0) {
-      console.log(`No documents matching "${query}".`);
-      return { documents: [] };
-    }
-
-    console.log(`Found ${docs.length} document(s) matching "${query}"`);
     return {
       documents: docs.map((doc) => ({
         id: doc.id,

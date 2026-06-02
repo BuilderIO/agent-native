@@ -1,10 +1,3 @@
-/**
- * Create a text expansion snippet.
- *
- * Usage:
- *   pnpm action create-snippet --trigger="@@sig" --expansion="Best regards, Steve"
- */
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -48,7 +41,6 @@ export default defineAction({
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Created snippet "${args.trigger}" -> "${args.expansion}"`);
 
     return { id, trigger: args.trigger, expansion: args.expansion };
   },

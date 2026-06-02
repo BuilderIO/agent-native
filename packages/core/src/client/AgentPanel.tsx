@@ -55,23 +55,21 @@ import {
   IconLayoutGrid,
   IconCheck,
   IconPlus,
-  IconFolder,
   IconX,
-  IconClockHour3,
   IconDotsVertical,
   IconHistory,
-  IconTrash,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { FeedbackButton } from "./FeedbackButton.js";
+import { RunsTray } from "./progress/RunsTray.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import {
-  isAssistantUiStaleIndexError,
+  assistantUiRecoverableRenderErrorKind,
   type AssistantChatProps,
 } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
@@ -82,7 +80,10 @@ import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
 import { trackEvent } from "./analytics.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
@@ -91,6 +92,7 @@ import {
   SIDEBAR_OPEN_KEY,
   subscribeAgentSidebarUrlChanges,
 } from "./agent-sidebar-state.js";
+import { AgentNativeRouteWarmup } from "./route-warmup.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -103,7 +105,7 @@ const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
 function parentFrameTargetOrigin(): string {
-  return getFrameOrigin() ?? window.location.origin;
+  return getFramePostMessageTargetOrigin() ?? window.location.origin;
 }
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
@@ -200,9 +202,6 @@ function useCliSelection(keyPrefix: string) {
   };
   return [selected, select] as const;
 }
-
-// Detect dev mode at build time (Vite replaces this)
-const IS_DEV: boolean = import.meta.env?.DEV === true;
 
 // ─── Settings panel components moved to ./settings/ ────────────────────────
 
@@ -367,6 +366,8 @@ export interface AgentPanelProps extends Omit<
   devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
+  /** Restore the previously active chat thread on mount. Default: true. */
+  restoreActiveThread?: boolean;
   /**
    * Bind the chat to a specific resource (deck, design, dashboard, ...).
    * When set, chats started inside the panel inherit this scope and tuck
@@ -380,6 +381,8 @@ export interface AgentPanelProps extends Omit<
   browserTabId?: string;
   /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
+  /** Show the chat thread tab row when the panel header is hidden. Default: true. */
+  showTabBar?: boolean;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -490,9 +493,11 @@ function AgentPanelInner({
   onToggleFullscreen,
   devAppUrl,
   storageKey,
+  restoreActiveThread = true,
   scope,
   browserTabId,
   chatNotice,
+  showTabBar = true,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -557,6 +562,17 @@ function AgentPanelInner({
   const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
+  const openRunThread = useCallback(
+    (threadId: string) => {
+      switchMode("chat");
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    },
+    [switchMode],
+  );
   const activateOnKeyDown = useCallback(
     (activate: () => void) => (event: React.KeyboardEvent) => {
       if (!ACTIVATE_KEYS.has(event.key)) return;
@@ -834,6 +850,14 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
+        <RunsTray
+          pollMs={2000}
+          limit={12}
+          hideWhenIdle={false}
+          showRecent
+          triggerVariant="pill"
+          onOpenThread={openRunThread}
+        />
         <FeedbackButton
           variant="icon"
           side="bottom"
@@ -871,7 +895,14 @@ function AgentPanelInner({
         )}
       </div>
     ),
-    [onCollapse, canUseCodeTools, onToggleFullscreen, isFullscreen],
+    [
+      canUseCodeTools,
+      isFullscreen,
+      onCollapse,
+      onToggleFullscreen,
+      openRunThread,
+      storageKey,
+    ],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -1334,6 +1365,7 @@ function AgentPanelInner({
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
+            `[data-agent-fullscreen='true'] .agent-running-activity,` +
             `[data-agent-fullscreen='true'] .agent-composer-area{` +
             `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
@@ -1366,6 +1398,7 @@ function AgentPanelInner({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
+            showTabBar={showTabBar}
             renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
@@ -1376,6 +1409,7 @@ function AgentPanelInner({
             execMode={execMode}
             onExecModeChange={switchExecMode}
             storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
             scope={scope}
             browserTabId={browserTabId}
           />
@@ -1570,24 +1604,6 @@ function ResizeHandle({
   );
 }
 
-/**
- * Remounts its children whenever the framework's `refresh-screen` tool is
- * invoked. Used inside AgentSidebar so the main content area re-fetches
- * without disturbing the chat sidebar's in-flight state.
- *
- * Two mechanisms work together here:
- *
- *  1. Before the remount, every react-query cache entry is marked stale
- *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
- *     trigger a refetch on its own, so active queries elsewhere (chat
- *     sidebar, left nav) keep their current data — they'll refetch only
- *     on their next natural trigger.
- *  2. The React `key` then bumps, unmounting and remounting the subtree.
- *     On remount, child components re-subscribe to their queries, see
- *     the data is stale, and refetch — regardless of configured
- *     `staleTime`. This is what makes the dashboard pick up the agent's
- *     edits even when the query uses `staleTime: 30_000` or similar.
- */
 /**
  * Syncs the current URL (pathname + search + hash) to application_state
  * under `__url__`, and processes one-shot URL-update commands the agent
@@ -1785,6 +1801,24 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
 
   return null;
 }
+/**
+ * Remounts its children whenever the framework's `refresh-screen` tool is
+ * invoked. Used inside AgentSidebar so the main content area re-fetches
+ * without disturbing the chat sidebar's in-flight state.
+ *
+ * Two mechanisms work together here:
+ *
+ *  1. Before the remount, every react-query cache entry is marked stale
+ *     via `invalidateQueries({ refetchType: "none" })`. This does NOT
+ *     trigger a refetch on its own, so active queries elsewhere (chat
+ *     sidebar, left nav) keep their current data — they'll refetch only
+ *     on their next natural trigger.
+ *  2. The React `key` then bumps, unmounting and remounting the subtree.
+ *     On remount, child components re-subscribe to their queries, see
+ *     the data is stale, and refetch — regardless of configured
+ *     `staleTime`. This is what makes the dashboard pick up the agent's
+ *     edits even when the query uses `staleTime: 30_000` or similar.
+ */
 function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
   const key = useScreenRefreshKey();
   const queryClient = useQueryClient();
@@ -1816,13 +1850,15 @@ class AgentPanelErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    if (isAssistantUiStaleIndexError(error)) {
+    const recoverableKind = assistantUiRecoverableRenderErrorKind(error);
+    if (recoverableKind) {
       console.warn(
-        "[agent-native] Recovering agent panel after stale UI index",
+        "[agent-native] Recovering agent panel after assistant UI render error",
+        recoverableKind,
       );
       if (this.state.staleIndexRecoveryCount >= 2) {
         console.error(
-          "[agent-native] Agent panel stale-index recovery failed",
+          "[agent-native] Agent panel assistant UI recovery failed",
           error,
           errorInfo,
         );
@@ -1880,7 +1916,7 @@ class AgentPanelErrorBoundary extends React.Component<
     if (!this.state.error) return this.props.children;
 
     if (
-      isAssistantUiStaleIndexError(this.state.error) &&
+      assistantUiRecoverableRenderErrorKind(this.state.error) &&
       this.state.staleIndexRecoveryCount < 2
     ) {
       return (
@@ -2489,6 +2525,7 @@ export function AgentSidebar({
 
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+      <AgentNativeRouteWarmup />
       {/* Mobile backdrop — tapping it closes the sidebar */}
       {isMobile && !presentationMode && (animateMobile || open) && (
         <div

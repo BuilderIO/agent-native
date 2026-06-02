@@ -38,7 +38,6 @@ import {
   getCallOrThrow,
   getCurrentOwnerEmail,
   nanoid,
-  parseJson,
 } from "../server/lib/calls.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -46,6 +45,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
   getRequestUserEmail,
@@ -121,7 +121,9 @@ export default defineAction({
             process.env.NITRO_PUBLIC_URL ??
             `http://localhost:${port}`;
           const absolute = `${origin}${call.mediaUrl}`;
-          const res = await fetch(absolute);
+          const res = await fetch(absolute, {
+            signal: AbortSignal.timeout(30_000),
+          });
           if (!res.ok) {
             throw new Error(
               `Failed to fetch mediaUrl: HTTP ${res.status} ${res.statusText}`,
@@ -130,7 +132,11 @@ export default defineAction({
           audioBytes = new Uint8Array(await res.arrayBuffer());
           mimeType = res.headers.get("content-type") ?? "audio/webm";
         } else {
-          const res = await fetch(call.mediaUrl);
+          const res = await ssrfSafeFetch(
+            call.mediaUrl,
+            { signal: AbortSignal.timeout(30_000) },
+            { maxRedirects: 3 },
+          );
           if (!res.ok) {
             throw new Error(
               `Failed to fetch mediaUrl: HTTP ${res.status} ${res.statusText}`,
@@ -550,6 +556,3 @@ async function materializeParticipants(
 }
 
 export { upsertTranscriptRow };
-
-// Tree-shake guard
-void parseJson;

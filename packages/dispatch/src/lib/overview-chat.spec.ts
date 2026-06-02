@@ -28,6 +28,21 @@ describe("submitOverviewPrompt", () => {
     });
   });
 
+  it("can submit to a mounted page chat without opening the sidebar", () => {
+    const tabId = submitOverviewPrompt(" build a metrics app ", "auto", {
+      openSidebar: false,
+    });
+
+    expect(tabId).toBe("chat-tab");
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "build a metrics app",
+      submit: true,
+      newTab: true,
+      model: "auto",
+      openSidebar: false,
+    });
+  });
+
   it("routes overview prompts to Builder chat inside Builder", () => {
     frameState.inBuilderFrame = true;
 
