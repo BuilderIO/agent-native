@@ -224,8 +224,8 @@ export default function AnswerPage({ id }: Props) {
             question: session.question,
             sources: session.sources,
             instruction: DASHBOARD_RE.test(session.question)
-              ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search with relevant keywords). Include any workbooks/sheets that surface relevant data. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only."
-              : "Use dbt MCP as your primary source. Then also search Sigma MCP (begin_session first, then search with the key business terms from the question) — Sigma workbooks often surface business data not yet in dbt models; include any relevant workbooks/sheets in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
+              ? "This is a dashboard/visualization question — check BOTH sources: (1) use the list-dashboards action to find app dashboards, AND (2) use Sigma MCP (begin_session first, then search with relevant keywords) to find Sigma workbooks. Include relevant findings from both in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only."
+              : "Use dbt MCP as your primary source. Then also check BOTH dashboard sources: (1) list-dashboards action for app dashboards, AND (2) Sigma MCP (begin_session first, then search with key business terms) for Sigma workbooks. Include any relevant dashboards/workbooks in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
           }),
           submit: true,
         });
@@ -244,8 +244,8 @@ export default function AnswerPage({ id }: Props) {
         question: s.question,
         sources: s.sources,
         instruction: DASHBOARD_RE.test(s.question)
-          ? "This is a dashboard/visualization question — use Sigma MCP (begin_session first, then search with relevant keywords). Include any workbooks/sheets that surface relevant data. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only."
-          : "Use dbt MCP as your primary source. Then also search Sigma MCP (begin_session first, then search with the key business terms from the question) — Sigma workbooks often surface business data not yet in dbt models; include any relevant workbooks/sheets in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
+          ? "This is a dashboard/visualization question — check BOTH sources: (1) use the list-dashboards action to find app dashboards, AND (2) use Sigma MCP (begin_session first, then search with relevant keywords) to find Sigma workbooks. Include relevant findings from both in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only."
+          : "Use dbt MCP as your primary source. Then also check BOTH dashboard sources: (1) list-dashboards action for app dashboards, AND (2) Sigma MCP (begin_session first, then search with key business terms) for Sigma workbooks. Include any relevant dashboards/workbooks in your answer. Call store-answer when done. DO NOT create dashboards, analyses, or any other resources — the Knowledge tab is read-only.",
       }),
       submit: true,
       background: true,
