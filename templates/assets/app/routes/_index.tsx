@@ -1041,8 +1041,7 @@ function AssetComposerToolbar({
                 </SelectTrigger>
               </TooltipTrigger>
               <TooltipContent className="max-w-[16rem]">
-                Choose a library to match its style and reference images. "No
-                library - generic" generates without any saved style.
+                Choose a library to match it's style and reference images
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
