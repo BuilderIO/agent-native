@@ -37,6 +37,7 @@ export function RecordingPill() {
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
   const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
@@ -90,10 +91,16 @@ export function RecordingPill() {
         // new recording session begins, otherwise the Stop button stays
         // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
+        setError(null);
         if (stopFallbackRef.current) {
           clearTimeout(stopFallbackRef.current);
           stopFallbackRef.current = null;
         }
+      }),
+    );
+    trackListen(
+      listen<{ error: string }>("pill:error", (ev) => {
+        setError(ev.payload?.error ?? "An error occurred.");
       }),
     );
     trackListen(
@@ -353,7 +360,24 @@ export function RecordingPill() {
           />
         ) : null}
 
-        <div style={expanded ? { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } : { display: "none" }}>
+        {error ? (
+          <div className="pill-error" role="alert">
+            {error}
+          </div>
+        ) : null}
+
+        <div
+          style={
+            expanded
+              ? {
+                  display: "flex",
+                  flexDirection: "column",
+                  flex: 1,
+                  minHeight: 0,
+                }
+              : { display: "none" }
+          }
+        >
           <div className="pill-divider" />
           <div className="pill-transcript-area">
             <LiveTranscript />

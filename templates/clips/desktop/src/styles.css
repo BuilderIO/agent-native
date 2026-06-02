@@ -3865,6 +3865,18 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.pill-error {
+  margin: 0 10px 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
 .pill-divider {
   margin: 0 12px;
   height: 1px;

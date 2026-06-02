@@ -11,11 +11,10 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
-const MODEL_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-const MODEL_FILENAME: &str = "ggml-base.en.bin";
-const MODEL_SHA256: &str = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002";
-const MODEL_SIZE: u64 = 147_964_211;
+const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+const MODEL_FILENAME: &str = "ggml-base.bin";
+const MODEL_SHA256: &str = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe";
+const MODEL_SIZE: u64 = 147_951_465;
 
 /// Whether the model path is overridden via `CLIPS_WHISPER_MODEL`. A custom
 /// model is exempt from checksum verification (it may legitimately be a
@@ -81,11 +80,15 @@ pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
         path.display(),
         MODEL_URL
     );
-    let mut resp = reqwest::get(MODEL_URL)
-        .await
-        .map_err(|e| format!("model download request failed: {e}"))?;
+    let mut resp = reqwest::get(MODEL_URL).await.map_err(|e| {
+        let msg = format!("model download request failed: {e}");
+        eprintln!("[whisper] {msg}");
+        msg
+    })?;
     if !resp.status().is_success() {
-        return Err(format!("model download HTTP {}", resp.status()));
+        let msg = format!("model download HTTP {}", resp.status());
+        eprintln!("[whisper] {msg}");
+        return Err(msg);
     }
 
     // Stream the body straight to a temp file, hashing as we go. Keeps memory
@@ -109,7 +112,9 @@ pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
         total += chunk.len() as u64;
         if let Err(e) = file.write_all(&chunk) {
             let _ = std::fs::remove_file(&tmp);
-            return Err(format!("write model tmp: {e}"));
+            let msg = format!("write model tmp: {e}");
+            eprintln!("[whisper] {msg}");
+            return Err(msg);
         }
         // Coarse progress log every ~16 MB so the (one-time) download isn't
         // a silent multi-second stall in the logs.
@@ -126,16 +131,20 @@ pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     if !custom {
         if total != MODEL_SIZE {
             let _ = std::fs::remove_file(&tmp);
-            return Err(format!(
-                "model size mismatch: got {total} bytes, expected {MODEL_SIZE}"
-            ));
+            let msg = format!("model size mismatch: got {total} bytes, expected {MODEL_SIZE}");
+            eprintln!("[whisper] {msg}");
+            return Err(msg);
         }
-        let digest: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let digest: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         if digest != MODEL_SHA256 {
             let _ = std::fs::remove_file(&tmp);
-            return Err(format!(
-                "model checksum mismatch: got {digest}, expected {MODEL_SHA256}"
-            ));
+            let msg = format!("model checksum mismatch: got {digest}, expected {MODEL_SHA256}");
+            eprintln!("[whisper] {msg}");
+            return Err(msg);
         }
         eprintln!("[whisper] model checksum verified (sha256 {MODEL_SHA256})");
     }

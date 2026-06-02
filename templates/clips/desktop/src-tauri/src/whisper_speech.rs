@@ -457,7 +457,10 @@ mod macos {
 
         // Download (first run) + load the model before opening any capture so a
         // model failure doesn't leave half-open audio streams.
-        ensure_model(&app).await?;
+        ensure_model(&app).await.map_err(|e| {
+            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+            e
+        })?;
         let ctx = context(&app)?;
 
         // Resolve the whisper language. A custom model (CLIPS_WHISPER_MODEL)
