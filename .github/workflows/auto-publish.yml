@@ -91,6 +91,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Validate changesets
+        run: node scripts/check-changeset.mjs
+
       # Build everything once so changesets/action's `publish` step doesn't
       # re-build per package. The `publish` script also re-runs build to be
       # safe when a single package is published in isolation.

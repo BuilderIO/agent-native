@@ -10,8 +10,9 @@
  *      changes.
  *   2. Map each changed file to a publishable package (anything under
  *      `packages/<name>/` where `packages/<name>/package.json` is NOT
- *      `private: true`). Ignore changes to `package.json` itself if
- *      it's just a version bump from a Version Packages PR.
+ *      `private: true` and the package is NOT ignored by changesets). Ignore
+ *      changes to `package.json` itself if it's just a version bump from a
+ *      Version Packages PR.
  *   3. Read every `.changeset/*.md` (excluding `README.md` + `config.json`)
  *      and parse the YAML frontmatter for the `"@scope/pkg": bump` map.
  *   4. If any touched-but-uncovered package remains, print the structured
@@ -46,7 +47,7 @@ function listChangedFiles(baseSha) {
     .filter(Boolean);
 }
 
-function listPublishablePackages() {
+function listPublishablePackages(ignoredPackages) {
   const packagesDir = path.join(repoRoot, "packages");
   if (!fs.existsSync(packagesDir)) return new Map();
 
@@ -63,6 +64,7 @@ function listPublishablePackages() {
     }
     if (pkg.private === true) continue;
     if (!pkg.name) continue;
+    if (ignoredPackages.has(pkg.name)) continue;
     map.set(entry.name, pkg.name);
   }
   return map;
@@ -134,28 +136,28 @@ function packagesCoveredBy(changesetPath) {
     .filter(Boolean);
 }
 
-function failOnMixedIgnoredChangesets(ignoredPackages) {
+function failOnIgnoredChangesets(ignoredPackages) {
   if (ignoredPackages.size === 0) return;
 
   for (const cs of listPendingChangesets()) {
     const packages = packagesCoveredBy(cs);
     const ignored = packages.filter((pkg) => ignoredPackages.has(pkg));
     const notIgnored = packages.filter((pkg) => !ignoredPackages.has(pkg));
-    if (ignored.length === 0 || notIgnored.length === 0) continue;
+    if (ignored.length === 0) continue;
 
-    console.error(
-      "✗ Mixed changeset includes ignored and publishable packages.",
-    );
+    console.error("✗ Changeset includes ignored packages.");
     console.error("");
     console.error(`Changeset: .changeset/${path.basename(cs)}`);
     console.error(`Ignored packages: ${ignored.join(", ")}`);
-    console.error(`Publishable packages: ${notIgnored.join(", ")}`);
+    if (notIgnored.length > 0) {
+      console.error(`Publishable packages: ${notIgnored.join(", ")}`);
+    }
     console.error("");
     console.error(
-      "Changesets cannot version a file that mixes ignored packages with packages that publish to npm.",
+      "Ignored packages are not versioned by changesets. Leaving a changeset that only targets ignored packages can block the publish workflow with an empty Version Packages PR.",
     );
     console.error(
-      "Remove ignored packages from the changeset, or split them into a separate non-publishing note.",
+      "Remove ignored packages from the changeset. If the changeset only targets ignored packages, delete the changeset file.",
     );
     process.exit(1);
   }
@@ -163,8 +165,9 @@ function failOnMixedIgnoredChangesets(ignoredPackages) {
 
 function main() {
   const baseSha = getBaseSha();
-  const publishables = listPublishablePackages();
-  failOnMixedIgnoredChangesets(listIgnoredPackages());
+  const ignoredPackages = listIgnoredPackages();
+  const publishables = listPublishablePackages(ignoredPackages);
+  failOnIgnoredChangesets(ignoredPackages);
 
   const changedFiles = listChangedFiles(baseSha);
 
