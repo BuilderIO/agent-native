@@ -105,7 +105,7 @@ pub async fn whisper_model_status(app: AppHandle) -> Result<ModelStatus, String>
 /// `whisper:model-error` as the download progresses.
 #[tauri::command]
 pub async fn whisper_model_download(app: AppHandle) -> Result<(), String> {
-    if DOWNLOADING.load(Ordering::Relaxed) {
+    if DOWNLOADING.load(Ordering::Acquire) {
         return Ok(());
     }
     // Quick check: if model is already present, just emit ready and return.
