@@ -23,7 +23,7 @@ When you add a new feature, work through these four areas in order:
 
 ### 1. UI Component
 
-Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions for data fetching and mutations — you rarely need custom `/api/` routes.
+Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions for data fetching and mutations. Do not create a custom REST endpoint just so React can call action-backed data; the action endpoint already exists.
 
 **Auto-refresh on agent writes is non-negotiable** — when the agent mutates data, the UI must reflect the change without a manual refresh. There are two paths, and you must pick the right one:
 
@@ -47,6 +47,12 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 ### 2. Action
 
 Create an action in `actions/` using `defineAction`. This serves double duty: the agent calls it as a tool, and the framework auto-exposes it as an HTTP endpoint at `/_agent-native/actions/:name` for the UI to call. Set `http: { method: "GET" }` for read actions, leave default for writes, or set `http: false` for agent-only actions like `navigate` and `view-screen`.
+
+Before adding a new route or endpoint, inspect the existing actions. Reuse an
+action if it already covers the business operation, extend it if the shared
+contract is incomplete, or create a new `defineAction` if the agent and UI both
+need the capability. Do not add pass-through `/api/*` routes that re-export
+actions.
 
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
@@ -112,7 +118,7 @@ See the "Client-Side Routing" section in the root `CLAUDE.md` for full details.
 - **Per-route `<AppLayout>` wrappers** — Every route file wraps its content in `<AppLayout>` or `<Layout>`. React sees a different component at the outlet on each nav and unmounts the whole shell, causing the agent sidebar to reload on every click. Mount the shell once above `<Outlet />` (root.tsx or `_app.tsx` pathless layout).
 - **UI without actions** — The user can create forms but the agent cannot. The agent says "I don't have access to that" when it should be able to do it.
 - **Actions without AGENTS.md** — The actions exist but the agent doesn't know about them because they're not documented. The agent reinvents solutions instead of using the actions.
-- **Duplicate API routes** — Creating `/api/` routes for operations that actions already handle. Actions are auto-exposed as HTTP endpoints — use `useActionQuery`/`useActionMutation` instead.
+- **Duplicate API routes** — Creating `/api/` routes for operations that actions already handle, including pass-through routes that just call or repackage an action. Actions are auto-exposed as HTTP endpoints — use `useActionQuery`/`useActionMutation` instead.
 - **Features without app-state** — The agent cannot see that the user is looking at a specific form, email, or chart. It asks "which one?" instead of acting on the current selection.
 - **Actions without UI** — The agent can do something the user cannot. This is less common but still breaks parity.
 

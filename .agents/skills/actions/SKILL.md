@@ -15,6 +15,8 @@ metadata:
 
 Actions in `actions/` are the **single source of truth** for app operations. The agent calls them as tools, and the framework auto-exposes them as HTTP endpoints at `/_agent-native/actions/:name`. The frontend calls those endpoints using React Query hooks. No duplicate `/api/` routes needed.
 
+Before creating any custom REST/API route for app data, inspect `actions/` and the action table in `AGENTS.md`. If an action already exists, call it directly from the agent or with `useActionQuery` / `useActionMutation` from the UI. If the capability is missing, create or update a `defineAction`. Do not add `/api/*`, `server/routes/*`, or other pass-through endpoints whose main job is to call, repackage, or re-export an action.
+
 ## Why
 
 Actions give the agent callable tools with structured input/output, AND they give the frontend type-safe HTTP endpoints automatically. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
@@ -59,6 +61,16 @@ Tips:
 - Use `z.enum(["draft", "published"])` for constrained values
 
 The legacy `parameters` field (plain JSON Schema object) still works as a fallback but does not provide runtime validation or type inference.
+
+## Decision Order
+
+When you need app data or a mutation:
+
+1. **Use an existing action** if one already performs the operation.
+2. **Create or extend a `defineAction`** when the agent and UI both need a new operation.
+3. **Create a custom route only for route-only concerns** such as uploads, streaming, webhooks, OAuth callbacks, or a non-JSON protocol.
+
+Do not build an umbrella REST API to make actions "easier" to call. Actions are already callable by agents, CLIs, React hooks, HTTP, MCP/A2A exposure, and external hosts through the framework.
 
 ### The `http` Option
 
@@ -168,7 +180,7 @@ Most operations should be actions. You only need custom routes in `server/routes
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
 
-If it's a standard CRUD operation or data query, use an action instead.
+If it's a standard CRUD operation, data query, or a wrapper around an action, use the action instead.
 
 ## Legacy Pattern (bare export)
 
@@ -197,6 +209,7 @@ This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all 
 - **Use `loadEnv()`** if the action needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
+- **Do not re-export actions as REST.** The mounted `/_agent-native/actions/:name` endpoint is the REST surface; duplicating it under `/api/*` creates drift and hides the operation from agents.
 
 ## Common Patterns
 

@@ -31,9 +31,12 @@ All framework-level routes live under `/_agent-native/` to avoid collisions with
 ### Hard rule
 
 - **ALL framework routes go under `/_agent-native/`.**
-- Templates own `/api/*` for their domain routes.
+- Templates own `/api/*` only for route-only domain concerns such as uploads,
+  streaming, webhooks, OAuth callbacks, or non-JSON protocols.
 - Never put framework routes under `/api/`.
 - Never put template routes under `/_agent-native/` — that namespace is reserved.
+- Never create `/api/*` routes that only wrap, proxy, or re-export actions. Use
+  the existing `/_agent-native/actions/:name` endpoint or the React action hooks.
 
 ### Auto-mounted framework routes
 
@@ -65,6 +68,11 @@ For standard CRUD and data operations, use `defineAction` in `actions/` — the 
 - Streaming responses
 - Webhooks from external services
 - OAuth callbacks
+
+Before adding a route, inspect the existing action files. Reuse the action if
+it already encodes the business rule, or add a new action if the operation
+should be available to both the agent and the UI. A route whose implementation
+mostly calls an action is usually the wrong abstraction.
 
 The Nitro Vite plugin handles both `/api/` and `/_agent-native/` prefixes via file-based routing in `server/routes/`.
 
