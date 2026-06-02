@@ -2031,14 +2031,19 @@ export function MultiTabAssistantChat({
     .filter((id) => threadMap.has(id) || id === activeThreadId)
     .map((id) => {
       const t = threadMap.get(id);
+      const agentTeamStatus = chatTabStatusFromAgentTeamStatus(
+        subAgentStatuses[id],
+      );
       return {
         id,
         label: t?.title || t?.preview?.slice(0, 30) || "New chat",
-        status: runningThreads.has(id)
-          ? ("running" as const)
-          : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
-            ? ("completed" as const)
-            : ("idle" as const),
+        status:
+          agentTeamStatus ??
+          (runningThreads.has(id)
+            ? ("running" as const)
+            : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
+              ? ("completed" as const)
+              : ("idle" as const)),
         parentThreadId: parentMap[id],
         subAgentName: subAgentNames[id],
       };
@@ -2051,7 +2056,9 @@ export function MultiTabAssistantChat({
         id,
         label:
           subAgentNames[id] || (parentMap[id] ? "Sub-agent..." : "New chat"),
-        status: "running" as const,
+        status:
+          chatTabStatusFromAgentTeamStatus(subAgentStatuses[id]) ??
+          ("running" as const),
         parentThreadId: parentMap[id],
         subAgentName: subAgentNames[id],
       });
