@@ -112,17 +112,34 @@ vi.mock("../db/client.js", () => ({
 
 // ── app_state (task records + thread reverse-lookup) ──────────────────────
 const appState = new Map<string, any>();
+const requestContexts: Array<{ userEmail?: string; orgId?: string }> = [];
+let activeRequestContext: { userEmail?: string; orgId?: string } | undefined;
+
+function requireMockRequestContext(): void {
+  if (!activeRequestContext?.userEmail) {
+    throw new Error("missing mock request context");
+  }
+}
+
 vi.mock("../application-state/script-helpers.js", () => ({
-  readAppState: vi.fn(async (k: string) => appState.get(k) ?? null),
+  readAppState: vi.fn(async (k: string) => {
+    requireMockRequestContext();
+    return appState.get(k) ?? null;
+  }),
   writeAppState: vi.fn(async (k: string, v: any) => {
+    requireMockRequestContext();
     appState.set(k, v);
   }),
-  deleteAppState: vi.fn(async (k: string) => appState.delete(k)),
-  listAppState: vi.fn(async (prefix: string) =>
-    [...appState.entries()]
+  deleteAppState: vi.fn(async (k: string) => {
+    requireMockRequestContext();
+    return appState.delete(k);
+  }),
+  listAppState: vi.fn(async (prefix: string) => {
+    requireMockRequestContext();
+    return [...appState.entries()]
       .filter(([k]) => k.startsWith(prefix))
-      .map(([k, v]) => ({ key: k, value: v })),
-  ),
+      .map(([k, v]) => ({ key: k, value: v }));
+  }),
 }));
 
 // ── chat thread store (thread_data round-trips through here) ──────────────
@@ -215,20 +232,39 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("./request-context.js", () => ({
-  getRequestUserEmail: () => "owner@example.com",
-  runWithRequestContext: (_ctx: any, fn: () => any) => fn(),
+  getRequestUserEmail: () => activeRequestContext?.userEmail,
+  runWithRequestContext: (ctx: any, fn: () => any) => {
+    const previous = activeRequestContext;
+    activeRequestContext = ctx;
+    requestContexts.push(ctx);
+    try {
+      const result = fn();
+      if (result && typeof result.then === "function") {
+        return result.finally(() => {
+          activeRequestContext = previous;
+        });
+      }
+      activeRequestContext = previous;
+      return result;
+    } catch (err) {
+      activeRequestContext = previous;
+      throw err;
+    }
+  },
 }));
 
 // ── capture self-fire dispatches ──────────────────────────────────────────
-const dispatches: Array<{ taskId: string; body?: any }> = [];
+const dispatches: Array<{ taskId: string; body?: any; event?: any }> = [];
 vi.mock("./self-dispatch.js", () => ({
   fireInternalDispatch: vi.fn(async (o: any) => {
-    dispatches.push({ taskId: o.taskId, body: o.body });
+    dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
   }),
 }));
 
 const queue = await import("./agent-teams-run-queue.js");
-const { processAgentTeamRun } = await import("./agent-teams.js");
+const { processAgentTeamRun, reconcileAgentTeamRunsForOwner } =
+  await import("./agent-teams.js");
+const { runWithRequestContext } = await import("./request-context.js");
 
 const OWNER = "owner@example.com";
 
@@ -269,6 +305,8 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     appState.clear();
     threadData.clear();
     dispatches.length = 0;
+    requestContexts.length = 0;
+    activeRequestContext = undefined;
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
     vi.clearAllMocks();
@@ -287,6 +325,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(res.ok).toBe(true);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(requestContexts.some((ctx) => ctx.userEmail === OWNER)).toBe(true);
 
     const task = appState.get("agent-task:t1");
     expect(task.status).toBe("completed");
@@ -357,5 +396,37 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect((await queue.getAgentTeamRunDispatchState("t3"))?.status).toBe(
       "done",
     );
+  });
+
+  it("re-fires stale queued work with the caller event", async () => {
+    const now = Date.UTC(2026, 5, 2, 12, 0, 0);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    await seedTask("t4");
+    const row = queueRows.find((x) => x.task_id === "t4");
+    if (!row) throw new Error("missing queued task row");
+    row.status = "running";
+    row.updated_at = now - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+    const event = {
+      node: {
+        req: {
+          headers: {
+            host: "app.example.test",
+            "x-forwarded-proto": "https",
+          },
+        },
+      },
+    };
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileAgentTeamRunsForOwner(OWNER, event),
+    );
+
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({
+      taskId: "t4",
+      body: { mode: "start" },
+    });
+    expect(dispatches[0].event).toBe(event);
+    nowSpy.mockRestore();
   });
 });

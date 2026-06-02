@@ -1,5 +1,6 @@
 import {
   defineEventHandler,
+  getMethod,
   getQuery,
   getRouterParam,
   setResponseHeader,
@@ -19,6 +20,12 @@ import {
   type BookingOgImageInput,
 } from "../../../../../lib/booking-og-image.js";
 import type { Settings } from "../../../../../../shared/api.js";
+
+function pngBody(bytes: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(body).set(bytes);
+  return body;
+}
 
 function parseDurations(value: string | null): number[] | undefined {
   if (!value) return undefined;
@@ -94,6 +101,12 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Booking link not found" };
   }
 
+  if (getMethod(event) === "HEAD") {
+    return new Response(null, {
+      headers: bookingOgImageResponseHeaders(),
+    });
+  }
+
   const query = getQuery(event);
   const queryUsername =
     typeof query.username === "string" ? query.username : undefined;
@@ -120,13 +133,9 @@ export default defineEventHandler(async (event: H3Event) => {
     imageInput,
     fontFiles ? { fontFiles } : {},
   );
-  const body = png.buffer.slice(
-    png.byteOffset,
-    png.byteOffset + png.byteLength,
-  ) as ArrayBuffer;
 
   setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
-  return new Response(body, {
+  return new Response(pngBody(png), {
     headers: bookingOgImageResponseHeaders(png.byteLength),
   });
 });

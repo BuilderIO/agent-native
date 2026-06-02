@@ -272,7 +272,14 @@ const STALE_SWEEP_INTERVAL_MS = 30_000;
  * Registered by the agent-chat plugin to avoid a layering cycle (this generic
  * store must not import feature modules).
  */
-export type ProgressPreListHook = (owner: string) => Promise<void> | void;
+export interface ProgressPreListContext {
+  event?: unknown;
+}
+
+export type ProgressPreListHook = (
+  owner: string,
+  context: ProgressPreListContext,
+) => Promise<void> | void;
 let _preListHook: ProgressPreListHook | undefined;
 export function setProgressPreListHook(
   hook: ProgressPreListHook | undefined,
@@ -292,7 +299,7 @@ export async function listRuns(
     if (Date.now() - lastHook > PRE_LIST_HOOK_INTERVAL_MS) {
       _lastPreListHook.set(owner, Date.now());
       try {
-        await _preListHook(owner);
+        await _preListHook(owner, { event: options.event });
       } catch {
         // best-effort — never let reconciliation break the list read
       }

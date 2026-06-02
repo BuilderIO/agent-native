@@ -438,6 +438,7 @@ async function refireStuckAgentTeamRunIfNeeded(
   dispatch: NonNullable<
     Awaited<ReturnType<typeof getAgentTeamRunDispatchState>>
   >,
+  event?: any,
 ): Promise<void> {
   if (dispatch.status !== "queued" && dispatch.status !== "running") return;
   const idleFor = Date.now() - dispatch.updatedAt;
@@ -445,6 +446,7 @@ async function refireStuckAgentTeamRunIfNeeded(
   if (idleFor >= RUN_PROCESSING_STUCK_AFTER_MS) return; // fail path owns this
   try {
     await fireInternalDispatch({
+      event,
       path: AGENT_TEAM_PROCESS_RUN_PATH,
       taskId: task.taskId,
       body: { mode: dispatch.continuationCount > 0 ? "continue" : "start" },
@@ -467,7 +469,10 @@ async function refireStuckAgentTeamRunIfNeeded(
  * Cloudflare path): fall back to the in-memory/SQL run state via
  * `getActiveRunForThreadAsync`, with the original missing-run grace.
  */
-async function reconcileTaskWithRun(task: AgentTask): Promise<AgentTask> {
+async function reconcileTaskWithRun(
+  task: AgentTask,
+  event?: any,
+): Promise<AgentTask> {
   if (task.status !== "running") return task;
 
   let dispatch: Awaited<ReturnType<typeof getAgentTeamRunDispatchState>> = null;
@@ -482,7 +487,7 @@ async function reconcileTaskWithRun(task: AgentTask): Promise<AgentTask> {
     if (dispatch.status === "queued" || dispatch.status === "running") {
       const stuckFor = Date.now() - dispatch.updatedAt;
       if (stuckFor < RUN_PROCESSING_STUCK_AFTER_MS) {
-        await refireStuckAgentTeamRunIfNeeded(task, dispatch);
+        await refireStuckAgentTeamRunIfNeeded(task, dispatch, event);
         return task;
       }
       return await failReconciledTask(
@@ -545,6 +550,7 @@ async function reconcileTaskWithRun(task: AgentTask): Promise<AgentTask> {
  */
 export async function reconcileAgentTeamRunsForOwner(
   owner: string,
+  event?: any,
 ): Promise<void> {
   let taskIds: string[];
   try {
@@ -555,7 +561,7 @@ export async function reconcileAgentTeamRunsForOwner(
   for (const taskId of taskIds) {
     try {
       const task = await loadTask(taskId);
-      if (task) await reconcileTaskWithRun(task);
+      if (task) await reconcileTaskWithRun(task, event);
     } catch {
       // best-effort per task — one bad row shouldn't block the rest
     }
@@ -1215,185 +1221,196 @@ export async function processAgentTeamRun(
   const claimed = await claimAgentTeamRun(opts.taskId);
   if (!claimed) return { ok: true, skipped: "already-claimed-or-missing" };
 
-  const task = await loadTask(opts.taskId);
-  if (!task) {
-    await completeAgentTeamRun(opts.taskId, "failed");
-    return { ok: true, skipped: "task-missing" };
-  }
-  if (task.status !== "running") {
-    await completeAgentTeamRun(
-      opts.taskId,
-      task.status === "completed" ? "done" : "failed",
-    );
-    return { ok: true, skipped: "task-terminal" };
-  }
-
-  const payload = claimed.payload;
-  const ownerEmail = claimed.ownerEmail ?? getRequestUserEmail() ?? "";
-  const orgId = claimed.orgId;
-  const turnId = payload.turnId || taskRunId(opts.taskId);
-
-  let config: AgentTeamRunConfig;
-  try {
-    config = await opts.resolveConfig({ payload, ownerEmail, orgId });
-  } catch (err) {
-    const message =
-      err instanceof Error
-        ? `Failed to prepare sub-agent: ${err.message}`
-        : "Failed to prepare sub-agent.";
-    await failReconciledTask(task, ownerEmail || null, message);
-    return { ok: false, skipped: "config-failed" };
-  }
-
-  const mode: "start" | "continue" =
-    opts.mode ?? (claimed.continuationCount > 0 ? "continue" : "start");
-
-  const systemPrompt = buildSubAgentSystemPrompt(
-    config.baseSystemPrompt,
-    config.actions,
-    payload.instructions,
-  );
-
-  let messages: EngineMessage[];
-  if (mode === "continue") {
-    let priorThreadData: string | null | undefined;
-    try {
-      const { getThread } = await import("../chat-threads/store.js");
-      priorThreadData = (await getThread(task.threadId))?.threadData;
-    } catch {
-      priorThreadData = undefined;
-    }
-    messages = threadDataToEngineMessages(priorThreadData);
-    if (messages.length === 0) {
-      messages = [
-        {
-          role: "user",
-          content: [{ type: "text", text: payload.description }],
-        },
-      ];
-    }
-    appendAgentLoopContinuation(messages, "run_timeout");
-  } else {
-    messages = [
-      { role: "user", content: [{ type: "text", text: payload.description }] },
-    ];
-  }
-
-  const messageAwareActions = createMessageAwareActions(
-    opts.taskId,
-    config.actions,
-  );
-  const tools = actionsToEngineTools(messageAwareActions);
-
-  // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
-  // the durable assistant message folds across chunks.
-  const runId = `${taskRunId(opts.taskId)}-c${claimed.continuationCount}`;
-
-  task.currentStep =
-    mode === "continue" ? "Continuing sub-agent" : "Working on response";
-  task.startedAt = task.startedAt ?? Date.now();
-  await saveTask(task);
-  if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
-
-  const heartbeat = setInterval(() => {
-    void touchAgentTeamRun(opts.taskId);
-  }, RUN_QUEUE_HEARTBEAT_MS);
-  (heartbeat as unknown as { unref?: () => void }).unref?.();
-
-  let accumulatedText = "";
-  let lastProgressSent = 0;
-  const PROGRESS_INTERVAL_MS = 2000;
-
-  await new Promise<void>((resolve) => {
-    startRun(
-      runId,
-      task.threadId,
-      async (send, signal) => {
-        const wrappedSend = (event: AgentChatEvent) => {
-          send(event);
-          if (event.type === "text") {
-            accumulatedText += event.text;
-            task.preview = accumulatedText.slice(-800);
-            const now = Date.now();
-            if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
-              lastProgressSent = now;
-              void saveTask(task);
-              if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
-            }
-          } else if (event.type === "tool_start") {
-            task.currentStep = `Running ${event.tool}...`;
-          } else if (event.type === "tool_done") {
-            task.currentStep = "";
-          }
-        };
-        await runWithRequestContext(
-          { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
-          async () => {
-            await runAgentLoop({
-              engine: config.engine,
-              model: config.model,
-              systemPrompt,
-              tools,
-              messages,
-              actions: messageAwareActions,
-              send: wrappedSend,
-              signal,
-              finalResponseGuard: createTaskMessageFinalGuard(opts.taskId),
-            });
-          },
+  return await runWithRequestContext(
+    {
+      userEmail: claimed.ownerEmail ?? undefined,
+      orgId: claimed.orgId ?? undefined,
+    },
+    async () => {
+      const task = await loadTask(opts.taskId);
+      if (!task) {
+        await completeAgentTeamRun(opts.taskId, "failed");
+        return { ok: true, skipped: "task-missing" };
+      }
+      if (task.status !== "running") {
+        await completeAgentTeamRun(
+          opts.taskId,
+          task.status === "completed" ? "done" : "failed",
         );
-      },
-      async (run) => {
-        clearInterval(heartbeat);
+        return { ok: true, skipped: "task-terminal" };
+      }
+
+      const payload = claimed.payload;
+      const ownerEmail = claimed.ownerEmail ?? getRequestUserEmail() ?? "";
+      const orgId = claimed.orgId;
+      const turnId = payload.turnId || taskRunId(opts.taskId);
+
+      let config: AgentTeamRunConfig;
+      try {
+        config = await opts.resolveConfig({ payload, ownerEmail, orgId });
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? `Failed to prepare sub-agent: ${err.message}`
+            : "Failed to prepare sub-agent.";
+        await failReconciledTask(task, ownerEmail || null, message);
+        return { ok: false, skipped: "config-failed" };
+      }
+
+      const mode: "start" | "continue" =
+        opts.mode ?? (claimed.continuationCount > 0 ? "continue" : "start");
+
+      const systemPrompt = buildSubAgentSystemPrompt(
+        config.baseSystemPrompt,
+        config.actions,
+        payload.instructions,
+      );
+
+      let messages: EngineMessage[];
+      if (mode === "continue") {
+        let priorThreadData: string | null | undefined;
         try {
-          const fullText = await persistTaskThreadData(
-            task,
-            payload.description,
-            run,
-            runId,
-            turnId,
-          );
-
-          // A soft-timeout boundary means the host function wall is near and
-          // the partial turn is checkpointed in thread_data — self-fire the
-          // next continuation chunk (server-side analog of the client re-POST
-          // that continues the main chat) instead of finalizing.
-          const reachedBoundary = (run.events ?? []).some(
-            (e) => e.event.type === "auto_continue",
-          );
-          if (reachedBoundary) {
-            const count = await bumpAgentTeamContinuation(opts.taskId);
-            if (count !== null && count <= MAX_AGENT_TEAM_CONTINUATIONS) {
-              task.currentStep = "Continuing sub-agent";
-              task.preview = (fullText || accumulatedText).slice(-800);
-              await saveTask(task);
-              if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
-              await fireInternalDispatch({
-                event: opts.event,
-                path: AGENT_TEAM_PROCESS_RUN_PATH,
-                taskId: opts.taskId,
-                body: { mode: "continue" },
-              });
-              return;
-            }
-            // Hit the cap — finalize with whatever was produced.
-          }
-
-          await finalizeAgentTeamRun(
-            task,
-            run,
-            ownerEmail || null,
-            fullText || accumulatedText,
-          );
-        } finally {
-          resolve();
+          const { getThread } = await import("../chat-threads/store.js");
+          priorThreadData = (await getThread(task.threadId))?.threadData;
+        } catch {
+          priorThreadData = undefined;
         }
-      },
-      { useHostedSoftTimeoutDefault: true, turnId },
-    );
-  });
+        messages = threadDataToEngineMessages(priorThreadData);
+        if (messages.length === 0) {
+          messages = [
+            {
+              role: "user",
+              content: [{ type: "text", text: payload.description }],
+            },
+          ];
+        }
+        appendAgentLoopContinuation(messages, "run_timeout");
+      } else {
+        messages = [
+          {
+            role: "user",
+            content: [{ type: "text", text: payload.description }],
+          },
+        ];
+      }
 
-  return { ok: true };
+      const messageAwareActions = createMessageAwareActions(
+        opts.taskId,
+        config.actions,
+      );
+      const tools = actionsToEngineTools(messageAwareActions);
+
+      // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
+      // the durable assistant message folds across chunks.
+      const runId = `${taskRunId(opts.taskId)}-c${claimed.continuationCount}`;
+
+      task.currentStep =
+        mode === "continue" ? "Continuing sub-agent" : "Working on response";
+      task.startedAt = task.startedAt ?? Date.now();
+      await saveTask(task);
+      if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
+
+      const heartbeat = setInterval(() => {
+        void touchAgentTeamRun(opts.taskId);
+      }, RUN_QUEUE_HEARTBEAT_MS);
+      (heartbeat as unknown as { unref?: () => void }).unref?.();
+
+      let accumulatedText = "";
+      let lastProgressSent = 0;
+      const PROGRESS_INTERVAL_MS = 2000;
+
+      await new Promise<void>((resolve) => {
+        startRun(
+          runId,
+          task.threadId,
+          async (send, signal) => {
+            const wrappedSend = (event: AgentChatEvent) => {
+              send(event);
+              if (event.type === "text") {
+                accumulatedText += event.text;
+                task.preview = accumulatedText.slice(-800);
+                const now = Date.now();
+                if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
+                  lastProgressSent = now;
+                  void saveTask(task);
+                  if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
+                }
+              } else if (event.type === "tool_start") {
+                task.currentStep = `Running ${event.tool}...`;
+              } else if (event.type === "tool_done") {
+                task.currentStep = "";
+              }
+            };
+            await runWithRequestContext(
+              { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
+              async () => {
+                await runAgentLoop({
+                  engine: config.engine,
+                  model: config.model,
+                  systemPrompt,
+                  tools,
+                  messages,
+                  actions: messageAwareActions,
+                  send: wrappedSend,
+                  signal,
+                  finalResponseGuard: createTaskMessageFinalGuard(opts.taskId),
+                });
+              },
+            );
+          },
+          async (run) => {
+            clearInterval(heartbeat);
+            try {
+              const fullText = await persistTaskThreadData(
+                task,
+                payload.description,
+                run,
+                runId,
+                turnId,
+              );
+
+              // A soft-timeout boundary means the host function wall is near and
+              // the partial turn is checkpointed in thread_data — self-fire the
+              // next continuation chunk (server-side analog of the client re-POST
+              // that continues the main chat) instead of finalizing.
+              const reachedBoundary = (run.events ?? []).some(
+                (e) => e.event.type === "auto_continue",
+              );
+              if (reachedBoundary) {
+                const count = await bumpAgentTeamContinuation(opts.taskId);
+                if (count !== null && count <= MAX_AGENT_TEAM_CONTINUATIONS) {
+                  task.currentStep = "Continuing sub-agent";
+                  task.preview = (fullText || accumulatedText).slice(-800);
+                  await saveTask(task);
+                  if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
+                  await fireInternalDispatch({
+                    event: opts.event,
+                    path: AGENT_TEAM_PROCESS_RUN_PATH,
+                    taskId: opts.taskId,
+                    body: { mode: "continue" },
+                  });
+                  return;
+                }
+                // Hit the cap — finalize with whatever was produced.
+              }
+
+              await finalizeAgentTeamRun(
+                task,
+                run,
+                ownerEmail || null,
+                fullText || accumulatedText,
+              );
+            } finally {
+              resolve();
+            }
+          },
+          { useHostedSoftTimeoutDefault: true, turnId },
+        );
+      });
+
+      return { ok: true };
+    },
+  );
 }
 
 /** Get task by ID */
