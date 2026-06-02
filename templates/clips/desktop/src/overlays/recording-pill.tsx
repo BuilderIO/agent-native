@@ -353,45 +353,43 @@ export function RecordingPill() {
           />
         ) : null}
 
-        {expanded ? (
-          <>
-            <div className="pill-divider" />
-            <div className="pill-transcript-area">
-              <LiveTranscript />
-            </div>
-            <div className="pill-footer">
-              <button
-                type="button"
-                onClick={onPauseClick}
-                data-no-drag
-                className="pill-pause-btn"
-              >
-                {paused ? (
-                  <IconPlayerPlayFilled size={14} />
-                ) : (
-                  <IconPlayerPauseFilled size={14} />
-                )}
-                {paused ? "Resume" : "Pause"}
-              </button>
-              <button
-                type="button"
-                onClick={onStopClick}
-                disabled={stopping}
-                data-no-drag
-                className="pill-stop-footer-btn"
-                aria-label={stopping ? "Stopping" : stopLabel}
-                title={stopping ? "Stopping..." : stopLabel}
-              >
-                {stopping ? (
-                  <IconLoader2 className="pill-spinner" size={14} />
-                ) : (
-                  <IconPlayerStopFilled size={14} />
-                )}
-                {stopping ? "Stopping" : "Stop"}
-              </button>
-            </div>
-          </>
-        ) : null}
+        <div style={expanded ? { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } : { display: "none" }}>
+          <div className="pill-divider" />
+          <div className="pill-transcript-area">
+            <LiveTranscript />
+          </div>
+          <div className="pill-footer">
+            <button
+              type="button"
+              onClick={onPauseClick}
+              data-no-drag
+              className="pill-pause-btn"
+            >
+              {paused ? (
+                <IconPlayerPlayFilled size={14} />
+              ) : (
+                <IconPlayerPauseFilled size={14} />
+              )}
+              {paused ? "Resume" : "Pause"}
+            </button>
+            <button
+              type="button"
+              onClick={onStopClick}
+              disabled={stopping}
+              data-no-drag
+              className="pill-stop-footer-btn"
+              aria-label={stopping ? "Stopping" : stopLabel}
+              title={stopping ? "Stopping..." : stopLabel}
+            >
+              {stopping ? (
+                <IconLoader2 className="pill-spinner" size={14} />
+              ) : (
+                <IconPlayerStopFilled size={14} />
+              )}
+              {stopping ? "Stopping" : "Stop"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
