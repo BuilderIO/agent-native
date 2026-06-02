@@ -1,8 +1,4 @@
-import {
-  Resvg,
-  type RenderedImage,
-  type ResvgRenderOptions,
-} from "@resvg/resvg-js";
+import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface FormOgImageInput {
   title?: string | null;
@@ -212,10 +208,19 @@ function formOgResvgOptions(): ResvgRenderOptions {
   };
 }
 
-export function renderFormOgImage(input: FormOgImageInput = {}): RenderedImage {
+async function loadResvg(): Promise<typeof import("@resvg/resvg-js")> {
+  return import(/* @vite-ignore */ "@resvg/resvg-js");
+}
+
+export async function renderFormOgImage(
+  input: FormOgImageInput = {},
+): Promise<RenderedImage> {
+  const { Resvg } = await loadResvg();
   return new Resvg(renderFormOgImageSvg(input), formOgResvgOptions()).render();
 }
 
-export function renderFormOgImagePng(input: FormOgImageInput = {}): Uint8Array {
-  return renderFormOgImage(input).asPng();
+export async function renderFormOgImagePng(
+  input: FormOgImageInput = {},
+): Promise<Uint8Array> {
+  return (await renderFormOgImage(input)).asPng();
 }

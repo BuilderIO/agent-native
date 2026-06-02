@@ -116,7 +116,7 @@ export default defineEventHandler(async (event: H3Event) => {
     profileImageDataUrl,
   };
   const fontFiles = await loadBundledOgFontFiles(serverAssets);
-  const png = renderBookingOgImagePng(
+  const png = await renderBookingOgImagePng(
     imageInput,
     fontFiles ? { fontFiles } : {},
   );

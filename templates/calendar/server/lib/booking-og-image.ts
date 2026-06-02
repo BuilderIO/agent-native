@@ -1,10 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-  Resvg,
-  type RenderedImage,
-  type ResvgRenderOptions,
-} from "@resvg/resvg-js";
+import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface BookingOgImageInput {
   title?: string | null;
@@ -321,18 +317,23 @@ function bookingOgResvgOptions(
   };
 }
 
-export function renderBookingOgImage(
+async function loadResvg(): Promise<typeof import("@resvg/resvg-js")> {
+  return import(/* @vite-ignore */ "@resvg/resvg-js");
+}
+
+export async function renderBookingOgImage(
   input: BookingOgImageInput,
   options: BookingOgRenderOptions = {},
-): RenderedImage {
+): Promise<RenderedImage> {
+  const { Resvg } = await loadResvg();
   return new Resvg(renderBookingOgImageSvg(input), {
     ...bookingOgResvgOptions(options),
   }).render();
 }
 
-export function renderBookingOgImagePng(
+export async function renderBookingOgImagePng(
   input: BookingOgImageInput,
   options: BookingOgRenderOptions = {},
-): Uint8Array {
-  return renderBookingOgImage(input, options).asPng();
+): Promise<Uint8Array> {
+  return (await renderBookingOgImage(input, options)).asPng();
 }

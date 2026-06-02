@@ -22,7 +22,7 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const png = renderFormOgImagePng({
+  const png = await renderFormOgImagePng({
     title: form.title,
   });
   const body = png.buffer.slice(

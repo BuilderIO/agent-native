@@ -13,7 +13,7 @@ import {
 } from "./booking-og-image";
 
 function countBrightPixels(
-  image: ReturnType<typeof renderBookingOgImage>,
+  image: Awaited<ReturnType<typeof renderBookingOgImage>>,
   bounds: { left: number; top: number; right: number; bottom: number },
 ): number {
   const pixels = image.pixels;
@@ -53,8 +53,8 @@ describe("booking OG image", () => {
     expect(svg).not.toContain("Pick a time");
   });
 
-  it("renders a PNG image", () => {
-    const png = renderBookingOgImagePng({
+  it("renders a PNG image", async () => {
+    const png = await renderBookingOgImagePng({
       title: "Meeting",
       duration: 30,
       username: "steve",
@@ -67,8 +67,8 @@ describe("booking OG image", () => {
     ]);
   });
 
-  it("rasterizes title and duration text as visible white pixels", () => {
-    const image = renderBookingOgImage({
+  it("rasterizes title and duration text as visible white pixels", async () => {
+    const image = await renderBookingOgImage({
       title: "Meeting",
       duration: 30,
       username: "steve",
@@ -104,7 +104,7 @@ describe("booking OG image", () => {
 
       expect(fontFiles).toHaveLength(2);
 
-      const image = renderBookingOgImage(
+      const image = await renderBookingOgImage(
         {
           title: "Meeting",
           duration: 30,

@@ -287,7 +287,7 @@ export function renderAgentNativeOgImageSvg(
 export async function renderAgentNativeOgImagePng(
   input: AgentNativeOgImageInput = {},
 ): Promise<Uint8Array> {
-  const { Resvg } = await import("@resvg/resvg-js");
+  const { Resvg } = await import(/* @vite-ignore */ "@resvg/resvg-js");
   const image = new Resvg(renderAgentNativeOgImageSvg(input), {
     fitTo: { mode: "width", value: WIDTH },
     font: {
