@@ -121,7 +121,11 @@ pub(crate) mod macos {
     use objc2_audio_toolbox::{
         kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, AudioUnitSetProperty,
     };
-    use objc2_avf_audio::{AVAudioEngine, AVAudioPCMBuffer, AVAudioTime};
+    use objc2_avf_audio::{
+        AVAudioEngine, AVAudioPCMBuffer, AVAudioTime,
+        AVAudioVoiceProcessingOtherAudioDuckingConfiguration,
+        AVAudioVoiceProcessingOtherAudioDuckingLevel,
+    };
     use objc2_core_audio::{
         kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
@@ -763,6 +767,145 @@ pub(crate) mod macos {
         }
 
         Ok(())
+    }
+
+    /// Handle for a running raw mic capture. `stop()` removes the tap and stops
+    /// the engine.
+    pub(crate) struct RawMicCapture {
+        engine: Retained<AVAudioEngine>,
+        input_node: Retained<objc2_avf_audio::AVAudioInputNode>,
+        sample_rate: f64,
+    }
+
+    // SAFETY: same argument as `SpeechSession` — refcounted ObjC objects that
+    // are message-thread-safe and only moved through ownership, never aliased.
+    unsafe impl Send for RawMicCapture {}
+
+    impl RawMicCapture {
+        /// Hardware sample rate of the mic tap (e.g. 48000) — callers resample
+        /// to Whisper's 16 kHz from this.
+        pub(crate) fn sample_rate(&self) -> f64 {
+            self.sample_rate
+        }
+
+        pub(crate) fn stop(self) {
+            unsafe {
+                self.input_node.removeTapOnBus(0);
+                if self.engine.isRunning() {
+                    self.engine.stop();
+                }
+            }
+        }
+    }
+
+    /// Start mic capture (VPIO AEC on, other-audio ducking off) and forward
+    /// every mono channel-0 f32 buffer to `on_samples`.
+    pub(crate) fn start_raw_mic_capture(
+        app: AppHandle,
+        mic_device_id: Option<String>,
+        mic_device_label: Option<String>,
+        on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
+    ) -> Result<RawMicCapture, String> {
+        let engine: Retained<AVAudioEngine> = unsafe { AVAudioEngine::new() };
+        configure_engine_input_device(
+            &engine,
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+        )?;
+        let input_node: Retained<objc2_avf_audio::AVAudioInputNode> = unsafe { engine.inputNode() };
+
+        unsafe {
+            if let Err(err) = input_node.setVoiceProcessingEnabled_error(true) {
+                eprintln!(
+                    "[whisper-mic] voice processing enable failed: {} — continuing without AEC",
+                    ns_error_message(&err)
+                );
+            }
+        }
+        // Finalize VPIO format negotiation before reading the format.
+        unsafe { engine.prepare() };
+
+        let format = unsafe { input_node.outputFormatForBus(0) };
+        let sample_rate = unsafe { format.sampleRate() };
+        eprintln!(
+            "[whisper-mic] tap format after prepare: {} Hz, {} ch",
+            sample_rate as u32,
+            unsafe { format.channelCount() }
+        );
+
+        {
+            let on_samples = on_samples.clone();
+            let app_for_level = app.clone();
+            let level_tick = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let tap_block = StackBlock::new(
+                move |buffer: std::ptr::NonNull<AVAudioPCMBuffer>,
+                      _when: std::ptr::NonNull<AVAudioTime>| {
+                    let buf = unsafe { buffer.as_ref() };
+                    let frames = unsafe { buf.frameLength() } as usize;
+                    if frames > 0 {
+                        let ch_ptr = unsafe { buf.floatChannelData() };
+                        if !ch_ptr.is_null() {
+                            let slice =
+                                unsafe { std::slice::from_raw_parts((*ch_ptr).as_ptr(), frames) };
+                            on_samples(slice);
+                        }
+                    }
+                    let n = level_tick.fetch_add(1, Ordering::Relaxed);
+                    if n % 2 == 0 {
+                        let level = peak_level_for_pcm(buf);
+                        let _ = app_for_level.emit(
+                            "voice:audio-level",
+                            AudioLevelPayload {
+                                level,
+                                source: "mic",
+                            },
+                        );
+                    }
+                },
+            )
+            .copy();
+            let block_ptr: *mut block2::Block<
+                dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>)
+                    + 'static,
+            > = (&*tap_block) as *const _ as *mut _;
+            unsafe {
+                input_node.installTapOnBus_bufferSize_format_block(
+                    0,
+                    1024,
+                    Some(&format),
+                    block_ptr,
+                );
+            }
+        }
+
+        if let Err(err) = unsafe { engine.startAndReturnError() } {
+            let msg = ns_error_message(&err);
+            unsafe { input_node.removeTapOnBus(0) };
+            return Err(format!("AVAudioEngine start failed: {msg}"));
+        }
+
+        // Disable other-audio ducking so the separately-captured system audio
+        // isn't dropped to near-silent while the mic VPIO runs.
+        unsafe {
+            let responds: bool = objc2::msg_send![
+                &*input_node,
+                respondsToSelector: objc2::sel!(setVoiceProcessingOtherAudioDuckingConfiguration:)
+            ];
+            if responds {
+                input_node.setVoiceProcessingOtherAudioDuckingConfiguration(
+                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration {
+                        enableAdvancedDucking: objc2::runtime::Bool::NO,
+                        duckingLevel: AVAudioVoiceProcessingOtherAudioDuckingLevel::Min,
+                    },
+                );
+            }
+        }
+
+        Ok(RawMicCapture {
+            engine,
+            input_node,
+            sample_rate,
+        })
     }
 
     pub async fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {

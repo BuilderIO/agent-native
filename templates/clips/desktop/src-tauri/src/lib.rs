@@ -21,6 +21,8 @@ mod system_audio;
 mod tray;
 mod tray_meetings;
 mod util;
+mod whisper_model;
+mod whisper_speech;
 
 use tauri::{Emitter, Manager};
 
@@ -128,8 +130,6 @@ pub fn run() {
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,
-            system_audio::system_audio_start,
-            system_audio::system_audio_stop,
             system_audio::meeting_audio_start,
             system_audio::meeting_audio_stop,
             // silence detector — Granola-style auto-stop heuristics

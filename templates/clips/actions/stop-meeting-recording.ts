@@ -38,6 +38,7 @@ export default defineAction({
       .set({
         actualEnd: meeting.actualEnd ?? nowIso,
         updatedAt: nowIso,
+        transcriptStatus: "ready",
       })
       .where(eq(schema.meetings.id, args.meetingId));
 
