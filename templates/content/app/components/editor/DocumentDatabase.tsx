@@ -2262,9 +2262,7 @@ function DatabaseTableView({
     if (!canEdit) return;
     if (
       event.target instanceof HTMLElement &&
-      event.target.closest(
-        "[data-column-resize-handle], [data-column-menu-trigger]",
-      )
+      event.target.closest("[data-column-resize-handle]")
     ) {
       return;
     }
@@ -2597,11 +2595,6 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
-                onSortsChange={onSortsChange}
-                onFiltersChange={onFiltersChange}
-                onHide={() =>
-                  onPropertyHiddenChange(property.definition.id, true)
-                }
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -9032,9 +9025,6 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
-  onSortsChange,
-  onFiltersChange,
-  onHide,
   onPointerDown,
   onResize,
 }: {
@@ -9045,9 +9035,6 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
-  onSortsChange: (sorts: DatabaseSort[]) => void;
-  onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onHide?: () => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -9071,49 +9058,27 @@ function DatabasePropertyHeader({
     >
       <DatabaseDropIndicator side={dropSide} />
       {canEdit ? (
-        <IconGripVertical className="mr-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
-      ) : null}
-      {canEdit ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
           icon={Icon}
-          triggerClassName="h-7 min-w-0 flex-1 text-xs text-muted-foreground"
+          triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
           onTriggerPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
             onPointerDown(event);
           }}
+          triggerTrailing={
+            <DatabaseColumnStateIndicators state={columnState} />
+          }
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
           <Icon className="size-4 shrink-0" />
           <span className="truncate">{property.definition.name}</span>
+          <DatabaseColumnStateIndicators state={columnState} />
         </div>
       )}
-      <DatabaseColumnStateIndicators state={columnState} />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Column menu for ${property.definition.name}`}
-            data-column-menu-trigger=""
-            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 data-[state=open]:opacity-100"
-          >
-            <IconChevronDown className="size-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <ColumnHeaderMenuContent
-          columnKey={property.definition.id}
-          label={property.definition.name}
-          propertyType={property.definition.type}
-          sorts={sorts}
-          filters={filters}
-          onSortsChange={onSortsChange}
-          onFiltersChange={onFiltersChange}
-          onHide={canEdit ? onHide : undefined}
-        />
-      </DropdownMenu>
       <ColumnResizeHandle
         label={`Resize ${property.definition.name} column`}
         onPointerDown={onResize}

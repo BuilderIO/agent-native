@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import {
   IconAlignLeft,
@@ -795,12 +796,14 @@ export function PropertyManagementPopover({
   icon: Icon,
   triggerClassName,
   onTriggerPointerDown,
+  triggerTrailing,
 }: {
   property: DocumentProperty;
   documentId: string;
   icon: Icon;
   triggerClassName?: string;
   onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  triggerTrailing?: ReactNode;
 }) {
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
@@ -954,6 +957,7 @@ export function PropertyManagementPopover({
           >
             <Icon className="size-4 shrink-0" />
             <span className="truncate">{property.definition.name}</span>
+            {triggerTrailing}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">

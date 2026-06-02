@@ -204,9 +204,11 @@ describe("document database layout", () => {
     expect(source).toContain("function startPropertyPointerDrag(");
     expect(source).toContain("data-database-property-id");
     expect(source).toContain('data-column-resize-handle=""');
-    expect(source).toContain('data-column-menu-trigger=""');
+    expect(source).toContain("triggerTrailing={");
     expect(source).toContain("dropTargetProperty?.id");
     expect(source).toContain("cursor-grab active:cursor-grabbing");
+    expect(source).not.toContain('data-column-menu-trigger=""');
+    expect(source).not.toContain("Column menu for ${property.definition.name}");
     expect(source).not.toContain("Move left");
     expect(source).not.toContain("Move right");
     expect(source).not.toContain("Move up");
