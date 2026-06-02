@@ -111,14 +111,20 @@ interface DocumentEditorBodyProps {
 }
 
 export function documentEditorTitleRegionClassName(hasDatabase: boolean) {
+  if (hasDatabase) {
+    return cn(
+      "shrink-0 w-full max-w-none px-4 pt-14 pb-2 sm:px-8 sm:pt-7 lg:px-10 group/title",
+    );
+  }
+
   return cn(
     "shrink-0 w-full max-w-3xl mx-auto px-4 pt-14 sm:px-8 md:px-16 md:pt-16 group/title",
-    hasDatabase ? "pb-4" : "pb-8",
+    "pb-8",
   );
 }
 
 export function documentEditorDatabaseRegionClassName() {
-  return "shrink-0 min-w-0 w-full max-w-7xl mx-auto px-4 pb-8 sm:px-6 lg:px-8";
+  return "shrink-0 min-w-0 w-full max-w-none px-4 pb-8 sm:px-8 lg:px-10";
 }
 
 export function documentEditorDefaultIconKind(
@@ -478,8 +484,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
+  const isDatabasePage = Boolean(document.database);
   const defaultIcon =
-    defaultIconKind === "database" ? (
+    defaultIconKind === "database" && !isDatabasePage ? (
       <IconDatabase className="size-12" aria-hidden="true" />
     ) : undefined;
 
@@ -515,28 +522,30 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                 navigate(`/page/${databaseDocumentId}`, { flushSync: true })
               }
             />
-            <div className="mb-1">
-              {canEdit ? (
-                <EmojiPicker
-                  icon={document.icon}
-                  defaultIcon={defaultIcon}
-                  defaultIconLabel={
-                    defaultIconKind === "database" ? "database" : "page"
-                  }
-                  onSelect={(emoji) => {
-                    updateDocument.mutate({ id: documentId, icon: emoji });
-                  }}
-                />
-              ) : document.icon ? (
-                <div className="p-1 -ml-1 text-5xl leading-none">
-                  {document.icon}
-                </div>
-              ) : defaultIconKind === "database" ? (
-                <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
-                  <IconDatabase className="size-12" aria-hidden="true" />
-                </div>
-              ) : null}
-            </div>
+            {document.icon || !isDatabasePage ? (
+              <div className="mb-1">
+                {canEdit ? (
+                  <EmojiPicker
+                    icon={document.icon}
+                    defaultIcon={defaultIcon}
+                    defaultIconLabel={
+                      defaultIconKind === "database" ? "database" : "page"
+                    }
+                    onSelect={(emoji) => {
+                      updateDocument.mutate({ id: documentId, icon: emoji });
+                    }}
+                  />
+                ) : document.icon ? (
+                  <div className="p-1 -ml-1 text-5xl leading-none">
+                    {document.icon}
+                  </div>
+                ) : defaultIconKind === "database" && !isDatabasePage ? (
+                  <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                    <IconDatabase className="size-12" aria-hidden="true" />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <textarea
               ref={titleInputRef}
               rows={1}
@@ -559,7 +568,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               placeholder="Title"
               readOnly={!canEdit}
               style={{ fieldSizing: "content" } as any}
-              className="block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40 md:text-4xl"
+              className={cn(
+                "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
+                isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
+              )}
             />
             {document.databaseMembership ? (
               <DocumentProperties documentId={documentId} canEdit={canEdit} />

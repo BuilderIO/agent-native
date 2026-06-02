@@ -13,9 +13,11 @@ describe("document editor layout", () => {
   });
 
   it("gives database pages a wider database surface", () => {
-    expect(documentEditorTitleRegionClassName(true)).toContain("max-w-3xl");
-    expect(documentEditorTitleRegionClassName(true)).toContain("pb-4");
-    expect(documentEditorDatabaseRegionClassName()).toContain("max-w-7xl");
+    expect(documentEditorTitleRegionClassName(true)).toContain("max-w-none");
+    expect(documentEditorTitleRegionClassName(true)).toContain("pt-14");
+    expect(documentEditorTitleRegionClassName(true)).toContain("sm:pt-7");
+    expect(documentEditorTitleRegionClassName(true)).toContain("pb-2");
+    expect(documentEditorDatabaseRegionClassName()).toContain("max-w-none");
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 

@@ -15,7 +15,9 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconArrowUp,
+  IconAdjustmentsHorizontal,
   IconArrowsSort,
+  IconBolt,
   IconCalendar,
   IconCalendarDue,
   IconCalendarEvent,
@@ -34,12 +36,14 @@ import {
   IconLayoutKanban,
   IconLayoutGrid,
   IconList,
+  IconLock,
   IconMinus,
   IconPlus,
   IconPalette,
   IconPencil,
   IconSearch,
   IconSettings,
+  IconSparkles,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -257,8 +261,14 @@ function DatabaseTable({
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [previewTitleFocusDocumentId, setPreviewTitleFocusDocumentId] =
     useState<string | null>(null);
+  const [inlineTitleFocusDocumentId, setInlineTitleFocusDocumentId] = useState<
+    string | null
+  >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] =
+    useState<DatabaseSettingsPanel>("main");
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
     defaultDatabaseViewConfig(),
   );
@@ -475,6 +485,10 @@ function DatabaseTable({
   async function createRow(
     title = "",
     propertyValueOverrides: Record<string, DocumentPropertyValue> = {},
+    options: {
+      openAfterCreate?: boolean;
+      focusInlineTitle?: boolean;
+    } = {},
   ) {
     if (!databaseId) return null;
     const propertyValues = {
@@ -490,9 +504,12 @@ function DatabaseTable({
     const createdItem = response.items.find(
       (item) => item.id === response.createdItemId,
     );
-    if (createdItem) {
+    if (createdItem && options.openAfterCreate !== false) {
       setPreviewDocumentId(createdItem.document.id);
       setPreviewTitleFocusDocumentId(createdItem.document.id);
+    }
+    if (createdItem && options.focusInlineTitle) {
+      setInlineTitleFocusDocumentId(createdItem.document.id);
     }
     return createdItem ?? null;
   }
@@ -514,6 +531,26 @@ function DatabaseTable({
         boardGroupValueForProperty(group.property, group.value);
     }
     return createRow(title, propertyValueOverrides);
+  }
+
+  async function createInlineRow(title = "") {
+    return createRow(
+      title,
+      {},
+      { openAfterCreate: false, focusInlineTitle: true },
+    );
+  }
+
+  async function createInlineGroupedRow(group: DatabaseBoardGroup, title = "") {
+    const propertyValueOverrides: Record<string, DocumentPropertyValue> = {};
+    if (group.property && group.value !== BOARD_UNGROUPED_VALUE) {
+      propertyValueOverrides[group.property.definition.id] =
+        boardGroupValueForProperty(group.property, group.value);
+    }
+    return createRow(title, propertyValueOverrides, {
+      openAfterCreate: false,
+      focusInlineTitle: true,
+    });
   }
 
   async function createDatedCard(dateKey: string, title = "") {
@@ -737,8 +774,8 @@ function DatabaseTable({
   }
 
   return (
-    <div className="mt-6 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-3rem)]">
-      <div className="mb-1 flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border pb-1">
+    <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
+      <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
           canEdit={canEdit}
@@ -778,14 +815,15 @@ function DatabaseTable({
               type="button"
               variant="ghost"
               size="sm"
+              aria-label="Search"
+              title="Search"
               className={cn(
-                "h-7 gap-1.5 px-2 text-xs text-muted-foreground",
+                databaseToolbarIconButtonClass(),
                 searchQuery && "bg-muted text-foreground",
               )}
               onClick={() => setSearchOpen(true)}
             >
               <IconSearch className="size-3.5" />
-              Search
             </Button>
           )}
           <SortMenu
@@ -801,49 +839,63 @@ function DatabaseTable({
             onFiltersChange={setActiveFilters}
             onFilterModeChange={setFilterMode}
           />
-          <DatabaseGroupMenu
-            activeView={activeView}
-            properties={orderedProperties}
-            groupIds={toolbarGroups.map((group) => group.id)}
-            onGroupByChange={(propertyId) =>
-              updateActiveView((view) =>
-                setDatabaseViewGroupByProperty(view, propertyId),
-              )
-            }
-            onHideEmptyGroupsChange={setHideEmptyGroups}
-            onGroupsCollapsedChange={setGroupsCollapsed}
-          />
-          <DatabaseViewOptionsMenu
-            activeView={activeView}
-            onWrapCellsChange={setWrapCells}
-            onRowDensityChange={setRowDensity}
-            onOpenPagesInChange={setOpenPagesIn}
-          />
-          {canEdit && properties.length > 0 ? (
-            <DatabasePropertiesMenu
-              documentId={document.id}
-              properties={orderedProperties}
-              hiddenCount={hiddenProperties.length}
-              activeView={activeView}
-              items={items}
-              onPropertyHiddenChange={setPropertyHiddenInActiveView}
-              onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
-            />
-          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled
+            aria-label="Automations"
+            title="Automations"
+            className={databaseToolbarIconButtonClass()}
+          >
+            <IconBolt className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled
+            aria-label="AI Autofill"
+            title="AI Autofill"
+            className={databaseToolbarIconButtonClass()}
+          >
+            <IconSparkles className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="View settings"
+            title="View settings"
+            className={databaseToolbarIconButtonClass(
+              settingsOpen ||
+                activeView.wrapCells === true ||
+                (activeView.rowDensity ?? "default") !== "default" ||
+                hiddenProperties.length > 0 ||
+                Boolean(activeView.groupByPropertyId),
+            )}
+            onClick={() => {
+              setSettingsPanel("main");
+              setSettingsOpen((open) => !open);
+            }}
+          >
+            <IconAdjustmentsHorizontal className="size-3.5" />
+          </Button>
           {canEdit ? (
             <Button
               type="button"
               size="sm"
-              className="h-7 gap-1.5 rounded bg-foreground px-2.5 text-xs text-background hover:bg-foreground/90"
+              className="h-7 gap-0 overflow-hidden rounded-md bg-[#2383e2] px-0 text-xs font-medium text-white hover:bg-[#0075de]"
               disabled={addItem.isPending || !databaseId}
               onClick={() => void createRow()}
             >
-              {addItem.isPending ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <IconPlus className="size-3.5" />
-              )}
-              New
+              <span className="flex h-7 items-center gap-1.5 px-2.5">
+                {addItem.isPending ? <Spinner className="size-3.5" /> : null}
+                New
+              </span>
+              <span className="flex h-7 w-7 items-center justify-center border-l border-white/20">
+                <IconChevronDown className="size-3.5 opacity-90" />
+              </span>
             </Button>
           ) : null}
         </div>
@@ -1029,6 +1081,7 @@ function DatabaseTable({
           groupByPropertyId={activeView.groupByPropertyId ?? null}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
+          focusedTitleDocumentId={inlineTitleFocusDocumentId}
           onClearResultConstraints={clearSearchAndFilters}
           onSortsChange={setActiveSorts}
           onFiltersChange={setActiveFilters}
@@ -1046,8 +1099,9 @@ function DatabaseTable({
             )
           }
           onClearSelection={() => setSelectedItemIds([])}
-          onCreateRow={createRow}
-          onCreateGroupedRow={createGroupedRow}
+          onCreateRow={createInlineRow}
+          onCreateGroupedRow={createInlineGroupedRow}
+          onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
           onGroupCollapsedChange={setGroupCollapsed}
           onPreview={previewItemPage}
           onDeletedPreviewItem={handleDeletedPreviewItem}
@@ -1079,6 +1133,37 @@ function DatabaseTable({
         }}
       />
 
+      <DatabaseViewSettingsPanel
+        open={settingsOpen}
+        panel={settingsPanel}
+        documentTitle={document.title}
+        documentId={document.id}
+        activeView={activeView}
+        properties={orderedProperties}
+        items={items}
+        hiddenCount={hiddenProperties.length}
+        filters={filters}
+        sorts={sorts}
+        groupIds={toolbarGroups.map((group) => group.id)}
+        onClose={() => setSettingsOpen(false)}
+        onPanelChange={setSettingsPanel}
+        onViewTypeChange={(type) =>
+          setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
+        }
+        onWrapCellsChange={setWrapCells}
+        onRowDensityChange={setRowDensity}
+        onOpenPagesInChange={setOpenPagesIn}
+        onPropertyHiddenChange={setPropertyHiddenInActiveView}
+        onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
+        onGroupByChange={(propertyId) =>
+          updateActiveView((view) =>
+            setDatabaseViewGroupByProperty(view, propertyId),
+          )
+        }
+        onHideEmptyGroupsChange={setHideEmptyGroups}
+        onGroupsCollapsedChange={setGroupsCollapsed}
+      />
+
       {!database.isLoading ? (
         activeView.type === "table" ? (
           <DatabaseTableFooter
@@ -1102,12 +1187,6 @@ function DatabaseTable({
             constrained={hasResultConstraints}
           />
         )
-      ) : null}
-
-      {canEdit && properties.length === 0 ? (
-        <div className="px-0 py-1">
-          <AddProperty documentId={document.id} />
-        </div>
       ) : null}
     </div>
   );
@@ -1932,6 +2011,7 @@ function DatabaseTableView({
   groupByPropertyId,
   collapsedGroupIds,
   hideEmptyGroups,
+  focusedTitleDocumentId,
   onSortsChange,
   onFiltersChange,
   onResizeColumn,
@@ -1943,6 +2023,7 @@ function DatabaseTableView({
   onClearResultConstraints,
   onCreateRow,
   onCreateGroupedRow,
+  onTitleFocusHandled,
   onGroupCollapsedChange,
   onPreview,
   onDeletedPreviewItem,
@@ -1968,6 +2049,7 @@ function DatabaseTableView({
   groupByPropertyId: string | null;
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
+  focusedTitleDocumentId: string | null;
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onResizeColumn: (
@@ -1989,6 +2071,7 @@ function DatabaseTableView({
     group: DatabaseBoardGroup,
     title?: string,
   ) => Promise<ContentDatabaseItem | null>;
+  onTitleFocusHandled: () => void;
   onGroupCollapsedChange: (groupId: string, collapsed: boolean) => void;
   onPreview: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
@@ -2234,7 +2317,7 @@ function DatabaseTableView({
   }
 
   return (
-    <div className="overflow-x-auto border-b border-border">
+    <div className="overflow-x-auto">
       <div className="min-w-[720px]">
         {selectedCount > 0 ? (
           <DatabaseSelectionBar
@@ -2253,7 +2336,7 @@ function DatabaseTableView({
           />
         ) : null}
         <div
-          className="grid border-t border-border text-xs font-medium text-muted-foreground"
+          className="grid border-y border-border/60 text-xs font-medium text-muted-foreground/80"
           style={{
             gridTemplateColumns: databaseGridColumns(
               properties,
@@ -2350,11 +2433,13 @@ function DatabaseTableView({
                     wrapCells={wrapCells}
                     rowDensity={rowDensity}
                     isCreating={isCreating}
+                    focusedTitleDocumentId={focusedTitleDocumentId}
                     collapsed={databaseGroupIsCollapsed(
                       collapsedGroupIds,
                       group.id,
                     )}
                     onCreateRow={onCreateGroupedRow}
+                    onTitleFocusHandled={onTitleFocusHandled}
                     onCollapsedChange={(collapsed) =>
                       onGroupCollapsedChange(group.id, collapsed)
                     }
@@ -2387,6 +2472,9 @@ function DatabaseTableView({
                       dropTargetItemId === item.id &&
                       draggedItemId !== item.id
                     }
+                    startEditingTitle={
+                      focusedTitleDocumentId === item.document.id
+                    }
                     onDragHandlePointerDown={(event) =>
                       startRowDrag(item.id, event)
                     }
@@ -2398,6 +2486,7 @@ function DatabaseTableView({
                     onToggleSelected={() => onToggleRowSelection(item.id)}
                     onPreviewItem={onPreview}
                     onDeletedPreviewItem={onDeletedPreviewItem}
+                    onTitleEditStarted={onTitleFocusHandled}
                     onPreview={() => onPreview(item)}
                     onOpenPage={() => onOpenPage(item)}
                   />
@@ -2510,6 +2599,738 @@ function DatabaseActiveConstraintsBar({
   );
 }
 
+function databaseToolbarIconButtonClass(active = false) {
+  return cn(
+    "h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
+    active && "bg-muted text-foreground",
+  );
+}
+
+type DatabaseSettingsPanel =
+  | "main"
+  | "layout"
+  | "property_visibility"
+  | "filter"
+  | "sort"
+  | "group"
+  | "conditional_color"
+  | "edit_properties"
+  | "more_settings";
+
+function DatabaseViewSettingsPanel({
+  open,
+  panel,
+  documentTitle,
+  documentId,
+  activeView,
+  properties,
+  items,
+  hiddenCount,
+  filters,
+  sorts,
+  groupIds,
+  onClose,
+  onPanelChange,
+  onViewTypeChange,
+  onWrapCellsChange,
+  onRowDensityChange,
+  onOpenPagesInChange,
+  onPropertyHiddenChange,
+  onPropertiesHiddenChange,
+  onGroupByChange,
+  onHideEmptyGroupsChange,
+  onGroupsCollapsedChange,
+}: {
+  open: boolean;
+  panel: DatabaseSettingsPanel;
+  documentTitle: string;
+  documentId: string;
+  activeView: ContentDatabaseView;
+  properties: DocumentProperty[];
+  items: ContentDatabaseItem[];
+  hiddenCount: number;
+  filters: DatabaseFilter[];
+  sorts: DatabaseSort[];
+  groupIds: string[];
+  onClose: () => void;
+  onPanelChange: (panel: DatabaseSettingsPanel) => void;
+  onViewTypeChange: (type: ContentDatabaseViewType) => void;
+  onWrapCellsChange: (wrapCells: boolean) => void;
+  onRowDensityChange: (rowDensity: DatabaseRowDensity) => void;
+  onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
+  onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
+  onGroupByChange: (propertyId: string | null) => void;
+  onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
+  onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
+}) {
+  if (!open) return null;
+
+  const title =
+    panel === "main" ? "View settings" : databaseSettingsPanelTitle(panel);
+
+  return (
+    <aside className="fixed bottom-0 right-0 top-12 z-40 flex w-[320px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-[-12px_0_32px_rgba(15,23,42,0.06)]">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+        {panel === "main" ? null : (
+          <button
+            type="button"
+            aria-label="Back to view settings"
+            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onPanelChange("main")}
+          >
+            <IconArrowLeft className="size-4" />
+          </button>
+        )}
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {title}
+        </div>
+        <button
+          type="button"
+          aria-label="Close view settings"
+          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onClose}
+        >
+          <IconX className="size-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        {panel === "main" ? (
+          <DatabaseSettingsMainPanel
+            activeView={activeView}
+            documentTitle={documentTitle}
+            propertyCount={properties.length}
+            hiddenCount={hiddenCount}
+            filterCount={filters.filter(isActiveFilter).length}
+            sortCount={sorts.length}
+            onPanelChange={onPanelChange}
+          />
+        ) : panel === "layout" ? (
+          <DatabaseSettingsLayoutPanel
+            activeView={activeView}
+            onViewTypeChange={onViewTypeChange}
+            onWrapCellsChange={onWrapCellsChange}
+            onRowDensityChange={onRowDensityChange}
+            onOpenPagesInChange={onOpenPagesInChange}
+          />
+        ) : panel === "property_visibility" ? (
+          <DatabaseSettingsPropertyVisibilityPanel
+            documentId={documentId}
+            properties={properties}
+            activeView={activeView}
+            items={items}
+            hiddenCount={hiddenCount}
+            onPropertyHiddenChange={onPropertyHiddenChange}
+            onPropertiesHiddenChange={onPropertiesHiddenChange}
+          />
+        ) : panel === "group" ? (
+          <DatabaseSettingsGroupPanel
+            activeView={activeView}
+            properties={properties}
+            groupIds={groupIds}
+            onGroupByChange={onGroupByChange}
+            onHideEmptyGroupsChange={onHideEmptyGroupsChange}
+            onGroupsCollapsedChange={onGroupsCollapsedChange}
+          />
+        ) : (
+          <DatabaseSettingsUnavailablePanel panel={panel} />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
+  if (panel === "layout") return "Layout";
+  if (panel === "property_visibility") return "Property visibility";
+  if (panel === "filter") return "Filter";
+  if (panel === "sort") return "Sort";
+  if (panel === "group") return "Group";
+  if (panel === "conditional_color") return "Conditional color";
+  if (panel === "edit_properties") return "Edit properties";
+  if (panel === "more_settings") return "More settings";
+  return "View settings";
+}
+
+function DatabaseSettingsMainPanel({
+  activeView,
+  documentTitle,
+  propertyCount,
+  hiddenCount,
+  filterCount,
+  sortCount,
+  onPanelChange,
+}: {
+  activeView: ContentDatabaseView;
+  documentTitle: string;
+  propertyCount: number;
+  hiddenCount: number;
+  filterCount: number;
+  sortCount: number;
+  onPanelChange: (panel: DatabaseSettingsPanel) => void;
+}) {
+  const groupLabel = activeView.groupByPropertyId ? "On" : "";
+  return (
+    <div className="grid gap-3">
+      <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
+        {databaseViewIconElement(
+          activeView.type,
+          "size-4 text-muted-foreground",
+        )}
+        <Input
+          value={activeView.name}
+          readOnly
+          aria-label="View name"
+          className="h-7 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+        />
+      </div>
+      <div className="grid gap-1">
+        <DatabaseSettingsRow
+          icon={databaseViewIconElement(activeView.type)}
+          label="Layout"
+          value={databaseViewDefaultName(activeView.type)}
+          onClick={() => onPanelChange("layout")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconEye className="size-4" />}
+          label="Property visibility"
+          value={propertyCount > 0 ? String(propertyCount - hiddenCount) : ""}
+          onClick={() => onPanelChange("property_visibility")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconFilter className="size-4" />}
+          label="Filter"
+          value={filterCount > 0 ? String(filterCount) : ""}
+          onClick={() => onPanelChange("filter")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconArrowsSort className="size-4" />}
+          label="Sort"
+          value={sortCount > 0 ? String(sortCount) : ""}
+          onClick={() => onPanelChange("sort")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconLayoutKanban className="size-4" />}
+          label="Group"
+          value={groupLabel}
+          onClick={() => onPanelChange("group")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconPalette className="size-4" />}
+          label="Conditional color"
+          onClick={() => onPanelChange("conditional_color")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconCopy className="size-4" />}
+          label="Copy link to view"
+          disabled
+        />
+      </div>
+      <DatabaseSettingsSectionLabel>
+        Data source settings
+      </DatabaseSettingsSectionLabel>
+      <div className="grid gap-1">
+        <DatabaseSettingsRow
+          icon={<IconTable className="size-4" />}
+          label="Source"
+          value={documentTitle.trim() || "Untitled database"}
+          disabled
+        />
+        <DatabaseSettingsRow
+          icon={<IconSettings className="size-4" />}
+          label="Edit properties"
+          onClick={() => onPanelChange("edit_properties")}
+        />
+        <DatabaseSettingsRow
+          icon={<IconBolt className="size-4" />}
+          label="Automations"
+          disabled
+        />
+        <DatabaseSettingsRow
+          icon={<IconSparkles className="size-4" />}
+          label="AI Autofill"
+          disabled
+        />
+        <DatabaseSettingsRow
+          icon={<IconDots className="size-4" />}
+          label="More settings"
+          onClick={() => onPanelChange("more_settings")}
+        />
+      </div>
+      <div className="grid gap-1 border-t border-border/70 pt-2">
+        <DatabaseSettingsRow
+          icon={<IconTable className="size-4" />}
+          label="Manage data sources"
+          disabled
+        />
+        <DatabaseSettingsRow
+          icon={<IconLock className="size-4" />}
+          label="Lock database"
+          disabled
+        />
+      </div>
+    </div>
+  );
+}
+
+function DatabaseSettingsSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-2 pt-2 text-xs font-medium text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+function databaseViewIconElement(
+  type: ContentDatabaseViewType,
+  className = "size-4",
+) {
+  const Icon = databaseViewIcon(type);
+  return <Icon className={className} />;
+}
+
+function DatabaseSettingsRow({
+  icon,
+  label,
+  value,
+  disabled = false,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  value?: string;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || !onClick}
+      className={cn(
+        "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        disabled || !onClick
+          ? "cursor-default text-muted-foreground/60"
+          : "text-foreground hover:bg-muted",
+      )}
+      onClick={onClick}
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {value ? (
+        <span className="max-w-28 truncate text-xs text-muted-foreground">
+          {value}
+        </span>
+      ) : null}
+      {onClick && !disabled ? (
+        <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      ) : null}
+    </button>
+  );
+}
+
+function DatabaseSettingsSwitch({
+  label,
+  checked,
+  disabled = false,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      className="flex h-9 w-full items-center justify-between rounded-md px-2 text-left text-sm text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
+      onClick={() => onCheckedChange(!checked)}
+    >
+      <span className="truncate">{label}</span>
+      <span
+        className={cn(
+          "relative h-5 w-9 rounded-full transition-colors",
+          checked ? "bg-[#2383e2]" : "bg-muted-foreground/25",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+            checked ? "left-0.5 translate-x-4" : "left-0.5",
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+function DatabaseSettingsLayoutPanel({
+  activeView,
+  onViewTypeChange,
+  onWrapCellsChange,
+  onRowDensityChange,
+  onOpenPagesInChange,
+}: {
+  activeView: ContentDatabaseView;
+  onViewTypeChange: (type: ContentDatabaseViewType) => void;
+  onWrapCellsChange: (wrapCells: boolean) => void;
+  onRowDensityChange: (rowDensity: DatabaseRowDensity) => void;
+  onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+}) {
+  const wrapCells = activeView.wrapCells === true;
+  const rowDensity = activeView.rowDensity ?? "default";
+  const openPagesIn = activeView.openPagesIn ?? "preview";
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid grid-cols-3 gap-2">
+        {DATABASE_VIEW_TYPES.map((type) => (
+          <button
+            key={type}
+            type="button"
+            aria-pressed={activeView.type === type}
+            className={cn(
+              "flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              activeView.type === type
+                ? "border-[#2383e2] bg-[#2383e2]/5 text-[#2383e2]"
+                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+            onClick={() => onViewTypeChange(type)}
+          >
+            {databaseViewIconElement(type, "size-4")}
+            {databaseViewDefaultName(type)}
+          </button>
+        ))}
+        {["Chart", "Feed", "Map", "Dashboard"].map((label) => (
+          <button
+            key={label}
+            type="button"
+            disabled
+            className="flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border text-xs font-medium text-muted-foreground/50"
+          >
+            <IconLayoutGrid className="size-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-1">
+        <DatabaseSettingsSwitch
+          label="Show vertical lines"
+          checked
+          disabled
+          onCheckedChange={() => {}}
+        />
+        <DatabaseSettingsSwitch
+          label="Show page icon"
+          checked
+          disabled
+          onCheckedChange={() => {}}
+        />
+        <DatabaseSettingsSwitch
+          label="Wrap all content"
+          checked={wrapCells}
+          disabled={activeView.type !== "table"}
+          onCheckedChange={onWrapCellsChange}
+        />
+      </div>
+      <div className="grid gap-2">
+        <DatabaseSettingsSectionLabel>Row density</DatabaseSettingsSectionLabel>
+        <div className="flex rounded-md border border-border p-0.5">
+          {DATABASE_ROW_DENSITIES.map((density) => (
+            <button
+              key={density}
+              type="button"
+              aria-pressed={rowDensity === density}
+              disabled={activeView.type !== "table"}
+              className={cn(
+                "h-7 flex-1 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                rowDensity === density
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+              onClick={() => onRowDensityChange(density)}
+            >
+              {databaseRowDensityLabel(density)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-2">
+        <DatabaseSettingsSectionLabel>
+          Open pages in
+        </DatabaseSettingsSectionLabel>
+        <div className="flex rounded-md border border-border p-0.5">
+          {DATABASE_OPEN_PAGES_IN.map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={openPagesIn === value}
+              className={cn(
+                "h-7 flex-1 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                openPagesIn === value
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+              onClick={() => onOpenPagesInChange(value)}
+            >
+              {databaseOpenPagesInLabel(value)}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DatabaseSettingsPropertyVisibilityPanel({
+  documentId,
+  properties,
+  activeView,
+  items,
+  hiddenCount,
+  onPropertyHiddenChange,
+  onPropertiesHiddenChange,
+}: {
+  documentId: string;
+  properties: DocumentProperty[];
+  activeView: ContentDatabaseView;
+  items: ContentDatabaseItem[];
+  hiddenCount: number;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
+  onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredProperties = normalizedQuery
+    ? properties.filter((property) =>
+        property.definition.name.toLowerCase().includes(normalizedQuery),
+      )
+    : properties;
+  const visibleCount = properties.filter((property) =>
+    isDatabasePropertyVisibleInView(property, items, activeView),
+  ).length;
+  const propertyIds = properties.map((property) => property.definition.id);
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2">
+        <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+        <Input
+          value={query}
+          placeholder="Search properties"
+          aria-label="Search properties"
+          onChange={(event) => setQuery(event.target.value)}
+          className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          {visibleCount} shown, {properties.length - visibleCount} hidden
+        </span>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={hiddenCount === 0}
+            onClick={() => onPropertiesHiddenChange(propertyIds, false)}
+          >
+            Show all
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={visibleCount === 0}
+            onClick={() => onPropertiesHiddenChange(propertyIds, true)}
+          >
+            Hide all
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-1">
+        {filteredProperties.map((property) => {
+          const Icon = TYPE_ICONS[property.definition.type];
+          const visible = isDatabasePropertyVisibleInView(
+            property,
+            items,
+            activeView,
+          );
+          return (
+            <button
+              key={property.definition.id}
+              type="button"
+              className="flex h-9 items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() =>
+                onPropertyHiddenChange(property.definition.id, visible)
+              }
+            >
+              <Icon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">
+                {property.definition.name}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {visible ? "Shown" : "Hidden"}
+              </span>
+              {visible ? (
+                <IconCheck className="size-4 shrink-0 text-muted-foreground" />
+              ) : null}
+            </button>
+          );
+        })}
+        {filteredProperties.length === 0 ? (
+          <div className="px-2 py-4 text-sm text-muted-foreground">
+            No matching properties
+          </div>
+        ) : null}
+      </div>
+      <div className="border-t border-border/70 pt-3">
+        <AddProperty documentId={documentId} label="New property" />
+      </div>
+    </div>
+  );
+}
+
+function DatabaseSettingsGroupPanel({
+  activeView,
+  properties,
+  groupIds,
+  onGroupByChange,
+  onHideEmptyGroupsChange,
+  onGroupsCollapsedChange,
+}: {
+  activeView: Pick<
+    ContentDatabaseView,
+    "type" | "groupByPropertyId" | "hideEmptyGroups"
+  >;
+  properties: DocumentProperty[];
+  groupIds: string[];
+  onGroupByChange: (propertyId: string | null) => void;
+  onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
+  onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
+}) {
+  const [propertyQuery, setPropertyQuery] = useState("");
+  const groupableProperties = databaseViewGroupableProperties(properties);
+  const groupProperty = databaseViewGroupingProperty(activeView, properties);
+  const hideEmptyGroups = activeView.hideEmptyGroups === true;
+  const groupPropertyItems = databasePropertyPickerItems(
+    groupableProperties,
+    propertyQuery,
+    { includeName: false },
+  );
+  const canGroupView =
+    activeView.type === "table" ||
+    activeView.type === "list" ||
+    activeView.type === "gallery";
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2">
+        <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+        <Input
+          value={propertyQuery}
+          placeholder="Search properties"
+          aria-label="Search group properties"
+          disabled={!canGroupView}
+          onChange={(event) => setPropertyQuery(event.target.value)}
+          className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+        />
+      </div>
+      <div className="grid gap-1">
+        <button
+          type="button"
+          disabled={!canGroupView}
+          className="flex h-9 items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
+          onClick={() => onGroupByChange(null)}
+        >
+          <IconX className="size-4 text-muted-foreground" />
+          <span className="flex-1">None</span>
+          {!groupProperty ? (
+            <IconCheck className="size-4 text-muted-foreground" />
+          ) : null}
+        </button>
+        {groupPropertyItems.map((item) => {
+          const Icon =
+            item.type === "name" ? IconFileText : TYPE_ICONS[item.type];
+          return (
+            <button
+              key={item.key}
+              type="button"
+              disabled={!canGroupView}
+              className="flex h-9 items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
+              onClick={() => onGroupByChange(item.key)}
+            >
+              <Icon className="size-4 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {groupProperty?.definition.id === item.key ? (
+                <IconCheck className="size-4 text-muted-foreground" />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      {groupableProperties.length === 0 ? (
+        <div className="px-2 text-xs text-muted-foreground">
+          Add a status, select, multi-select, or checkbox property to group.
+        </div>
+      ) : null}
+      {groupProperty ? (
+        <div className="grid gap-1 border-t border-border/70 pt-3">
+          <DatabaseSettingsSwitch
+            label="Hide empty groups"
+            checked={hideEmptyGroups}
+            onCheckedChange={onHideEmptyGroupsChange}
+          />
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 flex-1 text-xs"
+              disabled={groupIds.length === 0}
+              onClick={() => onGroupsCollapsedChange(groupIds, true)}
+            >
+              Collapse all
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 flex-1 text-xs"
+              disabled={groupIds.length === 0}
+              onClick={() => onGroupsCollapsedChange(groupIds, false)}
+            >
+              Expand all
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DatabaseSettingsUnavailablePanel({
+  panel,
+}: {
+  panel: DatabaseSettingsPanel;
+}) {
+  return (
+    <div className="grid gap-1">
+      <DatabaseSettingsRow
+        icon={<IconSettings className="size-4" />}
+        label={databaseSettingsPanelTitle(panel)}
+        disabled
+      />
+    </div>
+  );
+}
+
 function DatabaseViewOptionsMenu({
   activeView,
   onWrapCellsChange,
@@ -2534,14 +3355,17 @@ function DatabaseViewOptionsMenu({
           type="button"
           variant="ghost"
           size="sm"
+          aria-label="View settings"
+          title="View settings"
           className={cn(
-            "h-7 gap-1.5 px-2 text-xs text-muted-foreground",
+            databaseToolbarIconButtonClass(
+              wrapCells || rowDensity !== "default",
+            ),
             (wrapCells || rowDensity !== "default") &&
               "bg-muted text-foreground",
           )}
         >
-          <IconSettings className="size-3.5" />
-          Options
+          <IconAdjustmentsHorizontal className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
@@ -2768,15 +3592,15 @@ function DatabaseGroupMenu({
           variant="ghost"
           size="sm"
           disabled={!canGroupView}
-          className={cn(
-            "h-7 gap-1.5 px-2 text-xs text-muted-foreground",
-            groupProperty && "bg-muted text-foreground",
-          )}
+          aria-label={
+            groupProperty
+              ? `Group by ${groupProperty.definition.name}`
+              : "Group"
+          }
+          title="Group"
+          className={cn(databaseToolbarIconButtonClass(Boolean(groupProperty)))}
         >
           <IconLayoutKanban className="size-3.5" />
-          <span className="max-w-24 truncate">
-            {groupProperty ? groupProperty.definition.name : "Group"}
-          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -2888,8 +3712,10 @@ function DatabaseResultCountFooter({
   totalCount: number;
   constrained: boolean;
 }) {
+  if (totalCount === 0 && !constrained) return null;
+
   return (
-    <div className="flex h-9 items-center border-b border-border px-2 text-xs text-muted-foreground">
+    <div className="flex h-7 items-center border-b border-border/40 px-2 text-xs text-muted-foreground/60">
       {databaseResultCountLabel(visibleCount, totalCount, constrained)}
     </div>
   );
@@ -2917,9 +3743,11 @@ function DatabaseTableFooter({
     calculation: DatabaseColumnCalculation | null,
   ) => void;
 }) {
+  if (totalCount === 0 && !constrained) return null;
+
   return (
     <div
-      className="grid border-b border-border text-xs text-muted-foreground"
+      className="grid border-b border-border/40 text-xs text-muted-foreground/60"
       style={{
         gridTemplateColumns: databaseGridColumns(
           properties,
@@ -2928,7 +3756,7 @@ function DatabaseTableFooter({
         ),
       }}
     >
-      <div className="flex h-9 min-w-0 items-center border-r border-border px-2">
+      <div className="flex h-7 min-w-0 items-center border-r border-border/40 px-2">
         {databaseResultCountLabel(items.length, totalCount, constrained)}
       </div>
       {properties.map((property) => {
@@ -2940,7 +3768,7 @@ function DatabaseTableFooter({
         return (
           <div
             key={property.definition.id}
-            className="flex h-9 min-w-0 items-center border-r border-border px-1"
+            className="flex h-7 min-w-0 items-center border-r border-border/40 px-1"
           >
             {canEdit ? (
               <DropdownMenu>
@@ -2991,7 +3819,7 @@ function DatabaseTableFooter({
           </div>
         );
       })}
-      {canEdit ? <div className="h-9" /> : null}
+      {canEdit ? <div className="h-7" /> : null}
     </div>
   );
 }
@@ -5771,20 +6599,18 @@ function NewDatabaseRow({
   isPending: boolean;
   onCreate: CreateDatabaseRowHandler;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-
   async function submitNewRow() {
     if (disabled) return;
-    const createdItem = await onCreate(title.trim());
-    setTitle("");
-    if (!createdItem) inputRef.current?.focus();
+    await onCreate("");
   }
 
   return (
-    <form
+    <button
+      type="button"
+      aria-label="New database row"
+      disabled={disabled}
       className={cn(
-        "grid w-full text-left text-sm text-muted-foreground hover:bg-muted/40 focus-within:bg-muted/40 focus-within:text-foreground",
+        "grid w-full text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
         databaseTableRowDensityClass(rowDensity),
       )}
       style={{
@@ -5794,14 +6620,11 @@ function NewDatabaseRow({
           columnWidths,
         ),
       }}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitNewRow();
-      }}
+      onClick={() => void submitNewRow()}
     >
-      <label
+      <span
         className={cn(
-          "flex min-w-0 items-center gap-2 border-r border-border",
+          "flex min-w-0 items-center gap-2 border-r border-border/60",
           databaseTableCellDensityClass(rowDensity),
         )}
       >
@@ -5810,34 +6633,16 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <input
-          ref={inputRef}
-          value={title}
-          disabled={disabled}
-          aria-label="New database row title"
-          placeholder="New page"
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void submitNewRow();
-            }
-            if (event.key === "Escape") {
-              setTitle("");
-              event.currentTarget.blur();
-            }
-          }}
-          className="h-7 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground focus:placeholder:text-muted-foreground/70"
-        />
-      </label>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7">New page</span>
+      </span>
       {properties.map((property) => (
         <span
           key={property.definition.id}
-          className="border-r border-border last:border-r-0"
+          className="border-r border-border/60 last:border-r-0"
         />
       ))}
       <span />
-    </form>
+    </button>
   );
 }
 
@@ -7072,20 +7877,25 @@ function DatabaseViewTabs({
           <div
             key={view.id}
             className={cn(
-              "flex h-9 shrink-0 items-center border-b-2 px-1",
+              "flex h-8 shrink-0 items-center rounded-md px-1 transition-colors",
               active
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground",
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
             <button
               type="button"
-              className="flex h-8 min-w-0 items-center gap-2 rounded px-1.5 text-sm font-medium hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() =>
                 onViewConfigChange(selectDatabaseView(normalized, view.id))
               }
             >
-              <ViewIcon className="size-4 shrink-0 text-muted-foreground" />
+              <ViewIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  active ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
               <span className="max-w-40 truncate">{view.name}</span>
             </button>
             {canEdit && active ? (
@@ -7101,7 +7911,7 @@ function DatabaseViewTabs({
                   <button
                     type="button"
                     aria-label={`${view.name} view menu`}
-                    className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-background/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <IconChevronDown className="size-3.5" />
                   </button>
@@ -7358,7 +8168,7 @@ function DatabaseNameHeader({
   const partiallySelected = selectedCount > 0 && !allSelected;
 
   return (
-    <div className="group flex h-8 min-w-0 items-center border-r border-border px-1">
+    <div className="group flex h-8 min-w-0 items-center border-r border-border/60 px-1">
       <DatabaseRowSelectionControl
         checked={allSelected}
         indeterminate={partiallySelected}
@@ -7377,9 +8187,11 @@ function DatabaseNameHeader({
           <button
             type="button"
             aria-label="Name column menu"
-            className="flex h-7 w-full min-w-0 items-center gap-2 rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-1 text-left hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <IconFileText className="size-4 shrink-0" />
+            <span className="shrink-0 text-[13px] leading-none text-muted-foreground">
+              Aa
+            </span>
             <span className="truncate">Name</span>
             <DatabaseColumnStateIndicators state={columnState} />
             <IconChevronDown className="ml-auto size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 data-[state=open]:opacity-100" />
@@ -8049,13 +8861,13 @@ function DatabasePropertyHeader({
   );
 
   return (
-    <div className="group flex h-8 min-w-0 items-center border-r border-border px-1">
+    <div className="group flex h-8 min-w-0 items-center border-r border-border/60 px-1">
       {canEdit ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
           icon={Icon}
-          triggerClassName="h-7 min-w-0 flex-1 text-xs"
+          triggerClassName="h-7 min-w-0 flex-1 text-xs text-muted-foreground"
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -8320,12 +9132,22 @@ function DatabasePropertiesMenu({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+          aria-label={
+            hiddenCount > 0
+              ? `${hiddenCount} hidden properties`
+              : "Property visibility"
+          }
+          title="Property visibility"
+          className={cn(
+            databaseToolbarIconButtonClass(hiddenCount > 0),
+            "relative",
+          )}
         >
-          <IconSettings className="size-3.5" />
-          Properties
+          <IconEye className="size-3.5" />
           {hiddenCount > 0 ? (
-            <span className="text-muted-foreground/70">{hiddenCount}</span>
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
+              {hiddenCount}
+            </span>
           ) : null}
         </Button>
       </DropdownMenuTrigger>
@@ -8981,13 +9803,21 @@ function SortMenu({
           type="button"
           variant="ghost"
           size="sm"
+          aria-label={
+            sorts.length > 0 ? `${sorts.length} active sorts` : "Sort"
+          }
+          title="Sort"
           className={cn(
-            "h-7 gap-1.5 px-2 text-xs text-muted-foreground",
-            sorts.length > 0 && "bg-muted text-foreground",
+            databaseToolbarIconButtonClass(sorts.length > 0),
+            "relative",
           )}
         >
           <IconArrowsSort className="size-3.5" />
-          {sorts.length > 0 ? `Sort ${sorts.length}` : "Sort"}
+          {sorts.length > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
+              {sorts.length}
+            </span>
+          ) : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px]">
@@ -9172,13 +10002,18 @@ function FilterMenu({
           type="button"
           variant="ghost"
           size="sm"
-          className={cn(
-            "h-7 gap-1.5 px-2 text-xs text-muted-foreground",
-            active && "bg-muted text-foreground",
-          )}
+          aria-label={
+            active ? `${activeFilters.length} active filters` : "Filter"
+          }
+          title="Filter"
+          className={cn(databaseToolbarIconButtonClass(active), "relative")}
         >
           <IconFilter className="size-3.5" />
-          {active ? `Filter ${activeFilters.length}` : "Filter"}
+          {active ? (
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[9px] leading-none text-background">
+              {activeFilters.length}
+            </span>
+          ) : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[360px]">
@@ -9720,8 +10555,10 @@ function DatabaseGroupedTableSection({
   wrapCells,
   rowDensity,
   isCreating,
+  focusedTitleDocumentId,
   collapsed,
   onCreateRow,
+  onTitleFocusHandled,
   onCollapsedChange,
   onToggleCheckbox,
   onToggleRowSelection,
@@ -9738,11 +10575,13 @@ function DatabaseGroupedTableSection({
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
+  focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
     group: DatabaseBoardGroup,
     title?: string,
   ) => Promise<ContentDatabaseItem | null>;
+  onTitleFocusHandled: () => void;
   onCollapsedChange: (collapsed: boolean) => void;
   onToggleCheckbox: (
     item: ContentDatabaseItem,
@@ -9778,6 +10617,7 @@ function DatabaseGroupedTableSection({
               selected={selectedIdSet.has(item.id)}
               isDragging={false}
               isDropTarget={false}
+              startEditingTitle={focusedTitleDocumentId === item.document.id}
               wrapCells={wrapCells}
               rowDensity={rowDensity}
               onDragHandlePointerDown={() => undefined}
@@ -9787,6 +10627,7 @@ function DatabaseGroupedTableSection({
               onToggleSelected={() => onToggleRowSelection(item.id)}
               onPreviewItem={onPreview}
               onDeletedPreviewItem={onDeletedPreviewItem}
+              onTitleEditStarted={onTitleFocusHandled}
               onPreview={() => onPreview(item)}
               onOpenPage={() => onOpenPage(item)}
             />
@@ -9821,6 +10662,7 @@ function DatabaseTableRow({
   selected,
   isDragging,
   isDropTarget,
+  startEditingTitle,
   wrapCells,
   rowDensity,
   onDragHandlePointerDown,
@@ -9828,6 +10670,7 @@ function DatabaseTableRow({
   onToggleSelected,
   onPreviewItem,
   onDeletedPreviewItem,
+  onTitleEditStarted,
   onPreview,
   onOpenPage,
 }: {
@@ -9844,6 +10687,7 @@ function DatabaseTableRow({
   selected: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
+  startEditingTitle: boolean;
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
   onDragHandlePointerDown: (event: ReactPointerEvent) => void;
@@ -9851,6 +10695,7 @@ function DatabaseTableRow({
   onToggleSelected: () => void;
   onPreviewItem: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
+  onTitleEditStarted: () => void;
   onPreview: () => void;
   onOpenPage: () => void;
 }) {
@@ -9878,10 +10723,12 @@ function DatabaseTableRow({
         canEdit={canEdit}
         canDragRow={canDragRow}
         selected={selected}
+        startEditingTitle={startEditingTitle}
         wrapCells={wrapCells}
         rowDensity={rowDensity}
         onDragHandlePointerDown={onDragHandlePointerDown}
         onToggleSelected={onToggleSelected}
+        onTitleEditStarted={onTitleEditStarted}
         onPreview={onPreview}
       />
       {properties.map((property) => {
@@ -10147,10 +10994,12 @@ function RowNameCell({
   canEdit,
   canDragRow,
   selected,
+  startEditingTitle,
   wrapCells,
   rowDensity,
   onDragHandlePointerDown,
   onToggleSelected,
+  onTitleEditStarted,
   onPreview,
 }: {
   item: ContentDatabaseItem;
@@ -10158,10 +11007,12 @@ function RowNameCell({
   canEdit: boolean;
   canDragRow: boolean;
   selected: boolean;
+  startEditingTitle: boolean;
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
   onDragHandlePointerDown: (event: ReactPointerEvent) => void;
   onToggleSelected: () => void;
+  onTitleEditStarted: () => void;
   onPreview: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -10174,6 +11025,12 @@ function RowNameCell({
     setTitle(item.document.title);
     setEditingTitle(false);
   }, [item.document.id, item.document.title]);
+
+  useEffect(() => {
+    if (!startEditingTitle) return;
+    setEditingTitle(true);
+    onTitleEditStarted();
+  }, [onTitleEditStarted, startEditingTitle]);
 
   useEffect(() => {
     if (!editingTitle) return;

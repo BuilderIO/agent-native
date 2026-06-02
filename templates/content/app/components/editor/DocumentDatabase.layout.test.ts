@@ -12,10 +12,10 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain(
-      '<div className="mt-6 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-3rem)]">',
+      '<div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">',
     );
     expect(source).toContain(
-      "mb-1 flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border pb-1",
+      "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );
     expect(source).toContain(
       "flex max-w-full flex-wrap items-center justify-end gap-1",
@@ -31,7 +31,7 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain("if (!createdItem) inputRef.current?.focus()");
+    expect(source).toContain('aria-label="New database row"');
   });
 
   it("selects the current view name when renaming a database view", () => {
@@ -107,5 +107,42 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("popoversPortalled={false}");
+  });
+
+  it("uses compact icon-led database toolbar controls", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("function databaseToolbarIconButtonClass");
+    expect(source).toContain('aria-label="Search"');
+    expect(source).toContain('aria-label="View settings"');
+    expect(source).toContain('aria-label="Automations"');
+    expect(source).toContain('aria-label="AI Autofill"');
+    expect(source).toContain("Property visibility");
+    expect(source).toContain("bg-[#2383e2]");
+  });
+
+  it("renders a Notion-like right-side view settings panel", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("type DatabaseSettingsPanel");
+    expect(source).toContain("function DatabaseViewSettingsPanel");
+    expect(source).toContain("View settings");
+    expect(source).toContain("Data source settings");
+    expect(source).toContain("function DatabaseSettingsLayoutPanel");
+    expect(source).toContain(
+      "function DatabaseSettingsPropertyVisibilityPanel",
+    );
+    expect(source).toContain("function DatabaseSettingsGroupPanel");
+    expect(source).toContain("fixed bottom-0 right-0 top-12");
+  });
+
+  it("keeps empty table chrome quiet", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain(
+      "if (totalCount === 0 && !constrained) return null",
+    );
+    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 });
