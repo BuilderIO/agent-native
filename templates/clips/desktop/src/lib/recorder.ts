@@ -70,6 +70,7 @@ export type CaptureSource = "full-screen" | "window";
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
+const LIVE_UPLOAD_CHUNK_MS = 1_000;
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -401,6 +402,12 @@ async function deleteBrowserRecordingBackup(
   }
 }
 
+export async function discardBrowserRecordingBackup(
+  recordingId: string,
+): Promise<void> {
+  await deleteBrowserRecordingBackup(recordingId);
+}
+
 async function markBrowserRecordingBackupError(
   recordingId: string,
   error: string,
@@ -490,11 +497,16 @@ async function resetBrowserRecordingBackupUpload(
 
 export async function retryBrowserRecordingBackup(input: {
   recordingId: string;
+  serverUrl?: string;
   authToken?: string;
 }): Promise<{ recordingId: string; viewUrl: string }> {
-  const meta = await getBrowserRecordingBackupMeta(input.recordingId);
+  let meta = await getBrowserRecordingBackupMeta(input.recordingId);
   if (!meta) {
     throw new Error("Local recording backup not found");
+  }
+  const serverUrl = input.serverUrl?.trim().replace(/\/+$/, "");
+  if (serverUrl) {
+    meta = { ...meta, serverUrl };
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
   if (chunks.length === 0) {
@@ -631,8 +643,17 @@ interface NativeTranscriptCapture {
 }
 
 interface RecordingStartCue {
-  play(): void;
+  play(): Promise<void>;
   cleanup(): void;
+}
+
+const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
+const COUNTDOWN_OVERLAY_SETTLE_MS = 120;
+const RECORDING_START_CUE_TIMEOUT_MS = 450;
+const RECORDING_START_CUE_SETTLE_MS = 80;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 interface NativeFullscreenUploadResult {
@@ -1135,6 +1156,32 @@ async function abortRecordingUpload(
   }
 }
 
+async function trashRecording(
+  serverUrl: string,
+  recordingId: string,
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/trash-recording`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: recordingId }),
+      },
+    );
+    if (!res.ok) {
+      console.warn(
+        "[clips-recorder] trash recording failed:",
+        res.status,
+        await res.text().catch(() => ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[clips-recorder] trash recording failed:", err);
+  }
+}
+
 class CountdownCancelledError extends Error {
   constructor() {
     super("Recording cancelled during countdown");
@@ -1224,7 +1271,7 @@ async function showRegionGuidesForRecording(wantsScreen: boolean) {
 }
 
 async function runRecordingCountdown(wantsScreen: boolean) {
-  const countdownEvent = waitForCountdownEvent(4000);
+  const countdownEvent = waitForCountdownEvent(COUNTDOWN_EVENT_TIMEOUT_MS);
   await showRegionGuidesForRecording(wantsScreen);
   try {
     await invoke("show_countdown");
@@ -1239,7 +1286,37 @@ async function runRecordingCountdown(wantsScreen: boolean) {
       throw err;
     }
     console.warn("[clips-recorder] countdown timed out — proceeding");
+    return;
   }
+  // The countdown webview emits before it finishes closing. Give macOS a
+  // brief beat to remove the overlay and any shortcut handling before capture
+  // starts, so the first frame/audio sample is the real recording.
+  await wait(COUNTDOWN_OVERLAY_SETTLE_MS);
+}
+
+async function playRecordingStartCueBeforeCapture(
+  recordingStartCue: RecordingStartCue,
+) {
+  let timedOut = false;
+  await Promise.race([
+    recordingStartCue.play(),
+    wait(RECORDING_START_CUE_TIMEOUT_MS).then(() => {
+      timedOut = true;
+    }),
+  ]).catch((err) => {
+    console.warn("[clips-recorder] start cue unavailable:", err);
+  });
+  if (timedOut) {
+    recordingStartCue.cleanup();
+    return;
+  }
+  await wait(RECORDING_START_CUE_SETTLE_MS);
+}
+
+function showFinalizingFeedback() {
+  invoke("show_finalizing").catch((err) =>
+    console.error("[clips-recorder] show_finalizing failed:", err),
+  );
 }
 
 function abortCreatedRecordingOnCountdownCancel(
@@ -1360,6 +1437,7 @@ async function startNativeFullscreenRecording(
       id = createRes.id;
     }
 
+    await playRecordingStartCueBeforeCapture(recordingStartCue);
     await invoke("native_fullscreen_recording_start", {
       recordingId: id,
       includeAudio: wantsAudio,
@@ -1437,6 +1515,7 @@ async function startNativeFullscreenRecording(
       stopPromise = (async () => {
         stopped = true;
         console.log("[clips-recorder] native full-screen stop requested");
+        if (!localOnly) showFinalizingFeedback();
         if (tickHandle) {
           clearInterval(tickHandle);
           tickHandle = null;
@@ -1535,10 +1614,6 @@ async function startNativeFullscreenRecording(
             );
           });
 
-          invoke("show_finalizing").catch((err) =>
-            console.error("[clips-recorder] show_finalizing failed:", err),
-          );
-
           const viewUrl = `/r/${id}`;
           try {
             uploadResult = await invoke<NativeFullscreenUploadResult>(
@@ -1632,6 +1707,7 @@ async function startNativeFullscreenRecording(
             id,
             "Recording cancelled by user",
           );
+          await trashRecording(params.serverUrl, id);
         }
       })();
       return cancelPromise;
@@ -1680,7 +1756,6 @@ async function startNativeFullscreenRecording(
   ]);
   stateUnlistens = toolbarUnlistens;
   tickHandle = setInterval(emitState, 500);
-  recordingStartCue.play();
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
 
@@ -1768,7 +1843,7 @@ function createSyntheticAudioStream(): {
 }
 
 const noopRecordingStartCue: RecordingStartCue = {
-  play() {},
+  async play() {},
   cleanup() {},
 };
 
@@ -1796,43 +1871,69 @@ function createRecordingStartCue(): RecordingStartCue {
       ctx.close().catch(() => {});
     };
 
-    const play = () => {
-      if (played || closed) return;
-      played = true;
-
-      const startedAt = ctx.currentTime + 0.005;
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, startedAt);
-      oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.14);
-
-      gain.gain.setValueAtTime(0.0001, startedAt);
-      gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
-
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscillator.addEventListener("ended", close, { once: true });
-      oscillator.start(startedAt);
-      oscillator.stop(startedAt + 0.2);
-    };
-
-    const cue: RecordingStartCue = {
-      play() {
-        if (ctx.state === "running") {
-          play();
+    const play = () =>
+      new Promise<void>((resolve) => {
+        if (played || closed) {
+          resolve();
           return;
         }
-        ctx
-          .resume()
-          .then(play)
-          .catch((err) => {
-            console.warn("[clips-recorder] start cue unavailable:", err);
+        played = true;
+
+        const startedAt = ctx.currentTime + 0.005;
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        let resolved = false;
+        let timeout: ReturnType<typeof window.setTimeout> | null =
+          window.setTimeout(() => {
+            timeout = null;
+            if (resolved) return;
+            resolved = true;
             close();
-          });
+            resolve();
+          }, 500);
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
+          if (timeout) {
+            window.clearTimeout(timeout);
+            timeout = null;
+          }
+          close();
+          resolve();
+        };
+
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, startedAt);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          660,
+          startedAt + 0.14,
+        );
+
+        gain.gain.setValueAtTime(0.0001, startedAt);
+        gain.gain.exponentialRampToValueAtTime(0.07, startedAt + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.18);
+
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+
+        oscillator.addEventListener("ended", finish, { once: true });
+        oscillator.start(startedAt);
+        oscillator.stop(startedAt + 0.2);
+      });
+
+    const cue: RecordingStartCue = {
+      async play() {
+        if (ctx.state === "running") {
+          await play();
+          return;
+        }
+        try {
+          await ctx.resume();
+          await play();
+        } catch (err) {
+          console.warn("[clips-recorder] start cue unavailable:", err);
+          close();
+        }
       },
       cleanup: close,
     };
@@ -2173,7 +2274,7 @@ async function startNativeRecordingInner(
     }
 
     const id = `local-${Date.now().toString(36)}`;
-    const startedAt = Date.now();
+    let startedAt = Date.now();
     let pausedAt: number | null = null;
     let accumulatedPauseMs = 0;
     let stopped = false;
@@ -2218,8 +2319,9 @@ async function startNativeRecordingInner(
     stateUnlistens = toolbarUnlistens;
 
     await showRegionGuidesForRecording(wantsScreen);
+    await playRecordingStartCueBeforeCapture(recordingStartCue);
     localExport.start(2_000);
-    recordingStartCue.play();
+    startedAt = Date.now();
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitState(false);
 
@@ -2449,7 +2551,7 @@ async function startNativeRecordingInner(
     inflight.add(p);
   };
 
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   let pausedAt: number | null = null;
   let accumulatedPauseMs = 0;
   let stopped = false;
@@ -2518,8 +2620,9 @@ async function startNativeRecordingInner(
     );
   }
   await showRegionGuidesForRecording(wantsScreen);
-  recorder.start(2_000);
-  recordingStartCue.play();
+  await playRecordingStartCueBeforeCapture(recordingStartCue);
+  recorder.start(LIVE_UPLOAD_CHUNK_MS);
+  startedAt = Date.now();
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).
   // Now that MediaRecorder is actually ticking, flip the toolbar's
@@ -2540,6 +2643,7 @@ async function startNativeRecordingInner(
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopped = true;
       console.log("[clips-recorder] stop requested");
+      showFinalizingFeedback();
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
@@ -2679,18 +2783,6 @@ async function startNativeRecordingInner(
         console.error(`[clips-recorder] ${chromeCmd} failed:`, err),
       );
 
-      // Show the full-screen "Finishing up your clip…" spinner overlay so
-      // the user gets immediate feedback while we flush the recorder
-      // buffer, wait for in-flight chunk uploads to settle, and POST the
-      // finalize. Without this the screen goes blank between the toolbar
-      // disappearing and the browser opening — several seconds of nothing
-      // on a longer recording. The overlay ignores cursor events and is
-      // closed right after openExternal below. Fired-and-forgotten (no
-      // await) so we don't add latency to the finalize path.
-      invoke("show_finalizing").catch((err) =>
-        console.error("[clips-recorder] show_finalizing failed:", err),
-      );
-
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last
       // few bytes land. Snapshot the current set — the `.finally` in each
@@ -2824,10 +2916,12 @@ async function startNativeRecordingInner(
       // forget with a short-circuit on failure — we don't want to keep the
       // user waiting on a network call to a dev server that may be down.
       try {
-        await fetch(
-          `${params.serverUrl.replace(/\/+$/, "")}/api/uploads/${id}/abort`,
-          { method: "POST", credentials: "include" },
+        await abortRecordingUpload(
+          params.serverUrl,
+          id,
+          "Recording cancelled by user",
         );
+        await trashRecording(params.serverUrl, id);
       } catch (err) {
         console.warn("[clips-recorder] abort failed (non-fatal):", err);
       }

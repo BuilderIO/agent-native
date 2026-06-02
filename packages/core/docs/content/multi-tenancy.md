@@ -16,7 +16,7 @@ The framework uses [Better Auth](https://better-auth.com)'s organizations plugin
 - **Active organization** — the session tracks which org the user is currently working in (`session.orgId`). Switching orgs changes the data they see.
 - **Data isolation** — SQL queries are automatically scoped to the active org via `org_id` columns. Data tagged with one org is invisible to users in another org, including the agent.
 
-All first-party templates (Mail, Calendar, Content, Brain, Slides, Video, Analytics, Clips, Design, Forms, and Dispatch) are multi-tenant out of the box. If you're building on any of these, your app already supports teams with no extra work.
+All first-party templates (Mail, Calendar, Content, Brain, Assets, Slides, Video, Analytics, Clips, Design, Forms, and Dispatch) are multi-tenant out of the box. If you're building on any of these, your app already supports teams with no extra work.
 
 ## Organizations and members {#organizations-and-members}
 
@@ -38,36 +38,13 @@ await auth.api.createInvitation({
 });
 ```
 
-The agent can also manage organizations through actions — `create-organization`, `invite-member`, `update-member-role`, and `remove-member` are available in every template.
+Org management is a **framework built-in**: the core org plugin auto-mounts REST routes under `/_agent-native/org/*` (create org, switch org, list/invite/remove members, change roles, set allowed email domain), and these back the org-switcher and members UI in every template with no extra code. Agent-callable actions with names like `create-organization` or `invite-member` are **template-authored** on top of this surface, not built-in tools — a template wires its own `defineAction` wrappers when it wants the agent to manage its specific membership model.
 
 ## Data scoping {#data-scoping}
 
-Every table that holds tenant-specific data includes an `organization_id` foreign key. The framework scopes queries automatically:
+Tenant data is isolated by an `org_id` column (added by `ownableColumns()`), and the framework scopes every query to the active org automatically — `session.orgId → AGENT_ORG_ID → SQL`. When a user switches organizations, the UI, actions, and agent all see only that org's data; the agent cannot reach data for an org the user isn't a member of.
 
-```
-session.orgId → AGENT_ORG_ID → SQL row scoping
-```
-
-When a user switches organizations, all queries, actions, and agent operations see only that org's data. This applies to both the UI and the agent — the agent cannot access data belonging to an organization the user isn't a member of.
-
-For full details on how scoping works at the SQL level, see [Security & Data Scoping](/docs/security).
-
-## Adding multi-tenancy to a new table {#new-tables}
-
-When you add a new domain table, include `organization_id` to make it tenant-aware:
-
-```typescript
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-export const projects = sqliteTable("projects", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  organizationId: text("organization_id").notNull(),
-  // ... other columns
-});
-```
-
-Then scope your queries by the active org from the session. The framework's `accessFilter` helper and `assertAccess` guard handle this automatically when you follow the standard action patterns.
+This is the same pipeline used for per-user scoping. For the SQL-level mechanics, the `ownableColumns()` contract, and the `accessFilter` / `resolveAccess` / `assertAccess` guards, see [Security & Data Scoping](/docs/security#data-scoping).
 
 ## No configuration needed {#zero-config}
 

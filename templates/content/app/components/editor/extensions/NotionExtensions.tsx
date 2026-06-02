@@ -7,7 +7,13 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
-import { IconChevronRight, IconChevronDown } from "@tabler/icons-react";
+import {
+  IconChevronRight,
+  IconChevronDown,
+  IconDatabase,
+  IconExternalLink,
+  IconFileText,
+} from "@tabler/icons-react";
 import {
   escapeHtml,
   indentMarkdown,
@@ -38,6 +44,18 @@ const INLINE_ATOM_TAGS = [
   "mention-template-mention",
   "mention-custom-emoji",
 ];
+
+export interface NotionPageLink {
+  notionPageId: string;
+  documentId: string;
+  title: string;
+  icon: string | null;
+}
+
+interface NotionBlockAtomOptions {
+  resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
+  onOpenPageLink?: (documentId: string) => void;
+}
 
 function readElementAttributes(
   element: HTMLElement,
@@ -106,9 +124,59 @@ function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
+function normalizeNotionPageId(input: string | null | undefined) {
+  const trimmed = input?.trim();
+  if (!trimmed) return null;
+  if (/^[0-9a-fA-F]{32}$/.test(trimmed)) return trimmed.toLowerCase();
+  if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
+    return trimmed.replace(/-/g, "").toLowerCase();
+  }
+  try {
+    const url = new URL(trimmed);
+    const slug = url.pathname.split("/").filter(Boolean).pop() || "";
+    const match =
+      slug.match(/([0-9a-fA-F]{32})$/) || slug.match(/([0-9a-fA-F-]{36})$/);
+    return match?.[1]?.replace(/-/g, "").toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getNotionPageId(attrs: Record<string, string>) {
+  return (
+    normalizeNotionPageId(attrs.url) ??
+    normalizeNotionPageId(attrs.href) ??
+    normalizeNotionPageId(attrs.id) ??
+    normalizeNotionPageId(attrs.pageId) ??
+    normalizeNotionPageId(attrs.page_id)
+  );
+}
+
+function safeExternalPageUrl(input: string | null): string | null {
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export const TOGGLE_SUMMARY_PLACEHOLDER = "Toggle";
 export const EMPTY_TOGGLE_BODY_PLACEHOLDER =
   "Empty toggle. Click or drop blocks inside.";
+
+function normalizeIndentAttr(value: unknown): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : 0;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 8) : 0;
+}
 
 export function focusMostRecentEmptyToggleSummary(editor: {
   view: { dom: HTMLElement };
@@ -310,6 +378,7 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
       }`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
+      data-nfm-indent={normalizeIndentAttr(node.attrs.indent) || undefined}
       draggable="true"
       data-drag-handle=""
     >
@@ -362,21 +431,80 @@ function ToggleView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   );
 }
 
-function BlockAtomView({ node }: NodeViewProps) {
+function BlockAtomView({ node, extension }: NodeViewProps) {
   const tagName = (node.attrs.tagName || "block") as string;
   const label = (node.attrs.label || "") as string;
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
+  const options = extension.options as NotionBlockAtomOptions;
+  const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
+  const pageLink = notionPageId
+    ? options.resolvePageLink?.(notionPageId)
+    : null;
   const primary =
+    pageLink?.title ||
     label ||
     attrs.title ||
     attrs.alt ||
     attrs.url ||
     attrs.src ||
     humanizeTag(tagName);
+  const canOpenLocalPage = Boolean(pageLink && options.onOpenPageLink);
+  const externalUrl = safeExternalPageUrl(attrs.url || attrs.href || null);
+
+  if (tagName === "page") {
+    const openPage = () => {
+      if (pageLink && options.onOpenPageLink) {
+        options.onOpenPageLink(pageLink.documentId);
+        return;
+      }
+      if (externalUrl) {
+        window.open(externalUrl, "_blank", "noopener,noreferrer");
+      }
+    };
+
+    return (
+      <NodeViewWrapper
+        className={`notion-page-reference ${
+          canOpenLocalPage || externalUrl
+            ? "notion-page-reference--clickable"
+            : ""
+        }`}
+      >
+        <button
+          type="button"
+          className="notion-page-reference__button"
+          contentEditable={false}
+          disabled={!canOpenLocalPage && !externalUrl}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openPage();
+          }}
+        >
+          <span className="notion-page-reference__icon" aria-hidden="true">
+            {pageLink?.icon || <IconFileText size={20} stroke={1.8} />}
+          </span>
+          <span className="notion-page-reference__label">{primary}</span>
+          {!pageLink && externalUrl ? (
+            <IconExternalLink
+              className="notion-page-reference__external"
+              size={16}
+              stroke={1.8}
+            />
+          ) : null}
+        </button>
+      </NodeViewWrapper>
+    );
+  }
+
+  const AtomIcon = tagName === "database" ? IconDatabase : IconFileText;
 
   return (
     <NodeViewWrapper className="notion-atom notion-atom--block">
-      <div className="notion-atom__kind">{humanizeTag(tagName)}</div>
+      <div className="notion-atom__kind">
+        <AtomIcon size={14} stroke={1.8} />
+        {humanizeTag(tagName)}
+      </div>
       <div className="notion-atom__label">{primary}</div>
     </NodeViewWrapper>
   );
@@ -479,6 +607,7 @@ export const NotionToggle = Node.create({
       color: { default: null },
       headingLevel: { default: null },
       open: { default: false },
+      indent: { default: 0 },
     };
   },
 
@@ -493,6 +622,7 @@ export const NotionToggle = Node.create({
             color: node.getAttribute("color"),
             headingLevel: node.getAttribute("data-heading-level"),
             open: node.hasAttribute("open"),
+            indent: normalizeIndentAttr(node.getAttribute("data-nfm-indent")),
           };
         },
         contentElement: (element) => {
@@ -518,6 +648,7 @@ export const NotionToggle = Node.create({
             color: node.getAttribute("data-color"),
             headingLevel: node.getAttribute("data-heading-level"),
             open: node.getAttribute("data-open") === "true",
+            indent: normalizeIndentAttr(node.getAttribute("data-nfm-indent")),
           };
         },
         contentElement: (element) =>
@@ -537,6 +668,9 @@ export const NotionToggle = Node.create({
         "data-color": HTMLAttributes.color || undefined,
         "data-heading-level": HTMLAttributes.headingLevel || undefined,
         "data-open": HTMLAttributes.open ? "true" : undefined,
+        "data-nfm-indent": HTMLAttributes.indent
+          ? String(HTMLAttributes.indent)
+          : undefined,
       }),
       [
         "div",
@@ -567,19 +701,21 @@ export const NotionToggle = Node.create({
             attrs["data-heading-level"] = String(node.attrs.headingLevel);
           }
           if (node.attrs.open) attrs.open = "";
+          const indent = normalizeIndentAttr(node.attrs.indent);
+          const prefix = "\t".repeat(indent);
           const inner = serializeInnerMarkdown((this as any).editor, node);
           const openTag = `<details${serializeTagAttributes(attrs)}>`;
-          _state.write(openTag);
+          _state.write(`${prefix}${openTag}`);
           _state.ensureNewLine();
           _state.write(
-            `<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
+            `${prefix}<summary>${escapeHtml(node.attrs.summary || "")}</summary>`,
           );
           if (inner.trim()) {
             _state.ensureNewLine();
-            _state.write(indentMarkdown(inner));
+            _state.write(indentMarkdown(inner, `${prefix}\t`));
           }
           _state.ensureNewLine();
-          _state.write("</details>");
+          _state.write(`${prefix}</details>`);
           _state.closeBlock(node);
         },
         parse: {},
@@ -744,6 +880,13 @@ export const NotionBlockAtom = Node.create({
   selectable: true,
   draggable: true,
 
+  addOptions(): NotionBlockAtomOptions {
+    return {
+      resolvePageLink: undefined,
+      onOpenPageLink: undefined,
+    };
+  },
+
   addAttributes() {
     return {
       tagName: { default: "unknown" },
@@ -888,12 +1031,16 @@ export const NotionInlineAtom = Node.create({
   },
 });
 
-export const notionEditorExtensions = [
-  NotionSpanMark,
-  NotionToggle,
-  NotionCallout,
-  NotionColumns,
-  NotionColumn,
-  NotionBlockAtom,
-  NotionInlineAtom,
-];
+export function createNotionEditorExtensions(
+  blockAtomOptions: NotionBlockAtomOptions = {},
+) {
+  return [
+    NotionSpanMark,
+    NotionToggle,
+    NotionCallout,
+    NotionColumns,
+    NotionColumn,
+    NotionBlockAtom.configure(blockAtomOptions),
+    NotionInlineAtom,
+  ];
+}

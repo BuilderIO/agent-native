@@ -1,5 +1,6 @@
 import type { EmailMessage } from "@shared/types";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { isSelfAddressedThread } from "@shared/self-notes";
 
 /**
  * Single source of truth for partitioning the loaded inbox into the top-bar
@@ -41,9 +42,10 @@ export function pinnedTriageLabels(pinnedLabels: readonly string[]): string[] {
 }
 
 /**
- * Self-sent mail gets a virtual "important" (or "note-to-self" when that tab
- * is pinned) label so it lands in the matching triage tab. Both the count and
- * the list apply this so they agree on self-sent threads.
+ * Self-addressed threads get a virtual "note-to-self" label when that tab is
+ * pinned. Other self-sent mail still gets virtual "important" so it lands in
+ * the matching triage tab. Both the count and the list apply this so they
+ * agree on self-authored threads.
  */
 export function augmentSelfSentLabels(
   emails: EmailMessage[],
@@ -54,13 +56,39 @@ export function augmentSelfSentLabels(
   },
 ): EmailMessage[] {
   if (!opts.isGoogleConnected) return emails;
+
+  const selfNoteThreads = new Set<string>();
+  if (opts.hasNoteToSelf) {
+    const threads = new Map<string, EmailMessage[]>();
+    for (const e of emails) {
+      const key = e.threadId || e.id;
+      const thread = threads.get(key) ?? [];
+      thread.push(e);
+      threads.set(key, thread);
+    }
+    for (const [key, thread] of threads) {
+      if (isSelfAddressedThread(thread, opts.connectedEmails)) {
+        selfNoteThreads.add(key);
+      }
+    }
+  }
+
   return emails.map((e) => {
+    const key = e.threadId || e.id;
     const isSelfSent = opts.connectedEmails.has(e.from.email.toLowerCase());
-    if (!isSelfSent) return e;
-    const virtualLabel = opts.hasNoteToSelf ? "note-to-self" : "important";
+    const virtualLabel = opts.hasNoteToSelf
+      ? selfNoteThreads.has(key)
+        ? "note-to-self"
+        : isSelfSent
+          ? "important"
+          : null
+      : isSelfSent
+        ? "important"
+        : null;
+    if (!virtualLabel) return e;
     if (e.labelIds.includes(virtualLabel)) return e;
     let labelIds = [...e.labelIds];
-    if (opts.hasNoteToSelf) {
+    if (virtualLabel === "note-to-self") {
       labelIds = labelIds.filter((l) => l !== "important");
     }
     if (!labelIds.includes(virtualLabel)) labelIds.push(virtualLabel);

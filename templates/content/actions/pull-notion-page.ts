@@ -13,11 +13,11 @@ export default defineAction({
   run: async (args) => {
     const documentId = args.documentId || args.id;
     if (!documentId) {
-      throw new Error("Usage: pnpm action pull-notion-page --documentId <id>");
+      throw new Error("documentId is required");
     }
 
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
-    return pullDocumentFromNotion(owner, documentId);
+    return pullDocumentFromNotion(owner, documentId, true);
   },
 });

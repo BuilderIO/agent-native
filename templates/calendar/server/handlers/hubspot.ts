@@ -4,12 +4,43 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { appStateGet } from "@agent-native/core/application-state";
+import { readBody } from "@agent-native/core/server";
+import {
+  getIntegrationKey,
+  saveIntegrationKey,
+  deleteIntegrationKey,
+} from "../lib/integration-credentials.js";
 
-async function getHubSpotKey(): Promise<string | undefined> {
-  const data = await appStateGet("local", "hubspot");
-  return (data as any)?.apiKey || undefined;
-}
+// GET /api/hubspot/status — never returns the key, only connection state.
+export const hubspotStatus = defineEventHandler(async (event: H3Event) => {
+  return { connected: !!(await getIntegrationKey(event, "hubspot")) };
+});
+
+// PUT /api/hubspot/key — store the key in the encrypted per-user vault.
+export const hubspotSaveKey = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { apiKey } = body;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "apiKey is required" };
+  }
+  const ok = await saveIntegrationKey(event, "hubspot", apiKey);
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to connect HubSpot" };
+  }
+  return { connected: true };
+});
+
+// DELETE /api/hubspot/key
+export const hubspotDeleteKey = defineEventHandler(async (event: H3Event) => {
+  const ok = await deleteIntegrationKey(event, "hubspot");
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to disconnect HubSpot" };
+  }
+  return { connected: false };
+});
 
 // GET /api/hubspot/contact?email=...
 export const hubspotContactLookup = defineEventHandler(
@@ -20,7 +51,7 @@ export const hubspotContactLookup = defineEventHandler(
       return { error: "email query param required" };
     }
 
-    const apiKey = await getHubSpotKey();
+    const apiKey = await getIntegrationKey(event, "hubspot");
     if (!apiKey) {
       setResponseStatus(event, 401);
       return { error: "HubSpot API key not configured" };

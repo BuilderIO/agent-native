@@ -77,7 +77,7 @@ export default defineAction({
     const primary = allTerms[0] ?? args.query;
 
     const seen = new Set<string>();
-    const results: any[] = [];
+    const results: Array<(typeof rows)[number] & { highlight: string }> = [];
     for (const r of rows) {
       if (seen.has(r.id)) continue;
       seen.add(r.id);

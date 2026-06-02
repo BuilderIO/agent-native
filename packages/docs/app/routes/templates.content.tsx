@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { TemplateDocsLink } from "../components/template-docs";
 import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
@@ -47,11 +48,17 @@ function CliCopy() {
   return (
     <button
       onClick={handleCopy}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
+      data-template-cli-copy
+      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span className="truncate text-[var(--fg)]">{template.cliCommand}</span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
+      <span
+        data-template-cli-copy-text
+        className="min-w-0 truncate text-[var(--fg)]"
+      >
+        {template.cliCommand}
+      </span>
+      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
         {copied ? (
           <svg
             width="16"
@@ -87,12 +94,12 @@ function CliCopy() {
 
 export default function ContentTemplate() {
   return (
-    <main className="mx-auto max-w-[1200px] px-6">
+    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
-      <section className="py-20">
+      <section className="py-12 sm:py-16 lg:py-20">
         <div className="mb-4">
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
@@ -112,7 +119,7 @@ export default function ContentTemplate() {
           </Link>
         </div>
 
-        <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
+        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
@@ -122,16 +129,16 @@ export default function ContentTemplate() {
               Agent-Native {template.name}
             </div>
 
-            <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
               The open-source AI Notion alternative
             </h1>
 
-            <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
+            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               Write, organize, and publish with an AI agent that knows your
               brand voice — and can modify the app itself.
             </p>
 
-            <div className="mb-8 flex flex-wrap items-center gap-3">
+            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
               <a
                 href="https://content.agent-native.com"
                 target="_blank"
@@ -160,6 +167,7 @@ export default function ContentTemplate() {
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
               </a>
+              <TemplateDocsLink template={template} location="landing_page" />
               <CliCopy />
             </div>
           </div>
@@ -416,8 +424,8 @@ export default function ContentTemplate() {
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
+          <table className="comparison-table min-w-[42rem] w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
@@ -494,16 +502,16 @@ export default function ContentTemplate() {
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
           Fork the template, connect your CMS, start writing with AI.
         </p>
-        <div className="flex items-center justify-center gap-4">
-          <Link
-            prefetch="render"
-            to="/docs"
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <TemplateDocsLink
+            template={template}
+            location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Get Started
-          </Link>
+            Read the docs
+          </TemplateDocsLink>
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate, type LoaderFunctionArgs } from "react-router";
 import {
   PromptComposer,
   useActionQuery,
   useChatModels,
   agentNativePath,
+  isInBuilderFrame,
 } from "@agent-native/core/client";
 import {
   IconActivity,
@@ -33,6 +34,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
+import {
+  buildThreadLinkPreviewMeta,
+  loadThreadLinkPreview,
+} from "@/server/lib/thread-link-preview";
 import type { WorkspaceAppSummary } from "@/lib/workspace-apps";
 
 interface IntegrationStatus {
@@ -75,9 +80,26 @@ const HOME_CHAT_SUGGESTIONS = [
 
 function HomeChatPanel() {
   const { selectedModel } = useChatModels();
+  const navigate = useNavigate();
 
   const send = (message: string) => {
-    submitOverviewPrompt(message, selectedModel);
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    if (isInBuilderFrame()) {
+      submitOverviewPrompt(trimmed, selectedModel);
+      return;
+    }
+
+    navigate("/chat", {
+      state: {
+        dispatchPrompt: {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          message: trimmed,
+          selectedModel,
+        },
+      },
+    });
   };
 
   return (
@@ -90,9 +112,7 @@ function HomeChatPanel() {
           <PromptComposer
             placeholder="Message agent…"
             onSubmit={(text) => {
-              const trimmed = text.trim();
-              if (!trimmed) return;
-              send(trimmed);
+              send(text);
             }}
           />
           <div className="flex flex-wrap justify-center gap-2">
@@ -379,18 +399,18 @@ function StatCard({
   cta?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-5">
+    <div className="min-w-0 rounded-2xl border bg-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <span>{label}</span>
+          <div className="flex items-center gap-1.5 text-sm font-medium leading-snug text-foreground">
+            <span className="min-w-0">{label}</span>
             <HelpTooltip content={help} />
           </div>
           <div className="mt-3 text-3xl font-semibold text-foreground">
             {value}
           </div>
         </div>
-        <div className="rounded-xl border bg-muted/30 p-3 text-muted-foreground">
+        <div className="shrink-0 rounded-xl border bg-muted/30 p-3 text-muted-foreground">
           <Icon size={18} />
         </div>
       </div>
@@ -455,8 +475,17 @@ function StepRow({ step }: { step: ChecklistStep }) {
   );
 }
 
-export function meta() {
-  return [{ title: "Overview — Dispatch" }];
+export async function loader({ request }: LoaderFunctionArgs) {
+  const threadId = new URL(request.url).searchParams.get("thread");
+  return {
+    threadPreview: await loadThreadLinkPreview(threadId),
+  };
+}
+
+export function meta({ data }: { data?: Awaited<ReturnType<typeof loader>> }) {
+  return data?.threadPreview
+    ? buildThreadLinkPreviewMeta(data.threadPreview)
+    : [{ title: "Overview — Dispatch" }];
 }
 
 export default function OverviewRoute() {
@@ -620,7 +649,7 @@ export default function OverviewRoute() {
           <IconActivity size={16} className="text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">At a glance</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))] gap-4">
           <StatCard
             label="Vault secrets"
             help="Credentials stored in the workspace vault."

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   IconAlertTriangle,
+  IconBolt,
   IconClock,
   IconFileCode,
-  IconRobot,
   IconTool,
 } from "@tabler/icons-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -78,7 +78,7 @@ export function RunSummaryCard({
             }
           />
           <SummaryStat
-            icon={<IconRobot size={16} aria-hidden />}
+            icon={<IconBolt size={16} aria-hidden />}
             label="Source"
             value={sourceLabel(source)}
           />

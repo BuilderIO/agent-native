@@ -1,12 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -65,11 +65,12 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check if user has any existing design systems to determine default
+    // Check only this user's owned systems. Shared systems should not prevent
+    // the first system a user creates from becoming their default.
     const existing = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)
-      .where(accessFilter(schema.designSystems, schema.designSystemShares))
+      .where(eq(schema.designSystems.ownerEmail, ownerEmail))
       .limit(1);
 
     const isDefault = existing.length === 0;

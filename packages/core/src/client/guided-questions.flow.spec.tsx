@@ -1,0 +1,183 @@
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useGuidedQuestionFlow } from "./guided-questions.js";
+
+// The agent's `ask-question` action writes the guided-questions payload to a
+// per-tab application-state key (`guided-questions:<tabId>`) whenever the run
+// carries a browser tab id, which it almost always does. The client hook must
+// therefore read the scoped key first (falling back to the bare key) and clear
+// whichever key actually held the payload. These tests lock that contract so
+// the clarifying-question card cannot silently stop rendering again.
+
+vi.mock("./agent-chat.js", () => ({
+  sendToAgentChat: vi.fn(),
+}));
+
+const STATE_PREFIX = "/_agent-native/application-state/";
+
+function keyFromUrl(url: string): string {
+  const idx = url.indexOf(STATE_PREFIX);
+  return idx >= 0 ? url.slice(idx + STATE_PREFIX.length) : url;
+}
+
+const payload = {
+  questions: [
+    {
+      id: "q1",
+      type: "text-options" as const,
+      question: "Which range?",
+      options: [{ label: "7d", value: "7d" }],
+    },
+  ],
+};
+
+type HookResult = ReturnType<typeof useGuidedQuestionFlow>;
+
+describe("useGuidedQuestionFlow scoped reads", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function flush() {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+    });
+  }
+
+  async function renderFlow(
+    options: Parameters<typeof useGuidedQuestionFlow>[0],
+  ): Promise<{ current: () => HookResult }> {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let latest: HookResult | null = null;
+    function Harness() {
+      latest = useGuidedQuestionFlow(options);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+    });
+    // The query resolves asynchronously and then `setPayload` triggers a
+    // re-render; pump microtasks/timers until the hook reports its questions.
+    for (let i = 0; i < 20 && !latest?.questions; i += 1) {
+      await flush();
+    }
+    return { current: () => latest as HookResult };
+  }
+
+  it("reads the tab-scoped key first when a browserTabId is provided", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const key = keyFromUrl(String(input));
+        seen.push(key);
+        // Only the scoped key holds the payload; the bare key is empty.
+        if (key === "guided-questions:tab123") {
+          return new Response(JSON.stringify(payload), { status: 200 });
+        }
+        return new Response("", { status: 200 });
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
+    expect(seen).toContain("guided-questions:tab123");
+  });
+
+  it("reads the bare key (no `:undefined` suffix) when no tab id is provided", async () => {
+    const seen: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const key = keyFromUrl(String(input));
+      seen.push(key);
+      if (key === "guided-questions") {
+        return new Response(JSON.stringify(payload), { status: 200 });
+      }
+      return new Response("", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+
+    // The question renders from the bare key, and the hook must never probe a
+    // malformed `guided-questions:undefined` key when there is no tab id.
+    expect(result.current().questions?.length).toBe(1);
+    expect(fetchMock).toHaveBeenCalled();
+    const requestedKeys = fetchMock.mock.calls.map((call) =>
+      keyFromUrl(String(call[0])),
+    );
+    expect(requestedKeys).toContain("guided-questions");
+    expect(requestedKeys).not.toContain("guided-questions:undefined");
+  });
+
+  it("DELETEs the scoped key on clear so the card does not reappear", async () => {
+    const deleted: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const key = keyFromUrl(String(input));
+        if (init?.method === "DELETE") {
+          deleted.push(key);
+          return new Response("", { status: 200 });
+        }
+        if (key === "guided-questions:tab123") {
+          return new Response(JSON.stringify(payload), { status: 200 });
+        }
+        return new Response("", { status: 200 });
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      result.current().clear();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(deleted).toContain("guided-questions:tab123");
+  });
+});

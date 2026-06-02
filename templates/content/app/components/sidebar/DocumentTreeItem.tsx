@@ -116,12 +116,14 @@ export function DocumentTreeItem({
           width: rowWidth === undefined ? undefined : `${rowWidth}px`,
         }}
         onClick={() => onSelect(node.id)}
+        aria-expanded={hasChildren ? expanded : undefined}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
           <span
             className={cn(
               "absolute inset-0 flex items-center justify-center text-center",
               hasChildren && "group-hover:opacity-0",
+              hasChildren && (expanded || isActive) && "opacity-0",
             )}
           >
             {node.icon || (
@@ -130,7 +132,16 @@ export function DocumentTreeItem({
           </span>
           {hasChildren && (
             <button
-              className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+              type="button"
+              aria-label={
+                expanded
+                  ? `Collapse ${node.title || "Untitled"}`
+                  : `Expand ${node.title || "Untitled"}`
+              }
+              className={cn(
+                "absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
+                (expanded || isActive) && "opacity-100 pointer-events-auto",
+              )}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();

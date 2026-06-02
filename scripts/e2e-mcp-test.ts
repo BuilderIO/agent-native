@@ -984,6 +984,24 @@ async function groupC_OpenAppPrivacy(
   const sc = listAppsResult?.structuredContent;
   if (Array.isArray(sc?.apps)) appsArray = sc.apps;
   else if (Array.isArray(listAppsResult?.apps)) appsArray = listAppsResult.apps;
+  else if (Array.isArray(listAppsResult?.content)) {
+    for (const item of listAppsResult.content as any[]) {
+      if (item?.type !== "text" || typeof item?.text !== "string") continue;
+      try {
+        const parsed = JSON.parse(item.text);
+        if (Array.isArray(parsed?.apps)) {
+          appsArray = parsed.apps;
+          break;
+        }
+        if (Array.isArray(parsed?.structuredContent?.apps)) {
+          appsArray = parsed.structuredContent.apps;
+          break;
+        }
+      } catch {
+        // Ignore non-JSON text blocks.
+      }
+    }
+  }
   out.apps = appsArray.map((a: any) => ({
     id: String(a?.id ?? a?.name ?? ""),
   }));

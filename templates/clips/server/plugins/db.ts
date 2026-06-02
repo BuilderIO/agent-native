@@ -947,9 +947,7 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
   let chunkRows: Array<{ key: string }> = [];
   try {
     const probe = await exec.execute({
-      sql: pg
-        ? `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`
-        : `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`,
+      sql: `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`,
       args: [],
     });
     chunkRows = (probe.rows as Array<{ key: string }>) ?? [];
@@ -1049,12 +1047,9 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
 
 async function backfillRecordingOrgId(): Promise<void> {
   const exec = getDbExec();
-  const pg = isPostgres();
   try {
     await exec.execute(
-      pg
-        ? `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`
-        : `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
+      `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
     );
   } catch (err) {
     console.warn(

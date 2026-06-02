@@ -8,13 +8,9 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { nanoid } from "../server/lib/calls.js";
-import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
+import { nanoid, resolveWorkspaceIdForAction } from "../server/lib/calls.js";
+import { writeAppState } from "@agent-native/core/application-state";
 
 const KeywordArray = z.array(z.string().min(1));
 
@@ -85,25 +81,10 @@ export default defineAction({
     }
 
     const db = getDb();
-
-    let workspaceId = args.workspaceId ?? null;
-    if (!workspaceId) {
-      const current = (await readAppState("current-workspace")) as {
-        id?: string;
-      } | null;
-      workspaceId = current?.id ?? null;
-    }
-    if (!workspaceId) {
-      const [row] = await db
-        .select({ id: schema.workspaces.id })
-        .from(schema.workspaces)
-        .orderBy(desc(schema.workspaces.createdAt))
-        .limit(1);
-      workspaceId = row?.id ?? null;
-    }
-    if (!workspaceId) {
-      throw new Error("No workspace found. Create a workspace first.");
-    }
+    const workspaceId = await resolveWorkspaceIdForAction({
+      workspaceId: args.workspaceId,
+      minRole: "creator-lite",
+    });
 
     const id = nanoid();
     const nowIso = new Date().toISOString();

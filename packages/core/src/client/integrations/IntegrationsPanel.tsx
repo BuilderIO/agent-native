@@ -7,7 +7,6 @@ import {
   IconBrandGoogleDrive,
   IconTerminal2,
   IconBuildingSkyscraper,
-  IconMessageCircle,
   IconCopy,
   IconCheck,
   IconChevronLeft,

@@ -1,5 +1,5 @@
 ---
-title: "Dispatch Template"
+title: "Dispatch"
 description: "Dispatch is the workspace control plane — central inbox, cross-app orchestration, secrets vault, Slack/Telegram integration, and scheduled jobs."
 ---
 
@@ -26,7 +26,7 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 - **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
-- **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, and reference resources can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
+- **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, reference resources, and HTTP MCP servers can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy or manual sync step; selected grants are for app-specific exceptions.
 - **Reusable integrations.** One place to connect provider accounts, track
   credential refs, and grant apps access. Dispatch owns provider identity and
   app grants; domain apps still own app-specific source choices such as Brain's
@@ -73,10 +73,11 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
 _How it works under the hood (for developers)._
 
 - **Orchestrator agent.** The chat is set up as a router: it reads `AGENTS.md`, `LEARNINGS.md`, and routes to specialist sub-agents or remote A2A agents.
-- **Remote agent registry.** A2A manifests live in `remote-agents/*.json` — one per app. Dispatch calls them using the `call-agent` action. In a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed.
+- **Remote agent registry.** A2A agent manifests are workspace-runtime entries (not a checked-in template source folder): in a multi-app workspace, sibling apps under `apps/` are auto-discovered as A2A peers — no manual registration needed. Dispatch calls them using the `call-agent` action.
 - **Vault schema.** Drizzle tables for secrets, grants, requests, approvals, and audit logs. See `server/db/schema.ts` in the template.
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
-- **MCP hub mode.** Dispatch can act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
+- **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
+- **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 
 ## Dreams {#dreams}
 
@@ -88,7 +89,7 @@ When Dispatch approval policy is enabled, applying a shared or team-wide dream p
 
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
 
-### Dream Input Validation Boundaries
+### Dream input validation boundaries
 
 Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream processor enforces strict input validation boundaries to prevent prompt injection and payload-size attacks:
 

@@ -53,26 +53,27 @@ export function createCodingToolRegistry(
     bash: {
       tool: {
         description:
-          "Run a bash command. Use this for file discovery and search (rg --files, rg, find, ls), tests, builds, package commands, git status/diff, and project CLIs.",
+          "Run a shell command. This is the tool for file discovery, directory listing, and search: reach first for `rg <pattern>` and `rg --files`, which are much faster than `grep` or `find`. Also use it to run tests, builds, package scripts, `git status`/`git diff`, and project CLIs. Use the read tool to view a single file's contents; use bash for everything else. Very long output is truncated.",
         parameters: {
           type: "object",
           properties: {
             command: {
               type: "string",
-              description: "The bash command to run.",
+              description: "The shell command to run (executed via bash).",
             },
             cwd: {
               type: "string",
               description:
-                "Optional working directory, relative to the workspace unless absolute paths are allowed.",
+                "Working directory for the command. Relative to the workspace root unless absolute paths are allowed. Defaults to the workspace root.",
             },
             timeoutMs: {
               type: "string",
-              description: "Optional timeout in milliseconds.",
+              description:
+                "Timeout in milliseconds; the command is killed if it exceeds this. Defaults to 30000, capped at 600000.",
             },
             stdin: {
               type: "string",
-              description: "Optional stdin to pipe into the command.",
+              description: "Text to pipe into the command's stdin.",
             },
           },
           required: ["command"],
@@ -118,21 +119,24 @@ export function createCodingToolRegistry(
       readOnly: true,
       tool: {
         description:
-          "Read a UTF-8 text file with line numbers. Use bash for directories, file lists, and search.",
+          "Read a single UTF-8 text file, returned with 1-based line numbers. For a large file, use offset and limit to page through it instead of reading the whole thing. Read a file before editing it so your edit's oldText matches exactly. Use bash (`ls`, `rg --files`, `rg`) for directory listings, file discovery, and search; this tool reads one file only.",
         parameters: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description: "File path to read.",
+              description:
+                "Path to the file to read, relative to the workspace root unless absolute paths are allowed.",
             },
             offset: {
               type: "string",
-              description: "1-based line number to start reading from.",
+              description:
+                "1-based line number to start reading from. Defaults to the first line.",
             },
             limit: {
               type: "string",
-              description: "Maximum number of lines to read.",
+              description:
+                "Maximum number of lines to read from offset. Defaults to the rest of the file.",
             },
           },
           required: ["path"],
@@ -161,31 +165,34 @@ export function createCodingToolRegistry(
     edit: {
       tool: {
         description:
-          "Edit an existing UTF-8 text file by replacing exact text. Prefer this for focused source changes. oldText must match exactly and uniquely unless replaceAll is true. For batch edits, pass edits as a JSON array of {oldText,newText,replaceAll}.",
+          "Edit an existing UTF-8 text file by replacing exact text. Prefer this over write for changes to existing files. Read the file first so oldText matches byte-for-byte, including whitespace and indentation. oldText must occur EXACTLY ONCE in the file: include enough surrounding context to make it unique. The edit fails (and the file is left unchanged) if oldText is not found or matches more than once, unless replaceAll is true, which replaces every occurrence. To apply several edits to one file in a single call, pass edits as a JSON array of {oldText, newText, replaceAll} objects; they apply in order, and any failure aborts the whole call.",
         parameters: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description: "File path to edit.",
+              description:
+                "Path to the file to edit, relative to the workspace root unless absolute paths are allowed.",
             },
             oldText: {
               type: "string",
-              description: "Exact text to replace for a single edit.",
+              description:
+                "Exact existing text to replace, for a single edit. Must match the file exactly and uniquely (include surrounding context) unless replaceAll is true.",
             },
             newText: {
               type: "string",
-              description: "Replacement text for a single edit.",
+              description: "Text to replace oldText with, for a single edit.",
             },
             replaceAll: {
               type: "string",
-              description: 'Set to "true" to replace every occurrence.',
+              description:
+                'Set to "true" to replace every occurrence of oldText instead of requiring a unique match. Defaults to "false".',
               enum: ["true", "false"],
             },
             edits: {
               type: "string",
               description:
-                'Optional JSON array of edits, e.g. [{"oldText":"foo","newText":"bar"}].',
+                'JSON array of edits to apply to this file in one call, e.g. [{"oldText":"foo","newText":"bar"},{"oldText":"baz","newText":"qux","replaceAll":"true"}]. When provided, the top-level oldText/newText are ignored.',
             },
           },
           required: ["path"],
@@ -241,17 +248,19 @@ export function createCodingToolRegistry(
     write: {
       tool: {
         description:
-          "Create or fully overwrite a UTF-8 text file. Prefer edit for existing files unless a complete rewrite is intended.",
+          "Create a new UTF-8 text file, or fully overwrite an existing one with the given content. Missing parent directories are created. For changes to an existing file, prefer edit; only use write when you intend to replace the entire file. Default to ASCII content unless the file already uses other characters or there is a clear reason not to.",
         parameters: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description: "File path to write.",
+              description:
+                "Path to the file to write, relative to the workspace root unless absolute paths are allowed.",
             },
             content: {
               type: "string",
-              description: "Full file content.",
+              description:
+                "Full contents to write. This replaces the entire file; existing content is not preserved.",
             },
           },
           required: ["path", "content"],

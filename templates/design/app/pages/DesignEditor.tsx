@@ -15,20 +15,22 @@ import {
   IconPlus,
   IconLayoutGrid,
   IconX,
-  IconPencilPlus,
   IconPin,
-  IconDownload,
   IconCode,
   IconArchive,
   IconPhoto,
   IconRefresh,
   IconMenu2,
+  IconChevronDown,
+  IconCheck,
+  IconDots,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
   useActionMutation,
   useSession,
   useCollaborativeDoc,
+  isReconcileLeadClient,
   generateTabId,
   emailToColor,
   emailToName,
@@ -36,6 +38,7 @@ import {
   AgentToggleButton,
   NotificationsBell,
   ShareButton,
+  isEmbedAuthActive,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
@@ -50,20 +53,29 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { EditPanel } from "@/components/design/EditPanel";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
+import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
-import { useVariantFlow } from "@/hooks/use-variant-flow";
+import {
+  DESIGN_VARIANT_PICKED_EVENT,
+  useVariantFlow,
+} from "@/hooks/use-variant-flow";
 import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import type {
   ElementInfo,
@@ -90,6 +102,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const TAB_ID = generateTabId();
@@ -194,6 +207,7 @@ export default function DesignEditor() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const openMobileSidebar = useOpenMobileSidebar();
+  const embedded = isEmbedAuthActive();
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("comment");
@@ -329,11 +343,30 @@ export default function DesignEditor() {
   } = useQuestionFlow(id);
   const {
     state: pendingVariants,
-    useVariant: handleUseVariant,
+    useVariant: handleVariantChoice,
     dismiss: handleVariantsDismiss,
+    standalonePick,
+    dismissStandalonePick,
   } = useVariantFlow(id);
 
   const { session } = useSession();
+  const pendingVariantKey = useMemo(
+    () =>
+      pendingVariants
+        ? `${pendingVariants.designId}:${pendingVariants.variants
+            .map((variant) => variant.id)
+            .join(",")}`
+        : "",
+    [pendingVariants],
+  );
+  const [selectedVariantId, setSelectedVariantId] = useState<
+    string | undefined
+  >();
+  const initialVariantId = pendingVariants?.variants[0]?.id;
+
+  useEffect(() => {
+    setSelectedVariantId(initialVariantId);
+  }, [initialVariantId, pendingVariantKey]);
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -641,12 +674,47 @@ export default function DesignEditor() {
   // instead of the DB-fetched content so live remote edits appear instantly.
   const [collabContent, setCollabContent] = useState<string | null>(null);
   const prevActiveFileIdRef = useRef<string | null>(null);
+  // `updatedAt` of the DB content this preview currently reflects. A poll that
+  // returns an older-or-equal value is a stale snapshot and is ignored; a newer
+  // one is a genuine external edit (agent / peer-via-SQL) and is reconciled in.
+  // Mirrors the content template's VisualEditor `lastAppliedUpdatedAt` gate.
+  const lastAppliedFileUpdatedAtRef = useRef<string | null>(null);
+  // The last content this client itself wrote into the Y.Doc (inline-style
+  // edits) — so the reconcile/observe doesn't treat our own echo as external.
+  const lastLocalContentRef = useRef<string | null>(null);
+  // Freshest known DB `updatedAt` for the active file, kept in a ref so the
+  // Yjs observe handler can advance the reconcile watermark without re-subscribing.
+  const documentFileUpdatedAtRef = useRef<string | null>(null);
+  const documentFileContentRef = useRef<string | null>(null);
 
-  // Reset collab content when switching files
+  // Whether this client applies authoritative external snapshots into the
+  // shared Y.Doc. Exactly one client (the lead) does, so an agent/peer edit
+  // that arrives via the get-design refetch isn't diffed into the CRDT by every
+  // open client and duplicated. Re-elected on awareness / visibility changes.
+  const [isLeadClient, setIsLeadClient] = useState(true);
+  useEffect(() => {
+    if (!awareness || !ydoc) {
+      setIsLeadClient(true);
+      return;
+    }
+    const update = () =>
+      setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
+    update();
+    awareness.on("change", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      awareness.off("change", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [awareness, ydoc]);
+
+  // Reset per-file reconcile state when switching files
   useEffect(() => {
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
       setCollabContent(null);
+      lastAppliedFileUpdatedAtRef.current = null;
+      lastLocalContentRef.current = null;
     }
   }, [activeFileId]);
 
@@ -656,22 +724,112 @@ export default function DesignEditor() {
     const ytext = ydoc.getText("content");
     const text = ytext.toString();
     if (text.length > 0) {
+      // Y.Doc snapshots are a render seed, not the SQL source of truth; the
+      // reconcile effect below advances the updatedAt watermark only after it
+      // confirms or applies the current DB content.
       setCollabContent(text);
     }
   }, [ydoc, isSynced, activeFileId]);
 
-  // Observe Y.Text changes for live updates from remote editors
+  // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
+  useEffect(() => {
+    documentFileUpdatedAtRef.current = activeFile?.updatedAt ?? null;
+    documentFileContentRef.current = activeFile?.content ?? null;
+  }, [activeFile?.content, activeFile?.updatedAt]);
+
+  // Observe Y.Text changes for live updates from remote editors (peers + the
+  // agent's in-process applyText). This is the instant peer-to-peer path.
   useEffect(() => {
     if (!ydoc || !isSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      setCollabContent(ytext.toString());
+      const next = ytext.toString();
+      setCollabContent(next);
+      lastLocalContentRef.current = next;
+      // Only advance the DB reconcile watermark when the live CRDT text
+      // actually matches the current SQL snapshot. Otherwise an intermediate
+      // or malformed Yjs update can shadow valid saved HTML until reload.
+      if (next === documentFileContentRef.current) {
+        lastAppliedFileUpdatedAtRef.current =
+          documentFileUpdatedAtRef.current ??
+          lastAppliedFileUpdatedAtRef.current;
+      }
     };
     ytext.observe(handler);
     return () => {
       ytext.unobserve(handler);
     };
   }, [ydoc, isSynced]);
+
+  // Reconcile authoritative external DB content (agent edit / peer-via-SQL) into
+  // the live preview. This is the robustness fallback the Yjs observe path can't
+  // guarantee on its own: a collab poll can be missed or paused (e.g. the tab
+  // was backgrounded, or refetchInterval is off for a normal agent edit), but
+  // get-design still refetches via the action-change invalidate. Driven by
+  // `updatedAt`: only content genuinely newer than what the preview reflects is
+  // adopted, so a lagging poll can never revert live edits. The lead client also
+  // writes it into the Y.Doc so peers receive it and it persists.
+  useEffect(() => {
+    if (!activeFile || !isSynced) return;
+    const dbContent = activeFile.content ?? "";
+    const dbUpdatedAt = activeFile.updatedAt ?? null;
+
+    // Already reflecting this exact content (our own echo or Yjs already
+    // delivered it) — just advance the watermark and stop.
+    if (
+      collabContent === dbContent ||
+      lastLocalContentRef.current === dbContent
+    ) {
+      if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      return;
+    }
+
+    // Only adopt genuinely newer content. No baseline yet (fresh file load)
+    // always adopts so a stale persisted Y.Doc can't shadow newer SQL.
+    const applied = lastAppliedFileUpdatedAtRef.current;
+    const externalNewer = !applied || (!!dbUpdatedAt && dbUpdatedAt > applied);
+    if (!externalNewer) return;
+
+    // Render the newer content immediately so the preview is never stale.
+    setCollabContent(dbContent);
+    lastLocalContentRef.current = dbContent;
+    if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+
+    // Lead client mirrors it into the shared Y.Doc so other open clients
+    // receive it through Yjs and the durable collab state stays in step. The
+    // agent's update-file/generate-design already wrote the Y.Doc in-process,
+    // so in the common case this is a no-op diff; it only does real work when
+    // the Yjs update was missed (the failure this fallback exists to cover).
+    if (isLeadClient && ydoc) {
+      const ytext = ydoc.getText("content");
+      if (ytext.toString() !== dbContent) {
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, dbContent);
+        }, TAB_ID);
+      }
+    }
+  }, [activeFile, collabContent, isSynced, isLeadClient, ydoc]);
+
+  useEffect(() => {
+    const handleVariantPicked = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ designId?: string; content?: string }>
+      ).detail;
+      if (detail?.designId !== id || typeof detail.content !== "string") {
+        return;
+      }
+      setCollabContent(detail.content);
+      lastLocalContentRef.current = detail.content;
+    };
+    window.addEventListener(DESIGN_VARIANT_PICKED_EVENT, handleVariantPicked);
+    return () => {
+      window.removeEventListener(
+        DESIGN_VARIANT_PICKED_EVENT,
+        handleVariantPicked,
+      );
+    };
+  }, [id]);
 
   // Set awareness local state to include which file the user is viewing
   useEffect(() => {
@@ -795,6 +953,20 @@ export default function DesignEditor() {
       if (!nextContent) return;
 
       setCollabContent(nextContent);
+      // Mark as our own write so the get-design reconcile + Yjs observe don't
+      // treat the echo as an external edit and fight the live value.
+      lastLocalContentRef.current = nextContent;
+      // Write the edit into the shared Y.Doc so other open clients see it live
+      // through Yjs (not only via the slower update-file → applyText round-trip).
+      if (ydoc && isSynced) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toString() !== nextContent) {
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, nextContent);
+          }, TAB_ID);
+        }
+      }
       queueFileContentSave(activeFile.id, nextContent);
       setSelectedElement((prev) =>
         prev
@@ -805,7 +977,14 @@ export default function DesignEditor() {
           : prev,
       );
     },
-    [activeContent, activeFile, queueFileContentSave, selectedElement],
+    [
+      activeContent,
+      activeFile,
+      queueFileContentSave,
+      selectedElement,
+      ydoc,
+      isSynced,
+    ],
   );
 
   const handleZoomIn = useCallback(() => {
@@ -857,18 +1036,6 @@ export default function DesignEditor() {
       return current === "overview" ? "single" : "overview";
     });
   }, [viewMode]);
-
-  const handleDrawToolToggle = useCallback(() => {
-    if (!activeFile || viewMode === "overview") return;
-    if (drawMode) {
-      setDrawMode(false);
-      setMode("comment");
-      return;
-    }
-    setMode("draw");
-    setDrawMode(true);
-    setPinMode(false);
-  }, [activeFile, drawMode, viewMode]);
 
   const handlePinToolToggle = useCallback(() => {
     if (!activeFile || viewMode === "overview") return;
@@ -1230,11 +1397,6 @@ ${serializedHtml}
     }
   }, [design?.title, fallbackExportName, triggerBlobDownload]);
 
-  const exportPending =
-    exportHtmlMutation.isPending ||
-    exportZipMutation.isPending ||
-    createCodingHandoffMutation.isPending ||
-    svgExporting;
   const zoomLabel = `${Math.round(zoom)}%`;
 
   if (!id) {
@@ -1243,11 +1405,7 @@ ${serializedHtml}
   }
 
   if (designLoading || (!design && pendingGenerationActive)) {
-    return (
-      <div className="flex-1 bg-background flex items-center justify-center">
-        <Spinner className="size-8 text-foreground/30" />
-      </div>
-    );
+    return <DesignEditorSkeleton embedded={embedded} />;
   }
 
   if (!design) {
@@ -1270,6 +1428,7 @@ ${serializedHtml}
     id: f.id,
     filename: f.filename,
   }));
+  const hideEmbeddedVariantToolbar = embedded && !!pendingVariants;
 
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
@@ -1278,7 +1437,13 @@ ${serializedHtml}
     // flex-col page shell). Without this the canvas collapses to ~150px.
     <div className="h-full flex flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <header className="h-12 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <header
+        className={cn(
+          "shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          embedded ? "h-10" : "h-12",
+          hideEmbeddedVariantToolbar && "hidden",
+        )}
+      >
         <div className="flex h-full min-w-max w-full items-center gap-2 px-3">
           {openMobileSidebar && (
             <Button
@@ -1332,36 +1497,43 @@ ${serializedHtml}
           </Badge>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-            {/* Mode switcher */}
-            <Tabs
-              value={mode}
-              onValueChange={(v) => handleModeChange(v as EditorMode)}
-            >
-              <TabsList className="h-8">
-                <TabsTrigger
-                  value="comment"
-                  className="h-6 px-2 text-xs gap-1"
-                  onClick={handleCommentTabClick}
+            {!embedded && (
+              <>
+                {/* Mode switcher */}
+                <Tabs
+                  value={mode}
+                  onValueChange={(v) => handleModeChange(v as EditorMode)}
                 >
-                  <IconMessage className="w-3 h-3" />
-                  Comment
-                </TabsTrigger>
-                <TabsTrigger value="edit" className="h-6 px-2 text-xs gap-1">
-                  <IconPencil className="w-3 h-3" />
-                  Edit
-                </TabsTrigger>
-                <TabsTrigger
-                  value="draw"
-                  className="h-6 px-2 text-xs gap-1"
-                  disabled={!activeFile || viewMode === "overview"}
-                >
-                  <IconBrush className="w-3 h-3" />
-                  Draw
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+                  <TabsList className="h-8">
+                    <TabsTrigger
+                      value="comment"
+                      className="h-6 px-2 text-xs gap-1"
+                      onClick={handleCommentTabClick}
+                    >
+                      <IconMessage className="w-3 h-3" />
+                      Comment
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="edit"
+                      className="h-6 px-2 text-xs gap-1"
+                    >
+                      <IconPencil className="w-3 h-3" />
+                      Edit
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="draw"
+                      className="h-6 px-2 text-xs gap-1"
+                      disabled={!activeFile || viewMode === "overview"}
+                    >
+                      <IconBrush className="w-3 h-3" />
+                      Draw
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
 
-            <div className="w-px h-5 bg-accent mx-1" />
+                <div className="w-px h-5 bg-accent mx-1" />
+              </>
+            )}
 
             {/* Overview / single-screen toggle. Clicking Overview shows every
               file in the design as a Figma-style pannable lineup. */}
@@ -1381,100 +1553,112 @@ ${serializedHtml}
               </TooltipContent>
             </Tooltip>
 
-            <div className="w-px h-5 bg-accent mx-1" />
+            {!embedded && (
+              <>
+                {/* Device preview — collapsed into a single menu. */}
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 cursor-pointer"
+                          disabled={viewMode === "overview"}
+                        >
+                          {deviceFrame === "desktop" ? (
+                            <IconDeviceDesktop className="w-3.5 h-3.5" />
+                          ) : deviceFrame === "tablet" ? (
+                            <IconDeviceTablet className="w-3.5 h-3.5" />
+                          ) : deviceFrame === "mobile" ? (
+                            <IconDeviceMobile className="w-3.5 h-3.5" />
+                          ) : (
+                            <IconDeviceDesktopOff className="w-3.5 h-3.5" />
+                          )}
+                          <IconChevronDown className="w-3 h-3 opacity-60" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Device preview</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuRadioGroup
+                      value={deviceFrame}
+                      onValueChange={(v) =>
+                        setDeviceFrame(v as DeviceFrameType)
+                      }
+                    >
+                      <DropdownMenuRadioItem value="none">
+                        <IconDeviceDesktopOff className="mr-2 h-4 w-4" />
+                        Responsive
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="desktop">
+                        <IconDeviceDesktop className="mr-2 h-4 w-4" />
+                        Desktop
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="tablet">
+                        <IconDeviceTablet className="mr-2 h-4 w-4" />
+                        Tablet
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="mobile">
+                        <IconDeviceMobile className="mr-2 h-4 w-4" />
+                        Mobile
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-            {/* Device frame — only meaningful in single-screen mode. */}
-            <div className="flex items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={deviceFrame === "none" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={() => setDeviceFrame("none")}
-                    disabled={viewMode === "overview"}
-                  >
-                    <IconDeviceDesktopOff className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>No frame</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={deviceFrame === "desktop" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={() => setDeviceFrame("desktop")}
-                    disabled={viewMode === "overview"}
-                  >
-                    <IconDeviceDesktop className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Desktop</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={deviceFrame === "tablet" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={() => setDeviceFrame("tablet")}
-                    disabled={viewMode === "overview"}
-                  >
-                    <IconDeviceTablet className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Tablet</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={deviceFrame === "mobile" ? "secondary" : "ghost"}
-                    size="icon"
-                    className="h-7 w-7 cursor-pointer"
-                    onClick={() => setDeviceFrame("mobile")}
-                    disabled={viewMode === "overview"}
-                  >
-                    <IconDeviceMobile className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Mobile</TooltipContent>
-              </Tooltip>
-            </div>
+                {/* Zoom — collapsed into a single menu. */}
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs tabular-nums text-muted-foreground cursor-pointer"
+                        >
+                          {zoomLabel}
+                          <IconChevronDown className="w-3 h-3 opacity-60" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Zoom</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={handleZoomOut}>
+                      <IconZoomOut className="mr-2 h-4 w-4" />
+                      Zoom out
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleZoomIn}>
+                      <IconZoomIn className="mr-2 h-4 w-4" />
+                      Zoom in
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {ZOOM_PRESETS.map((preset) => (
+                      <DropdownMenuItem
+                        key={preset}
+                        onClick={() => setZoom(preset)}
+                        className="justify-between"
+                      >
+                        <span>{preset}%</span>
+                        {Math.round(zoom) === preset && (
+                          <IconCheck className="h-4 w-4" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-            <div className="w-px h-5 bg-accent mx-1" />
+                <div className="mx-1 h-5 w-px bg-border" />
+              </>
+            )}
 
-            {/* Zoom */}
-            <div className="flex items-center gap-0.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 cursor-pointer"
-                onClick={handleZoomOut}
-              >
-                <IconZoomOut className="w-3.5 h-3.5" />
-              </Button>
-              <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
-                {zoomLabel}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 cursor-pointer"
-                onClick={handleZoomIn}
-              >
-                <IconZoomIn className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-
-            <div className="w-px h-5 bg-accent mx-1" />
-
-            {/* Actions */}
+            {/* Tweaks */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
+                  variant={tweaksVisible ? "secondary" : "ghost"}
                   size="icon"
                   className="h-7 w-7 cursor-pointer"
                   onClick={() => setTweaksVisible(!tweaksVisible)}
@@ -1485,128 +1669,104 @@ ${serializedHtml}
               <TooltipContent>Tweaks</TooltipContent>
             </Tooltip>
 
-            {/* Draw on canvas — overlays the iframe with pencil + text. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={drawMode ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  data-toolbar-draw-button
-                  onClick={handleDrawToolToggle}
-                  disabled={!activeFile || viewMode === "overview"}
-                >
-                  <IconPencilPlus className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {viewMode === "overview"
-                  ? "Open a single screen to draw"
-                  : drawMode
-                    ? "Exit draw mode"
-                    : "Draw on current screen"}
-              </TooltipContent>
-            </Tooltip>
-
-            {/* Drop comment pin — overlays the iframe with click-to-comment. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={pinMode ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  data-toolbar-pin-button
-                  onClick={handlePinToolToggle}
-                  disabled={!activeFile || viewMode === "overview"}
-                >
-                  <IconPin className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {viewMode === "overview"
-                  ? "Open a single screen to comment"
-                  : pinMode
-                    ? "Exit comment pin mode"
-                    : "Drop comment pin"}
-              </TooltipContent>
-            </Tooltip>
-
             {/* Save state — currently the design template doesn't expose a
               dedicated "save in flight" signal (file edits go through Yjs +
               update-file actions). Surface the indicator so the UX matches
               slides; flip `saving` off until we wire a real source. */}
             <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
 
-            <ShareButton
-              resourceType="design"
-              resourceId={id}
-              resourceTitle={design.title}
-            />
+            {!embedded && (
+              <ShareButton
+                resourceType="design"
+                resourceId={id}
+                resourceTitle={design.title}
+              />
+            )}
 
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 cursor-pointer"
-                      disabled={!activeFile || exportPending}
-                    >
-                      <IconDownload className="w-3.5 h-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Export</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem
-                  onClick={handleDownloadHtml}
-                  disabled={!activeFile || exportHtmlMutation.isPending}
-                >
-                  <IconCode className="mr-2 h-4 w-4" />
-                  Download HTML
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDownloadPng}
-                  disabled={!activeFile}
-                >
-                  <IconPhoto className="mr-2 h-4 w-4" />
-                  Download PNG
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDownloadSvg}
-                  disabled={!activeFile || svgExporting}
-                >
-                  <IconCode className="mr-2 h-4 w-4" />
-                  Download SVG
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDownloadZip}
-                  disabled={!activeFile || exportZipMutation.isPending}
-                >
-                  <IconArchive className="mr-2 h-4 w-4" />
-                  Download ZIP
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleCopyCodingHandoff}
-                  disabled={
-                    !activeFile || createCodingHandoffMutation.isPending
-                  }
-                >
-                  <IconCode className="mr-2 h-4 w-4" />
-                  Copy coding handoff
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* More: comment pin + export (progressive disclosure). */}
+            {!embedded && (
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="relative h-7 w-7 cursor-pointer"
+                      >
+                        <IconDots className="w-3.5 h-3.5" />
+                        {pinMode && (
+                          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#609FF8]" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>More</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={handlePinToolToggle}
+                    disabled={!activeFile || viewMode === "overview"}
+                  >
+                    <IconPin className="mr-2 h-4 w-4" />
+                    {pinMode ? "Exit comment pin" : "Drop comment pin"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    Export
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={handleDownloadHtml}
+                    disabled={!activeFile || exportHtmlMutation.isPending}
+                  >
+                    <IconCode className="mr-2 h-4 w-4" />
+                    Download HTML
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleDownloadPng}
+                    disabled={!activeFile}
+                  >
+                    <IconPhoto className="mr-2 h-4 w-4" />
+                    Download PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleDownloadSvg}
+                    disabled={!activeFile || svgExporting}
+                  >
+                    <IconCode className="mr-2 h-4 w-4" />
+                    Download SVG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleDownloadZip}
+                    disabled={!activeFile || exportZipMutation.isPending}
+                  >
+                    <IconArchive className="mr-2 h-4 w-4" />
+                    Download ZIP
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleCopyCodingHandoff}
+                    disabled={
+                      !activeFile || createCodingHandoffMutation.isPending
+                    }
+                  >
+                    <IconCode className="mr-2 h-4 w-4" />
+                    Copy coding handoff
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
 
-            <PresenceBar
-              activeUsers={activeUsers}
-              agentActive={agentActive}
-              currentUserEmail={session?.email}
-            />
-            <NotificationsBell />
-            <AgentToggleButton />
+            {!embedded && (
+              <>
+                <PresenceBar
+                  activeUsers={activeUsers}
+                  agentActive={agentActive}
+                  currentUserEmail={session?.email}
+                />
+                <NotificationsBell />
+                <AgentToggleButton />
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -1662,15 +1822,19 @@ ${serializedHtml}
           )}
 
         {/* Variant grid overlay — full canvas takeover with 2-5 candidate
-            designs. "Use this one" persists the chosen content as index.html. */}
+            designs. "Use this direction" persists the chosen content as index.html. */}
         {pendingVariants && (
           <div className="absolute inset-0 z-40 flex flex-col bg-background">
-            <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-              <div>
-                <span className="text-sm font-medium text-foreground/90">
+            <div
+              className={`flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 ${
+                embedded ? "h-10" : "h-12"
+              }`}
+            >
+              <div className="min-w-0">
+                <span className="block truncate text-sm font-medium text-foreground/90">
                   {pendingVariants.prompt ?? "Pick a direction"}
                 </span>
-                <span className="ml-2 text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {pendingVariants.variants.length} variations
                 </span>
               </div>
@@ -1687,101 +1851,130 @@ ${serializedHtml}
             <div className="flex-1 overflow-hidden">
               <VariantGrid
                 variants={pendingVariants.variants}
-                onSelect={handleUseVariant}
-                onUse={handleUseVariant}
+                selectedId={selectedVariantId}
+                onSelect={setSelectedVariantId}
+                onUse={handleVariantChoice}
+                compact={embedded}
               />
             </div>
           </div>
         )}
 
+        {/* Link-only (CLI / Codex / Claude Code) paste-back: after a pick there
+            is no chat bridge, so surface a copyable summary to continue. */}
+        {standalonePick && (
+          <VariantHandoffCard
+            pick={standalonePick}
+            onDismiss={dismissStandalonePick}
+          />
+        )}
+
         {/* Canvas */}
-        {activeFile ? (
-          viewMode === "overview" ? (
-            <MultiScreenCanvas
-              screens={files.map((f) => ({
-                id: f.id,
-                filename: f.filename,
-                content: f.content,
-              }))}
-              zoom={zoom}
-              activeId={activeFileId}
-              onPick={(id) => {
-                setActiveFileId(id);
-                setViewMode("single");
-              }}
-            />
+        {!pendingVariants &&
+          (activeFile ? (
+            viewMode === "overview" ? (
+              <MultiScreenCanvas
+                screens={files.map((f) => ({
+                  id: f.id,
+                  filename: f.filename,
+                  content: f.content,
+                }))}
+                zoom={zoom}
+                activeId={activeFileId}
+                onPick={(id) => {
+                  setActiveFileId(id);
+                  setViewMode("single");
+                }}
+              />
+            ) : (
+              <DesignCanvas
+                content={activeContent}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                deviceFrame={deviceFrame}
+                editMode={mode === "edit"}
+                onElementSelect={handleElementSelect}
+                onElementHover={handleElementHover}
+                tweakValues={cssVarValues}
+                drawMode={drawMode}
+                onExitDrawMode={() => {
+                  setDrawMode(false);
+                  setMode("comment");
+                }}
+                pinMode={pinMode}
+                onExitPinMode={() => setPinMode(false)}
+                designId={id}
+                designTitle={design?.title}
+                onPrototypeNavigate={(screen) => {
+                  if (!screen) return;
+                  const norm = (s: string) =>
+                    s
+                      .replace(/^\.?\//, "")
+                      .replace(/\.html?$/i, "")
+                      .toLowerCase();
+                  const target = norm(screen);
+                  if (!target) return;
+                  // Exact (normalized) filename match only — a substring match
+                  // could send "board" to "dashboard.html".
+                  const match = files.find((f) => norm(f.filename) === target);
+                  if (match) {
+                    setViewMode("single");
+                    setActiveFileId(match.id);
+                  }
+                }}
+              />
+            )
           ) : (
-            <DesignCanvas
-              content={activeContent}
-              zoom={zoom}
-              onZoomChange={setZoom}
-              deviceFrame={deviceFrame}
-              editMode={mode === "edit"}
-              onElementSelect={handleElementSelect}
-              onElementHover={handleElementHover}
-              tweakValues={cssVarValues}
-              drawMode={drawMode}
-              onExitDrawMode={() => {
-                setDrawMode(false);
-                setMode("comment");
-              }}
-              pinMode={pinMode}
-              onExitPinMode={() => setPinMode(false)}
-              designId={id}
-              designTitle={design?.title}
-            />
-          )
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              {generating || pendingGenerationActive ? (
-                <>
-                  <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
-                  <p className="text-sm text-muted-foreground">
-                    Generating design...
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {generationIssue ??
-                      "No files yet. Ask the agent to generate a design."}
-                  </p>
-                  {retryablePrompt ? (
-                    <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
-                      "{retryablePrompt.prompt}"
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                {generating || pendingGenerationActive ? (
+                  <>
+                    <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                    <p className="text-sm text-muted-foreground">
+                      Generating design...
                     </p>
-                  ) : null}
-                  <div className="flex items-center justify-center gap-2">
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {generationIssue ??
+                        "No files yet. Ask the agent to generate a design."}
+                    </p>
                     {retryablePrompt ? (
+                      <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
+                        "{retryablePrompt.prompt}"
+                      </p>
+                    ) : null}
+                    <div className="flex items-center justify-center gap-2">
+                      {retryablePrompt ? (
+                        <Button
+                          size="sm"
+                          className="cursor-pointer"
+                          onClick={handleRetryGeneration}
+                        >
+                          <IconRefresh className="w-3.5 h-3.5" />
+                          Try again
+                        </Button>
+                      ) : null}
                       <Button
+                        ref={generateBtnRef}
+                        variant={retryablePrompt ? "ghost" : "outline"}
                         size="sm"
                         className="cursor-pointer"
-                        onClick={handleRetryGeneration}
+                        onClick={() => {
+                          setRetryablePrompt(null);
+                          setShowPrompt(true);
+                        }}
                       >
-                        <IconRefresh className="w-3.5 h-3.5" />
-                        Try again
+                        <IconPlus className="w-3.5 h-3.5" />
+                        {retryablePrompt ? "New prompt" : "Generate Design"}
                       </Button>
-                    ) : null}
-                    <Button
-                      ref={generateBtnRef}
-                      variant={retryablePrompt ? "ghost" : "outline"}
-                      size="sm"
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setRetryablePrompt(null);
-                        setShowPrompt(true);
-                      }}
-                    >
-                      <IconPlus className="w-3.5 h-3.5" />
-                      {retryablePrompt ? "New prompt" : "Generate Design"}
-                    </Button>
-                  </div>
-                </>
-              )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          ))}
 
         {/* Edit panel (right side) */}
         {mode === "edit" && (

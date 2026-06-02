@@ -20,9 +20,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { useCompositionCollab } from "@/hooks/use-composition-collab";
 import { useDatabaseCompositions } from "@/hooks/use-database-compositions";
-import "@/utils/resetComposition"; // Make reset utility available in console
-
-// ─── Studio Container with Providers ──────────────────────────────────────────
 
 function StudioContent({
   collab,

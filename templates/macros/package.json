@@ -7,7 +7,7 @@
     "dev": "agent-native dev",
     "build": "agent-native build",
     "start": "agent-native start",
-    "test": "vitest --run",
+    "test": "vitest --run --passWithNoTests",
     "format.fix": "prettier --write .",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",

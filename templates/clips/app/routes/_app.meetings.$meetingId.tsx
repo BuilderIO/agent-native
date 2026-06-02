@@ -5,8 +5,10 @@ import {
   IconArrowLeft,
   IconCheck,
   IconClock,
+  IconDeviceDesktop,
   IconDots,
   IconEdit,
+  IconExternalLink,
   IconLoader2,
   IconNotes,
   IconTrash,
@@ -48,8 +50,8 @@ import {
 } from "@/components/meetings/transcript-bubbles";
 import { BulletLink } from "@/components/meetings/bullet-link";
 import { CanvasEditor } from "@/components/meetings/canvas-editor";
-import { AutoRecordPrompt } from "@/components/meetings/auto-record-prompt";
 import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   Tooltip,
   TooltipContent,
@@ -70,6 +72,10 @@ interface ActionItem {
 
 type Participant = AttendeeStackParticipant;
 
+interface Bullet {
+  text: string;
+}
+
 interface Meeting {
   id: string;
   title: string;
@@ -84,7 +90,7 @@ interface Meeting {
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
   summaryMd?: string | null;
   userNotesMd?: string | null;
-  bulletsJson?: string[] | null;
+  bulletsJson?: Bullet[] | null;
   actionItemsJson?: ActionItem[] | null;
   segmentsJson?: TranscriptSegment[] | null;
   participants?: Participant[];
@@ -234,7 +240,9 @@ function ActionItemsByPerson({
               const done = !!it.completedAt;
               return (
                 <li
-                  key={index}
+                  key={
+                    it.id ?? `${it.assigneeEmail ?? "?"}:${it.text}:${index}`
+                  }
                   className="flex items-start gap-2 text-xs leading-relaxed"
                 >
                   <button
@@ -305,7 +313,7 @@ export default function MeetingDetailRoute() {
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
-  const startRecording = useActionMutation<any, any>("start-meeting-recording");
+  const { isDesktopApp } = useDesktopPromo();
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const previousHasNotesRef = useRef(false);
@@ -332,7 +340,7 @@ export default function MeetingDetailRoute() {
     return {
       ...data.meeting,
       participants: data.participants ?? [],
-      bulletsJson: safeArray<string>(data.meeting.bulletsJson),
+      bulletsJson: safeArray<Bullet>(data.meeting.bulletsJson),
       segmentsJson: segmentsRaw
         ? safeArray<TranscriptSegment>(segmentsRaw)
         : null,
@@ -352,6 +360,23 @@ export default function MeetingDetailRoute() {
     !!meeting?.userNotesMd ||
     (meeting?.bulletsJson?.length ?? 0) > 0 ||
     (meeting?.actionItemsJson?.length ?? 0) > 0;
+
+  // Recording is a native Clips desktop-app gesture (Granola-style), not an
+  // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
+  // handoff to the desktop app. While the desktop records, this web view polls
+  // and shows the live transcript it saves — no browser mic capture here.
+  const meetingTimeMs = Date.parse(
+    meeting?.scheduledEnd ?? meeting?.scheduledStart ?? "",
+  );
+  const isLongPast =
+    !Number.isNaN(meetingTimeMs) && meetingTimeMs < Date.now() - 60 * 60 * 1000;
+  const showDesktopRecordHint =
+    !!meeting &&
+    !meeting.recordingId &&
+    !hasNotes &&
+    !isLive &&
+    !meeting.actualEnd &&
+    !isLongPast;
 
   useEffect(() => {
     if (hasNotes && !previousHasNotesRef.current) {
@@ -443,6 +468,12 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
+    // Notes the user edited are promoted to userNotesMd (see
+    // handleTransferAiToUser) and survive regeneration, so this stays
+    // one-click — we just reassure the user their own notes are kept.
+    if (hasNotes) {
+      toast.info("Regenerating notes — your own edits are kept");
+    }
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meeting.id });
   };
@@ -467,15 +498,19 @@ export default function MeetingDetailRoute() {
   };
 
   // Auto-generate notes once the transcript is ready and no notes yet.
+  // Depend on primitives only — the `meeting` object identity changes on every
+  // 2s poll, which would otherwise re-run this effect needlessly.
+  const meetingIdForFinalize = meeting?.id;
+  const transcriptStatusForFinalize = meeting?.transcriptStatus;
   useEffect(() => {
-    if (!meeting) return;
+    if (!meetingIdForFinalize) return;
     if (autoFinalizedRef.current) return;
     if (hasNotes) return;
     if (finalize.isPending) return;
-    if (meeting.transcriptStatus !== "ready") return;
+    if (transcriptStatusForFinalize !== "ready") return;
     autoFinalizedRef.current = true;
-    finalize.mutate({ meetingId: meeting.id });
-  }, [meeting, hasNotes, finalize]);
+    finalize.mutate({ meetingId: meetingIdForFinalize });
+  }, [meetingIdForFinalize, transcriptStatusForFinalize, hasNotes, finalize]);
 
   if (isLoading || !meeting) {
     return (
@@ -609,16 +644,28 @@ export default function MeetingDetailRoute() {
         </div>
       </PageHeader>
 
-      <AutoRecordPrompt
-        scheduledStart={meeting.scheduledStart}
-        actualStart={meeting.actualStart}
-        disabled={startRecording.isPending}
-        onStart={() => {
-          if (startRecording.isPending) return;
-          patchCachedMeeting({ actualStart: new Date().toISOString() });
-          startRecording.mutate({ meetingId: meeting.id });
-        }}
-      />
+      {showDesktopRecordHint && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
+          <IconDeviceDesktop className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm">
+            Record live notes for this meeting from the Clips desktop app — the
+            transcript and AI notes will appear here automatically.
+          </span>
+          {!isDesktopApp && (
+            <Button
+              asChild
+              size="sm"
+              variant="secondary"
+              className="ml-auto h-8 gap-1.5 cursor-pointer"
+            >
+              <NavLink to="/download">
+                <IconExternalLink className="h-3.5 w-3.5" />
+                Get desktop app
+              </NavLink>
+            </Button>
+          )}
+        </div>
+      )}
 
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -646,19 +693,16 @@ export default function MeetingDetailRoute() {
             </span>
           </span>
         )}
-        {meeting.recordingId && (
-          <NavLink
-            to={`/r/${meeting.recordingId}`}
+        {meeting.joinUrl && !meeting.actualEnd && (
+          <a
+            href={meeting.joinUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
           >
-            <IconVideo className="h-3.5 w-3.5" />
-            Open transcript source
-            {recordingDuration && (
-              <span className="tabular-nums text-muted-foreground/80">
-                · {recordingDuration}
-              </span>
-            )}
-          </NavLink>
+            <IconExternalLink className="h-3.5 w-3.5" />
+            Join call
+          </a>
         )}
       </div>
 
@@ -684,7 +728,7 @@ export default function MeetingDetailRoute() {
           </div>
           <CanvasEditor
             summaryMd={meeting.summaryMd ?? ""}
-            bullets={bullets}
+            bullets={bullets.map((b) => b.text)}
             actionItems={actionItems}
             userNotesMd={meeting.userNotesMd ?? ""}
             onUserNotesChange={handleUserNotesChange}

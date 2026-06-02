@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -20,19 +20,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconPlus,
   IconTrash,
-  IconGripVertical,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
   IconPencil,
-  IconExternalLink,
   IconArchive,
-  IconArchiveOff,
   IconDots,
 } from "@tabler/icons-react";
 import {
@@ -50,6 +44,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  useChangeVersions,
   agentNativePath,
   appApiPath,
   type CollabUser,
@@ -244,60 +239,91 @@ export default function ExplorerDashboardPage() {
     staleTime: 30_000,
   });
 
+  // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
+  // action runs — the same "agent writes show up without a manual refresh"
+  // pattern the SQL dashboard page uses. We depend on both because:
+  // - `dashboards` covers same-process writes from upsertDashboard
+  // - `action` covers every successful agent action and is emitted by the
+  //   agent runner unconditionally, which makes the refresh resilient even if
+  //   the dashboards-store emit is missed (different process, etc.).
+  // Without this, an agent edit to an explorer dashboard only reached the open
+  // page through the collab Y.Text channel, which is silent on the first edit
+  // (seedFromText doesn't emit) — so the title/charts could go stale.
+  const sync = useChangeVersions(["dashboards", "action"]);
+  const dashboardQuery = useQuery({
+    // dashboardId is part of the key, so React Query keeps a separate cache
+    // entry per dashboard — no `placeholderData` (it would carry the previous
+    // dashboard's data across an id switch and flash the wrong dashboard).
+    // The skeleton shows until fresh data for the current id arrives, exactly
+    // like the original one-shot load. Same-key refetches (agent writes) keep
+    // the rendered `dashboard` state until the new data lands, so there's no
+    // flicker on those.
+    queryKey: ["data", "explorer-dashboard", dashboardId, sync],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      if (!dashboardId) return null;
+      return fetchDashboard(dashboardId);
+    },
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (!dashboardId) return;
     setLoaded(false);
+    setDashboard(null);
     setResourceAccess(null);
     setEditingName(false);
-    fetchDashboard(dashboardId).then((d) => {
-      if (d) {
-        setDashboard(d.data);
-        setArchivedAt(d.archivedAt);
-        setResourceAccess({
-          role: d.role,
-          canEdit: d.canEdit,
-          canManage: d.canManage,
-        });
-      } else {
-        setDashboard({ name: "Untitled Dashboard", charts: [] });
-        setArchivedAt(null);
-        setResourceAccess(null);
-      }
-      setLoaded(true);
-    });
   }, [dashboardId]);
 
-  const handleArchiveToggle = useCallback(
-    async (action: "archive" | "restore") => {
-      if (!dashboardId || !canEdit) return;
-      const path =
-        action === "archive"
-          ? `/api/explorer-dashboards/${dashboardId}/archive`
-          : `/api/explorer-dashboards/${dashboardId}/unarchive`;
-      try {
-        const res = await fetchWithAuth(path, { method: "POST" });
-        if (!res.ok) throw new Error(`${action} failed (${res.status})`);
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-sidebar"],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["explorer-dashboards-palette"],
-        });
-        if (action === "archive") {
-          toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-          navigate("/adhoc/explorer");
-        } else {
-          setArchivedAt(null);
-          toast.success(`Restored "${dashboard?.name ?? "dashboard"}"`);
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : `Couldn't ${action} dashboard`,
-        );
-      }
-    },
-    [dashboardId, canEdit, queryClient, navigate, dashboard?.name],
-  );
+  useEffect(() => {
+    if (!dashboardId || !dashboardQuery.isSuccess) return;
+    const d = dashboardQuery.data;
+    if (d) {
+      setDashboard(d.data);
+      setArchivedAt(d.archivedAt);
+      setResourceAccess({
+        role: d.role,
+        canEdit: d.canEdit,
+        canManage: d.canManage,
+      });
+    } else {
+      setDashboard({ name: "Untitled Dashboard", charts: [] });
+      setArchivedAt(null);
+      setResourceAccess(null);
+    }
+    setLoaded(true);
+  }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
+
+  const handleArchive = useCallback(async () => {
+    if (!dashboardId || !canEdit) return;
+    if (archivedAt) return;
+    try {
+      const res = await fetchWithAuth(
+        `/api/explorer-dashboards/${dashboardId}/archive`,
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error(`Archive failed (${res.status})`);
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-sidebar"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["explorer-dashboards-palette"],
+      });
+      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+      navigate("/adhoc/explorer");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't archive dashboard",
+      );
+    }
+  }, [
+    dashboardId,
+    canEdit,
+    archivedAt,
+    queryClient,
+    navigate,
+    dashboard?.name,
+  ]);
 
   const persist = useCallback(
     (updated: ExplorerDashboardData) => {
@@ -310,6 +336,13 @@ export default function ExplorerDashboardPage() {
       }
       setDashboard(updated);
       pushToCollab(updated);
+      // Keep the cached dashboard query in sync with the optimistic write so a
+      // `sync` bump from our own save doesn't briefly flash stale data before
+      // the refetch lands.
+      queryClient.setQueriesData<FetchedExplorerDashboard | null>(
+        { queryKey: ["data", "explorer-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, data: updated } : prev),
+      );
       saveDashboard(dashboardId, updated).then(() => {
         queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
@@ -483,21 +516,6 @@ export default function ExplorerDashboardPage() {
               Add Chart
             </Button>
           ) : null}
-          {archivedAt && canEdit ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleArchiveToggle("restore")}
-                >
-                  <IconArchiveOff className="h-4 w-4 mr-1.5" />
-                  Restore
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>This dashboard is archived</TooltipContent>
-            </Tooltip>
-          ) : null}
           {canEdit || canManage ? (
             <DropdownMenu>
               <Tooltip>
@@ -516,30 +534,20 @@ export default function ExplorerDashboardPage() {
                 <TooltipContent>More actions</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="w-44">
-                {canEdit ? (
-                  archivedAt ? (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void handleArchiveToggle("restore");
-                      }}
-                    >
-                      <IconArchiveOff className="mr-2 h-3.5 w-3.5" />
-                      Restore
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void handleArchiveToggle("archive");
-                      }}
-                    >
-                      <IconArchive className="mr-2 h-3.5 w-3.5" />
-                      Archive
-                    </DropdownMenuItem>
-                  )
+                {canEdit && !archivedAt ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleArchive();
+                    }}
+                  >
+                    <IconArchive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </DropdownMenuItem>
                 ) : null}
-                {canEdit && canManage ? <DropdownMenuSeparator /> : null}
+                {canEdit && !archivedAt && canManage ? (
+                  <DropdownMenuSeparator />
+                ) : null}
                 {canManage ? (
                   <DropdownMenuItem
                     onSelect={(event) => {

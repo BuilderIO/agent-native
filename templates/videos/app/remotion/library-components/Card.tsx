@@ -1,30 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * CARD COMPONENT
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * A simple interactive card component with text content.
- * Demonstrates hover and click animations controlled by the UI.
- *
- * Features:
- * - Configurable title and description
- * - Default hover animation (scale + shadow)
- * - Default click animation (scale down/up)
- * - Animations stored in animation system (UI-controlled)
- *
- * Usage:
- *   import { Card } from "@/remotion/library-components";
- *
- *   <Card
- *     title="My Card"
- *     description="Card description"
- *     backgroundColor="#1e293b"
- *     textColor="#f1f5f9"
- *   />
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import React from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";

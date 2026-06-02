@@ -1,5 +1,5 @@
 ---
-title: "Agent-Native Code Workspace and /migrate"
+title: "Migration Workbench"
 description: "Use the open-source Agent-Native Code workspace for coding sessions, including the built-in /migrate capability."
 ---
 
@@ -18,11 +18,7 @@ npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 
 **Agent-Native Code** is the open-source Claude Code/Codex-like workspace for coding work in Agent-Native. `agent-native` or `agent-native code` launches it with no prompt required, and a bare prompt starts a generic coding task directly. `/migrate` is one built-in capability for moving an existing app, URL, or described product into agent-native. It uses the same session store, transcript, and desktop hub as the CLI `code` command, so migration behaves like a goal you can resume, attach to, inspect, and stop rather than a separate one-off product.
 
-That session store is local and long-running by design. It is separate from the
-hosted agent sidebar and Agent Teams `run-manager` lifecycle today, but new
-surfaces should bridge through the shared background-run foundation so Code,
-sidebar, Brain, and Agent Teams continue converging on one lifecycle instead of
-growing parallel runners.
+See [Agent-Native Code UI](/docs/code-agents-ui) for the shared CLI run controls (`list`/`attach`/`logs`/`resume`/`status`/`stop`/`ui`) and the file-backed, long-running background-run model that `/migrate` sessions use.
 
 By default `/migrate` creates a generic Agent-Native Code session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard.
 
@@ -34,14 +30,8 @@ npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app
 
 Both forms print the same handoff: run id, source, output, dossier directory,
 important artifact files, and the exact Agent-Native Code commands to inspect or
-resume the session:
-
-```bash
-npx @agent-native/core@latest code attach --last
-npx @agent-native/core@latest code logs --last
-npx @agent-native/core@latest code resume --last
-npx @agent-native/core@latest code status --last
-```
+resume the session (see [Agent-Native Code UI](/docs/code-agents-ui) for the
+full run-control command set).
 
 ## Code Workspace
 
@@ -59,10 +49,7 @@ code> /migrate ./my-next-app --out ../migrated-app
 code> /audit --url https://example.com
 ```
 
-Agent-Native Code uses the same minimal coding tools as the sidebar development
-agent: `bash` for discovery/search/tests/builds, `read` for line-numbered file
-reads, `edit` for exact replacements, and `write` for new files or full
-rewrites.
+Agent-Native Code uses the same minimal coding-tool profile (`bash`, `read`, `edit`, `write`) and shared composer as the rest of the framework; see [Agent-Native Code UI](/docs/code-agents-ui) for details.
 
 The same goals can run directly from the command line:
 
@@ -83,50 +70,17 @@ Installed `agent-native` with no arguments launches the Agent-Native Code worksp
 
 ## Sessions and Modes
 
-Agent-Native Code makes migration feel like a local Codex/Claude Code session instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start work in one place and continue it in the other:
-
-```bash
-npx @agent-native/core@latest code list
-npx @agent-native/core@latest code attach --last
-npx @agent-native/core@latest code logs --last
-npx @agent-native/core@latest code approve --last
-npx @agent-native/core@latest code resume --last
-npx @agent-native/core@latest code resume --last "check the auth edge cases next"
-```
-
-`list` shows previous and active sessions for the current workspace. `attach` follows a live transcript. `logs` prints the transcript once. `resume` reopens a session with its prior context, and a quoted resume prompt records the next instruction against that same run. If a high-risk command pauses for approval, `approve --last` runs that one pending command and then points you back to resume the session. Desktop adds the visual session picker on top of the same data: choose a run, inspect status and tool events, then attach, resume, stop, or open the run workspace.
-
-The same hub can display mixed background-run sources. Local Agent-Native Code
-runs are available today through the file-backed Code run store, and Agent Teams
-or other hosted background work can appear through adapters that normalize their
-runs to the Code hub contract. Adapters should provide a subtle `sourceLabel`,
-`source`, or `kind` when the list mixes sources, so users can distinguish "Local
-Code" from "Agent Teams" without turning the session picker into a dashboard.
-
-Follow-up prompts have two-way messaging semantics. Active runs can receive
-steering prompts at the next safe continuation point, while queued follow-ups
-run after the current turn completes. If a host cannot apply a message
-immediately, it should persist it as queued work and continue safely.
-
-Run modes make editing policy explicit per session:
-
-| Mode          | CLI flag | Behavior                                                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                   |
-| **Auto mode** | `--auto` | Edit files, run checks, and pause only for genuinely destructive file, git, publish, or data operations. |
-
-Auto mode is the default for local Agent-Native Code sessions. Use Plan mode for assessment, architecture, review, or any task where you want a proposal before edits.
+Agent-Native Code makes migration feel like a local Codex/Claude Code session instead of a one-shot command. The CLI and Desktop hub share the same run store, so you can start a `/migrate` run in one place and continue it in the other with the standard `list`/`attach`/`logs`/`resume`/`approve`/`stop` controls. See [Agent-Native Code UI](/docs/code-agents-ui) for those run controls, the mixed background-run source model, two-way follow-up semantics, and the Plan/Auto run modes that also govern `/migrate` sessions. Auto mode is the default; use Plan mode for migration assessment, architecture, or review where you want a proposal before edits.
 
 ## Project Slash Commands
 
-Built-in slash goals such as `/migrate` and `/audit` are framework commands. Projects can also define custom commands in `.agents/commands/*.md` using the same npx-first workflow:
+Built-in slash goals such as `/migrate` and `/audit` are framework commands. Projects can also define migration variants as custom commands in `.agents/commands/*.md` (see [Agent-Native Code UI](/docs/code-agents-ui) for how project commands and skills are discovered and inserted):
 
 ```bash
-npx @agent-native/core@latest code /release-check
 npx @agent-native/core@latest code /migrate-storefront ./legacy-shop --out ../agent-shop
 ```
 
-Each Markdown file names the command and contains the prompt/instructions the Agent-Native Code should run. This keeps team-specific workflows close to the repository: release checks, migration variants, framework upgrade playbooks, security audits, or customer-specific handoffs can be versioned without adding code. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
+Versioning migration variants this way keeps source-specific handoffs close to the repository. Source-specific systems such as AEM or Builder.io should stay as optional instruction-pack examples inside those commands, not top-level migration assumptions.
 
 ## Input Shapes
 
@@ -177,24 +131,7 @@ Inside that optional internal surface, the flow is:
 4. **Sweep** runs migration tasks against the generated output project.
 5. **Verify** runs deterministic checks and writes `04-report.md`.
 
-Useful CLI helpers:
-
-```bash
-npx @agent-native/core@latest code status --last
-npx @agent-native/core@latest code list
-npx @agent-native/core@latest code attach --last
-npx @agent-native/core@latest code logs --last
-npx @agent-native/core@latest code approve --last
-npx @agent-native/core@latest code resume --last
-npx @agent-native/core@latest code --continue "check the auth edge cases next"
-npx @agent-native/core@latest code resume --last "check the auth edge cases next"
-npx @agent-native/core@latest code ui --last
-npx @agent-native/core@latest code stop --last
-```
-
-`attach --last` follows a live transcript until the run reaches a terminal state, while `logs --last` prints the transcript once. `resume --last` reopens the latest run handoff. Passing a quoted prompt, or using `--continue "prompt"`, records it as a follow-up transcript event and immediately runs that follow-up against the same session context for executable coding sessions. `approve --last` is intentionally narrow: it only runs the pending approved command for a session that paused on a high-risk command, then tells you to resume.
-
-`stop` marks the run paused and sends SIGTERM when the run has a tracked Desktop/CLI runner process id. If the active work belongs to another terminal or external agent, stop that owner directly.
+Drive this surface with the standard run controls (`status`/`list`/`attach`/`logs`/`approve`/`resume`/`ui`/`stop`, plus `--continue "prompt"` to record and run a follow-up). See [Agent-Native Code UI](/docs/code-agents-ui) for what each control does and how stop/approve behave.
 
 ## Long-Running Goals
 
@@ -212,9 +149,11 @@ The `/migrate` goal reuses the same credentials system as agent-native. There is
 
 In Agent-Native Code, Desktop, or the internal run surface, connect providers through the normal settings and onboarding surfaces. For headless CLI use, existing provider environment variables are detected, including `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and other provider env vars supported by the framework. Secret values are never copied into migration artifacts.
 
-## Agent-Native Code
+## Desktop Deep Links
 
-Agent-Native Desktop includes a **Agent-Native Code** hub for long-running coding-agent sessions. It is the general Code app/surface in Desktop, and it pairs with the `agent-native code` shell as the primary CLI/Desktop coding experience. A bare prompt is the generic coding session, and `/migrate` is one specialized capability there: the hub shows recent and active runs, opens a transcript-first session view with compact tool summaries and artifacts, sends follow-up prompts, stops tracked runners, opens a terminal in the run workspace, and handles links like:
+`/migrate` runs appear in the Desktop Agent-Native Code hub alongside any other Code session and use the same hub run controls and approval gate ([Agent-Native Code UI](/docs/code-agents-ui) covers the Desktop host and run controls). Browser/Desktop approval remains the trust gate for generated output writes.
+
+The hub handles a `/migrate` goal deep link:
 
 ```text
 agentnative://open?goal=migrate&run=<runId>
@@ -225,19 +164,6 @@ The legacy app-style deep link still works and opens the internal run detail sur
 ```text
 agentnative://open?app=migration&run=<runId>
 ```
-
-The hub also includes `/audit`, a lightweight native goal backed by `agent-native audit-agent-web`, to keep the shell honest about more than one goal:
-
-```bash
-npx @agent-native/core@latest code /audit --url https://example.com
-```
-
-The hub exposes the same generic run controls the CLI does: the session picker opens past runs, `resume` opens the goal surface or reattaches to the run, a quoted resume prompt records and executes follow-up feedback for executable goals, status refreshes the run list, and stop reports or stops the owning process when one is known. Browser/Desktop approval remains the trust gate for generated output writes. Future coding goals can reuse the same CLI and desktop shell by registering another slash goal or a project command under `.agents/commands/*.md`.
-
-Implementation note: any prompt entry for Code, Brain, or the standard agent
-sidebar should use the shared `PromptComposer` stack. Any background coding or
-sub-agent work should use the Code run store, shared background-run adapter,
-`run-manager`, or Agent Teams primitives rather than a template-specific runner.
 
 ## Emit Mode
 

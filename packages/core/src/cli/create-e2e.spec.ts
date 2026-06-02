@@ -45,7 +45,12 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(origCwd);
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
 });
 
 function readPkg(dir: string): Record<string, any> {
@@ -321,6 +326,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
     expect(wsYaml).toContain("catalog:");
     expect(wsYaml).toContain("tailwindcss");
+  });
+
+  it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
+    const rootPkg = readPkg(wsDir);
+    expect(rootPkg.pnpm?.overrides?.["better-auth"]).toBe("1.6.0");
   });
 
   it("keeps the default workspace starter app branded as a blank app", async () => {

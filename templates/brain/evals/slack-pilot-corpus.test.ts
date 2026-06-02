@@ -360,7 +360,7 @@ describe("Brain Slack pilot eval corpus", () => {
     });
   });
 
-  it("ranks the #dev-fusion project settings memory above broad Fusion chatter", async () => {
+  it("ranks the #dev-fusion project settings knowledge above broad Fusion chatter", async () => {
     const results = await searchEverythingRows({
       query: "Why did project settings revert in #dev-fusion?",
       limit: 8,
@@ -402,7 +402,7 @@ describe("Brain Slack pilot eval corpus", () => {
     expect(haystack).not.toContain("Broad Fusion pilot status");
   });
 
-  it("ranks the #dev-fusion TanStack compromise memory above broad Fusion chatter", async () => {
+  it("ranks the #dev-fusion TanStack compromise knowledge above broad Fusion chatter", async () => {
     const results = await searchEverythingRows({
       query: "Was Agent Native affected by the TanStack compromise?",
       limit: 8,

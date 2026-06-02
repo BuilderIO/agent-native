@@ -921,6 +921,71 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("keeps recovery prompts from replacing the original user request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-recovery",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Build a CS operations tool" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "The agent stopped before finishing.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Continue from where you left off and finish my last request.",
+              },
+            ],
+            metadata: {
+              custom: { agentNativeRecoveryAction: "continue" },
+            },
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe(
+      "Continue from where you left off and finish my last request.",
+    );
+    expect(body.displayMessage).toBe("Build a CS operations tool");
+    expect(body.history).toEqual([
+      { role: "user", content: "Build a CS operations tool" },
+      { role: "assistant", content: "The agent stopped before finishing." },
+    ]);
+  });
+
   it("auto-continues without surfacing loop limit text", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1281,7 +1346,7 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("finished after idle recovery");
   });
 
-  it("stops silent run timeouts without retrying the same no-progress request", async () => {
+  it("retries silent run timeouts a few times before giving up", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1330,7 +1395,12 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
 
-    expect(postCount).toBe(1);
+    // A run that produces nothing visible no longer gives up on the first
+    // soft-timeout (that made heavier prompts feel like they "stop midway").
+    // It retries through the empty-continuation budget
+    // (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) — 1 initial + 3 retries = 4
+    // POSTs — then surfaces the "no visible progress" error.
+    expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -1347,6 +1417,160 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "did not produce any visible progress",
     );
+  });
+
+  it("recovers when a silent run timeout is followed by real output", async () => {
+    // The point of the empty-continuation budget: a transient slow start (the
+    // model thinks through the soft-timeout window with no visible output) must
+    // recover on a later continuation, not give up. Two empty run_timeouts
+    // followed by real text should finish cleanly with no "no visible progress"
+    // error. This is the regression that made heavier prompts feel like they
+    // "crap out / stop midway".
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount < 3) {
+          return sseResponse([
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        return sseResponse([{ type: "text", text: "done" }, { type: "done" }]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-recover",
+      threadId: "thread-recover",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "slow analytical question" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    // 2 empty run_timeouts (within the budget of 3) then a successful run.
+    expect(postCount).toBe(3);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("done");
+  });
+
+  it("continues once when a run timeout happened during action input streaming", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        return postCount === 1
+          ? sseResponse([
+              {
+                type: "activity",
+                label: "Preparing create-extension action",
+                tool: "create-extension",
+              },
+              { type: "auto_continue", reason: "run_timeout" },
+            ])
+          : sseResponse([
+              {
+                type: "text",
+                text: "created a compact first version",
+              },
+              { type: "done" },
+            ]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-action-input-timeout",
+      threadId: "thread-action-input-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Build a detailed CS operations extension",
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    const secondBody = JSON.parse(chatPosts[1][1].body);
+    expect(secondBody.message).toContain(
+      "preparing the `create-extension` action input",
+    );
+    expect(secondBody.message).toContain("compact working v1");
+    expect(secondBody.history).toEqual([
+      { role: "user", content: "Build a detailed CS operations extension" },
+    ]);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("created a compact first version");
   });
 
   it("surfaces a startup timeout when the POST never becomes an SSE stream", async () => {
@@ -1544,6 +1768,20 @@ describe("createAgentChatAdapter", () => {
     expect(secondBody.history).toEqual([
       { role: "user", content: "finish the report" },
       { role: "assistant", content: "still working..." },
+    ]);
+    // The already-streamed text must also survive into structuredHistory — the
+    // server prioritizes structuredHistory over the plain history string, so a
+    // transient continuation that lost it here would resume blind to text the
+    // model already produced.
+    expect(secondBody.structuredHistory).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "finish the report" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "still working..." }],
+      },
     ]);
     expect((results[1] as any).content).toEqual([]);
     const last = results.at(-1) as any;
@@ -2066,5 +2304,321 @@ describe("createAgentChatAdapter", () => {
       ),
       { type: "text", text: "finished after progressive recovery" },
     ]);
+  });
+
+  it("keeps continuing when a run times out repeatedly with a tool still in flight", async () => {
+    // A tool_start with no matching tool_done is the server still executing
+    // the action. A run_timeout in that window is real progress — the
+    // server's foldAssistantTurn already persisted the in-flight call — so it
+    // must not count against the stalled/empty continuation budgets. We fire
+    // far more in-flight timeouts than MAX_STALLED_TRANSIENT_CONTINUATIONS (8)
+    // and MAX_EMPTY_TRANSIENT_CONTINUATIONS (1); the run must still recover.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount <= 12) {
+        // tool_start with NO tool_done — the action is still running when the
+        // run times out.
+        return sseResponse([
+          {
+            type: "tool_start",
+            tool: "create-extension",
+            input: { name: "Dashboard" },
+          },
+          { type: "auto_continue", reason: "run_timeout" },
+        ]);
+      }
+      return sseResponse([
+        { type: "text", text: "finished after in-flight recovery" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-inflight-timeout",
+      threadId: "thread-inflight-timeout",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "build a dashboard extension" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    // 12 in-flight timeouts + 1 successful run — never gave up despite far
+    // exceeding the stalled (8) and empty (1) caps.
+    expect(postCount).toBe(13);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("finished after in-flight recovery");
+  });
+
+  it("preserves large create-extension input verbatim in continuation history", async () => {
+    // Large-input tools carry the artifact itself as their input. Lossy
+    // truncation to an `{ __agentNativeTruncated }` placeholder would strand
+    // the resumed agent — it could no longer refine the extension. The real
+    // HTML must survive into the continuation's structuredHistory.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(5000)}</div>`;
+    expect(bigHtml.length).toBeGreaterThan(40_000);
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse([
+          {
+            type: "tool_start",
+            tool: "create-extension",
+            input: { name: "Big dashboard", content: bigHtml },
+          },
+          {
+            type: "tool_done",
+            tool: "create-extension",
+            result: '{"id":"ext-1"}',
+          },
+          { type: "text", text: "Created the first version." },
+          {
+            type: "error",
+            error: "Builder gateway timed out after 45s",
+            errorCode: "builder_gateway_timeout",
+          },
+        ]);
+      }
+      return sseResponse([
+        { type: "text", text: "refined it" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-large-input",
+      threadId: "thread-large-input",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "build a big dashboard extension" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(postCount).toBe(2);
+    const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+    const serialized = JSON.stringify(secondBody.structuredHistory);
+    expect(serialized).not.toContain("__agentNativeTruncated");
+    const toolCall = secondBody.structuredHistory
+      .flatMap((m: any) => m.content)
+      .find((part: any) => part.type === "tool-call");
+    expect(toolCall.toolName).toBe("create-extension");
+    expect(toolCall.args.content).toBe(bigHtml);
+  });
+
+  it("does not lossy-truncate large create-extension args in prior-turn structured history", async () => {
+    // When a large create-extension turn becomes prior history on a later
+    // request, history truncation runs (truncateForHistory=true). A generic
+    // tool would collapse to the `__agentNativeTruncated` placeholder; an
+    // extension's input is the artifact itself, so it must survive verbatim
+    // so the agent can keep refining it. A generic large tool input still
+    // collapses to the placeholder to bound history growth.
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const bigHtml = `<div x-data="dashboard()">${"<p>row</p>".repeat(5000)}</div>`;
+    const bigGenericInput = "x".repeat(40_000);
+    expect(bigHtml.length).toBeGreaterThan(40_000);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-prior-large-input",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "make a big dashboard" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tc_1",
+                toolName: "create-extension",
+                args: { name: "Big dashboard", content: bigHtml },
+                result: '{"id":"ext-1"}',
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tc_2",
+                toolName: "search-codebase",
+                args: { query: bigGenericInput },
+                result: "ok",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "now refine it" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const toolCalls = body.structuredHistory
+      .flatMap((m: any) => m.content)
+      .filter((part: any) => part.type === "tool-call");
+    const extensionCall = toolCalls.find(
+      (c: any) => c.toolName === "create-extension",
+    );
+    const genericCall = toolCalls.find(
+      (c: any) => c.toolName === "search-codebase",
+    );
+    // Extension input survives verbatim.
+    expect(extensionCall.args.content).toBe(bigHtml);
+    expect(extensionCall.args.__agentNativeTruncated).toBeUndefined();
+    // A generic large tool input still collapses to the placeholder.
+    expect(genericCall.args.__agentNativeTruncated).toBe(true);
+    expect(genericCall.args.query).toBeUndefined();
+  });
+
+  it("counts whitespace-only output against the empty recovery cap", async () => {
+    // Resetting the empty-continuation counter on a non-zero PART count let
+    // whitespace-only output keep the run alive indefinitely. The counter must
+    // reset only on real content-weight progress, so whitespace-only timeouts
+    // exhaust the empty cap (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) and give up
+    // instead of looping until the much larger stalled cap (8).
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return sseResponse([
+        { type: "text", text: "   " },
+        { type: "auto_continue", reason: "run_timeout" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-whitespace",
+      threadId: "thread-whitespace",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "do the thing" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const results = await promise;
+
+    // 1 initial + 3 empty retries, then the empty cap (3) is exceeded — no
+    // 10-POST runaway up to the stalled cap.
+    expect(postCount).toBe(4);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({ errorCode: "connection_error" }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
   });
 });

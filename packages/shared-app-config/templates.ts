@@ -20,7 +20,14 @@ export interface TemplateMeta {
   hint: string;
   /** Longer description (optional) */
   description?: string;
-  /** Tabler icon name used in the desktop sidebar */
+  /**
+   * Internal icon-alias key (NOT a raw @tabler/icons-react export name).
+   * Resolved to a Tabler icon by the ICON_MAP in
+   * packages/desktop-app/src/renderer/components/Sidebar.tsx (and the parallel
+   * maps in packages/core/src/client/org/OrgSwitcher.tsx and the mobile
+   * AppCard). Unmapped keys fall back to a generic icon (IconStack2), so when
+   * adding a template you must add a mapping in those ICON_MAP(s) too.
+   */
   icon: string;
   /** Hex accent color */
   color: string;
@@ -42,7 +49,7 @@ export interface TemplateMeta {
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
-  /** Core app — included in dev:all, desktop, and mobile by default */
+  /** Core app — included in eager repo dev, desktop, and mobile by default */
   core?: boolean;
 }
 
@@ -124,7 +131,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "brain",
     label: "Brain",
-    hint: "Cited company memory from Slack, meetings, transcripts, and decisions",
+    hint: "Cited company knowledge from Slack, meetings, transcripts, and decisions",
     icon: "Brain",
     color: "#8B5CF6",
     colorRgb: "139 92 246",
@@ -275,21 +282,21 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "embedding"],
     core: true,
   },
   {
-    name: "images",
-    label: "Images",
-    hint: "Brand image libraries — generate on-brand heroes, diagrams, product shots, and slide art",
+    name: "assets",
+    label: "Assets",
+    hint: "Digital asset manager — upload, organize, search, and generate on-brand images and videos",
     icon: "Photo",
     color: "#0F766E",
     colorRgb: "15 118 110",
     devPort: 8100,
-    prodUrl: "https://images.agent-native.com",
+    prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
-    hidden: true,
     defaultAgent: true,
+    core: true,
   },
   {
     name: "starter",
@@ -336,15 +343,18 @@ export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
 }
 
-/** Return core templates — the default set for dev:all, desktop, and mobile. */
+/** Return core templates — the default set for eager repo dev, desktop, and mobile. */
 export function coreTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => t.core);
 }
 
 /** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
-  // Tolerate the legacy "video" alias.
+  // Tolerate legacy / renamed aliases.
   if (name === "video") name = "videos";
+  if (name === "image" || name === "images" || name === "asset") {
+    name = "assets";
+  }
   return TEMPLATES.find((t) => t.name === name);
 }
 

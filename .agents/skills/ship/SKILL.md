@@ -1,7 +1,9 @@
 ---
 name: ship
 description: Commit all local changes, run prep, push, check CI, and address PR feedback
-user_invocable: true
+user-invocable: true
+metadata:
+  internal: true
 ---
 
 # Ship

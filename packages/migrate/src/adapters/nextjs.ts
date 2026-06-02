@@ -12,7 +12,6 @@ import type {
   SourceAdapter,
 } from "../types.js";
 
-const SOURCE_EXTENSIONS = ["ts", "tsx", "js", "jsx", "md", "mdx"];
 const CODE_EXTENSIONS = ["ts", "tsx", "js", "jsx"];
 
 export const nextjsSourceAdapter: SourceAdapter = {
@@ -26,9 +25,13 @@ export const nextjsSourceAdapter: SourceAdapter = {
 
 export async function detectNextJsSource(sourceRoot: string): Promise<boolean> {
   const pkg = await readJson(path.join(sourceRoot, "package.json"));
+  const dependencies = isRecord(pkg?.dependencies) ? pkg.dependencies : {};
+  const devDependencies = isRecord(pkg?.devDependencies)
+    ? pkg.devDependencies
+    : {};
   const deps = {
-    ...(pkg?.dependencies ?? {}),
-    ...(pkg?.devDependencies ?? {}),
+    ...dependencies,
+    ...devDependencies,
   };
   if (deps.next) return true;
   return (
@@ -378,12 +381,19 @@ function componentName(filePath: string): string {
     .join("");
 }
 
-async function readJson(filePath: string): Promise<any | null> {
+async function readJson(
+  filePath: string,
+): Promise<Record<string, unknown> | null> {
   try {
-    return JSON.parse(await fs.readFile(filePath, "utf-8"));
+    const parsed: unknown = JSON.parse(await fs.readFile(filePath, "utf-8"));
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function exists(filePath: string): Promise<boolean> {

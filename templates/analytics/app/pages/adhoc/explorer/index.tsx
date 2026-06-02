@@ -33,8 +33,6 @@ import {
   IconFolderOpen,
   IconFilePlus,
   IconTrash,
-  IconCode,
-  IconChevronRight,
 } from "@tabler/icons-react";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { EventPanel } from "./components/EventPanel";
@@ -44,7 +42,6 @@ import { DateRangePicker } from "./components/DateRangePicker";
 import { SqlPreview } from "./components/SqlPreview";
 import { useExplorerConfig } from "./use-explorer-config";
 import { buildSql } from "./sql-builder";
-import type { DateRange } from "./types";
 
 export default function ExplorerPage() {
   const [searchParams] = useSearchParams();
@@ -216,7 +213,7 @@ export default function ExplorerPage() {
       {/* SQL preview */}
       {sql && <SqlPreview sql={sql} />}
 
-      {/* IconDeviceFloppy dialog */}
+      {/* Save dialog */}
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

@@ -9,6 +9,8 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
+  notionPageId?: string | null;
+  notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canEdit?: boolean;
@@ -42,7 +44,7 @@ export interface NotionConnectionStatus {
   workspaceId: string | null;
   authUrl: string | null;
   error?: "missing_credentials";
-  mode?: "api_key" | "oauth" | null;
+  mode?: "oauth" | null;
 }
 
 export interface LinkNotionPageRequest {

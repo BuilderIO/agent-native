@@ -1,7 +1,9 @@
 ---
 name: babysit-pr
 description: Monitor a PR, fix feedback and CI failures until fully green for 30 min. Run with /babysit-pr <number>
-user_invocable: true
+user-invocable: true
+metadata:
+  internal: true
 ---
 
 Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
@@ -10,7 +12,7 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot rev
 
 ## Setup
 
-1. Start a `/loop 1m` that checks for new feedback and CI status every minute
+1. Start a `/loop 3m` that checks for new feedback and CI status every 3 minutes. The local-change commit/push step runs once per tick so active work batches naturally instead of creating push spam.
 2. Track when the last actionable item (new human/bot feedback or CI fix) occurred
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop and report "All clear"
 

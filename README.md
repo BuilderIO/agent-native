@@ -141,8 +141,28 @@ Message, manage, and delegate to agents from Slack, Telegram, or the web. Dispat
 Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
-<td width="33%" align="center" valign="top"></td>
-<td width="33%" align="center" valign="top"></td>
+<td width="33%" align="center" valign="top">
+
+**Brain**
+
+<a href="https://agent-native.com/templates/brain">Brain template</a>
+
+**Agent-Native company memory**
+
+Ask questions over cited company knowledge from approved Slack, meetings, transcripts, GitHub, and decisions.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Assets**
+
+<a href="https://agent-native.com/templates/assets">Assets template</a>
+
+**Agent-Native asset library**
+
+Upload, organize, search, and generate on-brand image and video assets that other apps can reuse.
+
+</td>
 </tr>
 </table>
 
@@ -192,7 +212,9 @@ npx @agent-native/core@latest code resume --last "check the auth edge cases next
 
 Slash goals can run from the interactive shell or directly from the command line, and `agent-native code goals` shows the goals registered in your checkout. A bare prompt starts a local coding-agent session, streams work, records transcript/status/tool events, and accepts follow-up prompts; `/migrate` is one specialized capability inside that general Code workspace. Project-specific slash commands live in `.agents/commands/*.md`, so teams can add prompts such as `/release-check` or `/migrate-commerce` without changing the framework. Installed `agent-native` with no arguments launches the Code workspace; `agent-native "fix tests"` starts an Agent-Native Code task directly. Use `agent-native create` when you want to create apps or workspaces.
 
-Working inside this repository? Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
+Working inside this repository? Use `pnpm dev` for the lazy framework dev gateway. It exposes the core templates on one local origin and starts each app only when you visit it, which keeps memory usage much lower than booting every server at once. To focus on specific templates, pass `--apps`, for example `pnpm dev -- --apps analytics,brain`. Use `pnpm dev:eager` only when you intentionally want the older eager mode that starts the selected template servers, frame, docs, and core watcher immediately. The old `pnpm dev:all` name still works as an alias for eager mode.
+
+Use `pnpm dev:cli ...` to run the source CLI without building first, for example `pnpm dev:cli --help` or `pnpm dev:cli code goals`.
 
 The Code workspace uses the familiar Codex/Claude-style session loop: pick a previous session, list runs, check status, attach to live output, print logs, stop work, resume with context, open the local UI, and continue the same run from Desktop or CLI. The Desktop Code tab, `agent-native code ui`, background sessions, and sub-agent sessions all converge on the shared run harness/controller model instead of separate ad hoc runners. The primary modes are intentionally simple:
 

@@ -5,7 +5,6 @@ import type {
   DocumentCreateRequest,
   DocumentUpdateRequest,
   DocumentMoveRequest,
-  DocumentListResponse,
   DocumentTreeNode,
 } from "@shared/api";
 

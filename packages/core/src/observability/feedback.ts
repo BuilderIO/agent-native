@@ -218,7 +218,10 @@ function computeSentimentScore(userMessages: string[]): number {
   const negativeRatio = negativeCount / userMessages.length;
   const terseRatio = terseCount / userMessages.length;
 
-  return Math.min(100, (negativeRatio * 70 + terseRatio * 30) * 100);
+  // negativeRatio/terseRatio are already in [0,1], so the weighted sum is in
+  // [0,100] — it must NOT be multiplied by another 100 (that would saturate
+  // sentiment to 100 the moment a single message matched any negative pattern).
+  return Math.min(100, negativeRatio * 70 + terseRatio * 30);
 }
 
 function computeLengthTrendScore(userMessages: string[]): number {

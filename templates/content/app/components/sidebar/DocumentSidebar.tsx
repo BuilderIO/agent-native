@@ -29,7 +29,11 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton, appPath } from "@agent-native/core/client";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
@@ -117,9 +121,9 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  // Track which nodes have been explicitly collapsed by the user.
-  // All nodes default to expanded; only collapsed IDs are tracked.
-  const collapsedIds = useRef(new Set<string>());
+  // Track user-expanded nodes only; active ancestors are derived below so they
+  // do not stay open after navigation unless the user explicitly expanded them.
+  const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const sensors = useSensors(
@@ -169,19 +173,33 @@ export function DocumentSidebar({
     [documents],
   );
 
-  // Build expanded set: all document IDs except those explicitly collapsed
-  const expandedIds = new Set(
-    documents.map((d) => d.id).filter((id) => !collapsedIds.current.has(id)),
-  );
-
-  const handleToggleExpanded = useCallback((id: string) => {
-    if (collapsedIds.current.has(id)) {
-      collapsedIds.current.delete(id);
-    } else {
-      collapsedIds.current.add(id);
+  const activeAncestorIds = useMemo(() => {
+    const ids = new Set<string>();
+    let parentId = activeDocumentId
+      ? (parentByDocumentId.get(activeDocumentId) ?? null)
+      : null;
+    while (parentId && !ids.has(parentId)) {
+      ids.add(parentId);
+      parentId = parentByDocumentId.get(parentId) ?? null;
     }
-    forceUpdate((n) => n + 1);
-  }, []);
+    return ids;
+  }, [activeDocumentId, parentByDocumentId]);
+
+  const expandedIds = new Set(expandedIdsRef.current);
+  for (const id of activeAncestorIds) expandedIds.add(id);
+
+  const handleToggleExpanded = useCallback(
+    (id: string) => {
+      if (activeAncestorIds.has(id)) return;
+      if (expandedIdsRef.current.has(id)) {
+        expandedIdsRef.current.delete(id);
+      } else {
+        expandedIdsRef.current.add(id);
+      }
+      forceUpdate((n) => n + 1);
+    },
+    [activeAncestorIds],
+  );
 
   const navigateToDocument = useCallback(
     (id: string) => {
@@ -528,7 +546,7 @@ export function DocumentSidebar({
         </div>
       </div>
 
-      {/* IconSearch */}
+      {/* Search */}
       {isSearching && (
         <div className="px-3 py-2 border-b border-border">
           <input
@@ -550,7 +568,7 @@ export function DocumentSidebar({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="min-w-full w-max py-2 pr-2">
-          {/* IconSearch results */}
+          {/* Search results */}
           {filteredDocuments ? (
             <>
               <div>
@@ -694,6 +712,7 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
+        <DevDatabaseLink />
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">

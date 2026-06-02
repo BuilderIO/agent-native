@@ -4,13 +4,19 @@ import {
   saveOAuthTokens,
   listOAuthAccounts,
   listOAuthAccountsByOwner,
+  setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { db, schema } from "../db/index.js";
-import { isConnected, gmailToEmailMessage } from "./google-auth.js";
+import {
+  getAccountDisplayName,
+  isConnected,
+  gmailToEmailMessage,
+  setAccountDisplayName,
+} from "./google-auth.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -25,6 +31,7 @@ import {
   buildRawEmail as buildOutgoingRawEmail,
   resolveComposeAttachments,
 } from "./outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 
 interface StoredTokens {
   access_token: string;
@@ -570,24 +577,19 @@ export async function sendScheduledEmail(
         } catch {}
       }
 
-      // Resolve sender display name
-      let senderFrom = from || account.email || "me";
-      if (!senderFrom.includes("<")) {
-        try {
-          const profile = await googleFetch(
-            `https://www.googleapis.com/oauth2/v2/userinfo`,
-            account.accessToken,
-          );
-          if (profile?.name) {
-            senderFrom = `${profile.name} <${senderFrom}>`;
-          }
-        } catch {
-          // Fall back to email-only
-        }
-      }
+      const senderEmail = account.email || from || "me";
+      const senderIdentity = await resolveGoogleSenderIdentity({
+        accessToken: account.accessToken,
+        email: senderEmail,
+        cachedName: getAccountDisplayName(senderEmail),
+        onResolvedDisplayName: (name) => {
+          setAccountDisplayName(senderEmail, name);
+          void setOAuthDisplayName("google", senderEmail, name).catch(() => {});
+        },
+      });
 
       const raw = buildOutgoingRawEmail({
-        from: senderFrom,
+        from: senderIdentity.header,
         to,
         cc,
         bcc,

@@ -1,5 +1,3 @@
-import React from "react";
-
 /**
  * Builder.io monogram — simple B letterform on a rounded tile.
  * Shared by ConnectBuilderCard (chat) and UseBuilderCard (settings) so the

@@ -164,13 +164,17 @@ export async function isBlockedExtensionUrlWithDns(
  * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
  */
 export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
-  // Dynamic import + `any`: undici is not a direct dependency, so the type
-  // declarations may not resolve. The runtime path is still safe — if the
-  // import throws we return null and the caller falls back to plain fetch.
+  // Keep the optional undici import opaque to Vite/Rolldown. A static
+  // `import("undici")` makes browser builds try to resolve and bundle undici
+  // even though this dispatcher is only useful in Node server runtimes.
   let undici: any;
   let dnsModule: any;
   try {
-    undici = await import("undici" as string);
+    const runtimeImport = new Function(
+      "specifier",
+      "return import(specifier)",
+    ) as (specifier: string) => Promise<any>;
+    undici = await runtimeImport("undici");
     dnsModule = await import("node:dns");
   } catch {
     return null;
@@ -228,6 +232,57 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
   });
 }
 
+/**
+ * SSRF-safe `fetch` for any server-side request to a user/agent-supplied URL.
+ *
+ * Applies the same protections the extension proxy uses, so every call site
+ * that fetches an untrusted URL gets them without re-implementing the loop:
+ *   1. Pre-flight DNS-aware private-address check (isBlockedExtensionUrlWithDns)
+ *      on the initial URL and on every redirect hop.
+ *   2. A connect-time dispatcher that re-checks the resolved IP at TCP-connect
+ *      time (closes the DNS-rebinding TOCTOU) when undici is available.
+ *   3. Manual redirect handling — a public URL cannot 30x-redirect into the
+ *      private network because each hop is re-validated before it is followed.
+ *
+ * Throws an Error whose message starts with "SSRF blocked:" when a target
+ * (initial or via redirect) resolves to a private/internal address, or when the
+ * redirect limit is exceeded. Otherwise returns the final Response.
+ */
+export async function ssrfSafeFetch(
+  url: string,
+  init: RequestInit = {},
+  options: { maxRedirects?: number } = {},
+): Promise<Response> {
+  const maxRedirects = options.maxRedirects ?? 3;
+  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+
+  let currentUrl = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
+      throw new Error(
+        `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,
+      );
+    }
+    const fetchOpts: RequestInit & { dispatcher?: unknown } = {
+      ...init,
+      redirect: "manual",
+    };
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+
+    const response = await fetch(currentUrl, fetchOpts);
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return response;
+      currentUrl = new URL(location, currentUrl).href;
+      continue;
+    }
+    return response;
+  }
+  throw new Error(
+    `SSRF blocked: too many redirects (>${maxRedirects}) while fetching ${url}`,
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Legacy aliases — predate the Tools → Extensions rename. Templates import
 // these via the legacy `@agent-native/core/tools/url-safety` subpath; keep
@@ -236,3 +291,4 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
 
 export { isBlockedExtensionUrl as isBlockedToolUrl };
 export { isBlockedExtensionUrlWithDns as isBlockedToolUrlWithDns };
+export { ssrfSafeFetch as ssrfSafeToolFetch };

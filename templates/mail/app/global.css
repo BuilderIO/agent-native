@@ -695,6 +695,11 @@
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none;
+  /* Scrim text (tabs, icons) */
+  --foreground: 0 0% 95%;
+  --muted-foreground: 0 0% 82%;
+  --border: 0 0% 100% / 0.22;
+  --ring: 0 0% 100% / 0.4;
 }
 
 .inbox-zero-top-scrim {
@@ -709,39 +714,16 @@
   );
 }
 
-/* Inbox Zero — keep header controls above contrast thresholds on bright photos. */
-.inbox-zero .inbox-zero-header a,
-.inbox-zero .inbox-zero-header button,
-.inbox-zero .inbox-zero-header span {
-  color: rgba(255, 255, 255, 0.82) !important;
-  text-shadow:
-    0 4px 3px rgba(0, 0, 0, 0.1),
-    0 10px 8px rgba(0, 0, 0, 0.04);
-}
-
-.inbox-zero .inbox-zero-header a[aria-current],
-.inbox-zero .inbox-zero-header a.font-semibold {
-  color: rgba(255, 255, 255, 1) !important;
-}
-
-.inbox-zero .inbox-zero-header button:hover {
-  background: rgba(255, 255, 255, 0.14) !important;
-}
-
 /* Inbox Zero — frosted glass effect on the agent chat sidebar */
 .inbox-zero .agent-sidebar-panel {
   /* position + z-index create a stacking context above the position:fixed
      background image so the background and blur are visible in production */
   position: relative;
   z-index: 1;
-  background: rgba(0, 0, 0, 0.4) !important;
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border-color: rgba(255, 255, 255, 0.08) !important;
-}
 
-.inbox-zero .agent-sidebar-panel,
-.inbox-zero .agent-sidebar-panel * {
   --foreground: 0 0% 95%;
   --muted-foreground: 0 0% 70%;
   --border: 0 0% 100% / 0.1;

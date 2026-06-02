@@ -4,12 +4,43 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { appStateGet } from "@agent-native/core/application-state";
+import { readBody } from "@agent-native/core/server";
+import {
+  getIntegrationKey,
+  saveIntegrationKey,
+  deleteIntegrationKey,
+} from "../lib/integration-credentials.js";
 
-async function getPylonKey(): Promise<string | undefined> {
-  const data = await appStateGet("local", "pylon");
-  return (data as any)?.apiKey || undefined;
-}
+// GET /api/pylon/status — never returns the key, only connection state.
+export const pylonStatus = defineEventHandler(async (event: H3Event) => {
+  return { connected: !!(await getIntegrationKey(event, "pylon")) };
+});
+
+// PUT /api/pylon/key — store the key in the encrypted per-user vault.
+export const pylonSaveKey = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { apiKey } = body;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "apiKey is required" };
+  }
+  const ok = await saveIntegrationKey(event, "pylon", apiKey);
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to connect Pylon" };
+  }
+  return { connected: true };
+});
+
+// DELETE /api/pylon/key
+export const pylonDeleteKey = defineEventHandler(async (event: H3Event) => {
+  const ok = await deleteIntegrationKey(event, "pylon");
+  if (!ok) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to disconnect Pylon" };
+  }
+  return { connected: false };
+});
 
 // GET /api/pylon/contact?email=...
 export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
@@ -19,7 +50,7 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "email query param required" };
   }
 
-  const apiKey = await getPylonKey();
+  const apiKey = await getIntegrationKey(event, "pylon");
   if (!apiKey) {
     setResponseStatus(event, 401);
     return { error: "Pylon API key not configured" };

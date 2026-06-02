@@ -33,10 +33,14 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopShortcutSettings,
+  type DesktopShortcutUpdateResult,
+  type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
@@ -92,17 +96,26 @@ const electronAPI = {
       ipcRenderer.on("shortcut:keydown", handler);
       return () => ipcRenderer.removeListener("shortcut:keydown", handler);
     },
+    loadBindings: (): Promise<DesktopShortcutSettings> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_LOAD),
+    upsertBinding: (
+      request: DesktopShortcutUpsertRequest,
+    ): Promise<DesktopShortcutUpdateResult> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_UPSERT, request),
+    removeBinding: (id: string): Promise<DesktopShortcutUpdateResult> =>
+      ipcRenderer.invoke(IPC.SHORTCUTS_REMOVE, id),
   },
 
   /** App config management */
   appConfig: {
-    load: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
-    add: (app: any): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_ADD, app),
-    remove: (id: string): Promise<any[]> =>
+    load: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
+    add: (app: AppConfig): Promise<AppConfig[]> =>
+      ipcRenderer.invoke(IPC.APPS_ADD, app),
+    remove: (id: string): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_REMOVE, id),
-    update: (id: string, updates: any): Promise<any[]> =>
+    update: (id: string, updates: Partial<AppConfig>): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE, id, updates),
-    reset: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_RESET),
+    reset: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_RESET),
     chooseLocalFolder: (): Promise<LocalAppFolderSelectResult> =>
       ipcRenderer.invoke(IPC.APPS_CHOOSE_LOCAL_FOLDER),
   },
@@ -120,8 +133,8 @@ const electronAPI = {
 
   /** Local dev frame settings */
   frame: {
-    load: (): Promise<any> => ipcRenderer.invoke(IPC.FRAME_LOAD),
-    update: (settings: any): Promise<any> =>
+    load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
+    update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
       ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
   },
 

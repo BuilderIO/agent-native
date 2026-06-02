@@ -14,18 +14,12 @@ interface NotificationData {
   autoStart?: boolean;
 }
 
-interface StartRecordingPayload {
-  meetingId: string;
-  joinUrl?: string | null;
-  reason?: string;
-}
-
 interface TranscriptionStatusPayload {
   meetingId: string;
   error?: string;
 }
 
-const DEFAULT_DISMISS_MS = 30_000;
+const DEFAULT_AUTO_HIDE_MS = 30_000;
 const SNOOZE_MS = 5 * 60_000;
 
 /**
@@ -51,8 +45,8 @@ async function openJoinUrl(url: string | null | undefined): Promise<void> {
  *   - Ad-hoc call: dashed left bar (slate), "Call detected", app name,
  *     same controls.
  *
- * Data arrives via Tauri event `meetings:show-notification`. Auto-dismisses
- * after 30s by default. Hover pauses the auto-dismiss timer. Errors from the
+ * Data arrives via Tauri event `meetings:show-notification`. Auto-hides
+ * after 30s by default. Hover pauses the auto-hide timer. Errors from the
  * persistent popover transcription session surface inline beneath the title
  * so the user isn't left wondering why nothing happened.
  */
@@ -61,14 +55,28 @@ export function MeetingNotification() {
   const [showClose, setShowClose] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
 
-  // Keep a ref to the latest data so the snooze timer (which runs after a
-  // 5-min sleep) can re-emit the original payload even if the component
-  // re-renders in between.
+  // Keep a ref to the latest data so the transcription-status listeners can
+  // match incoming events against the meeting currently on screen without
+  // re-subscribing on every render.
   useEffect(() => {
     dataRef.current = data;
+  }, [data]);
+
+  // The notification window is a single persistent overlay (created once at
+  // startup so it can receive `meetings:show-notification` events). Drive its
+  // OS-level visibility from React state: a shown-but-empty transparent window
+  // would otherwise sit at the top of the screen swallowing clicks. Visible
+  // only while there's a notification on screen.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    if (data) {
+      win.show().catch(() => {});
+    } else {
+      win.hide().catch(() => {});
+    }
   }, [data]);
 
   function showNotification(
@@ -78,7 +86,7 @@ export function MeetingNotification() {
     setData(payload);
     setError(null);
     setPending(!!payload.autoStart && !options?.hydrated);
-    scheduleDismiss(DEFAULT_DISMISS_MS);
+    scheduleAutoHide(DEFAULT_AUTO_HIDE_MS);
   }
 
   useEffect(() => {
@@ -104,34 +112,12 @@ export function MeetingNotification() {
         showNotification(ev.payload);
       }),
     );
-    invoke<NotificationData | null>("take_pending_meeting_notification")
-      .then((payload) => {
-        if (!stopped && payload) {
-          showNotification(payload, { hydrated: true });
-        }
-      })
-      .catch(() => {});
 
-    // Legacy bridge: older Rust builds emitted `meetings:start-recording`.
-    // Re-route to the persistent popover-owned transcription session so this
-    // overlay can close without losing the transcript.
     trackListen(
-      listen<StartRecordingPayload>("meetings:start-recording", (ev) => {
-        const { meetingId, joinUrl } = ev.payload;
-        if (!meetingId) return;
-        emit("meetings:start-transcription", { meetingId, joinUrl }).catch(
-          () => {},
-        );
+      listen<TranscriptionStatusPayload>("meetings:hide-notification", (ev) => {
+        if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
+        hideNotification();
       }),
-    );
-    trackListen(
-      listen<TranscriptionStatusPayload>(
-        "meetings:transcription-started",
-        (ev) => {
-          if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-          dismiss();
-        },
-      ),
     );
     trackListen(
       listen<TranscriptionStatusPayload>(
@@ -140,14 +126,14 @@ export function MeetingNotification() {
           if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
           setPending(false);
           setError(ev.payload.error || "Could not start notes.");
-          scheduleDismiss(15_000);
+          scheduleAutoHide(15_000);
         },
       ),
     );
 
     return () => {
       stopped = true;
-      clearDismiss();
+      clearAutoHide();
       unlistens.forEach((u) => {
         try {
           u();
@@ -160,23 +146,24 @@ export function MeetingNotification() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function clearDismiss() {
-    if (dismissTimerRef.current) {
-      clearTimeout(dismissTimerRef.current);
-      dismissTimerRef.current = null;
+  function clearAutoHide() {
+    if (autoHideTimerRef.current) {
+      clearTimeout(autoHideTimerRef.current);
+      autoHideTimerRef.current = null;
     }
   }
 
-  function scheduleDismiss(ms: number) {
-    clearDismiss();
-    dismissTimerRef.current = setTimeout(() => dismiss(), ms);
+  function scheduleAutoHide(ms: number) {
+    clearAutoHide();
+    autoHideTimerRef.current = setTimeout(() => hideNotification(), ms);
   }
 
-  function dismiss() {
-    clearDismiss();
-    getCurrentWindow()
-      .close()
-      .catch(() => {});
+  function hideNotification() {
+    clearAutoHide();
+    setData(null);
+    setError(null);
+    setPending(false);
+    dataRef.current = null;
   }
 
   async function takeNotes() {
@@ -188,7 +175,6 @@ export function MeetingNotification() {
     if (data.joinUrl) {
       openJoinUrl(data.joinUrl);
     }
-    emit("meetings:take-notes", { meetingId: data.meetingId }).catch(() => {});
     emit("meetings:start-transcription", {
       meetingId: data.meetingId,
       joinUrl: data.joinUrl,
@@ -201,24 +187,24 @@ export function MeetingNotification() {
 
   function snooze() {
     if (!data) return;
+    // Hand the snooze to the Rust watcher so the reminder re-fires after the
+    // delay even though this overlay window closes right away. A setTimeout
+    // here would be torn down with the window and never fire, and re-emitting
+    // immediately (as before) just re-showed the same banner instantly.
+    invoke("meetings_snooze", {
+      meetingId: data.meetingId,
+      minutes: Math.round(SNOOZE_MS / 60_000),
+    }).catch(() => {});
     const payload = data;
     // Hide the current banner and re-fire the same payload after the snooze
     // delay. We re-emit through Tauri so the in-app banner overlay window
     // (which is what hosts this React component) can rerender with a fresh
-    // dismiss timer.
+    // auto-hide timer.
     emit("meetings:show-notification", {
       ...payload,
       subtitle: `${payload.subtitle} (snoozed)`,
     } as NotificationData).catch(() => {});
-    // We use a setTimeout in the watcher process by going through the
-    // backend — but since the renderer owns this banner, do it here too as
-    // a safety net.
-    setTimeout(() => {
-      const latest = dataRef.current;
-      if (latest && latest.meetingId === payload.meetingId) return;
-      emit("meetings:show-notification", payload).catch(() => {});
-    }, SNOOZE_MS);
-    dismiss();
+    hideNotification();
   }
 
   if (!data) {
@@ -232,13 +218,13 @@ export function MeetingNotification() {
       className="meeting-notification-root"
       onMouseEnter={() => {
         setShowClose(true);
-        clearDismiss();
+        clearAutoHide();
       }}
       onMouseLeave={() => {
         setShowClose(false);
-        // Resume the auto-dismiss timer with the remaining-ish budget.
+        // Resume the auto-hide timer with the remaining-ish budget.
         // Cheap approximation: just restart the full timer on leave.
-        scheduleDismiss(DEFAULT_DISMISS_MS);
+        scheduleAutoHide(DEFAULT_AUTO_HIDE_MS);
       }}
     >
       <div className="meeting-notification">
@@ -278,7 +264,7 @@ export function MeetingNotification() {
         {showClose ? (
           <button
             className="meeting-notification-close"
-            onClick={dismiss}
+            onClick={hideNotification}
             aria-label="Dismiss"
             data-no-drag
           >

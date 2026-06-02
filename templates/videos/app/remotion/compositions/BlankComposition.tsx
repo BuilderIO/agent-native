@@ -6,6 +6,7 @@ import type { AnimationTrack } from "@/types";
 
 export type BlankCompositionProps = {
   showExamples?: boolean;
+  tracks?: AnimationTrack[];
 };
 
 const FALLBACK_TRACKS: AnimationTrack[] = [
@@ -150,7 +151,7 @@ export const BlankComposition =
                     compositionId="blank"
                     title="Interactive Card"
                     description="Hover to select and add animations"
-                    icon="🎨"
+                    icon="A"
                     x={0}
                     y={0}
                     width={300}
@@ -166,7 +167,7 @@ export const BlankComposition =
                     compositionId="blank"
                     title="Another Card"
                     description="Add scale, lift, glow effects"
-                    icon="🎯"
+                    icon="B"
                     x={340}
                     y={0}
                     width={300}
@@ -182,7 +183,7 @@ export const BlankComposition =
                     compositionId="blank"
                     title="One More"
                     description="Each has unique animations"
-                    icon="🚀"
+                    icon="C"
                     x={680}
                     y={0}
                     width={300}

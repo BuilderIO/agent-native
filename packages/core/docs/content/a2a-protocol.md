@@ -240,10 +240,10 @@ For inbound continuations triggered by a messaging integration (Slack, email), t
 
 - A row is written to the `a2a_continuations` table when the integration handler hands off to a remote agent.
 - A self-fired `POST /_agent-native/integrations/process-a2a-continuation` claims the row, calls `tasks/get` on the remote agent, and either delivers the reply to the integration adapter or reschedules.
-- If the remote task is still working, the row is rescheduled and re-dispatched. The poll budget is **bounded by ~10 minutes of remote work** (`MAX_REMOTE_WORK_MS`) and **6 dispatch attempts** (`MAX_ATTEMPTS`); after either limit, the continuation is failed with a clear error and the user gets a "the agent didn't respond in time" reply.
+- If the remote task is still working, the row is rescheduled and re-dispatched. The poll budget is **bounded by ~20 minutes of remote work** (`MAX_REMOTE_WORK_MS`) and **30 dispatch attempts** (`MAX_ATTEMPTS`); after either limit, the continuation is failed with a clear error and the user gets a "the agent didn't respond in time" reply.
 - A recurring sweeper (`claimDueA2AContinuations`) re-claims any continuation rows that were left in flight when the previous function execution died. Even if the calling app crashes mid-poll, the next sweep tick resumes the work.
 
-Defined in `packages/core/src/integrations/a2a-continuation-processor.ts`. The same retry job pattern is used for integration webhook tasks (`pending-tasks-retry-job.ts`, capped at 3 attempts).
+Defined in `packages/core/src/integrations/a2a-continuation-processor.ts`. The same retry job pattern is used for integration webhook tasks (`pending-tasks-retry-job.ts`), which is a distinct queue capped at 3 attempts — separate from the continuation-poll budget above.
 
 ## Workspace A2A {#workspace-a2a}
 

@@ -137,6 +137,11 @@ export interface BuilderBrowserStatus {
   userId?: string;
   orgName?: string;
   orgKind?: string;
+  subscription?: string;
+  subscriptionLevel?: string;
+  subscriptionName?: string;
+  isEnterprise?: boolean;
+  isFreeAccount?: boolean;
 }
 
 export interface BrowserConnectionArgs {
@@ -674,7 +679,25 @@ export function getBuilderCliAuthCallbackOriginForEvent(
 ): string {
   const previewOrigin = getBuilderBrowserOriginForEvent(event);
   if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
-  return firstBuilderCliAuthCallbackOriginFromEnv() ?? previewOrigin;
+  const envOrigin = firstBuilderCliAuthCallbackOriginFromEnv();
+  if (envOrigin) return envOrigin;
+  // The app is being reached via a tunnel (e.g. ngrok) whose origin Builder's
+  // /cli-auth does not trust, and no public gateway is configured. Handing
+  // Builder the rejected tunnel origin makes it fall back to its own *dead*
+  // http://localhost:10110/auth default (ERR_CONNECTION_REFUSED). In local dev
+  // the app is also reachable at http://localhost:<PORT> — an origin Builder
+  // accepts and a same-machine browser can reach — so use that for the callback
+  // instead of a broken redirect. (Production origins are *.agent-native.com,
+  // which pass the allow-list above and never reach here.)
+  return localBuilderCliAuthCallbackOrigin() ?? previewOrigin;
+}
+
+/** App's own localhost origin for the Builder connect callback, in local dev. */
+function localBuilderCliAuthCallbackOrigin(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const port = process.env.PORT?.trim();
+  if (!port || !/^\d{1,5}$/.test(port)) return null;
+  return `http://localhost:${port}`;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
@@ -697,7 +720,19 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     userId: process.env.BUILDER_USER_ID || undefined,
     orgName: process.env.BUILDER_ORG_NAME || undefined,
     orgKind: process.env.BUILDER_ORG_KIND || undefined,
+    subscription: process.env.BUILDER_SUBSCRIPTION || undefined,
+    subscriptionLevel: process.env.BUILDER_SUBSCRIPTION_LEVEL || undefined,
+    subscriptionName: process.env.BUILDER_SUBSCRIPTION_NAME || undefined,
+    isEnterprise: parseOptionalEnvBoolean(process.env.BUILDER_IS_ENTERPRISE),
+    isFreeAccount: parseOptionalEnvBoolean(process.env.BUILDER_IS_FREE_ACCOUNT),
   };
+}
+
+function parseOptionalEnvBoolean(
+  value: string | undefined,
+): boolean | undefined {
+  if (!value) return undefined;
+  return /^(1|true)$/i.test(value);
 }
 
 export function getBuilderBrowserStatusForEvent(
@@ -719,6 +754,11 @@ export const BUILDER_ENV_KEYS = [
   "BUILDER_USER_ID",
   "BUILDER_ORG_NAME",
   "BUILDER_ORG_KIND",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
 ] as const;
 
 export type BuilderEnvKey = (typeof BUILDER_ENV_KEYS)[number];
@@ -729,6 +769,11 @@ export function getBuilderCallbackEnvVars(params: {
   userId?: string | null;
   orgName?: string | null;
   orgKind?: string | null;
+  subscription?: string | null;
+  subscriptionLevel?: string | null;
+  subscriptionName?: string | null;
+  isEnterprise?: boolean | null;
+  isFreeAccount?: boolean | null;
 }) {
   const values: Record<BuilderEnvKey, string> = {
     BUILDER_PRIVATE_KEY: params.privateKey?.trim() || "",
@@ -736,6 +781,17 @@ export function getBuilderCallbackEnvVars(params: {
     BUILDER_USER_ID: params.userId?.trim() || "",
     BUILDER_ORG_NAME: params.orgName?.trim() || "",
     BUILDER_ORG_KIND: params.orgKind?.trim() || "",
+    BUILDER_SUBSCRIPTION: params.subscription?.trim() || "",
+    BUILDER_SUBSCRIPTION_LEVEL: params.subscriptionLevel?.trim() || "",
+    BUILDER_SUBSCRIPTION_NAME: params.subscriptionName?.trim() || "",
+    BUILDER_IS_ENTERPRISE:
+      typeof params.isEnterprise === "boolean"
+        ? String(params.isEnterprise)
+        : "",
+    BUILDER_IS_FREE_ACCOUNT:
+      typeof params.isFreeAccount === "boolean"
+        ? String(params.isFreeAccount)
+        : "",
   };
   return BUILDER_ENV_KEYS.map((key) => ({ key, value: values[key] }));
 }

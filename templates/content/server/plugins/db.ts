@@ -29,6 +29,7 @@ export default runMigrations(
       last_pulled_remote_updated_at TEXT,
       last_pushed_local_updated_at TEXT,
       last_known_remote_updated_at TEXT,
+      last_synced_content_hash TEXT,
       last_error TEXT,
       warnings_json TEXT,
       has_conflict INTEGER NOT NULL DEFAULT 0,
@@ -134,6 +135,11 @@ export default runMigrations(
     {
       version: 17,
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
+    },
+    // v18: content-hash baseline for drift-free conflict detection.
+    {
+      version: 18,
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
     },
   ],
   { table: "content_migrations" },

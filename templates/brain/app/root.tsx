@@ -163,6 +163,12 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             Ops
           </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => navigate("/extensions")}>
+            Extensions
+          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => navigate("/settings")}>
+            Settings
+          </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading="Appearance">
           <ThemeToggleItem />

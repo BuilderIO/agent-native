@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { shouldCreateDocsSessionForPath } from "../server/plugins/auth.js";
+import {
+  docsAuthOptions,
+  shouldCreateDocsSessionForPath,
+} from "../server/plugins/auth.js";
 
 describe("docs auth session scoping", () => {
+  it("marks docs pages as public in runtime auth config", () => {
+    expect(docsAuthOptions.workspaceAppAudience).toBe("public");
+  });
+
   it("creates anonymous sessions for framework and API routes under a mount path", () => {
     expect(
       shouldCreateDocsSessionForPath(

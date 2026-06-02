@@ -6,7 +6,6 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  IconAlertCircle,
   IconRefresh,
   IconCopy,
   IconCheck,
@@ -22,11 +21,20 @@ import {
   getAppUrl,
   FRAME_PORT,
   getTemplate,
-  getTemplateGatewayAppUrl,
+  getDesktopTemplateGatewayAppUrl,
   getTemplateGatewayUrl,
+  isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
+
+type WebviewTitleUpdatedEvent = Event & { title?: string };
+type WebviewLoadFailedEvent = Event & {
+  errorCode?: number;
+  errorDescription?: string;
+  isMainFrame?: boolean;
+};
+type WebviewConsoleMessageEvent = Event & { message?: string };
 
 interface AppWebviewProps {
   app: AppDefinition;
@@ -37,6 +45,8 @@ interface AppWebviewProps {
   urlOpenNonce?: number;
   /** Safe app-relative path to load inside this app's origin. */
   urlPath?: string;
+  /** When true, apply an explicit open request without resetting a live webview. */
+  urlOpenSoft?: boolean;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
   /** Increment to trigger a webview reload (Cmd+R) */
@@ -69,14 +79,22 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    if (templateGatewayOverridesDevUrls()) {
-      const gatewayUrl = getTemplateGatewayAppUrl(appConfig.id);
-      if (gatewayUrl) return gatewayUrl;
+    const template = getTemplate(appConfig.id);
+    if (template) {
+      const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)
+        ? (appConfig.devUrl?.trim() ??
+          (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : ""))
+        : "";
+
+      // First-party templates must load through the frame so the Chat | CLI |
+      // Workspace panel lives outside the hot-reloaded app iframe. Custom
+      // template targets still use the frame as the top-level page; the frame
+      // loads the custom URL inside its app iframe.
+      return getFramedAppUrl(app, customTemplateDevUrl);
     }
-    // User-edited dev URL wins outside the explicit lazy gateway launcher.
+
+    // Non-template dev URLs can still load directly.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
-    // First-party templates without an explicit override go through the frame.
-    if (getTemplate(appConfig.id)) return getAppUrl(app);
     if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
     if (appConfig.url) return appConfig.url;
     return getAppUrl(app);
@@ -94,6 +112,13 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
 
   // Fallback for custom apps with no production URL.
   return getAppUrl(app);
+}
+
+function getFramedAppUrl(app: AppDefinition, devUrl?: string): string {
+  const frameUrl = new URL(getAppUrl(app));
+  const trimmedDevUrl = devUrl?.trim();
+  if (trimmedDevUrl) frameUrl.searchParams.set("devUrl", trimmedDevUrl);
+  return frameUrl.toString();
 }
 
 function rendererEnvValue(name: string): string | undefined {
@@ -165,6 +190,33 @@ function withUrlPath(rawUrl: string, path?: string): string {
   }
 }
 
+function isAgentNativeOpenPath(path: string | undefined): path is string {
+  if (!path) return false;
+  try {
+    const target = new URL(path, "http://agent-native.invalid");
+    return target.pathname === "/_agent-native/open";
+  } catch {
+    return false;
+  }
+}
+
+function canSoftOpenWebview(
+  wv: ElectronWebviewElement,
+  targetUrl: string,
+): boolean {
+  try {
+    const currentUrl = wv.getURL();
+    if (!currentUrl || currentUrl === "about:blank") return false;
+    return new URL(currentUrl).origin === new URL(targetUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function buildSoftOpenScript(path: string): string {
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
@@ -173,6 +225,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       isActive,
       urlOpenNonce,
       urlPath,
+      urlOpenSoft,
       urlParams,
       refreshKey = 0,
       onTitleChange,
@@ -310,12 +363,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         emitCurrentTitleSoon();
       };
       const onTitleUpdated = (e: Event) => {
-        const title = String((e as { title?: string }).title ?? "").trim();
+        const title = String(
+          (e as WebviewTitleUpdatedEvent).title ?? "",
+        ).trim();
         emitCurrentTitle(title);
       };
       const onNavigation = () => emitCurrentTitleSoon();
       const onFailed = (e: Event) => {
-        const details = e as any;
+        const details = e as WebviewLoadFailedEvent;
         const errorCode = details.errorCode;
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
@@ -333,7 +388,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setIsLoading(false);
       };
       const onConsoleMessage = (e: Event) => {
-        const message = String((e as any).message || "");
+        const message = String((e as WebviewConsoleMessageEvent).message || "");
         if (message.includes("Outdated Optimize Dep")) {
           recoverOutdatedOptimizeDep();
         }
@@ -387,22 +442,44 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // Keep mode toggles, edited prod URLs, and custom dev URLs in sync.
     useEffect(() => {
       const wv = webviewRef.current;
-      if (
-        !wv ||
-        app.placeholder ||
-        (prevUrlRef.current === url &&
-          prevUrlOpenNonceRef.current === urlOpenNonce)
-      ) {
+      if (!wv || app.placeholder) {
         return;
       }
+      const urlChanged = prevUrlRef.current !== url;
+      const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
+      if (!urlChanged && !openNonceChanged) return;
+
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
       setError(false);
+
+      if (
+        urlOpenSoft &&
+        openNonceChanged &&
+        isAgentNativeOpenPath(urlPath) &&
+        canSoftOpenWebview(wv, url)
+      ) {
+        void wv
+          .executeJavaScript(buildSoftOpenScript(urlPath), false)
+          .then((ok) => {
+            if (ok !== false) return;
+            setIsLoading(true);
+            setSlowLoad(false);
+            wv.setAttribute("src", url);
+          })
+          .catch(() => {
+            setIsLoading(true);
+            setSlowLoad(false);
+            wv.setAttribute("src", url);
+          });
+        return;
+      }
+
       setIsLoading(true);
       setSlowLoad(false);
       wv.setAttribute("src", url);
-    }, [url, urlOpenNonce, app.placeholder]);
+    }, [url, urlOpenNonce, urlOpenSoft, urlPath, app.placeholder]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,
@@ -643,7 +720,12 @@ function ErrorScreen({
   const devPort = appConfig?.devPort ?? app.devPort;
   const gatewayUrl = getTemplateGatewayUrl();
   const gatewayAppUrl =
-    isDev && gatewayUrl ? getTemplateGatewayAppUrl(app.id) : null;
+    isDev &&
+    (gatewayUrl ||
+      templateGatewayOverridesDevUrls() ||
+      (appConfig && isDefaultDesktopTemplateDevTarget(appConfig)))
+      ? getDesktopTemplateGatewayAppUrl(app.id)
+      : null;
   const devStatusUrl =
     gatewayAppUrl ?? (devPort ? `http://localhost:${devPort}` : undefined);
   const devServerStatus = useUrlCheck(devStatusUrl, isDev);

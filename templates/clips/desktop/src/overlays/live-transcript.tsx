@@ -3,6 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 
 type Source = "mic" | "system";
 
+interface Segment {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
 interface PartialPayload {
   text: string;
   source?: Source;
@@ -10,25 +16,35 @@ interface PartialPayload {
 interface FinalPayload {
   text: string;
   source?: Source;
+  segments?: Segment[];
 }
 
 interface FinalLine {
   text: string;
   source: Source;
+  startMs?: number;
+}
+
+/** Format ms since meeting start as m:ss. */
+function formatTimestamp(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 /**
  * Auto-scrolling live-transcript view. Subscribes to the Tauri events that
- * both the mic recognizer (`native_speech.rs`) and the system-audio
- * recognizer (`system_audio.rs`) emit:
+ * the local Whisper meeting engine (`whisper_speech.rs`) emits for both the
+ * mic and system-audio streams:
  *
  *   - `voice:partial-transcript` `{ text, source: "mic" | "system" }`
  *   - `voice:final-transcript`   `{ text, source: "mic" | "system" }`
  *
- * Locked-in segments are tagged with a small "you" / "speaker" pill so the
- * user can see who said what during a meeting. The in-flight partial for
- * each source is rendered separately so the two recognizers don't clobber
- * each other.
+ * Locked-in segments are tagged with a small "You" (mic) / "Them" (system)
+ * pill so the user can see who said what during a meeting. The in-flight
+ * partial for each source is rendered separately so the two streams don't
+ * clobber each other.
  */
 export function LiveTranscript() {
   const [finals, setFinals] = useState<FinalLine[]>([]);
@@ -67,7 +83,8 @@ export function LiveTranscript() {
         const txt = (ev.payload.text || "").trim();
         const source: Source = ev.payload.source ?? "mic";
         if (!txt) return;
-        setFinals((prev) => [...prev, { text: txt, source }]);
+        const startMs = ev.payload.segments?.[0]?.startMs;
+        setFinals((prev) => [...prev, { text: txt, source, startMs }]);
         if (source === "system") setSysPartial("");
         else setMicPartial("");
       }),
@@ -93,55 +110,58 @@ export function LiveTranscript() {
   }, [finals, micPartial, sysPartial]);
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex h-full w-full flex-col gap-1 overflow-y-auto px-3 py-2 text-[12px] leading-snug text-zinc-100"
-    >
+    <div ref={scrollRef} className="lt-chat">
       {finals.length === 0 && !micPartial && !sysPartial ? (
-        <div className="text-zinc-500">Listening…</div>
+        <div className="lt-empty">Listening…</div>
       ) : null}
       {finals.map((line, i) => (
-        <div key={i} className="flex items-start gap-1.5">
-          <SourceTag source={line.source} />
-          <span>{line.text}</span>
-        </div>
+        <ChatBubble
+          key={i}
+          source={line.source}
+          text={line.text}
+          startMs={line.startMs}
+        />
       ))}
       {sysPartial ? (
-        <div className="flex items-start gap-1.5 text-zinc-400">
-          <SourceTag source="system" muted />
-          <span>{sysPartial}</span>
-        </div>
+        <ChatBubble source="system" text={sysPartial} pending />
       ) : null}
       {micPartial ? (
-        <div className="flex items-start gap-1.5 text-zinc-400">
-          <SourceTag source="mic" muted />
-          <span>{micPartial}</span>
-        </div>
+        <ChatBubble source="mic" text={micPartial} pending />
       ) : null}
     </div>
   );
 }
 
-function SourceTag({
+/**
+ * A single chat-style transcript bubble. The mic stream ("You") is aligned to
+ * the right with a warm amber bubble; the system-audio stream ("Them") sits on
+ * the left with a cool sky bubble. In-flight partials render dimmed.
+ */
+function ChatBubble({
   source,
-  muted = false,
+  text,
+  pending = false,
+  startMs,
 }: {
   source: Source;
-  muted?: boolean;
+  text: string;
+  pending?: boolean;
+  startMs?: number;
 }) {
   const isYou = source === "mic";
-  const label = isYou ? "you" : "speaker";
-  // Mic = warm amber, system = cool sky. Picked to read clearly against
-  // the zinc-900 pill background while staying calm.
-  const base = isYou
-    ? "bg-amber-500/20 text-amber-200"
-    : "bg-sky-500/20 text-sky-200";
-  const opacity = muted ? "opacity-70" : "";
+  const label = isYou ? "You" : "Them";
+  const rowClass = `lt-row ${isYou ? "lt-row-you" : "lt-row-them"}${
+    pending ? " lt-row-pending" : ""
+  }`;
   return (
-    <span
-      className={`mt-0.5 shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide ${base} ${opacity}`}
-    >
-      {label}
-    </span>
+    <div className={rowClass}>
+      <span className="lt-label">
+        {label}
+        {typeof startMs === "number" && !pending ? (
+          <span className="lt-time">{formatTimestamp(startMs)}</span>
+        ) : null}
+      </span>
+      <span className="lt-bubble">{text}</span>
+    </div>
   );
 }

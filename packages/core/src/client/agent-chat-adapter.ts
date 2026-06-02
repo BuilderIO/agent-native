@@ -6,6 +6,7 @@ import {
 } from "./active-run-state.js";
 import {
   AgentAutoContinueSignal,
+  type AgentActivityTrailEntry,
   type ContentPart,
   readSSEStream,
 } from "./sse-event-processor.js";
@@ -68,7 +69,14 @@ const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
-const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 1;
+// How many consecutive continuations that produce NO progress (no streamed
+// text, no completed/in-flight tool) we tolerate before giving up. A complex
+// first turn can spend the whole soft-timeout window (~40s) "thinking" with no
+// visible output; giving up after a single such window made the agent feel like
+// it "craps out / stops midway" on heavier prompts (Analytics). Retrying a few
+// times lets a transient slow start recover, while the cap still terminates a
+// genuinely stuck turn with a clear message instead of looping forever.
+const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -77,6 +85,16 @@ const MAX_HISTORY_TOTAL_CHARS = 64_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+// Tools whose entire input IS the artifact being built (extension HTML, etc.).
+// Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
+// the resumed agent — it can no longer refine the artifact because it sees a
+// fake input. Keep the real input for these on continuation, only collapsing
+// inputs that are far larger than any realistic extension payload.
+const LARGE_INPUT_TOOL_NAMES = new Set([
+  "create-extension",
+  "update-extension",
+]);
+const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
 function normalizeMentions(text: string): string {
@@ -132,21 +150,28 @@ function messageTextFromContent(
   );
 }
 
-function truncateToolArgsForHistory(args: unknown): Record<string, unknown> {
+function truncateToolArgsForHistory(
+  args: unknown,
+  toolName?: string,
+): Record<string, unknown> {
   if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+  // Large-input tools (e.g. create-extension/update-extension) carry the
+  // artifact itself as their input. Preserve the real input on continuation so
+  // the resumed agent can keep refining it; only collapse inputs that exceed a
+  // far larger ceiling than any realistic payload.
+  const cap =
+    toolName && LARGE_INPUT_TOOL_NAMES.has(toolName)
+      ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
+      : MAX_HISTORY_TOOL_ARGS_CHARS;
   try {
     const json = JSON.stringify(args);
-    if (json.length <= MAX_HISTORY_TOOL_ARGS_CHARS) {
+    if (json.length <= cap) {
       return args as Record<string, unknown>;
     }
     return {
       __agentNativeTruncated: true,
       note: "Tool input was too large to resend in chat history. Use the current app/resource state as the source of truth if exact content is needed.",
-      preview: truncateForHistory(
-        json,
-        MAX_HISTORY_TOOL_ARGS_CHARS,
-        "Tool input",
-      ),
+      preview: truncateForHistory(json, cap, "Tool input"),
     };
   } catch {
     return {
@@ -311,6 +336,54 @@ function messageTextForHistory(message: {
   );
 }
 
+type AdapterMessage = {
+  role: string;
+  content: readonly { type: string; text?: string }[];
+  attachments?: readonly AssistantUiAttachment[];
+  metadata?: unknown;
+};
+
+const RECOVERY_USER_MESSAGE_PREFIXES = [
+  "Continue from where you left off",
+  "Continue from where you stopped",
+  "Retry the previous request from a clean approach",
+];
+
+function recoveryActionFromMessage(
+  message: unknown,
+): "continue" | "retry" | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const action = meta?.custom?.agentNativeRecoveryAction;
+  return action === "continue" || action === "retry" ? action : null;
+}
+
+function isRecoveryUserMessage(message: AdapterMessage): boolean {
+  if (recoveryActionFromMessage(message)) return true;
+  const text = messageTextFromContentRaw(message.content).trim();
+  return RECOVERY_USER_MESSAGE_PREFIXES.some((prefix) =>
+    text.startsWith(prefix),
+  );
+}
+
+function latestUserMessage(
+  messages: readonly AdapterMessage[],
+  options?: { skipRecovery?: boolean; beforeIndex?: number },
+): AdapterMessage | undefined {
+  const start =
+    typeof options?.beforeIndex === "number"
+      ? Math.min(options.beforeIndex, messages.length)
+      : messages.length;
+  for (let i = start - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    if (options?.skipRecovery && isRecoveryUserMessage(message)) continue;
+    return message;
+  }
+  return undefined;
+}
+
 function isToolCallContentPart(
   part: unknown,
 ): part is Extract<ContentPart, { type: "tool-call" }> {
@@ -373,7 +446,7 @@ function contentToStructuredMessages(
         toolCallId,
         toolName: part.toolName,
         args: truncate
-          ? truncateToolArgsForHistory(part.args ?? {})
+          ? truncateToolArgsForHistory(part.args ?? {}, part.toolName)
           : (part.args ?? {}),
       });
       if (part.result !== undefined) {
@@ -525,6 +598,17 @@ function combineContinuationHistory(fragments: string[]): string {
 function visibleTransientContinuationContent(
   content: ContentPart[],
 ): ContentPart[] {
+  // NOTE: this intentionally keeps ONLY completed tool calls, dropping
+  // already-streamed text, on a transient continuation. Preserving the text
+  // here is desirable (it's the live "paragraphs disappear" flicker) BUT it
+  // breaks visibleContentForContinuation's part-count prefix slicing: the
+  // resumed run's text concatenates into the preserved trailing text part, so
+  // the "new chunk" reads as empty and the empty-continuation cap gives up
+  // prematurely on text-heavy multi-continuation turns. The durable fix
+  // (server-side foldAssistantTurn) already preserves the text in thread_data,
+  // so no data is lost — only the live render flickers. Fixing the flicker
+  // safely requires reworking the prefix/new-chunk detection to diff by text
+  // length rather than part count; see the agent-run reliability follow-up.
   return content.filter(
     (part) => part.type === "tool-call" && part.result !== undefined,
   );
@@ -538,6 +622,29 @@ function hasContinuationProgress(content: ContentPart[]): boolean {
   );
 }
 
+/**
+ * True when an action was streamed but never returned a result yet — i.e. a
+ * `tool_start` with no matching `tool_done`. The server is still executing it,
+ * so a run_timeout that fires in this window is NOT a stall: the agent was
+ * actively working and `foldAssistantTurn` persisted the in-flight call. We
+ * must not count this against the stalled/empty continuation budgets.
+ */
+function hasInFlightToolCall(content: ContentPart[]): boolean {
+  return content.some(
+    (part) => part.type === "tool-call" && part.result === undefined,
+  );
+}
+
+function lastActivityTool(
+  trail: readonly AgentActivityTrailEntry[],
+): string | undefined {
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const tool = trail[i]?.tool?.trim();
+    if (tool) return tool;
+  }
+  return undefined;
+}
+
 function snapshotContent(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
     part.type === "text" ? { ...part } : { ...part, args: { ...part.args } },
@@ -545,6 +652,7 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
 }
 
 function autoContinueMessage(signal: AgentAutoContinueSignal): string {
+  const tool = lastActivityTool(signal.activityTrail);
   const reason =
     signal.reason === "loop_limit"
       ? "The previous run reached an internal step budget."
@@ -555,7 +663,11 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
           : signal.reason === "stream_ended"
             ? "The previous stream ended before the agent sent a final completion signal."
             : "The previous run reached an internal execution budget.";
-  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}`;
+  const actionInputNote =
+    signal.reason === "run_timeout" && tool
+      ? `\n\nThe previous run timed out while preparing the \`${tool}\` action input before the action could run. Avoid spending another whole run assembling one large tool payload. If this is \`create-extension\`, create a compact working v1 first, then use focused \`update-extension\` edits for refinements.`
+      : "";
+  return `${AUTO_CONTINUE_PROMPT}\n\nInternal note: ${reason}${actionInputNote}`;
 }
 
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
@@ -625,6 +737,16 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
   const jitter = base * 0.2;
   const ms = Math.max(0, base + (Math.random() * 2 - 1) * jitter);
   return delay(ms, abortSignal);
+}
+
+function generateTurnId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `turn-${crypto.randomUUID()}`;
+  }
+  return `turn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function isRetryableStartupError(message: string): boolean {
@@ -820,13 +942,29 @@ export function createAgentChatAdapter(options?: {
   return {
     async *run({ messages, abortSignal, runConfig }) {
       // Extract latest user message and build history from prior messages
-      let lastUserMsg: (typeof messages)[number] | undefined;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === "user") {
-          lastUserMsg = messages[i];
-          break;
+      const adapterMessages = messages as readonly AdapterMessage[];
+      const latestUserIndex = (() => {
+        for (let i = adapterMessages.length - 1; i >= 0; i--) {
+          if (adapterMessages[i].role === "user") return i;
         }
-      }
+        return -1;
+      })();
+      const latestUserMsg =
+        latestUserIndex >= 0 ? adapterMessages[latestUserIndex] : undefined;
+      const latestUserIsRecovery = latestUserMsg
+        ? isRecoveryUserMessage(latestUserMsg)
+        : false;
+      const lastUserMsg =
+        latestUserIsRecovery && latestUserIndex >= 0
+          ? (latestUserMessage(adapterMessages, {
+              skipRecovery: true,
+              beforeIndex: latestUserIndex,
+            }) ?? latestUserMsg)
+          : latestUserMsg;
+      const recoveryMessageText =
+        latestUserIsRecovery && latestUserMsg
+          ? messageTextFromContentRaw(latestUserMsg.content)
+          : "";
       const rawMessageText =
         lastUserMsg?.content
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -877,8 +1015,8 @@ export function createAgentChatAdapter(options?: {
           : "Use the attached context.";
 
       const priorMessages = limitPriorMessagesForRequest(
-        messages.slice(0, -1) as any,
-      ); // exclude latest user message and cap resend size
+        messages.slice(0, latestUserIndex >= 0 ? latestUserIndex : -1) as any,
+      ); // exclude latest user/recovery message and cap resend size
       const history = priorMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -903,9 +1041,12 @@ export function createAgentChatAdapter(options?: {
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
+      const turnId = generateTurnId();
       let runId: string | null = null;
       let lastSeq = -1;
-      let currentMessageText = normalizeMentions(userMessageText);
+      let currentMessageText = normalizeMentions(
+        recoveryMessageText.trim() || userMessageText,
+      );
       let currentHistory: AdapterHistoryMessage[] = history;
       let currentStructuredHistory: AgentChatStructuredMessage[] =
         structuredHistory;
@@ -1222,8 +1363,22 @@ export function createAgentChatAdapter(options?: {
           const visibleContent = visibleContentForContinuation();
           const currentPartialHistory =
             contentToContinuationHistory(visibleContent);
-          const madeProgress = hasContinuationProgress(visibleContent);
-          const madeVisibleProgress = visibleContent.length > 0;
+          // Real, content-weight progress: streamed text or a completed tool
+          // result. Used to reset the stalled/empty counters so trivial
+          // whitespace-only output cannot keep the run alive indefinitely.
+          const madeContentProgress = hasContinuationProgress(visibleContent);
+          // An action was streamed but has not returned yet (a tool_start with
+          // no tool_done), or the activity trail shows the server was working
+          // on a tool. A run_timeout that fires in this window means the agent
+          // was actively making progress — the server's foldAssistantTurn
+          // persisted the in-flight call — so it must NOT count against the
+          // stalled/empty continuation budgets.
+          const hasInFlightTool =
+            hasInFlightToolCall(visibleContent) ||
+            Boolean(lastActivityTool(signal.activityTrail));
+          // Either real output or an actively-running tool counts as progress
+          // for the stalled/empty caps.
+          const madeProgress = madeContentProgress || hasInFlightTool;
           const madeDurableToolProgress = visibleContent.some(
             (part) => part.type === "tool-call" && part.result !== undefined,
           );
@@ -1233,10 +1388,17 @@ export function createAgentChatAdapter(options?: {
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
-            if (!madeVisibleProgress && signal.reason === "run_timeout") {
-              return { ok: false, resetVisibleContent: false };
-            }
-            if (!madeVisibleProgress) {
+            // A run_timeout that produced nothing visible and no activity (the
+            // model spent the whole soft-timeout window thinking before its
+            // first output) is NOT an immediate give-up: a transient slow start
+            // routinely recovers on the next continuation. Let it fall through
+            // to the empty-continuation budget below so it retries a bounded
+            // number of times before surfacing the "no visible progress" error.
+            // Reset the empty-continuation counter on real progress — streamed
+            // text/completed tool OR an in-flight tool the server is running —
+            // not merely on a non-zero part count, which whitespace-only or
+            // unresolved-only output would falsely satisfy.
+            if (!madeProgress) {
               emptyTransientContinuationAttempts += 1;
               if (
                 emptyTransientContinuationAttempts >
@@ -1337,6 +1499,7 @@ export function createAgentChatAdapter(options?: {
                   displayMessage: userMessageText,
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
+                  turnId,
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }

@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildDispatchNavigationState } from "./use-navigation-state.js";
 
 describe("buildDispatchNavigationState", () => {
+  it("recognizes the full-page chat route", () => {
+    expect(buildDispatchNavigationState("/chat")).toEqual({
+      view: "chat",
+      path: "/chat",
+    });
+  });
+
   it("exposes the current extension id from extension routes", () => {
     expect(
       buildDispatchNavigationState("/extensions/ext-1/github-stars-over-time"),

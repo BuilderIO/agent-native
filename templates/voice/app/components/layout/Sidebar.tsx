@@ -1,4 +1,8 @@
-import { FeedbackButton, appPath } from "@agent-native/core/client";
+import {
+  DevDatabaseLink,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 
@@ -26,6 +30,7 @@ export function Sidebar() {
         <ExtensionsSidebarSection />
       </div>
       <div className="space-y-2 border-t border-border px-3 py-2">
+        <DevDatabaseLink />
         <FeedbackButton />
         <OrgSwitcher />
       </div>

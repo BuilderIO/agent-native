@@ -276,6 +276,7 @@
 
 .notion-editor {
   outline: none;
+  --notion-indent-size: 1.75rem;
   font-family:
     "Inter",
     system-ui,
@@ -284,6 +285,7 @@
   color: hsl(var(--foreground));
   line-height: 1.7;
   font-size: 1rem;
+  tab-size: 4;
 }
 
 .visual-editor-wrapper .notion-editor {
@@ -329,6 +331,38 @@
 .notion-editor p {
   margin: 0.5em 0;
   min-height: 1.5em;
+}
+
+.notion-editor [data-nfm-indent="1"] {
+  margin-left: var(--notion-indent-size);
+}
+
+.notion-editor [data-nfm-indent="2"] {
+  margin-left: calc(var(--notion-indent-size) * 2);
+}
+
+.notion-editor [data-nfm-indent="3"] {
+  margin-left: calc(var(--notion-indent-size) * 3);
+}
+
+.notion-editor [data-nfm-indent="4"] {
+  margin-left: calc(var(--notion-indent-size) * 4);
+}
+
+.notion-editor [data-nfm-indent="5"] {
+  margin-left: calc(var(--notion-indent-size) * 5);
+}
+
+.notion-editor [data-nfm-indent="6"] {
+  margin-left: calc(var(--notion-indent-size) * 6);
+}
+
+.notion-editor [data-nfm-indent="7"] {
+  margin-left: calc(var(--notion-indent-size) * 7);
+}
+
+.notion-editor [data-nfm-indent="8"] {
+  margin-left: calc(var(--notion-indent-size) * 8);
 }
 
 /* Placeholders */
@@ -396,16 +430,25 @@
 .notion-editor ul:not(.notion-task-list) > li,
 .notion-editor ol > li {
   display: grid;
-  grid-template-columns: 1rem 1fr;
+  /* Marker column grows for multi-digit ordered-list numbers (10., 11., …).
+     A fixed 1rem clipped two-digit markers, wrapping "10." onto two lines. */
+  grid-template-columns: minmax(1rem, auto) 1fr;
   column-gap: 0.5em;
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before,
 .notion-editor ol > li::before {
   display: block;
-  width: 1rem;
+  min-width: 1rem;
   text-align: center;
+  white-space: nowrap;
   line-height: 1.7;
+}
+
+/* Ordered-list numbers read better right-aligned against the content gutter,
+   and never wrap regardless of digit count. */
+.notion-editor ol > li::before {
+  text-align: right;
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before {
@@ -752,30 +795,25 @@
   position: relative;
 }
 
-/* Remove bottom border from last row */
 .notion-editor table tr:last-child td,
 .notion-editor table tr:last-child th {
   border-bottom: none;
 }
 
-/* Remove right border from last column */
 .notion-editor table tr td:last-child,
 .notion-editor table tr th:last-child {
   border-right: none;
 }
 
-/* Make the first row always look like a header */
-.notion-editor table tr:first-child td,
-.notion-editor table tr:first-child th {
-  font-weight: 600;
+.notion-editor table th {
+  font-weight: inherit;
   text-align: left;
-  background-color: hsl(var(--muted) / 0.7);
+  background-color: transparent;
 }
 
-/* Remove header styling from any subsequent rows that might contain th tags */
-.notion-editor table tr:not(:first-child) th {
-  font-weight: normal;
-  background-color: transparent;
+.notion-editor table .notion-table-header-cell {
+  background-color: hsl(var(--muted) / 0.45);
+  font-weight: 500;
 }
 
 .notion-editor table .selectedCell:after {
@@ -808,6 +846,18 @@
   cursor: col-resize;
 }
 
+.notion-table-resizing-column,
+.notion-table-resizing-column * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.notion-table-resizing-row,
+.notion-table-resizing-row * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
 /* Images */
 .notion-image {
   max-width: 100%;
@@ -830,6 +880,80 @@
 }
 
 /* Enhanced Notion-flavored markdown blocks */
+/* Notion block colors and backgrounds (matches Notion's light-mode palette).
+   Applied by the NotionBlockColor fidelity extension via `data-notion-color`
+   and the .notion-block-color--* / .notion-block-bg--* classes. */
+.notion-block-color--gray {
+  color: #787774;
+}
+.notion-block-color--brown {
+  color: #976d57;
+}
+.notion-block-color--orange {
+  color: #cc772f;
+}
+.notion-block-color--yellow {
+  color: #c29243;
+}
+.notion-block-color--green {
+  color: #548164;
+}
+.notion-block-color--blue {
+  color: #487ca5;
+}
+.notion-block-color--purple {
+  color: #8a67ab;
+}
+.notion-block-color--pink {
+  color: #b35488;
+}
+.notion-block-color--red {
+  color: #c4554d;
+}
+
+.notion-block-bg {
+  display: block;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+}
+.notion-block-bg--gray {
+  background-color: #f1f1ef;
+}
+.notion-block-bg--brown {
+  background-color: #f4eeee;
+}
+.notion-block-bg--orange {
+  background-color: #fbecdd;
+}
+.notion-block-bg--yellow {
+  background-color: #fbf3db;
+}
+.notion-block-bg--green {
+  background-color: #edf3ec;
+}
+.notion-block-bg--blue {
+  background-color: #e7f3f8;
+}
+.notion-block-bg--purple {
+  background-color: #f6f3f9;
+}
+.notion-block-bg--pink {
+  background-color: #faf1f5;
+}
+.notion-block-bg--red {
+  background-color: #fdebec;
+}
+
+/* Synced block container — a subtle marker so it reads as shared content. */
+.notion-synced-block {
+  border-left: 2px solid #d0a8e0;
+  padding-left: 0.75em;
+  margin: 0.2em 0;
+}
+.notion-synced-block[data-synced-reference="true"] {
+  border-left-color: #b0b0b0;
+}
+
 .notion-toggle {
   margin: 0.2em 0;
 }
@@ -946,6 +1070,9 @@ div[data-notion-column] > :last-child {
 }
 
 .notion-atom__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.68rem;
@@ -956,6 +1083,72 @@ div[data-notion-column] > :last-child {
   font-size: 0.92rem;
   color: hsl(var(--foreground));
   word-break: break-word;
+}
+
+.notion-page-reference {
+  margin: 0.3rem 0;
+}
+
+.notion-page-reference__button {
+  display: inline-flex;
+  min-height: 2rem;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  padding: 0.18rem 0.3rem;
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.notion-page-reference--clickable .notion-page-reference__button {
+  cursor: pointer;
+}
+
+.notion-page-reference--clickable .notion-page-reference__button:hover,
+.notion-page-reference--clickable .notion-page-reference__button:focus-visible {
+  background: hsl(var(--accent) / 0.75);
+  outline: none;
+}
+
+.notion-page-reference__button:disabled {
+  cursor: default;
+}
+
+.notion-page-reference__icon {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.notion-page-reference__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--border));
+  text-underline-offset: 0.22em;
+}
+
+.notion-page-reference--clickable
+  .notion-page-reference__button:hover
+  .notion-page-reference__label {
+  text-decoration-color: currentColor;
+}
+
+.notion-page-reference__external {
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground));
 }
 
 .notion-inline-atom {
@@ -2023,6 +2216,13 @@ audio.media-block__content {
 }
 
 /* ===== Collaboration cursors ===== */
+.notion-editor .collaboration-cursor__selection {
+  background-color: hsl(210 100% 52% / 0.14) !important;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .collaboration-cursor__caret {
   border-left: 2px solid;
   border-color: currentColor;

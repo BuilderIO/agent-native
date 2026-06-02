@@ -21,6 +21,7 @@ import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
 import {
   useSendToAgentChat,
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
 } from "@agent-native/core/client";
@@ -261,6 +262,7 @@ export function Sidebar() {
       {/* Footer */}
       <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
         <OrgSwitcher />
+        <DevDatabaseLink />
         <div className="flex items-center gap-2">
           <FeedbackButton className="min-w-0 flex-1" />
           <ThemeToggle className="h-9 w-9 shrink-0" />

@@ -4,6 +4,8 @@ description: >-
   How agents call other agents via the A2A (agent-to-agent) JSON-RPC protocol.
   Use when enabling inter-agent communication, exposing agent skills to other
   agents, or calling external agents from scripts.
+metadata:
+  internal: true
 ---
 
 # A2A Protocol (Agent-to-Agent)
@@ -247,5 +249,5 @@ import type {
 ## Related Skills
 
 - **delegate-to-agent** — For work the local agent handles. Use A2A when the work goes to a different agent.
-- **scripts** — A2A calls typically happen in scripts
+- **actions** — A2A calls typically happen inside actions
 - **storing-data** — Results from A2A calls are stored in SQL like any other data

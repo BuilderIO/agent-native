@@ -4,7 +4,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "Agent-Native Brain",
     tagline:
-      "A company memory layer where raw conversations become reviewed, searchable institutional knowledge.",
+      "A company knowledge layer where raw conversations become reviewed, searchable institutional knowledge.",
     features: [
       "Import transcripts, notes, Slack exports, and Granola summaries",
       "Validate every fact against exact source quotes",

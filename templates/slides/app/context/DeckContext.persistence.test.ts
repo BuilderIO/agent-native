@@ -2,7 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DeckProvider, useDecks } from "./DeckContext";
+import { DeckProvider, useDecks, type Deck } from "./DeckContext";
 
 class MockEventSource {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -17,6 +17,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function setupFetch() {
   let resolveCreate: (response: Response) => void = () => {};
+  let accessibleDeck: Deck | null = null;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
       typeof url === "string"
@@ -36,6 +37,11 @@ function setupFetch() {
     }
 
     if (href.includes("/api/decks/")) {
+      if (accessibleDeck) {
+        return Promise.resolve(
+          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
+        );
+      }
       return Promise.resolve(new Response("", { status: 404 }));
     }
 
@@ -46,6 +52,9 @@ function setupFetch() {
   return {
     fetchMock,
     resolveCreate: (response: Response) => resolveCreate(response),
+    setAccessibleDeck: (deck: Deck) => {
+      accessibleDeck = deck;
+    },
   };
 }
 
@@ -119,5 +128,213 @@ describe("DeckContext deck creation persistence", () => {
 
     await expect(persisted).resolves.toBe(false);
     expect(deckFetchCalls(fetchMock)).toEqual([]);
+  });
+
+  it("can reload the currently open deck after access changes", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks).toEqual([]);
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    expect(result.current.getDeck("shared-deck")?.title).toBe("Shared Deck");
+  });
+
+  it("resets undo history to the reloaded deck baseline", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
+  });
+
+  it("records the first edit after reloading over a pending undo skip", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      result.current.undo();
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+  });
+
+  it("ignores stale reload responses after the route changes", async () => {
+    window.history.pushState({}, "", "/");
+    const firstDeck: Deck = {
+      id: "first-deck",
+      title: "First Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    const secondDeck: Deck = {
+      id: "second-deck",
+      title: "Second Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    let firstDeckRequestStarted = false;
+    let resolveFirstDeck: (response: Response) => void = () => {};
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      const href =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+
+      if (href.endsWith("/api/decks")) {
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      }
+
+      if (href.endsWith("/api/decks/first-deck")) {
+        firstDeckRequestStarted = true;
+        return new Promise<Response>((resolve) => {
+          resolveFirstDeck = resolve;
+        });
+      }
+
+      if (href.endsWith("/api/decks/second-deck")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(secondDeck), { status: 200 }),
+        );
+      }
+
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    window.history.pushState({}, "", "/deck/first-deck");
+    let firstReload = Promise.resolve();
+    act(() => {
+      firstReload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(firstDeckRequestStarted).toBe(true));
+
+    window.history.pushState({}, "", "/deck/second-deck");
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
+
+    await act(async () => {
+      resolveFirstDeck(
+        new Response(JSON.stringify(firstDeck), { status: 200 }),
+      );
+      await firstReload;
+    });
+
+    expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
+    expect(result.current.getDeck("first-deck")).toBeUndefined();
+  });
+
+  it("clears loading when the initial response becomes stale after navigation", async () => {
+    window.history.pushState({}, "", "/deck/first-deck");
+    const firstDeck: Deck = {
+      id: "first-deck",
+      title: "First Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    };
+    let resolveDecks: (response: Response) => void = () => {};
+    const fetchMock = vi.fn((url: string | URL | Request) => {
+      const href =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+
+      if (href.endsWith("/api/decks")) {
+        return new Promise<Response>((resolve) => {
+          resolveDecks = resolve;
+        });
+      }
+
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    window.history.pushState({}, "", "/deck/second-deck");
+    await act(async () => {
+      resolveDecks(new Response(JSON.stringify([firstDeck]), { status: 200 }));
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.getDeck("first-deck")).toBeUndefined();
   });
 });

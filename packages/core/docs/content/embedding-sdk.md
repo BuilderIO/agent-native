@@ -14,6 +14,85 @@ Use it when you want an assistant that can:
 - Ask the host app to navigate, refresh data, remount a view, or open a resource after durable work completes.
 - Run as an iframe/sidebar now, while leaving room for a no-iframe package or hosted template later.
 
+## Embedded App And Picker Mode
+
+Use `@agent-native/embedding` when the host product wants to launch a complete
+Agent-Native app as a focused iframe surface: an asset picker, asset generator,
+form builder, calendar slot picker, approval panel, or any other task-specific
+workflow. This is intentionally smaller than the sidecar host bridge below: the
+iframe announces readiness, the host can send named messages, and the embedded
+app can emit domain events such as `chooseAsset` or `close`.
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+export function AssetPickerDialog({ close }) {
+  return (
+    <EmbeddedApp
+      url="https://assets.agent-native.com/picker"
+      className="h-full w-full"
+      onLoad={(ref) => {
+        ref.postMessage("configure", {
+          prompt: "Editorial blog hero",
+          aspectRatio: "16:9",
+        });
+      }}
+      onMessage={(name, payload) => {
+        if (name === "chooseAsset") {
+          const asset = payload as { url: string; altText?: string };
+          insertAsset(asset.url, asset.altText);
+          close();
+        }
+        if (name === "close") close();
+      }}
+    />
+  );
+}
+```
+
+Inside the embedded app, use the browser bridge to announce readiness and send
+events back to the host:
+
+```ts
+import {
+  announceEmbeddedAppReady,
+  sendEmbeddedAppMessage,
+} from "@agent-native/embedding/bridge";
+
+announceEmbeddedAppReady({ app: "assets", mode: "picker" });
+sendEmbeddedAppMessage("chooseAsset", {
+  url: asset.previewUrl,
+  assetId: asset.id,
+  altText: asset.altText,
+});
+```
+
+Assets also emits `chooseImage` as a compatibility alias for older image-picker
+hosts; new integrations should listen for `chooseAsset`.
+
+For hosted first-party apps, enable Cross-App SSO with Dispatch as the identity
+hub so `content.agent-native.com` and `assets.agent-native.com` link users by
+verified email. Iframe launches should still use short-lived, route-scoped
+embed sessions when they need third-party-cookie resilience; normal app cookies
+are not a complete embed auth story on their own.
+
+The same package includes agent endpoint helpers for protocol discovery and
+streaming text over A2A:
+
+```ts
+import { getA2AUrl, getMcpUrl, sendMessage } from "@agent-native/embedding";
+
+getMcpUrl("https://assets.agent-native.com");
+getA2AUrl("https://assets.agent-native.com");
+
+for await (const chunk of sendMessage(
+  "https://assets.agent-native.com",
+  "Generate a blog hero",
+)) {
+  append(chunk);
+}
+```
+
 ## Batteries-Included Embedded Mode
 
 For most SaaS hosts, use the full embedded runtime. The host mounts Agent-Native server routes into its existing app, passes its logged-in user to Agent-Native, and then renders the React sidebar/surface in the product UI. Agent-Native uses the host deployment, host session, and the configured `DATABASE_URL` to manage its own framework tables: chat threads, settings, application state, extensions, extension data, secrets, browser sessions, and action routes.

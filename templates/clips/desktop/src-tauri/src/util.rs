@@ -5,6 +5,10 @@ use crate::state::{
     DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
+const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
+
 // ---------------------------------------------------------------------------
 // Capture-sharing helpers (macOS only)
 // ---------------------------------------------------------------------------
@@ -97,9 +101,13 @@ pub fn set_capture_included(window: &WebviewWindow) {
 }
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
+    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
-        .inner_size(360.0, 520.0)
+        .inner_size(
+            POPOVER_DEFAULT_WIDTH_LOGICAL + gutter,
+            POPOVER_DEFAULT_HEIGHT_LOGICAL + gutter,
+        )
         .position(2.0, 2.0)
         .resizable(false)
         .decorations(false)
@@ -191,6 +199,13 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
         let windows = app.webview_windows();
         for (label, window) in &windows {
             if label.as_str() == "popover" {
+                continue;
+            }
+            // The meeting reminder is a notification, not Clips recording
+            // chrome — keep it visible in captures regardless of the debug
+            // toggle so it never gets re-excluded on a config change.
+            if label.as_str() == "meeting-notif" {
+                set_window_capture_excluded(window, false);
                 continue;
             }
             let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");

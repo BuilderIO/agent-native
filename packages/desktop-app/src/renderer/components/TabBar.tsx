@@ -1,9 +1,11 @@
 import { IconX, IconPlus } from "@tabler/icons-react";
 import type { Tab } from "../App.js";
+import { getTabDisplayTitle } from "../lib/tab-title.js";
 
 interface TabBarProps {
   tabs: Tab[];
   activeTabId: string;
+  appName: string;
   onTabSelect: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onNewTab: () => void;
@@ -12,6 +14,7 @@ interface TabBarProps {
 export default function TabBar({
   tabs,
   activeTabId,
+  appName,
   onTabSelect,
   onTabClose,
   onNewTab,
@@ -20,6 +23,7 @@ export default function TabBar({
     <div className="tabbar">
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
+        const title = getTabDisplayTitle(tab.title, appName);
 
         return (
           <button
@@ -34,9 +38,9 @@ export default function TabBar({
                 onTabClose(tab.id);
               }
             }}
-            title={tab.title}
+            title={title}
           >
-            <span className="tab-label">{tab.title}</span>
+            <span className="tab-label">{title}</span>
             <span
               className="tab-close"
               onClick={(e) => {

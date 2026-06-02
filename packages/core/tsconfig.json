@@ -19,5 +19,12 @@
     "types": ["node", "vite/client"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/templates", "src/**/*.spec.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/templates",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.e2e-host.tsx"
+  ]
 }

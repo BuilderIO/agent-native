@@ -64,7 +64,7 @@ Actions mounted by the framework automatically run with request context. Custom 
 import { defineEventHandler } from "h3";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { getDb } from "@agent-native/core/db";
-import { accessFilter } from "@agent-native/core/access";
+import { accessFilter } from "@agent-native/core/sharing";
 import * as schema from "../../db/schema";
 
 export default defineEventHandler(async (event) => {
@@ -94,20 +94,23 @@ Plugins live in `server/plugins/` and run at startup. Use them for migrations, p
 
 ```ts
 // server/plugins/db.ts
-import { runMigrations } from "@agent-native/core/db/migrations";
+import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations([
-  {
-    id: "001_create_projects",
-    sql: `CREATE TABLE IF NOT EXISTS projects (
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
-  },
-]);
+    },
+  ],
+  { table: "my_app_migrations" },
+);
 ```
 
 Migrations must be additive. Never put destructive SQL in startup plugins.

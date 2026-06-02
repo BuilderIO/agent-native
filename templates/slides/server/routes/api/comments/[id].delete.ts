@@ -1,7 +1,8 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
-import { getDbExec } from "@agent-native/core/db";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "../../../db/index.js";
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
@@ -16,14 +17,15 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
-      const client = getDbExec();
-      const { rows } = await client.execute({
-        sql: `SELECT deck_id, author_email FROM slide_comments WHERE id = ?`,
-        args: [id],
-      });
-      const comment = rows[0] as
-        | { deck_id: string; author_email: string }
-        | undefined;
+      const db = getDb();
+      const [comment] = await db
+        .select({
+          deckId: schema.slideComments.deckId,
+          authorEmail: schema.slideComments.authorEmail,
+        })
+        .from(schema.slideComments)
+        .where(eq(schema.slideComments.id, id))
+        .limit(1);
 
       if (!comment) {
         setResponseStatus(event, 404);
@@ -31,10 +33,10 @@ export default defineEventHandler(async (event) => {
       }
 
       try {
-        if (comment.author_email === session.email) {
-          await assertAccess("deck", comment.deck_id, "viewer");
+        if (comment.authorEmail === session.email) {
+          await assertAccess("deck", comment.deckId, "viewer");
         } else {
-          await assertAccess("deck", comment.deck_id, "editor");
+          await assertAccess("deck", comment.deckId, "editor");
         }
       } catch (err) {
         if (err instanceof ForbiddenError) {
@@ -44,10 +46,14 @@ export default defineEventHandler(async (event) => {
         throw err;
       }
 
-      await client.execute({
-        sql: `DELETE FROM slide_comments WHERE id = ? AND deck_id = ?`,
-        args: [id, comment.deck_id],
-      });
+      await db
+        .delete(schema.slideComments)
+        .where(
+          and(
+            eq(schema.slideComments.id, id),
+            eq(schema.slideComments.deckId, comment.deckId),
+          ),
+        );
 
       return { ok: true };
     },

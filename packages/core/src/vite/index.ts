@@ -3,6 +3,11 @@ export {
   type ClientConfigOptions,
   type NitroOptions,
 } from "./client.js";
+export type {
+  AgentNativeRouteWarmupConfigInput,
+  AgentNativeRouteWarmupResolvedConfig,
+  AgentNativeRouteWarmupStrategy,
+} from "../shared/route-warmup-config.js";
 export {
   actionTypesPlugin,
   generateActionRegistryForProject,

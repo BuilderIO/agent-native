@@ -53,7 +53,6 @@ import {
   IconEyeOff,
   IconRefresh,
   IconSearch,
-  IconUser,
   IconUsersGroup,
   IconVideo,
 } from "@tabler/icons-react";
@@ -398,6 +397,3 @@ function locationLabel(kind: string): string {
   if (kind === "in-person") return "In person";
   return kind;
 }
-
-// suppress unused import warning in light of lazy features
-void IconUser;

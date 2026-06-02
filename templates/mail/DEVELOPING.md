@@ -12,7 +12,7 @@ This guide is for development-mode agents editing this app's source code. For ma
 - **Icons**: `@tabler/icons-react` — use Tabler icons for all icons. Do not use Lucide or inline SVGs.
 - **Themes**: next-themes (dark/light/system)
 - **State**: SQL-backed via `@agent-native/core/settings` and `@agent-native/core/application-state`
-- **Database**: SQLite (via Drizzle ORM), upgradeable to Turso/Neon/Supabase via `DATABASE_URL`
+- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
 
 ## Project Structure
 
@@ -35,7 +35,7 @@ shared/
 actions/
   run.ts          # Script dispatcher
 data/
-  app.db          # SQLite database (all app data)
+  app.db          # Local development database fallback
 ```
 
 ## Framework Basics (Nitro + @agent-native/core)

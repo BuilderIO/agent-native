@@ -4,6 +4,8 @@ description: >-
   How to add routes without remounting the app shell. Use when adding a new
   route, fixing agent sidebar reloads on navigation, or choosing between
   `root.tsx` layout and pathless `_app.tsx` layout patterns.
+metadata:
+  internal: true
 ---
 
 # Client-Side Routing

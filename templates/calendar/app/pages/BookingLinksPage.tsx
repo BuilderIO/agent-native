@@ -100,7 +100,6 @@ import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
-import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import BookingsList from "./BookingsList";
@@ -124,6 +123,11 @@ function slugify(value: string) {
 
 const PRODUCTION_DOMAIN = "calendar.agent-native.com";
 const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
+const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
+const BRAND_ICON_LINK_CLASS =
+  "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
+const BRAND_PILL_LINK_CLASS =
+  "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
 
 type DraftLink = {
   id?: string;
@@ -186,13 +190,14 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     link.durations && link.durations.length > 0
       ? link.durations
       : [link.duration];
+  const primaryDuration = durations[0] ?? link.duration;
 
   return {
     id: link.id,
     title: link.title,
     slug: link.slug,
     description: link.description || "",
-    duration: link.duration,
+    duration: primaryDuration,
     durations,
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
@@ -507,7 +512,6 @@ export default function BookingLinksPage({
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
   const [usernameInput, setUsernameInput] = useState("");
-  const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const zoomStatus = useZoomStatus();
@@ -816,7 +820,7 @@ export default function BookingLinksPage({
                   variant="ghost"
                   size="icon"
                   onClick={() => void copyPreviewUrl(draft.slug)}
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
                   aria-label="Copy booking link"
                 >
                   <IconCopy className="h-4 w-4" />
@@ -831,7 +835,7 @@ export default function BookingLinksPage({
                   variant="ghost"
                   size="icon"
                   onClick={() => openPreview(draft.slug)}
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
                   aria-label="Open booking link"
                 >
                   <IconExternalLink className="h-4 w-4" />
@@ -1098,7 +1102,7 @@ export default function BookingLinksPage({
                           variant="ghost"
                           size="icon"
                           onClick={() => openPreview(draft.slug)}
-                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
                           aria-label="Open booking page in new tab"
                         >
                           <IconExternalLink className="h-4 w-4" />
@@ -1378,7 +1382,10 @@ export default function BookingLinksPage({
                                   e.stopPropagation();
                                   void copyPreviewUrl(link.slug);
                                 }}
-                                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent/60 sm:px-4 sm:text-sm"
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs sm:px-4 sm:text-sm",
+                                  BRAND_PILL_LINK_CLASS,
+                                )}
                               >
                                 <IconLink className="h-3.5 w-3.5" />
                                 Copy link
@@ -1389,7 +1396,10 @@ export default function BookingLinksPage({
                                   e.stopPropagation();
                                   openPreview(link.slug);
                                 }}
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                className={cn(
+                                  "flex h-9 w-9 items-center justify-center rounded-full border",
+                                  BRAND_PILL_LINK_CLASS,
+                                )}
                               >
                                 <IconExternalLink className="h-4 w-4" />
                               </button>
@@ -1421,7 +1431,7 @@ export default function BookingLinksPage({
                                       id: link.id,
                                       title: link.title,
                                       slug: link.slug,
-                                      duration: link.duration,
+                                      duration: durations[0] ?? link.duration,
                                       durations: link.durations,
                                       description: link.description,
                                       customFields: link.customFields,
@@ -1829,7 +1839,10 @@ function BookingPreview({
                   <button
                     type="button"
                     onClick={onCopy}
-                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded",
+                      BRAND_ICON_LINK_CLASS,
+                    )}
                   >
                     <IconCopy className="h-3.5 w-3.5" />
                   </button>
@@ -1843,7 +1856,10 @@ function BookingPreview({
                   <button
                     type="button"
                     onClick={onOpen}
-                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded",
+                      BRAND_ICON_LINK_CLASS,
+                    )}
                   >
                     <IconExternalLink className="h-3.5 w-3.5" />
                   </button>
@@ -1854,7 +1870,7 @@ function BookingPreview({
           </div>
         </div>
         {bookingUrl && (
-          <p className="text-[11px] font-mono text-muted-foreground truncate">
+          <p className="text-[11px] font-mono font-semibold text-[#00B5FF] truncate">
             {bookingUrl.replace(/^https?:\/\//, "")}
           </p>
         )}
@@ -2042,7 +2058,10 @@ function BookingPreview({
                     setSelectedSlot(null);
                     setForcedStep(null);
                   }}
-                  className="text-[11px] text-primary hover:underline"
+                  className={cn(
+                    "text-[11px] hover:underline",
+                    BRAND_LINK_CLASS,
+                  )}
                 >
                   Change date
                 </button>
@@ -2096,7 +2115,10 @@ function BookingPreview({
                     setSelectedSlot(null);
                     setForcedStep(null);
                   }}
-                  className="text-[11px] text-primary hover:underline"
+                  className={cn(
+                    "text-[11px] hover:underline",
+                    BRAND_LINK_CLASS,
+                  )}
                 >
                   Change time
                 </button>

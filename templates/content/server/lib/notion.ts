@@ -1,16 +1,13 @@
 import crypto from "node:crypto";
 import {
   deleteOAuthTokens,
-  getOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { getSession } from "@agent-native/core/server";
-import type { H3Event } from "h3";
-import {
-  normalizeNfmForNotion,
-  normalizeNfmForStorage,
-} from "../../shared/notion-markdown.js";
+import { assertAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { createError, type H3Event } from "h3";
+import { canonicalizeNfm } from "../../shared/nfm.js";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
@@ -197,7 +194,7 @@ async function hydrateUnknownBlockSubtrees(
 
       hydrated = replaceFirstUnknownPlaceholder(
         hydrated,
-        normalizeNfmForStorage(resolvedSubtree),
+        canonicalizeNfm(resolvedSubtree),
       );
     } catch (error) {
       if (
@@ -249,7 +246,7 @@ export async function resolveNotionMarkdownResponse(
     );
   }
 
-  markdown = normalizeNfmForStorage(markdown);
+  markdown = canonicalizeNfm(markdown);
 
   return { markdown, warnings: uniqueWarnings(warnings) };
 }
@@ -345,66 +342,6 @@ export async function readNotionPageAsDocument(
   };
 }
 
-type ChildRef = { kind: "page" | "database"; id: string };
-
-async function fetchChildRefs(
-  accessToken: string,
-  pageId: string,
-): Promise<ChildRef[]> {
-  const refs: ChildRef[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const query = cursor
-      ? `?start_cursor=${cursor}&page_size=100`
-      : "?page_size=100";
-    const response = await notionFetch<{
-      results: Array<{ type: string; id: string }>;
-      has_more: boolean;
-      next_cursor: string | null;
-    }>(`/blocks/${pageId}/children${query}`, accessToken);
-
-    for (const block of response.results) {
-      if (block.type === "child_page") {
-        refs.push({ kind: "page", id: block.id });
-      } else if (block.type === "child_database") {
-        refs.push({ kind: "database", id: block.id });
-      }
-    }
-
-    cursor =
-      response.has_more && response.next_cursor
-        ? response.next_cursor
-        : undefined;
-  } while (cursor);
-
-  return refs;
-}
-
-/**
- * Build a Notion URL from a block ID. The canonical `https://www.notion.so/<id>`
- * form (hyphens stripped) is accepted by Notion's markdown API and resolves to
- * the correct page/database. Using `url` attribute (not `id`) is required —
- * Notion's `replace_content` markdown validator looks for the URL attribute
- * when checking whether children are preserved.
- */
-function notionUrlForId(id: string): string {
-  return `https://www.notion.so/${id.replace(/-/g, "")}`;
-}
-
-function appendChildRefTags(markdown: string, refs: ChildRef[]): string {
-  if (refs.length === 0) return markdown;
-  const tags = refs
-    .map((ref) => {
-      const url = notionUrlForId(ref.id);
-      return ref.kind === "database"
-        ? `<database url="${url}" />`
-        : `<page url="${url}" />`;
-    })
-    .join("\n");
-  return `${markdown}\n${tags}`;
-}
-
 export async function pushDocumentToNotionPage(args: {
   accessToken: string;
   pageId: string;
@@ -412,15 +349,15 @@ export async function pushDocumentToNotionPage(args: {
   content: string;
   icon?: string | null;
 }): Promise<NotionPageContent> {
-  const [page, childRefs] = await Promise.all([
-    fetchNotionPage(args.accessToken, args.pageId),
-    fetchChildRefs(args.accessToken, args.pageId),
-  ]);
+  const page = await fetchNotionPage(args.accessToken, args.pageId);
 
-  const markdown = appendChildRefTags(
-    normalizeNfmForNotion(args.content),
-    childRefs,
-  );
+  // The canonical content already contains `<page>`/`<database>` tags for any
+  // child pages/databases (they round-trip through the converter), so they stay
+  // in place. We must NOT re-append them — per the NFM spec an existing-URL
+  // `<page>` tag MOVES that child, which previously reordered children to the
+  // bottom of the page on every push. `allow_deleting_content: false` remains
+  // the backstop against accidental removal.
+  const markdown = canonicalizeNfm(args.content);
 
   try {
     await notionFetch(`/pages/${args.pageId}/markdown`, args.accessToken, {
@@ -482,7 +419,7 @@ export async function createNotionPageWithMarkdown(args: {
         ],
       },
     },
-    markdown: normalizeNfmForNotion(args.content),
+    markdown: canonicalizeNfm(args.content),
   };
 
   if (args.icon) {
@@ -495,38 +432,39 @@ export async function createNotionPageWithMarkdown(args: {
   });
 }
 
-export async function getDocumentOwnerEmail(event: H3Event): Promise<string> {
-  const session = await getSession(event);
+export async function getDocumentOwnerEmail(
+  event: H3Event,
+  documentId?: string,
+): Promise<string> {
+  const session = await getSession(event).catch(() => null);
   if (!session?.email) {
-    const { createError } = await import("h3");
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
-  return session.email;
-}
+  if (!documentId) return session.email;
 
-export function getNotionApiKey(): string | null {
-  return process.env.NOTION_API_KEY || null;
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const access = await assertAccess("document", documentId, "editor").catch(
+        () => null,
+      );
+      const owner = access?.resource?.ownerEmail;
+      if (typeof owner !== "string" || owner.length === 0) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Document not found",
+        });
+      }
+      return owner;
+    },
+  );
 }
 
 export async function getNotionConnectionForOwner(owner: string) {
-  const apiKey = getNotionApiKey();
-  if (apiKey) {
-    return {
-      accountId: "__api_key__",
-      tokens: { access_token: apiKey } as NotionTokens,
-      accessToken: apiKey,
-      workspaceName: "API Key",
-      workspaceId: null,
-    };
-  }
-
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   if (accounts.length === 0) return null;
   const account = accounts[0];
-  const tokens = (await getOAuthTokens(
-    NOTION_PROVIDER,
-    account.accountId,
-  )) as NotionTokens | null;
+  const tokens = account.tokens as NotionTokens | null;
   if (!tokens?.access_token) return null;
   return {
     accountId: account.accountId,
@@ -538,14 +476,6 @@ export async function getNotionConnectionForOwner(owner: string) {
 }
 
 export async function disconnectNotionForOwner(owner: string) {
-  if (process.env.NOTION_API_KEY) {
-    // NOTION_API_KEY is deploy-level process configuration. Do not mutate
-    // process.env or rewrite .env from a request handler; that would affect
-    // every tenant sharing the same warm server process. Per-user OAuth
-    // connections below remain disconnectable.
-    return 0;
-  }
-
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   let deleted = 0;
   for (const account of accounts) {

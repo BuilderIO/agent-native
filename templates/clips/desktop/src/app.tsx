@@ -16,6 +16,7 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  discardBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
   shouldUseNativeFullscreenRecording,
@@ -36,7 +37,10 @@ import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
+  IconCircleCheck,
+  IconFolderOpen,
   IconPencil,
   IconInfoCircle,
   IconRefresh,
@@ -56,6 +60,7 @@ interface PendingNativeUpload {
   kind: "native";
   recordingId: string;
   serverUrl: string;
+  folderPath?: string;
   durationMs: number;
   width?: number | null;
   height?: number | null;
@@ -84,10 +89,23 @@ interface MeetingTranscriptionPayload {
   reason?: "user" | "calendar-auto" | string;
 }
 
+interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  // Raw stream the segment came from. The transcript UI maps this to the
+  // "Me" (mic) / "Them" (system) speaker label.
+  source: "mic" | "system";
+}
+
 interface MeetingTranscriptionSession {
   meetingId: string;
   recordingId: string;
   lines: string[];
+  // Real per-segment timestamps from the Whisper engine, accumulated across
+  // the meeting and persisted alongside the text. Empty on the SFSpeech
+  // mic-only fallback (no real timestamps available).
+  segments: TranscriptSegment[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
@@ -127,6 +145,34 @@ const MACOS_CAPTURE_PERMISSION_MESSAGE =
   "Grant the required macOS permissions below, then try again. If you just changed access, restart Clips before retrying.";
 const MACOS_SPEECH_PERMISSION_MESSAGE =
   "Grant Speech Recognition and Microphone access, then try again. If you just changed access, restart Clips before retrying.";
+
+function normalizedMediaDeviceId(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
+  const id = normalizedMediaDeviceId(value).toLowerCase();
+  return id === "default" || id === "communications";
+}
+
+function concreteMediaDeviceId(value: string | null | undefined): string {
+  const id = normalizedMediaDeviceId(value);
+  return id && !isPseudoMediaDeviceId(id) ? id : "";
+}
+
+function isSelectableMediaDevice(device: MediaDeviceInfo): boolean {
+  return !!concreteMediaDeviceId(device.deviceId);
+}
+
+function isBuiltInMicDevice(device: MediaDeviceInfo): boolean {
+  const label = device.label.toLowerCase();
+  return (
+    label.includes("macbook") ||
+    label.includes("built-in") ||
+    label.includes("built in") ||
+    label.includes("internal microphone")
+  );
+}
 
 function isHardCapturePermissionError(message: string): boolean {
   return /permission denied by system|blocked by system|system settings|screen recording|privacy|sandbox/i.test(
@@ -202,6 +248,18 @@ function originForUrl(value: string, base?: string): string | null {
 
 function originForServer(serverUrl: string): string {
   return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
+}
+
+function normalizeServerUrl(serverUrl: string): string {
+  return serverUrl.trim().replace(/\/+$/, "");
+}
+
+function serverUrlForPendingUpload(
+  upload: PendingDesktopUpload,
+  currentServerUrl: string,
+): string {
+  const normalizedCurrent = normalizeServerUrl(currentServerUrl);
+  return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -309,22 +367,61 @@ const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
 };
 
+const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
+  camera: "ms-settings:privacy-webcam",
+  microphone: "ms-settings:privacy-microphone",
+  // No dedicated screen-capture privacy page that works on all Windows
+  // versions, so open the top-level Privacy settings page.
+  screen: "ms-settings:privacy",
+  speech: "ms-settings:privacy-speechtyping",
+  accessibility: "ms-settings:easeofaccess",
+  "input-monitoring": "ms-settings:privacy",
+};
+
 function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 }
 
-function openMacosPrivacySettings(pane: MacosPrivacyPane): void {
-  if (!isMacPlatform()) return;
-  invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
-    console.warn(
-      "[clips-tray] native macOS privacy settings open failed; falling back:",
-      nativeErr,
-    );
-    openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
-      console.error("[clips-tray] open macOS privacy settings failed:", err);
-    });
-  });
+function isWindowsPlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    (/Win/i.test(navigator.platform) ||
+      /Win/i.test(
+        (navigator as { userAgentData?: { platform?: string } }).userAgentData
+          ?.platform ?? "",
+      ))
+  );
 }
+
+function openPrivacySettings(pane: MacosPrivacyPane): void {
+  if (isMacPlatform()) {
+    invoke("open_macos_privacy_settings", { pane }).catch((nativeErr) => {
+      console.warn(
+        "[clips-tray] native macOS privacy settings open failed; falling back:",
+        nativeErr,
+      );
+      openExternal(MACOS_PRIVACY_URLS[pane]).catch((err) => {
+        console.error("[clips-tray] open macOS privacy settings failed:", err);
+      });
+    });
+    return;
+  }
+  if (isWindowsPlatform()) {
+    const url = WINDOWS_PRIVACY_URLS[pane];
+    if (url) {
+      openExternal(url).catch((err) => {
+        console.error(
+          "[clips-tray] open Windows privacy settings failed:",
+          err,
+        );
+      });
+    }
+    return;
+  }
+}
+
+// Keep backward-compatible alias so all existing call-sites continue to work.
+const openMacosPrivacySettings = openPrivacySettings;
 
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
@@ -532,6 +629,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+    null,
+  );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [showRecent, setShowRecent] = useState(false);
@@ -565,10 +665,13 @@ export function App() {
     null,
   );
   const isRecording = recorder !== null;
+  const selectedMicId = useMemo(() => concreteMediaDeviceId(micId), [micId]);
   const selectedMicLabel = useMemo(
     () =>
-      micId ? (mics.find((mic) => mic.deviceId === micId)?.label ?? "") : "",
-    [micId, mics],
+      selectedMicId
+        ? (mics.find((mic) => mic.deviceId === selectedMicId)?.label ?? "")
+        : "",
+    [selectedMicId, mics],
   );
   const voiceDictationEnabled = featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
@@ -591,7 +694,7 @@ export function App() {
       shortcut: voiceShortcut,
       mode: voiceMode,
       provider: voiceProvider,
-      micDeviceId: micId || null,
+      micDeviceId: selectedMicId || null,
       micDeviceLabel: selectedMicLabel || null,
       instructions: voiceInstructions,
     });
@@ -601,7 +704,7 @@ export function App() {
     voiceDictationEnabled,
     voiceMode,
     voiceProvider,
-    micId,
+    selectedMicId,
     selectedMicLabel,
     voiceInstructions,
   ]);
@@ -730,6 +833,38 @@ export function App() {
     };
   }, [signedInAs, serverUrl]);
 
+  // Tray "Upcoming Meetings" submenu click → open that meeting's notes page in
+  // the browser. The rich meeting UI (transcript + AI notes) lives in the web
+  // app, not this popover, so we deep-link to it. Without this listener the
+  // tray click emitted `meetings:open` into the void and nothing happened.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ meetingId?: string }>("meetings:open", (ev) => {
+      const id = ev.payload?.meetingId;
+      if (!id) return;
+      const base = serverUrl.replace(/\/+$/, "");
+      const url = `${base}/meetings/${encodeURIComponent(id)}`;
+      import("@tauri-apps/plugin-shell")
+        .then(({ open }) => open(url))
+        .catch((err) => {
+          console.error("[clips-popover] open meeting failed:", err);
+        });
+    })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) {
+        try {
+          unlisten();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [serverUrl]);
+
   // Open meeting join URLs (Zoom / Meet / Teams) when the meeting
   // notification banner asks. Centralized here so any future surface that
   // emits `meetings:open-join-url` works the same way.
@@ -795,10 +930,17 @@ export function App() {
   const flushMeetingTranscript = useCallback(async () => {
     const session = meetingTranscriptionRef.current;
     if (!session || !session.lines.length) return;
+    // Cumulative replace: send the full transcript-so-far plus the real
+    // Whisper segment timestamps on every flush. Re-sending the whole thing is
+    // idempotent (last write wins), so a failed/retried flush self-heals.
+    // overwriteReady tells the action this live session owns the transcript and
+    // may overwrite its own already-"ready" row. Buffer is NOT cleared.
     await callClipsAction("save-browser-transcript", {
       recordingId: session.recordingId,
       fullText: session.lines.join("\n\n"),
-      source: "macos-native",
+      segments: session.segments,
+      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
+      overwriteReady: true,
     });
   }, [callClipsAction]);
 
@@ -862,7 +1004,7 @@ export function App() {
       const existing = meetingTranscriptionRef.current;
       if (existing && !existing.stopping) {
         if (existing.meetingId === meetingId) {
-          emit("meetings:transcription-started", { meetingId }).catch(() => {});
+          emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
         await stopMeetingTranscription("replaced");
@@ -883,6 +1025,7 @@ export function App() {
           meetingId: resolvedMeetingId,
           recordingId,
           lines: [],
+          segments: [],
           unlisten: [],
           flushTimer: null,
           stopping: false,
@@ -917,29 +1060,39 @@ export function App() {
         };
 
         addUnlisten(
-          listen<{ text?: string; source?: TranscriptSource }>(
-            "voice:final-transcript",
-            (event) => {
-              if (meetingTranscriptionRef.current !== session) return;
-              const text = event.payload?.text?.trim();
-              if (!text) return;
-              const speaker =
-                event.payload?.source === "system" ? "Them" : "Me";
-              session.lines.push(`${speaker}: ${text}`);
-              scheduleFlush();
-            },
-          ),
+          listen<{
+            text?: string;
+            source?: TranscriptSource;
+            segments?: Array<{ startMs: number; endMs: number; text: string }>;
+          }>("voice:final-transcript", (event) => {
+            if (meetingTranscriptionRef.current !== session) return;
+            const text = event.payload?.text?.trim();
+            if (!text) return;
+            const source: "mic" | "system" =
+              event.payload?.source === "system" ? "system" : "mic";
+            const speaker = source === "system" ? "Them" : "Me";
+            session.lines.push(`${speaker}: ${text}`);
+            // Keep the real Whisper segment timestamps (offset onto the meeting
+            // timeline) so the transcript persists accurate timings instead of
+            // synthetic ones. Tag each with the source stream.
+            for (const seg of event.payload?.segments ?? []) {
+              const segText = seg.text?.trim();
+              if (!segText) continue;
+              session.segments.push({
+                startMs: seg.startMs,
+                endMs: seg.endMs,
+                text: segText,
+                source,
+              });
+            }
+            scheduleFlush();
+          }),
         );
         addUnlisten(
           listen<{ meetingId?: string | null }>("clips:pill-stop", (event) => {
             const stoppedMeetingId = event.payload?.meetingId;
             if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
               return;
-            stopMeetingTranscription("manual").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("clips:recorder-stop", () => {
             stopMeetingTranscription("manual").catch(() => {});
           }),
         );
@@ -968,7 +1121,7 @@ export function App() {
           await invoke("meeting_audio_start", {
             meetingId: resolvedMeetingId,
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         } catch (err) {
@@ -979,7 +1132,7 @@ export function App() {
           session.audioMode = "mic-only";
           await invoke("native_speech_start", {
             locale: navigator.language || "en-US",
-            micDeviceId: micId || null,
+            micDeviceId: selectedMicId || null,
             micDeviceLabel: selectedMicLabel || null,
           });
         }
@@ -999,8 +1152,9 @@ export function App() {
             joinUrl: payload.joinUrl,
           }).catch(() => {});
         }
-        emit("meetings:transcription-started", {
-          meetingId: resolvedMeetingId,
+
+        emit("meetings:hide-notification", {
+          meetingId,
         }).catch(() => {});
       } catch (err) {
         meetingTranscriptionRef.current = null;
@@ -1014,7 +1168,13 @@ export function App() {
         }).catch(() => {});
       }
     },
-    [callClipsAction, flushMeetingTranscript, stopMeetingTranscription],
+    [
+      callClipsAction,
+      flushMeetingTranscript,
+      selectedMicId,
+      selectedMicLabel,
+      stopMeetingTranscription,
+    ],
   );
 
   useEffect(() => {
@@ -1178,19 +1338,34 @@ export function App() {
 
   // ---- device enumeration -------------------------------------------------
   // WebKit only returns full device labels after getUserMedia() has granted
-  // access once. So we do a one-shot mic + camera probe when the popover
-  // first loads (if permissions are already granted, this is silent; if
-  // not, the OS prompts once and we get the full list on the next render).
+  // access once. Enumerating itself is safe; the unlock helper below is careful
+  // to never touch the OS default input just to populate labels.
   const loadDevices = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.enumerateDevices) return;
       const list = await navigator.mediaDevices.enumerateDevices();
-      setCameras(list.filter((d) => d.kind === "videoinput"));
-      setMics(list.filter((d) => d.kind === "audioinput"));
+      setCameras(
+        list.filter(
+          (d) => d.kind === "videoinput" && isSelectableMediaDevice(d),
+        ),
+      );
+      setMics(
+        list.filter(
+          (d) => d.kind === "audioinput" && isSelectableMediaDevice(d),
+        ),
+      );
     } catch {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return;
+    navigator.mediaDevices.addEventListener("devicechange", loadDevices);
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
+    };
+  }, [loadDevices]);
 
   const unlockDeviceLabels = useCallback(async () => {
     // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
@@ -1200,18 +1375,18 @@ export function App() {
     // WebViews in the same process). Camera-label text is low-value
     // anyway; most machines have one.
     //
-    // Do not probe `audio: true` here. On macOS that opens the system
-    // default input, which can shove Bluetooth headphones into hands-free
-    // mode just from opening the Clips popover. If the user has picked a
-    // specific mic, use that exact device; otherwise leave labels locked
-    // until a real user action needs microphone access.
+    // Do not probe `audio: true` or WebKit's pseudo `default` device here.
+    // On macOS that opens the system default input, which can shove
+    // Bluetooth headphones into hands-free mode just from opening the Clips
+    // popover. If the user has picked a concrete mic, use that exact device;
+    // otherwise leave labels locked until a real user action needs access.
     try {
-      if (!micId) {
+      if (!selectedMicId) {
         await loadDevices();
         return;
       }
       const s = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: micId } },
+        audio: { deviceId: { exact: selectedMicId } },
         video: false,
       });
       s.getTracks().forEach((t) => t.stop());
@@ -1219,7 +1394,43 @@ export function App() {
       // permission denied — labels stay empty until the user grants
     }
     await loadDevices();
-  }, [loadDevices, micId]);
+  }, [loadDevices, selectedMicId]);
+
+  const requestDeviceAccess = useCallback(
+    async (kind: "camera" | "mic") => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Device selection is not available in this WebView.");
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(
+          kind === "camera"
+            ? { video: true, audio: false }
+            : { audio: true, video: false },
+        );
+        stream.getTracks().forEach((track) => track.stop());
+        await loadDevices();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (kind === "camera") {
+          setCameraError(
+            isHardCapturePermissionError(message) ||
+              /notallowed|permission|denied/i.test(message)
+              ? MACOS_CAPTURE_PERMISSION_MESSAGE
+              : `Camera unavailable: ${message}`,
+          );
+        } else {
+          setRecError(
+            isHardCapturePermissionError(message) ||
+              /notallowed|permission|denied/i.test(message)
+              ? "Microphone access is blocked. Open System Settings → Privacy & Security → Microphone, allow Clips, then try again."
+              : `Microphone unavailable: ${message}`,
+          );
+        }
+        await loadDevices();
+      }
+    },
+    [loadDevices],
+  );
 
   // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
@@ -1307,11 +1518,9 @@ export function App() {
     };
   }, []);
 
-  // Defer device-label unlocking until the popover is first shown. The
-  // getUserMedia({audio}) call triggers a macOS permission dialog — if it
-  // fires on mount (before the popover is visible), the OS dialog appears
-  // with no visible app context and can interfere with the tray icon and
-  // subsequent popover shows.
+  // Defer device-label unlocking until the popover is first shown. Even the
+  // selected-device probe can trigger a macOS permission dialog, so keep it
+  // attached to visible UI instead of firing on hidden webview mount.
   const deviceLabelsUnlocked = useRef(false);
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
@@ -1321,6 +1530,12 @@ export function App() {
       unlockDeviceLabels();
     }
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
+
+  useEffect(() => {
+    if (!isPseudoMediaDeviceId(micId) || mics.length === 0) return;
+    const builtIn = mics.find(isBuiltInMicDevice);
+    setMicId(builtIn?.deviceId ?? "");
+  }, [micId, mics]);
 
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -1533,6 +1748,7 @@ export function App() {
           s.getTracks().forEach((t) => t.stop());
           return;
         }
+        await loadDevices();
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -1745,8 +1961,8 @@ export function App() {
   }
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId) return;
-    const targetServerUrl = (upload.serverUrl || serverUrl).replace(/\/+$/, "");
+    if (retryingUploadId || discardingUploadId) return;
+    const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
     try {
@@ -1761,6 +1977,7 @@ export function App() {
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
+          serverUrl: targetServerUrl,
           authToken,
         });
       }
@@ -1781,8 +1998,48 @@ export function App() {
     }
   }
 
-  async function startRecording() {
-    if (recorder) return;
+  async function discardPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || discardingUploadId) return;
+    setRecError(null);
+    setDiscardingUploadId(upload.recordingId);
+    setPendingUploads((uploads) =>
+      uploads.filter((item) => item.recordingId !== upload.recordingId),
+    );
+    try {
+      if (upload.kind === "native") {
+        await invoke("native_fullscreen_recording_discard_upload", {
+          recordingId: upload.recordingId,
+        });
+      } else {
+        await discardBrowserRecordingBackup(upload.recordingId);
+      }
+      await loadPendingUploads();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] discard saved upload failed:", err);
+      setRecError(message);
+      await loadPendingUploads();
+    } finally {
+      setDiscardingUploadId(null);
+    }
+  }
+
+  function openPendingUploadFolder(upload: PendingDesktopUpload) {
+    if (upload.kind !== "native" || !upload.folderPath) {
+      setRecError("This saved upload is stored in the browser backup cache.");
+      return;
+    }
+    invoke("open_local_recording_folder", {
+      path: upload.folderPath,
+    }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[clips-tray] open pending upload folder failed:", err);
+      setRecError(message);
+    });
+  }
+
+  async function startRecording(options?: { ignoreActiveRecorder?: boolean }) {
+    if (recorder && !options?.ignoreActiveRecorder) return;
     setRecError(null);
     setLocalRecordingNotice(null);
     console.log("[clips-popover] startRecording clicked", {
@@ -1881,7 +2138,7 @@ export function App() {
         mode,
         source,
         cameraId,
-        micId,
+        micId: selectedMicId || undefined,
         micLabel: selectedMicLabel || undefined,
         authToken: loadDesktopAuthToken(serverUrl),
         cookie: typeof document !== "undefined" ? document.cookie || "" : "",
@@ -1890,13 +2147,21 @@ export function App() {
         localRecordingMode,
         preAcquiredCameraStream,
       });
-      // Park the popover to its 2×2 pinhole IMMEDIATELY — we want the
-      // popover to vanish the instant the user clicks Start, before the
-      // screen picker has a chance to enumerate windows. Fire-and-forget;
-      // the recording promise was already dispatched above so
-      // getDisplayMedia has already captured the user gesture.
-      invoke("park_popover_offscreen").catch(() => {});
-      emit("clips:popover-visible", false).catch(() => {});
+      // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
+      // doesn't appear in the screen picker window list. The native
+      // Rust recorder used for full-screen doesn't need getDisplayMedia
+      // at all, so parking is always safe on macOS.
+      //
+      // Windows: do NOT park before getDisplayMedia resolves. On Windows,
+      // the WebView2 screen picker UI renders within the popover webview —
+      // shrinking the window to 2×2 makes the picker invisible and the
+      // user can never select a screen. The recorder.ts code parks the
+      // popover itself (line ~2165) AFTER the streams are acquired, which
+      // is the correct time on Windows.
+      if (isMacPlatform()) {
+        invoke("park_popover_offscreen").catch(() => {});
+        emit("clips:popover-visible", false).catch(() => {});
+      }
 
       // No watchdog — the macOS screen picker can stay open indefinitely
       // (a user deciding which window to capture may take 20, 60, 180
@@ -2097,6 +2362,30 @@ export function App() {
         }
       }),
     );
+    track(
+      listen("clips:recorder-restart", async () => {
+        try {
+          await recorder.cancel();
+        } finally {
+          if (!cancelled) {
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
+            setRecorder(null);
+            setRecordingFlowActive(false);
+            invoke("set_recording_state", { active: false }).catch(() => {});
+            // Starting a new browser capture must come from a fresh click in
+            // this webview. The toolbar click arrives here through async Tauri
+            // IPC, so reopen the popover and let the next Start click provide
+            // the required user activation.
+            invoke("show_popover").catch(() => {});
+          }
+        }
+      }),
+    );
     return () => {
       cancelled = true;
       unlisteners.forEach((u) => {
@@ -2222,7 +2511,10 @@ export function App() {
         <PendingUploadBanner
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
+          discardingUploadId={discardingUploadId}
           onRetry={retryPendingUpload}
+          onDiscard={discardPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
         />
       ) : null}
 
@@ -2256,6 +2548,7 @@ export function App() {
             devices={cameras}
             selectedId={cameraId}
             onSelect={setCameraId}
+            onRefresh={() => requestDeviceAccess("camera")}
             on={cameraOn}
             onToggle={setCameraOn}
           />
@@ -2264,8 +2557,9 @@ export function App() {
         <DeviceRow
           kind="mic"
           devices={mics}
-          selectedId={micId}
+          selectedId={selectedMicId}
           onSelect={setMicId}
+          onRefresh={() => requestDeviceAccess("mic")}
           on={micOn}
           onToggle={setMicOn}
         />
@@ -2275,13 +2569,19 @@ export function App() {
         mode={mode}
         cameraOn={cameraOn}
         micOn={micOn}
+        includeVoicePaste={voiceDictationEnabled}
         includeFnMonitoring={fnShortcutEnabled}
         open={readinessOpen}
         onOpenChange={updateReadinessOpen}
         onOpenPermission={openMacosPrivacySettings}
       />
 
-      <button className="primary start" onClick={startRecording}>
+      <button
+        className="primary start"
+        onClick={() => {
+          void startRecording();
+        }}
+      >
         {localRecordingMode === "off"
           ? "Start recording"
           : "Start local recording"}
@@ -2414,11 +2714,13 @@ function readinessItems({
   cameraOn,
   micOn,
   includeFnMonitoring,
+  includeVoicePaste,
 }: {
   mode: CaptureMode;
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
 }): ReadinessItem[] {
   const items: ReadinessItem[] = [
     {
@@ -2446,6 +2748,12 @@ function readinessItems({
       active: mode !== "screen" && cameraOn,
     },
     {
+      label: "Accessibility",
+      detail: "Needed to paste dictated text into other apps.",
+      pane: "accessibility",
+      active: includeVoicePaste,
+    },
+    {
       label: "Input Monitoring",
       detail: "Only needed for the Fn dictation shortcut.",
       pane: "input-monitoring",
@@ -2461,6 +2769,7 @@ function ReadinessPanel({
   cameraOn,
   micOn,
   includeFnMonitoring,
+  includeVoicePaste,
   open,
   onOpenChange,
   onOpenPermission,
@@ -2469,6 +2778,7 @@ function ReadinessPanel({
   cameraOn: boolean;
   micOn: boolean;
   includeFnMonitoring: boolean;
+  includeVoicePaste: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenPermission: (pane: MacosPrivacyPane) => void;
@@ -2478,6 +2788,7 @@ function ReadinessPanel({
     cameraOn,
     micOn,
     includeFnMonitoring,
+    includeVoicePaste,
   });
 
   return (
@@ -2545,7 +2856,7 @@ function PermissionRecoveryBanner({
         <div className="permission-title">{title}</div>
         <div>{message}</div>
       </div>
-      <div className="permission-actions" aria-label="Open macOS permissions">
+      <div className="permission-actions" aria-label="Open privacy settings">
         {uniquePanes.map((pane) => (
           <button
             type="button"
@@ -2566,16 +2877,23 @@ function PermissionRecoveryBanner({
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  discardingUploadId,
   onRetry,
+  onDiscard,
+  onOpenFolder,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  discardingUploadId: string | null;
   onRetry: (upload: PendingDesktopUpload) => void;
+  onDiscard: (upload: PendingDesktopUpload) => void;
+  onOpenFolder: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2600,15 +2918,39 @@ function PendingUploadBanner({
           {errorText ? ` · ${errorText}` : ""}
         </div>
       </div>
-      <button
-        type="button"
-        className="pending-upload-retry"
-        disabled={!!retryingUploadId}
-        onClick={() => onRetry(latest)}
-      >
-        <IconRefresh size={14} stroke={2} />
-        {retrying ? "Retrying" : "Retry"}
-      </button>
+      <div className="pending-upload-actions">
+        {canOpenFolder ? (
+          <button
+            type="button"
+            className="pending-upload-folder"
+            disabled={discardingUploadId === latest.recordingId}
+            onClick={() => onOpenFolder(latest)}
+            aria-label="Open saved local clip folder"
+            title="Open saved local clip folder"
+          >
+            <IconFolderOpen size={14} stroke={2} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="pending-upload-retry"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onRetry(latest)}
+        >
+          <IconRefresh size={14} stroke={2} />
+          {retrying ? "Retrying" : "Retry"}
+        </button>
+        <button
+          type="button"
+          className="pending-upload-discard"
+          disabled={!!retryingUploadId || !!discardingUploadId}
+          onClick={() => onDiscard(latest)}
+          aria-label="Discard saved local clip"
+          title="Discard saved local clip"
+        >
+          <IconTrash size={14} stroke={2} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -2993,6 +3335,7 @@ function DeviceRow({
   devices,
   selectedId,
   onSelect,
+  onRefresh,
   on,
   onToggle,
 }: {
@@ -3000,6 +3343,7 @@ function DeviceRow({
   devices: MediaDeviceInfo[];
   selectedId: string;
   onSelect: (id: string) => void;
+  onRefresh: () => void;
   on: boolean;
   onToggle: (v: boolean) => void;
 }) {
@@ -3043,7 +3387,13 @@ function DeviceRow({
     };
   }, [open]);
 
-  const disabled = !on || devices.length === 0;
+  const disabled = !on;
+  const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
+  const accessLabel =
+    kind === "camera" ? "Allow camera access" : "Allow microphone access";
+  const refreshLabel =
+    kind === "camera" ? "Refresh cameras" : "Refresh microphones";
+
   return (
     <div className={`row ${on ? "row-on" : "row-off"}`} ref={rowRef}>
       <span className="row-icon">
@@ -3071,34 +3421,72 @@ function DeviceRow({
       {kind === "mic" && on ? <MicWave /> : null}
       {open ? (
         <div className="row-menu" role="menu">
+          <button
+            type="button"
+            className={`row-menu-item ${!selectedId ? "selected" : ""}`}
+            role="menuitemradio"
+            aria-checked={!selectedId}
+            onClick={() => {
+              onSelect("");
+              setOpen(false);
+            }}
+          >
+            <span className="row-menu-check" aria-hidden>
+              {!selectedId ? <CheckIcon /> : null}
+            </span>
+            <span className="row-menu-label">{defaultLabel}</span>
+          </button>
           {devices.length === 0 ? (
-            <div className="row-menu-empty">
-              {kind === "camera" ? "No cameras found" : "No microphones found"}
-            </div>
+            <button
+              type="button"
+              className="row-menu-item row-menu-action"
+              role="menuitem"
+              onClick={() => {
+                onRefresh();
+                setOpen(false);
+              }}
+            >
+              <span className="row-menu-check" aria-hidden />
+              <span className="row-menu-label">{accessLabel}</span>
+            </button>
           ) : (
-            devices.map((d) => {
-              const isSelected = !!selectedId && d.deviceId === selectedId;
-              return (
-                <button
-                  key={d.deviceId}
-                  type="button"
-                  className={`row-menu-item ${isSelected ? "selected" : ""}`}
-                  role="menuitemradio"
-                  aria-checked={isSelected}
-                  onClick={() => {
-                    onSelect(d.deviceId);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="row-menu-check" aria-hidden>
-                    {isSelected ? <CheckIcon /> : null}
-                  </span>
-                  <span className="row-menu-label">
-                    {d.label || (kind === "camera" ? "Camera" : "Microphone")}
-                  </span>
-                </button>
-              );
-            })
+            <>
+              {devices.map((d) => {
+                const isSelected = !!selectedId && d.deviceId === selectedId;
+                return (
+                  <button
+                    key={d.deviceId}
+                    type="button"
+                    className={`row-menu-item ${isSelected ? "selected" : ""}`}
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    onClick={() => {
+                      onSelect(d.deviceId);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="row-menu-check" aria-hidden>
+                      {isSelected ? <CheckIcon /> : null}
+                    </span>
+                    <span className="row-menu-label">
+                      {d.label || (kind === "camera" ? "Camera" : "Microphone")}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="row-menu-item row-menu-action"
+                role="menuitem"
+                onClick={() => {
+                  onRefresh();
+                  setOpen(false);
+                }}
+              >
+                <span className="row-menu-check" aria-hidden />
+                <span className="row-menu-label">{refreshLabel}</span>
+              </button>
+            </>
           )}
         </div>
       ) : null}
@@ -3192,11 +3580,6 @@ function BottomButton({
       <span className="bottom-label">{label}</span>
     </button>
   );
-}
-
-function truncate(s: string, n: number): string {
-  if (!s) return "";
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 // ---- inline icons (Tabler-style, monochrome, stroke=1.75) -----------------
@@ -3569,6 +3952,18 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
+  const whisperModelEnabled = featureConfig?.whisperModelEnabled !== false;
+  type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
+  interface WhisperModelStatus {
+    state: WhisperModelState;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  }
+  const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
+    null,
+  );
+
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -3595,6 +3990,20 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
+  }
+
+  function triggerWhisperDownload() {
+    invoke("whisper_model_download").catch(() => {});
+  }
+
+  function setWhisperModelEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, whisperModelEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+    if (enabled) triggerWhisperDownload();
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -3726,6 +4135,47 @@ function Setup({
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Load model status on mount and keep it current via events.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      invoke<WhisperModelStatus>("whisper_model_status")
+        .then((s) => {
+          if (!cancelled) setWhisperStatus(s);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const unlistens: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {});
+    };
+    track(listen("whisper:model-progress", () => refresh()));
+    track(listen("whisper:model-ready", () => refresh()));
+    track(listen("whisper:model-error", () => refresh()));
+    track(listen("whisper:model-enabled-changed", () => refresh()));
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          /* ignore */
+        }
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -4126,6 +4576,25 @@ function Setup({
           <div className="setup-section">
             <div className="setup-toggle-row">
               <SettingLabel
+                label="Whisper model"
+                hint="Local AI model for offline meeting transcription. Captures both your mic and other speakers — no API key required."
+              />
+              <Switch
+                on={whisperModelEnabled}
+                onChange={setWhisperModelEnabled}
+                label="Enable Whisper model"
+              />
+            </div>
+            <WhisperModelStatusRow
+              status={whisperStatus}
+              enabled={whisperModelEnabled}
+              onDownload={triggerWhisperDownload}
+            />
+          </div>
+
+          <div className="setup-section">
+            <div className="setup-toggle-row">
+              <SettingLabel
                 label="Meeting widget"
                 hint="Show the on-screen meeting widget near calendar start times, even when macOS notifications are hidden."
               />
@@ -4433,6 +4902,78 @@ function SettingLabel({
         <TooltipContent>{hint}</TooltipContent>
       </Tooltip>
     </label>
+  );
+}
+
+function WhisperModelStatusRow({
+  status,
+  enabled,
+  onDownload,
+}: {
+  status: {
+    state: string;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  } | null;
+  enabled: boolean;
+  onDownload: () => void;
+}) {
+  if (!enabled) {
+    return (
+      <div className="whisper-status whisper-status-disabled">
+        <IconAlertTriangle size={13} className="whisper-status-icon" />
+        <span>
+          Without the Whisper model, only your microphone is transcribed — other
+          speakers are not captured.
+        </span>
+      </div>
+    );
+  }
+  if (!status) return null;
+
+  if (status.state === "ready") {
+    return (
+      <div className="whisper-status whisper-status-ready">
+        <IconCircleCheck size={13} className="whisper-status-icon" />
+        <span>
+          Ready · {status.totalMb} MB
+          <span className="whisper-status-path">{status.path}</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (status.state === "downloading") {
+    const pct =
+      status.totalMb > 0
+        ? Math.round((status.downloadedMb / status.totalMb) * 100)
+        : 0;
+    return (
+      <div className="whisper-status whisper-status-downloading">
+        <span className="whisper-progress-label">
+          Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
+        </span>
+        <div className="whisper-progress-bar">
+          <div className="whisper-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  // "missing" state
+  return (
+    <div className="whisper-status whisper-status-missing">
+      <IconAlertTriangle size={13} className="whisper-status-icon" />
+      <span>Model not downloaded.</span>
+      <button
+        type="button"
+        className="whisper-download-btn"
+        onClick={onDownload}
+      >
+        Download now
+      </button>
+    </div>
   );
 }
 

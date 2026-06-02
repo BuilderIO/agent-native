@@ -6,7 +6,7 @@
  * product, so this cache has a short TTL (default 5 min) and is explicitly
  * busted on every booking create/update/cancel.
  */
-import { table, text, integer } from "@agent-native/core/db/schema";
+import { table, text } from "@agent-native/core/db/schema";
 
 export const calendarCache = table("calendar_cache", {
   id: text("id").primaryKey(),

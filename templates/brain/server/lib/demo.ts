@@ -6,6 +6,7 @@ import {
   createSource,
   nowIso,
   parseJson,
+  sanitizeEvidenceCitationUrls,
   serializeCapture,
   serializeKnowledge,
   serializeProposal,
@@ -175,7 +176,7 @@ const demoCaptures: DemoCaptureSpec[] = [
       sourceUrl: "https://notes.granola.example.com/d/connector-eval-gate",
     },
     content:
-      "Decision: pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. Rationale: connectors amplify weak memory retrieval when the corpus is thin.",
+      "Decision: pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. Rationale: connectors amplify weak knowledge retrieval when the corpus is thin.",
   },
   {
     key: "import-review-policy",
@@ -190,7 +191,7 @@ const demoCaptures: DemoCaptureSpec[] = [
       sourceUrl: "https://docs.example.com/brain/import-review-policy",
     },
     content:
-      "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search.",
+      "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search.",
   },
   {
     key: "retrieval-architecture",
@@ -251,12 +252,12 @@ const demoCaptures: DemoCaptureSpec[] = [
     metadata: {
       demoSeedId: DEMO_SEED_ID,
       provider: "slack",
-      excludedReason: "Personal aside; not company memory.",
+      excludedReason: "Personal aside; not company knowledge.",
       sourceUrl:
         "https://slack.example.com/archives/CDEMO_PRODUCT/p1778157600000200",
     },
     content:
-      "Personal aside: dentist appointment and childcare schedule are not company memory.",
+      "Personal aside: dentist appointment and childcare schedule are not company knowledge.",
   },
 ];
 
@@ -344,7 +345,7 @@ const retrievalEvalCaptures: DemoCaptureSpec[] = [
     },
     content: [
       "Slack #dev-fusion at 2026-05-08T18:50:00.000Z",
-      "Priya: Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+      "Priya: Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
       "Sam: Low-confidence policy items stay pending proposals and out of published search until review.",
     ].join("\n"),
     status: "distilled",
@@ -515,7 +516,7 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     kind: "answer",
     label: "Process and policy knowledge is retrievable",
     question: "What process policy governs Brain imports and proposals?",
-    expectedTitle: "Brain import policy keeps company memory review-gated",
+    expectedTitle: "Brain import policy keeps company knowledge review-gated",
     requiredTerms: [
       "raw imports",
       "company-tier knowledge",
@@ -812,7 +813,7 @@ export async function seedBrainDemoData(
   const launchDemo = await upsertDemoKnowledge({
     title: "Brain launch demo centers on product decisions",
     kind: "rationale",
-    body: "The public Brain template should lead with product-decision memory because why/why-now questions best demonstrate durable, cited institutional context.",
+    body: "The public Brain template should lead with product-decision knowledge because why/why-now questions best demonstrate durable, cited institutional context.",
     summary:
       "Product decisions are the strongest Brain demo because they expose why and why-now context.",
     topic: "Positioning",
@@ -831,9 +832,9 @@ export async function seedBrainDemoData(
   const connectorEvalGate = await upsertDemoKnowledge({
     title: "Brain connector rollout waits for retrieval eval gates",
     kind: "decision",
-    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak memory retrieval when the corpus is thin.",
+    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process and policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak knowledge retrieval when the corpus is thin.",
     summary:
-      "Additional Brain connectors wait for retrieval eval gates covering process and policy knowledge, architecture how-it-works, privacy redaction, and connectors amplify weak memory retrieval.",
+      "Additional Brain connectors wait for retrieval eval gates covering process and policy knowledge, architecture how-it-works, privacy redaction, and connectors amplify weak knowledge retrieval.",
     topic: "Brain",
     tags: ["connectors", "retrieval-evals", "product-rationale"],
     entities: [
@@ -847,7 +848,7 @@ export async function seedBrainDemoData(
       ),
       evidence(
         captureByKey.get("connector-eval-gate")!,
-        "Rationale: connectors amplify weak memory retrieval when the corpus is thin.",
+        "Rationale: connectors amplify weak knowledge retrieval when the corpus is thin.",
       ),
     ],
     confidence: 94,
@@ -855,9 +856,9 @@ export async function seedBrainDemoData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company memory review-gated",
+    title: "Brain import policy keeps company knowledge review-gated",
     kind: "policy",
-    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search.",
+    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search.",
     summary:
       "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed before durable publication.",
     topic: "Review policy",
@@ -866,7 +867,7 @@ export async function seedBrainDemoData(
     evidence: [
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory.",
+        "Policy: raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge.",
       ),
       evidence(
         captureByKey.get("import-review-policy")!,
@@ -1041,7 +1042,7 @@ export async function seedBrainRetrievalEvalData(
   const connectorEvalGate = await upsertDemoKnowledge({
     title: "Brain connector rollout waits for retrieval eval gates",
     kind: "decision",
-    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process/policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak retrieval when the memory corpus is thin, so quality gates come before connector breadth.",
+    body: "The product decision is to pause additional Brain connectors until retrieval evals pass product decisions, process/policy knowledge, architecture how-it-works, superseded decision narration, honest not-found behavior, and privacy redaction. The rationale is that connectors amplify weak retrieval when the knowledge corpus is thin, so quality gates come before connector breadth.",
     summary:
       "Pause additional Brain connectors until retrieval evals cover process/policy knowledge, architecture how-it-works, privacy redaction, and connectors amplify weak retrieval.",
     topic: "Brain connectors",
@@ -1065,9 +1066,9 @@ export async function seedBrainRetrievalEvalData(
   });
 
   const importReviewPolicy = await upsertDemoKnowledge({
-    title: "Brain import policy keeps company memory review-gated",
+    title: "Brain import policy keeps company knowledge review-gated",
     kind: "policy",
-    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable memory. Low-confidence policy items stay pending proposals and out of published search until review.",
+    body: "Raw imports may become captures immediately, but company-tier knowledge must be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay pending proposals and out of published search until review.",
     summary:
       "Raw imports become captures first; company-tier knowledge stays reviewed, cited, or proposed, and low-confidence policy items stay pending proposals.",
     topic: "Brain process",
@@ -1076,7 +1077,7 @@ export async function seedBrainRetrievalEvalData(
     evidence: [
       evidence(
         captureByKey.get("import-review-policy")!,
-        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
       ),
       evidence(
         captureByKey.get("import-review-policy")!,
@@ -1212,7 +1213,9 @@ interface EvalCheck {
 }
 
 function knowledgeEvidence(row: typeof schema.brainKnowledge.$inferSelect) {
-  return parseJson<BrainEvidence[]>(row.evidenceJson, []);
+  return sanitizeEvidenceCitationUrls(
+    parseJson<BrainEvidence[]>(row.evidenceJson, []),
+  );
 }
 
 function check(
@@ -1464,9 +1467,9 @@ export async function runBrainDemoEval(
       topConnectorSearch.title ===
         "Brain connector rollout waits for retrieval eval gates" &&
       connectorSearchText.includes(
-        "connectors amplify weak memory retrieval",
+        "connectors amplify weak knowledge retrieval",
       ) &&
-      !!topConnectorSearch.citation?.sourceUrl,
+      !!topConnectorSearch.citation?.quote,
     topConnectorSearch
       ? `Top result is ${topConnectorSearch.type}:${topConnectorSearch.title}.`
       : "Connector eval-gate rationale search returned no results.",
@@ -1524,7 +1527,7 @@ export async function runBrainDemoEval(
   );
 
   const importPolicy = await findKnowledgeByTitle(
-    "Brain import policy keeps company memory review-gated",
+    "Brain import policy keeps company knowledge review-gated",
   );
   const importPolicyEvidence = importPolicy
     ? knowledgeEvidence(importPolicy)

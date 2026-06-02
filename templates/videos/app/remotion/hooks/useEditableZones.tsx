@@ -1,38 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * USE EDITABLE ZONES HOOK
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Hook that enables component-level interactive zone editing.
- * Zones are rendered within the component so they automatically inherit
- * camera transforms and other parent transformations.
- *
- * Usage:
- * ```tsx
- * const { zones, ZoneEditor } = useEditableZones({
- *   componentId: 'my-component',
- *   defaultZones: {
- *     button1: { x: 0, y: 0, width: 100, height: 50 },
- *     button2: { x: 110, y: 0, width: 100, height: 50 },
- *   },
- *   enabled: true, // or controlled by debug mode
- * });
- *
- * // Use zones for positioning/detection
- * const button1 = useInteractiveComponent({ zone: zones.button1, ... });
- *
- * // Render the zone editor (shows visual zones and handles)
- * return (
- *   <div>
- *     {content}
- *     <ZoneEditor />
- *   </div>
- * );
- * ```
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import { useState, useEffect, useCallback } from "react";
 
 export type Zone = {
@@ -64,32 +29,28 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
   const { componentId, defaultZones, enabled = false } = config;
   const storageKey = `videos-zones:${componentId}`;
 
-  // Load zones from localStorage or use defaults
   const [zones, setZones] = useState<ZoneMap>(() => {
     if (typeof window === "undefined") return defaultZones;
 
     const stored = localStorage.getItem(storageKey);
     if (stored) {
       try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.warn(`Failed to parse stored zones for ${componentId}:`, e);
+        return JSON.parse(stored) as ZoneMap;
+      } catch {
+        return defaultZones;
       }
     }
     return defaultZones;
   });
 
-  // Drag state for zone editing
   const [dragState, setDragState] = useState<DragState | null>(null);
 
-  // Save zones to localStorage whenever they change
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem(storageKey, JSON.stringify(zones));
     }
   }, [zones, storageKey]);
 
-  // Handle mouse down on zone or handle
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, zoneLabel: string, mode: DragMode) => {
       if (!enabled) return;
@@ -108,7 +69,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
     [enabled, zones],
   );
 
-  // Handle mouse move during drag
   useEffect(() => {
     if (!dragState) return;
 
@@ -165,7 +125,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             break;
         }
 
-        // Enforce minimum size
         if (newZone.width < 10) newZone.width = 10;
         if (newZone.height < 10) newZone.height = 10;
 
@@ -177,14 +136,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
     };
 
     const handleMouseUp = () => {
-      if (dragState) {
-        const finalZone = zones[dragState.zoneLabel];
-        console.log(`Zone "${dragState.zoneLabel}" updated:`, finalZone);
-        console.log(
-          `  x: ${finalZone.x}, y: ${finalZone.y}, width: ${finalZone.width}, height: ${finalZone.height}`,
-        );
-        setDragState(null);
-      }
+      setDragState(null);
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -194,9 +146,8 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, zones]);
+  }, [dragState]);
 
-  // Zone editor component to render within the component
   const ZoneEditor = useCallback(() => {
     if (!enabled) return null;
 
@@ -207,7 +158,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
 
           return (
             <div key={label}>
-              {/* Zone overlay */}
               <div
                 onMouseDown={(e) => handleMouseDown(e, label, "move")}
                 style={{
@@ -228,7 +178,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
                   transition: isActive ? "none" : "all 0.15s ease",
                 }}
               >
-                {/* Label */}
                 <div
                   style={{
                     position: "absolute",
@@ -247,7 +196,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
                   {label}
                 </div>
 
-                {/* Coordinates display */}
                 <div
                   style={{
                     position: "absolute",
@@ -267,7 +215,6 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
                   {Math.round(zone.width)}×{Math.round(zone.height)}
                 </div>
 
-                {/* Corner handles */}
                 {["nw", "ne", "sw", "se"].map((corner) => {
                   const positions: Record<string, React.CSSProperties> = {
                     nw: { top: -6, left: -6, cursor: "nw-resize" },
@@ -308,11 +255,9 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
     );
   }, [enabled, zones, dragState, handleMouseDown]);
 
-  // Reset to defaults function
   const resetZones = useCallback(() => {
     setZones(defaultZones);
-    console.log(`Zones for ${componentId} reset to defaults`);
-  }, [defaultZones, componentId]);
+  }, [defaultZones]);
 
   return {
     zones,

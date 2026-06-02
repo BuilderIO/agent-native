@@ -6,8 +6,7 @@ import {
 } from "../lib/credentials";
 import { createHash } from "crypto";
 
-// ─── In-memory cache (TTL-based) ───────────────────────────────────────
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 50;
 
 interface CacheEntry {
@@ -45,7 +44,6 @@ function setCache(key: string, data: unknown) {
   cache.set(key, { data, createdAt: Date.now() });
 }
 
-// ─── Fetch a single page of tweets ────────────────────────────────────
 async function fetchTweetsPage(
   apiKey: string,
   userName: string,
@@ -55,18 +53,9 @@ async function fetchTweetsPage(
   url.searchParams.set("userName", userName);
   if (cursor) url.searchParams.set("cursor", cursor);
 
-  console.log(
-    "[Twitter] Fetching page for",
-    userName,
-    "cursor:",
-    cursor || "none",
-  );
-
   const resp = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
   });
-
-  console.log("[Twitter] Response status:", resp.status);
 
   if (!resp.ok) {
     const text = await resp.text();
@@ -75,16 +64,13 @@ async function fetchTweetsPage(
   }
 
   const json = await resp.json();
-  console.log("[Twitter] Received", json.data?.tweets?.length || 0, "tweets");
 
-  // API returns { status, data: { tweets: [...] }, next_cursor, has_next_page }
   return {
     tweets: json.data?.tweets ?? json.tweets ?? [],
     next_cursor: json.next_cursor ?? json.data?.next_cursor,
   };
 }
 
-// ─── Shared helper: fetch all pages for a user ───────────────────────
 export async function fetchAllTweetsForUser(
   apiKey: string,
   userName: string,
@@ -121,7 +107,6 @@ export async function fetchAllTweetsForUser(
   return allTweets;
 }
 
-// ─── Handler: GET /api/twitter/tweets?userName=...&pages=... ──────────
 export const handleTwitterTweets = defineEventHandler(async (event) => {
   const missing = await requireCredential(
     event,
@@ -139,14 +124,6 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
     const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
     const apiKey = await resolveCredential("TWITTER_BEARER_TOKEN", ctx);
-    console.log(
-      "[Twitter] API key present:",
-      !!apiKey,
-      "userName:",
-      userName,
-      "pages:",
-      maxPages,
-    );
     if (!apiKey) {
       console.error("[Twitter] TWITTER_BEARER_TOKEN not configured");
       setResponseStatus(event, 500);
@@ -155,15 +132,9 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
 
     try {
       const tweets = await fetchAllTweetsForUser(apiKey, userName, maxPages);
-      console.log(
-        "[Twitter] Successfully fetched",
-        tweets.length,
-        "tweets for",
-        userName,
-      );
       return { tweets, count: tweets.length };
-    } catch (error: any) {
-      const message = error?.message || String(error);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.error("[Twitter] API error:", message, error);
       setResponseStatus(event, 502);
       return { error: message };
@@ -176,7 +147,6 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
   return result;
 });
 
-// ─── Handler: GET /api/twitter/multi?userNames=a,b,c&pages=... ──────
 export const handleTwitterMulti = defineEventHandler(async (event) => {
   const missing = await requireCredential(
     event,
@@ -198,13 +168,6 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     .filter(Boolean);
   const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
-  console.log(
-    "[Twitter Multi] Request for users:",
-    userNames,
-    "pages:",
-    maxPages,
-  );
-
   if (userNames.length === 0) {
     setResponseStatus(event, 400);
     return { error: "Missing userNames parameter" };
@@ -215,14 +178,12 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
   }
 
   const apiKey = await resolveCredential("TWITTER_BEARER_TOKEN", ctx);
-  console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
     console.error("[Twitter Multi] TWITTER_BEARER_TOKEN not configured");
     setResponseStatus(event, 500);
     return { error: "TWITTER_BEARER_TOKEN not configured" };
   }
 
-  // Check full multi-user cache
   const multiKey = getCacheKey(
     apiKey,
     userNames.sort().join(","),
@@ -230,15 +191,12 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
   );
   const cached = getCached(multiKey);
   if (cached) {
-    console.log("[Twitter Multi] Returning cached data");
     return { cached: true, ...(cached as object) };
   }
 
   try {
     const result: Record<string, unknown[]> = {};
-    // Fetch sequentially to avoid rate limits
     for (const userName of userNames) {
-      console.log("[Twitter Multi] Fetching for user:", userName);
       result[userName] = await fetchAllTweetsForUser(
         apiKey,
         userName,
@@ -247,14 +205,9 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     }
     const payload = { users: result };
     setCache(multiKey, payload);
-    console.log(
-      "[Twitter Multi] Successfully fetched all users, returning",
-      Object.keys(result).length,
-      "users",
-    );
     return { cached: false, ...payload };
-  } catch (error: any) {
-    const message = error?.message || String(error);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error("[Twitter Multi] Error:", message, error);
     setResponseStatus(event, 502);
     return { error: message };

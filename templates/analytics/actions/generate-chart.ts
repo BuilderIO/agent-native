@@ -6,6 +6,7 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 import { getAnalyticsMediaDir } from "../server/lib/media-dir.js";
 import { signedSvgMediaUrl } from "../server/lib/signed-media.js";
+import { cliBoolean } from "./schema-helpers";
 
 const THEMES = {
   dark: {
@@ -335,7 +336,7 @@ export default defineAction({
       .optional()
       .describe("Theme: dark or light"),
     color: z.string().optional().describe("Primary color hex"),
-    stacked: z.coerce.boolean().optional().describe("Stack bars"),
+    stacked: cliBoolean.optional().describe("Stack bars"),
     filename: z
       .string()
       .optional()

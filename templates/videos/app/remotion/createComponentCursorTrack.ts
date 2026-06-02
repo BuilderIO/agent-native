@@ -1,23 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * COMPONENT CURSOR TRACK HELPER
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Helper function to create standardized 5-second cursor tracks for component
- * library previews. Follows a consistent pattern to demonstrate interactions:
- *
- * Timeline (150 frames @ 30fps = 5 seconds):
- * - Frames 0-20: Cursor off-screen (waiting)
- * - Frames 20-40: Fly in to component (smooth entrance)
- * - Frames 40-80: Hover over component (triggers hover animation)
- * - Frames 80-90: Click component (triggers click animation)
- * - Frames 90-110: Continue hover after click
- * - Frames 110-130: Move away from component
- * - Frames 130-150: Exit off-screen
- *
- * ═══════════════════════════════════════════════════════════════════════════
- */
-
 import type { AnimationTrack } from "@/types";
 
 export interface CursorTrackOptions {

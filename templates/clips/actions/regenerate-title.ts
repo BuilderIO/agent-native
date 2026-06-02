@@ -210,9 +210,13 @@ export default defineAction({
       (!args.transcriptText && transcript?.status !== "ready") ||
       !transcriptText
     ) {
-      throw new Error(
-        "Transcript is not ready yet. Try again after transcription finishes.",
-      );
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_not_ready",
+        recordingId: args.recordingId,
+        transcriptStatus: transcript?.status ?? "missing",
+      };
     }
 
     const agentsContext = await loadAgentsMdContext({

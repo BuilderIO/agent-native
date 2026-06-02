@@ -5,19 +5,33 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 import http from "http";
+import https from "https";
 import { extractAppFromState } from "./src/oauth-state.js";
 
 // Custom logger that suppresses proxy ECONNREFUSED noise during startup.
-// When dev:all starts, template backends aren't ready yet — the frame polls
+// When eager repo dev starts, template backends aren't ready yet — the frame polls
 // and gets ECONNREFUSED until they come up. These are harmless (the frontend
 // retries), but flood the terminal with hundreds of identical lines.
 const logger = createLogger();
 const _loggerError = logger.error.bind(logger);
+
+function isBenignProxyError(err: unknown, fallback = ""): boolean {
+  const e = err as NodeJS.ErrnoException | undefined;
+  const code = e?.code;
+  const message = `${String(e?.message ?? "")}\n${fallback}`;
+  return (
+    code === "ECONNREFUSED" ||
+    code === "ECONNRESET" ||
+    code === "ECONNABORTED" ||
+    code === "EPIPE" ||
+    /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/im.test(
+      message,
+    )
+  );
+}
+
 logger.error = (msg, opts) => {
-  if (
-    opts?.error?.code === "ECONNREFUSED" ||
-    (typeof msg === "string" && msg.includes("ECONNREFUSED"))
-  )
+  if (isBenignProxyError(opts?.error, typeof msg === "string" ? msg : ""))
     return;
   _loggerError(msg, opts);
 };
@@ -93,8 +107,99 @@ function getAppId(req: IncomingMessage): string {
   return "mail";
 }
 
+function normalizeCustomDevUrl(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function customDevUrlFromFrameUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return normalizeCustomDevUrl(new URL(value).searchParams.get("devUrl"));
+  } catch {
+    return null;
+  }
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function getCustomDevUrl(req: IncomingMessage): string | null {
+  const url = new URL(req.url || "/", "http://localhost");
+  const explicit = normalizeCustomDevUrl(url.searchParams.get("_devUrl"));
+  if (explicit) return explicit;
+
+  const fromReferer = customDevUrlFromFrameUrl(
+    typeof req.headers.referer === "string" ? req.headers.referer : undefined,
+  );
+  if (fromReferer) return fromReferer;
+
+  const cookie = req.headers.cookie || "";
+  const cookieMatch = cookie.match(/(?:^|;\s*)frame_active_dev_url=([^;]+)/);
+  return cookieMatch
+    ? normalizeCustomDevUrl(safeDecodeURIComponent(cookieMatch[1]))
+    : null;
+}
+
 function getAppPort(req: IncomingMessage): number {
   return portMap.get(getAppId(req)) || 8085;
+}
+
+function endProxyResponse(
+  res: ServerResponse,
+  status: number,
+  body: string,
+): void {
+  if (res.destroyed) return;
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  res.writeHead(status, { "Content-Type": "text/plain" });
+  res.end(body);
+}
+
+function attachProxyAbortHandlers(
+  req: IncomingMessage,
+  res: ServerResponse,
+  proxyReq: http.ClientRequest,
+): void {
+  const abortProxy = () => {
+    if (!res.writableEnded) proxyReq.destroy();
+  };
+  req.on("aborted", abortProxy);
+  res.on("close", abortProxy);
+}
+
+function handleProxyError(
+  res: ServerResponse,
+  next: (err?: unknown) => void,
+  err: NodeJS.ErrnoException,
+  messages: { refused: string; closed: string },
+): void {
+  if (err.code === "ECONNREFUSED") {
+    endProxyResponse(res, 503, messages.refused);
+    return;
+  }
+  if (isBenignProxyError(err)) {
+    endProxyResponse(res, 502, messages.closed);
+    return;
+  }
+  next(err);
 }
 
 /**
@@ -112,13 +217,15 @@ function framePlugin(): Plugin {
 
     const appId = url.searchParams.get("app") || "mail";
     const devPort = portMap.get(appId);
+    const customDevUrl = normalizeCustomDevUrl(url.searchParams.get("devUrl"));
     const gatewayUrl = templateGatewayUrl();
     const devUrl =
-      gatewayUrl && devPort
+      customDevUrl ??
+      (gatewayUrl && devPort
         ? new URL(`/${appId}`, `${gatewayUrl}/`).toString().replace(/\/$/, "")
         : devPort
           ? `http://localhost:${devPort}`
-          : null;
+          : null);
     const body = JSON.stringify({
       id: appId,
       name: labelMap.get(appId) || appId,
@@ -161,15 +268,13 @@ function framePlugin(): Plugin {
     );
 
     proxyReq.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        // App server isn't up yet — return 503 without flooding logs
-        res.writeHead(503, { "Content-Type": "text/plain" });
-        res.end(`App server on port ${port} is not running`);
-        return;
-      }
-      next(err);
+      handleProxyError(res, next, err, {
+        refused: `App server on port ${port} is not running`,
+        closed: `App server on port ${port} closed the connection`,
+      });
     });
 
+    attachProxyAbortHandlers(req, res, proxyReq);
     req.pipe(proxyReq);
   }
 
@@ -202,14 +307,52 @@ function framePlugin(): Plugin {
     );
 
     proxyReq.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED") {
-        res.writeHead(503, { "Content-Type": "text/plain" });
-        res.end(`Template gateway at ${gatewayUrl} is not running`);
-        return;
-      }
-      next(err);
+      handleProxyError(res, next, err, {
+        refused: `Template gateway at ${gatewayUrl} is not running`,
+        closed: `Template gateway at ${gatewayUrl} closed the connection`,
+      });
     });
 
+    attachProxyAbortHandlers(req, res, proxyReq);
+    req.pipe(proxyReq);
+  }
+
+  function forwardToUrl(
+    req: IncomingMessage,
+    res: ServerResponse,
+    baseUrl: string,
+    next: (err?: unknown) => void,
+  ) {
+    const target = new URL(req.url || "/", `${baseUrl}/`);
+    const headers = { ...req.headers };
+    headers["x-forwarded-host"] = req.headers.host || `localhost:3334`;
+    headers["x-forwarded-proto"] = "http";
+    headers.host = target.host;
+    const client = target.protocol === "https:" ? https : http;
+
+    const proxyReq = client.request(
+      {
+        host: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        protocol: target.protocol,
+        method: req.method,
+        path: `${target.pathname}${target.search}`,
+        headers,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on("error", (err: NodeJS.ErrnoException) => {
+      handleProxyError(res, next, err, {
+        refused: `App server at ${baseUrl} is not running`,
+        closed: `App server at ${baseUrl} closed the connection`,
+      });
+    });
+
+    attachProxyAbortHandlers(req, res, proxyReq);
     req.pipe(proxyReq);
   }
 
@@ -221,6 +364,11 @@ function framePlugin(): Plugin {
         if (handleAppInfo(req, res)) return;
         const shouldProxy = PROXY_PREFIXES.some((p) => url.startsWith(p));
         if (!shouldProxy) return next();
+        const customDevUrl = getCustomDevUrl(req);
+        if (customDevUrl) {
+          forwardToUrl(req, res, customDevUrl, next);
+          return;
+        }
         const gatewayUrl = templateGatewayUrl();
         const appId = getAppId(req);
         if (gatewayUrl) {

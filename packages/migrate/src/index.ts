@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./runtime.js";
+export * from "./plan-inputs.js";
 export * from "./recipes/agent-native.js";
 export * from "./adapters/agent-introspection.js";
 export * from "./adapters/source-registry.js";

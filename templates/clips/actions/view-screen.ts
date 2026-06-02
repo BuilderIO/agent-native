@@ -445,8 +445,27 @@ export default defineAction({
               fetchComments(nav.recordingId),
             ]);
             screen.recording = recording;
-            if (transcript) screen.transcript = transcript;
-            screen.comments = comments;
+            if (transcript) {
+              // Ambient snapshot only — embed a short fullText snippet and the
+              // segment count, NOT the entire transcript + every word-level
+              // segment. The full transcript can be tens of thousands of tokens
+              // and is injected into <current-screen> on EVERY message, which
+              // can blow the model's context window. The agent calls
+              // get-recording-player-data for the complete transcript/segments.
+              const segmentCount = Array.isArray(transcript.segments)
+                ? transcript.segments.length
+                : 0;
+              screen.transcript = {
+                recordingId: transcript.recordingId,
+                language: transcript.language,
+                status: transcript.status,
+                fullTextSnippet: (transcript.fullText ?? "").slice(0, 2000),
+                fullTextLength: (transcript.fullText ?? "").length,
+                segmentCount,
+                note: "Snippet only. Call get-recording-player-data for the full transcript and segments.",
+              };
+            }
+            screen.comments = comments.slice(0, 50);
           }
         }
         break;

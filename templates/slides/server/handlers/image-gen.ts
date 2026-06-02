@@ -1,35 +1,6 @@
-import { DEFAULT_STYLE_REFERENCE_URLS } from "../../shared/api";
-
 interface ReferenceImage {
   data: string; // base64
   mimeType: string;
-}
-
-/**
- * Download an image URL and convert to base64 reference image
- */
-async function urlToReferenceImage(
-  url: string,
-): Promise<ReferenceImage | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") || "image/png";
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const mimeType = contentType.split(";")[0].trim();
-    return { data: buffer.toString("base64"), mimeType };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Parse a data URL into a reference image
- */
-function dataUrlToReferenceImage(dataUrl: string): ReferenceImage | null {
-  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-  if (!match) return null;
-  return { data: match[2], mimeType: match[1] };
 }
 
 const NON_RENDERABLE_CONTEXT_LIMIT = 700;

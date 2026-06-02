@@ -33,7 +33,7 @@ interface CameraControlsProps {
   durationInFrames?: number;
 }
 
-interface CameraState {
+interface CameraState extends Record<string, number> {
   translateX: number;
   translateY: number;
   scale: number;
@@ -85,8 +85,6 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
   onSeek,
   durationInFrames = 240,
 }) => {
-  // Allow unlimited zoom - high max for flexibility
-  const maxZoom = 10;
   const [localState, setLocalState] = useState<CameraState>(DEFAULT_CAMERA);
   const [isOnKeyframe, setIsOnKeyframe] = useState(false);
   const [keyframeCount, setKeyframeCount] = useState(0);

@@ -310,9 +310,19 @@ async function loadActionsIntoRegistry(
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
       }
-    } catch {
-      // CLI-style scripts (top-level execution) throw on import.
-      // Expected — they're available via `pnpm action <name>` / shell instead.
+    } catch (err) {
+      // CLI-style scripts (top-level execution) throw on import — expected,
+      // they're available via `pnpm action <name>` / shell instead. But a
+      // syntax error, bad import, or malformed defineAction in a real action
+      // file lands here too and would silently vanish from the agent's tools.
+      // Warn so a broken action file is diagnosable instead of mysteriously
+      // missing.
+      const msg =
+        err instanceof Error ? (err.stack ?? err.message) : String(err);
+      console.warn(
+        `[action-discovery] Skipped "${file}" — failed to import. If this is an ` +
+          `agent action (not a CLI script), it will be missing from the agent's tools:\n${msg}`,
+      );
     }
   }
 }
@@ -521,8 +531,11 @@ export async function mergeCoreSharingActions(
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
-          ...(def.readOnly === true ? { readOnly: true } : {}),
-          ...(def.parallelSafe === true ? { parallelSafe: true } : {}),
+          // Carry security-relevant flags (toolCallable, publicAgent, link,
+          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // actions' `toolCallable: false` (audit-H5) is dropped and the
+          // tools-iframe bridge 403 in action-routes.ts never fires.
+          ...preserveActionFlags(def),
         };
       }
     } catch {

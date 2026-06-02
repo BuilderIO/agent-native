@@ -438,6 +438,7 @@ import {
   buildBrainAgentGuidance,
   createCapture,
   previewKnowledgeCanonicalResource,
+  safeCitationUrl,
   serializeSource,
   setKnowledgeCanonicalResource,
   sha256Hex,
@@ -524,7 +525,7 @@ function seedCapture(overrides: Row = {}) {
 
 beforeEach(resetMocks);
 
-describe("Brain memory quality gates", () => {
+describe("Brain knowledge quality gates", () => {
   it("turns settings into retrieval and distillation guidance", () => {
     const guidance = buildBrainAgentGuidance({
       companyName: "Acme",
@@ -617,6 +618,26 @@ describe("Brain memory quality gates", () => {
       sourceUrl: "https://example.test/captures/1",
     });
     expect(evidence[0]).not.toHaveProperty("url");
+  });
+
+  it("does not validate direct Granola note URLs as citations", async () => {
+    seedSource({ id: "granola-source", provider: "granola" });
+    seedCapture({
+      sourceId: "granola-source",
+      metadataJson: JSON.stringify({
+        sourceUrl: "https://notes.granola.ai/d/pricing",
+      }),
+    });
+
+    const evidence = await validateEvidence([
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ]);
+
+    expect(evidence[0]).not.toHaveProperty("sourceUrl");
+    expect(safeCitationUrl("https://notes.granola.ai/d/pricing")).toBeNull();
   });
 
   it("serializes sources without signed ingest secrets", () => {
@@ -1724,13 +1745,13 @@ describe("Brain connector smoke coverage", () => {
       externalId: "granola:not_123",
       title: "Pricing council",
       capturedAt: "2026-05-14T10:00:00Z",
-      sourceUrl: "https://notes.granola.ai/d/pricing",
       metadata: {
         provider: "granola",
         granolaNoteId: "not_123",
-        sourceUrl: "https://notes.granola.ai/d/pricing",
       },
     });
+    expect(capture).not.toHaveProperty("sourceUrl");
+    expect(capture.metadata).not.toHaveProperty("sourceUrl");
     expect(capture.content).toContain("Keep annual plans.");
     expect(capture.content).toContain(
       "We should keep annual plans because procurement expects them.",
@@ -1907,10 +1928,10 @@ describe("Brain connector smoke coverage", () => {
       capturedAt: "2026-05-12T10:00:00.000Z",
       metadata: {
         connector: "granola",
-        sourceUrl: "https://granola.example/notes/1",
         syncRunId: expect.any(String),
       },
     });
+    expect(result.captures[0]?.metadata).not.toHaveProperty("sourceUrl");
   });
 
   it("syncs GitHub issues and pull requests from configured repositories", async () => {
@@ -2384,11 +2405,11 @@ describe("Brain demo eval", () => {
       id: "real-dev-fusion-import-review-policy",
       sourceId: "real-dev-fusion-source",
       externalId: "real-dev-fusion-import-review-policy",
-      title: "Brain import policy keeps company memory review-gated",
+      title: "Brain import policy keeps company knowledge review-gated",
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
-        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable memory.",
+        "Process policy: raw imports become captures; company-tier knowledge must be reviewed, cited, or proposed before durable knowledge.",
         "Low-confidence policy items stay pending proposals and out of published search until review.",
       ].join("\n"),
       metadataJson: JSON.stringify({

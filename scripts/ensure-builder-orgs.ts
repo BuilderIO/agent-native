@@ -12,11 +12,12 @@ const DEFAULT_APPS = [
   "slides",
   "videos",
   "clips",
+  "brain",
   "analytics",
   "dispatch",
   "forms",
   "design",
-  "images",
+  "assets",
 ];
 
 const ORG_NAME = "Builder.io";

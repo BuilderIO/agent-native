@@ -6,6 +6,7 @@ docs/superpowers
 .DS_Store
 
 /*.png
+tmp/
 
 # Playwright MCP logs
 .playwright-mcp/
@@ -16,8 +17,6 @@ packages/docs/*.png
 # Copied at publish time via prepack
 packages/core/README.md
 packages/dispatch/README.md
-packages/scheduling/README.md
-packages/pinpoint/README.md
 
 # Internal notes
 RAMBLINGS.md

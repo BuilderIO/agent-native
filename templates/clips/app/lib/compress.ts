@@ -2,18 +2,28 @@
  * Browser-side video compression for clips that would exceed the upload
  * provider's per-file limit.
  *
- * The motivating bug: Builder.io's `/api/v1/upload` caps each file at 100 MB
- * (`fileUpload({ limits: { fileSize: 100 * 1024 * 1024 } })` plus a
- * `express.raw({ limit: '200mb' })` body limit). When the assembled recording
- * blob exceeds that, the streaming upload to GCS errors mid-write and the
- * client sees `Builder.io upload failed (500): Internal Error` — a confusing
- * dead-end with no remediation. Saee hit this on her second clip.
+ * The motivating bug: Builder.io's `/api/v1/upload` looks like it caps files
+ * at 100 MB (`fileUpload({ limits: { fileSize: 100 * 1024 * 1024 } })` plus a
+ * `express.raw({ limit: '200mb' })` body limit), but the REAL ceiling is far
+ * lower: the upload endpoint runs as a Gen-2 Cloud Function (Cloud Run), whose
+ * inbound HTTP request body is hard-capped at ~32 MB by the Google Front End —
+ * a platform limit the app config can't raise. Bodies above ~32 MB are dropped
+ * at the edge or OOM the 256 MB function while it buffers the whole body in
+ * memory, and the client sees an opaque `Builder.io upload failed (500)`. So a
+ * blob only has to clear ~32 MB — not 100 MB — to fail. Saee hit this on her
+ * second clip. We therefore compress to a target well under 32 MB and hard-stop
+ * client-side with a clear message instead of letting Builder 500.
+ *
+ * (Builder has no resumable / signed-URL upload endpoint today, so true
+ * 100 MB–2 GB videos need either an S3-compatible provider or a new
+ * builder-internal direct-to-GCS flow — tracked as separate work.)
  *
  * Strategy: ride the existing ffmpeg.wasm install (we already lazy-load it
  * for export / GIF / stitch in `ffmpeg-export.ts`). Re-encode video at a
- * resolution-aware target bitrate, copy audio (Opus stays Opus inside WebM,
- * AAC stays AAC inside MP4), bind the whole thing to an AbortController so
- * it can't hang a tab forever, and return a smaller blob.
+ * 720p-ish maximum resolution plus a duration-aware target bitrate, copy audio
+ * (Opus stays Opus inside WebM, AAC stays AAC inside MP4), bind the whole thing
+ * to an AbortController so it can't hang a tab forever, and return a smaller
+ * blob.
  *
  * Out-of-scope here:
  *  - Raising Builder.io's per-file limit (server-side, separate work).
@@ -21,11 +31,11 @@
  *    changes + server-side reassembly).
  *  - Returning 413 instead of 500 from upload (server-side, separate work).
  *
- * Threshold: skip compression entirely under 80 MB so the small-clip happy
- * path pays no extra cost. Target ratio aims for ~30–60% of original on
- * 1080p screen capture; the result is verified against the 100 MB hard cap
- * before we attempt the upload, so a still-too-large clip surfaces a clean
- * user-facing error rather than the opaque 500.
+ * Threshold: skip compression under 24 MB so the small-clip happy path pays no
+ * extra cost. The binding constraint is Builder's ~32 MB Cloud Run edge cap
+ * (see above), so we target ~18 MB and hard-stop at 30 MB — a blob that clears
+ * the client check is then comfortably under both Builder's ~32 MB edge and the
+ * server's SQL-staging cap.
  */
 
 import {
@@ -34,14 +44,25 @@ import {
   resetFfmpegInstance,
 } from "./ffmpeg-export";
 
-/** Start compressing at 80 MB. Below this, the upload fits and we don't pay
- * for ffmpeg.wasm load + transcode. */
-export const COMPRESS_THRESHOLD_BYTES = 80 * 1024 * 1024;
+/** Start compressing at 24 MB. Below this, the upload clears Builder's ~32 MB
+ * Cloud Run edge cap and we don't pay for ffmpeg.wasm load + transcode. */
+export const COMPRESS_THRESHOLD_BYTES = 24 * 1024 * 1024;
 
-/** Builder.io's hard per-file upload limit. We reject at the client BEFORE
- * issuing the upload if the compressed result still exceeds this — better
- * than letting it 500 mid-stream. */
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** Clips' effective per-recording upload limit. Builder's upload endpoint is
+ * fronted by a Gen-2 Cloud Function (Cloud Run) with a hard ~32 MB inbound
+ * request cap that the app config can't raise, so we hard-stop just under it.
+ * Anything larger needs an S3-compatible provider or a resumable Builder flow
+ * (separate work) — failing fast here beats an opaque Builder 500. */
+export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+
+/** Preferred compressed output size. The hard cap above leaves room for
+ * encoder variance and audio tracks that were copied rather than re-encoded. */
+const TARGET_COMPRESSED_BYTES = 18 * 1024 * 1024;
+
+const ASSUMED_AUDIO_BITRATE_BPS = 96_000;
+const MIN_VIDEO_BITRATE_BPS = 350_000;
+const MAX_COMPRESSED_LONG_SIDE = 1280;
+const MAX_COMPRESSED_SHORT_SIDE = 720;
 
 /** Hard cap on total compression time. ffmpeg.wasm is single-threaded WASM
  * and can wedge on certain inputs; we'd rather give the user a clear error
@@ -74,13 +95,16 @@ export interface CompressionResult {
 }
 
 export interface CompressOptions {
-  /** Override the threshold (mostly for testing). Defaults to 80 MB. */
+  /** Override the threshold (mostly for testing). Defaults to
+   * COMPRESS_THRESHOLD_BYTES (24 MB). */
   thresholdBytes?: number;
   /** Optional progress callback for UI plumbing. */
   onProgress?: (p: CompressionProgress) => void;
   /** Detected source dimensions, if known — picks the bitrate ladder. */
   width?: number;
   height?: number;
+  /** Recording duration, used to keep multi-minute clips under the upload cap. */
+  durationMs?: number;
   /** External abort signal (e.g. the user navigated away). Combined with
    * the internal 5-minute timeout. */
   signal?: AbortSignal;
@@ -89,35 +113,109 @@ export interface CompressOptions {
 /**
  * Pick a target video bitrate based on the source's larger dimension.
  *
- * The numbers map to what YouTube / Vimeo recommend for screen-capture style
- * footage (high-detail UI, low motion):
- *   - 1080p+ → 8 Mbps
- *   - 720p   → 6 Mbps
- *   - 480p   → 3 Mbps
- *   - other  → 8 Mbps as a safe upper bound (we don't want to under-bitrate
- *              an unknown-dimensions clip and produce mush)
+ * The numbers start with a resolution cap for screen-capture style footage
+ * (high-detail UI, low motion), then tighten by duration so multi-minute clips
+ * land near TARGET_COMPRESSED_BYTES instead of blasting past the server staging
+ * cap.
  */
-function pickVideoBitrate(
+function evenDimension(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+/**
+ * Downscale compressed output to roughly 720p. We preserve aspect ratio and
+ * handle portrait/ultrawide captures by bounding both the long and short side.
+ */
+export function pickCompressedDimensions(
   width?: number,
   height?: number,
+): { width: number; height: number } | null {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+
+  const longSide = Math.max(width, height);
+  const shortSide = Math.min(width, height);
+  const scale = Math.min(
+    1,
+    MAX_COMPRESSED_LONG_SIDE / longSide,
+    MAX_COMPRESSED_SHORT_SIDE / shortSide,
+  );
+  if (scale >= 1) return { width, height };
+  return {
+    width: evenDimension(width * scale),
+    height: evenDimension(height * scale),
+  };
+}
+
+function pickScaleArgs(width?: number, height?: number): string[] {
+  const dimensions = pickCompressedDimensions(width, height);
+  if (
+    !dimensions ||
+    (dimensions.width === width && dimensions.height === height)
+  ) {
+    return [];
+  }
+  return ["-vf", `scale=${dimensions.width}:${dimensions.height}`];
+}
+
+export function pickVideoBitrate(
+  width?: number,
+  height?: number,
+  durationMs?: number,
 ): {
   bitrate: string;
   maxrate: string;
   bufsize: string;
 } {
-  const longSide = Math.max(width ?? 0, height ?? 0);
-  if (longSide >= 1080) {
-    return { bitrate: "8M", maxrate: "10M", bufsize: "16M" };
+  function formatBitrate(bps: number): string {
+    const mbps = Math.max(0.1, Math.round(bps / 100_000) / 10);
+    return `${mbps.toFixed(1).replace(/\.0$/, "")}M`;
   }
-  if (longSide >= 720) {
-    return { bitrate: "6M", maxrate: "8M", bufsize: "12M" };
+
+  const dimensions = pickCompressedDimensions(width, height);
+  const targetWidth = dimensions?.width ?? width ?? 0;
+  const targetHeight = dimensions?.height ?? height ?? 0;
+  const longSide = Math.max(targetWidth, targetHeight);
+  const shortSide = Math.min(targetWidth, targetHeight);
+  let resolutionCapBps: number;
+  if (longSide >= 1280 || shortSide >= 720) {
+    resolutionCapBps = 1_600_000;
+  } else if (longSide >= 960 || shortSide >= 540) {
+    resolutionCapBps = 1_100_000;
+  } else if (longSide > 0) {
+    resolutionCapBps = 800_000;
+  } else {
+    // Unknown dimensions — keep enough detail for UI text without assuming a
+    // giant 4K recording.
+    resolutionCapBps = 1_600_000;
   }
-  if (longSide > 0 && longSide < 720) {
-    return { bitrate: "3M", maxrate: "4M", bufsize: "6M" };
+
+  let targetBps = resolutionCapBps;
+  if (typeof durationMs === "number" && durationMs > 1000) {
+    const seconds = durationMs / 1000;
+    const totalBudgetBps = (TARGET_COMPRESSED_BYTES * 8) / seconds;
+    const videoBudgetBps = totalBudgetBps - ASSUMED_AUDIO_BITRATE_BPS;
+    if (Number.isFinite(videoBudgetBps)) {
+      targetBps = Math.min(
+        resolutionCapBps,
+        Math.max(MIN_VIDEO_BITRATE_BPS, videoBudgetBps),
+      );
+    }
   }
-  // Unknown — be conservative on the high side. Worse than ideal compression
-  // is still much better than a failed upload.
-  return { bitrate: "8M", maxrate: "10M", bufsize: "16M" };
+
+  return {
+    bitrate: formatBitrate(targetBps),
+    maxrate: formatBitrate(targetBps * 1.25),
+    bufsize: formatBitrate(targetBps * 2),
+  };
 }
 
 /** Pick container + codecs to match the source. WebM keeps VP8/9 + Opus,
@@ -127,9 +225,15 @@ function pickEncodeArgs(
   inputMimeType: string,
   width: number | undefined,
   height: number | undefined,
+  durationMs: number | undefined,
 ): { args: string[]; outputName: string; outputMimeType: string } {
   const isMp4 = /mp4|quicktime/i.test(inputMimeType);
-  const { bitrate, maxrate, bufsize } = pickVideoBitrate(width, height);
+  const { bitrate, maxrate, bufsize } = pickVideoBitrate(
+    width,
+    height,
+    durationMs,
+  );
+  const scaleArgs = pickScaleArgs(width, height);
 
   if (isMp4) {
     return {
@@ -140,6 +244,7 @@ function pickEncodeArgs(
         "libx264",
         "-preset",
         "fast",
+        ...scaleArgs,
         "-b:v",
         bitrate,
         "-maxrate",
@@ -174,6 +279,7 @@ function pickEncodeArgs(
       "realtime",
       "-cpu-used",
       "5",
+      ...scaleArgs,
       "-b:v",
       bitrate,
       "-maxrate",
@@ -264,6 +370,7 @@ export async function compressBlobIfTooLarge(
     inputMimeType,
     opts.width,
     opts.height,
+    opts.durationMs,
   );
 
   // Pick a container-appropriate input filename — ffmpeg.wasm uses the

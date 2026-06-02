@@ -1,14 +1,22 @@
 import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
+import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 
 installRouteChunkRecovery();
+stripAuthRedirectParamFromUrl();
 
 export {
+  addContextToAgentChat,
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
   sendToAgentChat,
+  setContextToAgentChat,
   generateTabId,
+  type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatMessage,
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
-export { useDevMode } from "./use-dev-mode.js";
+export { useCodeMode, useDevMode } from "./use-dev-mode.js";
 export {
   agentNativePath,
   appApiPath,
@@ -104,6 +112,7 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export { useReconciledState } from "./use-external-value.js";
 export {
   buildDynamicAgentSuggestions,
   dedupeSuggestions,
@@ -122,6 +131,7 @@ export {
   onFrameMessage,
   requestUserInfo,
   getFrameOrigin,
+  getFramePostMessageTargetOrigin,
   getCallbackOrigin,
   oauthRedirectUri,
   isInFrame,
@@ -161,6 +171,10 @@ export {
   AgentNativeFrame,
   type AgentNativeFrameProps,
 } from "./AgentNativeFrame.js";
+export {
+  AgentNativeRouteWarmup,
+  type AgentNativeRouteWarmupProps,
+} from "./route-warmup.js";
 export {
   AgentNativeExtensionFrame,
   AgentNativeExtensionSlot,
@@ -324,6 +338,7 @@ export {
   type ChatThreadScope,
   type ChatThreadSummary,
   type ChatThreadData,
+  type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
 export {
   AgentChatSurface,
@@ -375,6 +390,10 @@ export {
   type StarfieldBackgroundProps,
 } from "./StarfieldBackground.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
+export {
+  DevDatabaseLink,
+  type DevDatabaseLinkProps,
+} from "./db-admin/DevDatabaseLink.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 export { ClientOnly } from "./ClientOnly.js";
@@ -408,12 +427,14 @@ export {
 } from "./analytics.js";
 export {
   useCollaborativeDoc,
+  isReconcileLeadClient,
   emailToColor,
   emailToName,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
   type CollabUser,
 } from "../collab/client.js";
+export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";
 export {
   ResourcesPanel,
   ResourceTree,

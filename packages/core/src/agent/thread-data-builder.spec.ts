@@ -3,6 +3,8 @@ import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  extractThreadMeta,
+  foldAssistantTurn,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   upsertAssistantMessage,
@@ -10,34 +12,102 @@ import {
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
 
+describe("extractThreadMeta", () => {
+  it("prefers a manual title override while keeping the message preview", () => {
+    const meta = extractThreadMeta({
+      _titleOverride: "  Renamed   chat ",
+      messages: [
+        {
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "what should we ship next?" }],
+          },
+        },
+      ],
+    });
+
+    expect(meta).toEqual({
+      title: "Renamed chat",
+      preview: "what should we ship next?",
+    });
+  });
+});
+
 describe("buildAssistantMessage", () => {
-  it("does not persist partial output from internal continuation boundaries", () => {
+  it("persists partial output from internal continuation boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
       { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-timeout", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-timeout", {
+      suppressInternalContinuation: true,
+      turnId: "turn-timeout",
+    });
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
+    expect(message?.metadata).toMatchObject({
+      runId: "run-timeout",
+      custom: {
+        turnId: "turn-timeout",
+        foldedRunIds: ["run-timeout"],
+        continued: true,
+      },
+    });
   });
 
-  it("does not persist partial output from suppressed loop-limit boundaries", () => {
+  it("persists partial output from suppressed loop-limit boundaries", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "partial answer" } },
       { seq: 1, event: { type: "loop_limit", maxIterations: 50 } },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-loop-limit", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-loop-limit", {
+      suppressInternalContinuation: true,
+      turnId: "turn-loop-limit",
+    });
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
+    expect(message?.metadata).toMatchObject({
+      custom: {
+        turnId: "turn-loop-limit",
+        foldedRunIds: ["run-loop-limit"],
+        continued: true,
+      },
+    });
   });
 
-  it("does not persist partial output from recoverable gateway errors when suppressed", () => {
+  it("scopes rebuilt tool call ids by run id", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "logs" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "found" },
+        },
+      ],
+      "run-tools",
+      { turnId: "turn-tools" },
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "run-tools:tc_1",
+        toolName: "search",
+        result: "found",
+      }),
+    ]);
+  });
+
+  it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -50,11 +120,19 @@ describe("buildAssistantMessage", () => {
       },
     ];
 
-    expect(
-      buildAssistantMessage(events, "run-gateway-timeout", {
-        suppressInternalContinuation: true,
-      }),
-    ).toBeNull();
+    const message = buildAssistantMessage(events, "run-gateway-timeout", {
+      suppressInternalContinuation: true,
+      turnId: "turn-gateway-timeout",
+    });
+
+    expect(message?.content).toEqual([{ type: "text", text: "checking..." }]);
+    expect(message?.metadata).toMatchObject({
+      custom: {
+        turnId: "turn-gateway-timeout",
+        foldedRunIds: ["run-gateway-timeout"],
+        continued: true,
+      },
+    });
   });
 
   it("persists bare gateway stop errors when continuation errors are suppressed", () => {
@@ -298,6 +376,115 @@ describe("buildAssistantMessage", () => {
       ],
     });
   });
+
+  it("folds continuation chunks for one logical turn into one durable assistant message", () => {
+    const firstChunk = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First chunk. " } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-fold-1",
+      { suppressInternalContinuation: true, turnId: "turn-fold" },
+    );
+    const secondChunk = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Second chunk." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-fold-2",
+      { suppressInternalContinuation: true, turnId: "turn-fold" },
+    );
+    expect(firstChunk).not.toBeNull();
+    expect(secondChunk).not.toBeNull();
+
+    let repo = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "finish this" }],
+            },
+            parentId: null,
+          },
+        ],
+      },
+      firstChunk!,
+      { turnId: "turn-fold", runId: "run-fold-1" },
+    );
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold",
+      runId: "run-fold-2",
+    });
+
+    expect(repo.messages).toHaveLength(2);
+    expect(repo.messages[1].message.content).toEqual([
+      { type: "text", text: "First chunk. Second chunk." },
+    ]);
+    expect(repo.messages[1].message.metadata).toMatchObject({
+      runId: "run-fold-2",
+      custom: {
+        turnId: "turn-fold",
+        foldedRunIds: ["run-fold-1", "run-fold-2"],
+      },
+    });
+    expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
+  });
+
+  it("keeps tool call ids unique when folding continuation chunks", () => {
+    const firstChunk = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "one" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "one" },
+        },
+        { seq: 2, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-fold-tools-1",
+      { suppressInternalContinuation: true, turnId: "turn-fold-tools" },
+    );
+    const secondChunk = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "two" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "two" },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-fold-tools-2",
+      { suppressInternalContinuation: true, turnId: "turn-fold-tools" },
+    );
+    expect(firstChunk).not.toBeNull();
+    expect(secondChunk).not.toBeNull();
+
+    let repo = foldAssistantTurn({ messages: [] }, firstChunk!, {
+      turnId: "turn-fold-tools",
+      runId: "run-fold-tools-1",
+    });
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold-tools",
+      runId: "run-fold-tools-2",
+    });
+
+    const toolCallIds = repo.messages[0].message.content
+      .filter((part: any) => part.type === "tool-call")
+      .map((part: any) => part.toolCallId);
+
+    expect(toolCallIds).toEqual([
+      "run-fold-tools-1:tc_1",
+      "run-fold-tools-2:tc_1",
+    ]);
+    expect(new Set(toolCallIds).size).toBe(toolCallIds.length);
+  });
 });
 
 describe("mergeThreadDataForClientSave", () => {
@@ -475,6 +662,67 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
   });
 
+  it("dedupes a clean client tool-call turn against the server fold of the same turn", () => {
+    // Regression: the server now scopes rebuilt tool-call ids by run
+    // (`${runId}:tc_1`) while the client's live stream uses a bare counter
+    // (`tc_1`). A cleanly-completed client export carries neither runId nor
+    // turnId (only requestMode), so without stripping the render-only id from
+    // the dedup fingerprint these two copies of ONE turn no longer match and the
+    // turn renders twice. The fingerprint must ignore toolCallId.
+    // Server fold of a tool-call turn: runId-scoped tool ids, has runId+turnId.
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "run-1:tc_1",
+                toolName: "bigquery",
+                argsText: '{"sql":"select 1"}',
+                args: { sql: "select 1" },
+                result: "rows",
+              },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { turnId: "turn-1" } },
+          },
+          parentId: null,
+        },
+      ],
+    };
+    // Client export of the SAME turn after a clean completion: tc_N ids, and the
+    // adapter stamps only requestMode (no runId, no turnId).
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "aui-abc",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tc_1",
+                toolName: "bigquery",
+                argsText: '{"sql":"select 1"}',
+                args: { sql: "select 1" },
+                result: "rows",
+              },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { custom: { requestMode: "chat" } },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+    expect(merged.messages).toHaveLength(1);
+  });
+
   it("matches server-persisted user attachments to later client saves by attachment metadata", () => {
     const existing = {
       messages: [
@@ -605,6 +853,31 @@ describe("normalizeThreadRepository", () => {
         message: expect.objectContaining({ id: "assistant-1" }),
       }),
     ]);
+  });
+
+  it("deduplicates persisted assistant tool call ids", () => {
+    const normalized = normalizeThreadRepository({
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    expect(
+      normalized.messages[0].message.content.map(
+        (part: any) => part.toolCallId,
+      ),
+    ).toEqual(["tc_1", "tc_1__dedup_2", "tc_1__dedup_3"]);
   });
 });
 

@@ -170,8 +170,6 @@ async function createWorkspaceInteractive(
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
 
-  const firstApp = templates[0];
-
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
@@ -184,7 +182,7 @@ async function createWorkspaceInteractive(
       const willDownload =
         t !== "blank" && t.startsWith("github:")
           ? true
-          : !findLocalTemplate(t === "video" ? "videos" : t);
+          : !findLocalTemplate(normalizeTemplateName(t));
       s.message(
         willDownload
           ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
@@ -553,6 +551,7 @@ async function createStandaloneApp(
     }
     template = picked as string;
   }
+  template = normalizeTemplateName(template);
 
   const s = clack.spinner();
   s.start(`Downloading the ${template} template from GitHub…`);
@@ -617,8 +616,8 @@ async function scaffoldAppTemplate(
     return;
   }
 
-  // Normalize legacy alias
-  let resolved = template === "video" ? "videos" : template;
+  // Normalize legacy / renamed aliases.
+  let resolved = normalizeTemplateName(template);
 
   if (resolved.startsWith("github:")) {
     const repo = resolved.slice("github:".length);
@@ -659,6 +658,14 @@ function findLocalTemplate(name: string): string | undefined {
     dir = parent;
   }
   return undefined;
+}
+
+function normalizeTemplateName(template: string): string {
+  if (template === "video") return "videos";
+  if (template === "image" || template === "images" || template === "asset") {
+    return "assets";
+  }
+  return template;
 }
 
 /**
@@ -948,7 +955,7 @@ function parseTemplateList(input?: string): string[] {
   if (!input) return [];
   return input
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => normalizeTemplateName(s.trim()))
     .filter(Boolean);
 }
 

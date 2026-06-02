@@ -9,11 +9,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
-import {
-  appBasePath,
-  appPath,
-  isEmbedAuthActive,
-} from "@agent-native/core/client";
+import { appBasePath, isEmbedAuthActive } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -111,6 +107,7 @@ interface DeckContextType {
     id: string,
     updates: Partial<Omit<Deck, "id" | "createdAt">>,
   ) => void;
+  reloadDecks: () => Promise<void>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
@@ -253,6 +250,11 @@ export function deckIdFromPathname(pathname: string): string | null {
   }
 }
 
+function currentOpenDeckIdFromWindow(): string | null {
+  if (typeof window === "undefined") return null;
+  return deckIdFromPathname(window.location.pathname);
+}
+
 export async function includeOpenDeckIfMissing(
   decks: Deck[],
   openDeckId: string | null,
@@ -264,6 +266,17 @@ export async function includeOpenDeckIfMissing(
 
   const directDeck = await fetchById(openDeckId);
   return directDeck ? [...decks, directDeck] : decks;
+}
+
+async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
+  const currentOpenDeckId = currentOpenDeckIdFromWindow();
+  const loaded = await fetchDecksFromAPI();
+  if (loaded !== null) {
+    return includeOpenDeckIfMissing(loaded, currentOpenDeckId);
+  }
+  if (!currentOpenDeckId) return null;
+  const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+  return directDeck ? [directDeck] : null;
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
@@ -302,6 +315,17 @@ export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
     }
   }
   return changed;
+}
+
+export function hasUncommittedDeckChanges(
+  deckId: string,
+  dirtyDeckIds: Set<string>,
+): boolean {
+  return (
+    dirtyDeckIds.has(deckId) ||
+    pendingSaves.has(deckId) ||
+    inFlightSaves.has(deckId)
+  );
 }
 
 export const defaultSlideContent: Record<SlideLayout, string> = {
@@ -374,6 +398,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
+  const deckBaselineRequestIdRef = useRef(0);
 
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
@@ -391,33 +416,55 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     decksRef.current = decks;
   }, [decks]);
 
+  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
+    skipHistoryRef.current = false;
+    setDecks(nextDecks);
+    setHistory([
+      {
+        timestamp: Date.now(),
+        label: "Initial state",
+        decks: JSON.parse(JSON.stringify(nextDecks)),
+      },
+    ]);
+    setHistoryIndex(0);
+  }, []);
+
+  const reloadDecks = useCallback(async () => {
+    const requestId = ++deckBaselineRequestIdRef.current;
+    const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+    const loaded = await fetchDecksForCurrentRoute();
+    if (
+      requestId !== deckBaselineRequestIdRef.current ||
+      requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+      loaded === null
+    ) {
+      return;
+    }
+    lastExternalUpdateRef.current = Date.now();
+    resetDeckBaseline(loaded);
+  }, [resetDeckBaseline]);
+
   // Load decks from API on mount
   useEffect(() => {
-    fetchDecksFromAPI().then(async (loaded) => {
+    const requestId = ++deckBaselineRequestIdRef.current;
+    const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+    fetchDecksForCurrentRoute().then(async (loaded) => {
+      if (
+        requestId !== deckBaselineRequestIdRef.current ||
+        requestedOpenDeckId !== currentOpenDeckIdFromWindow()
+      ) {
+        setLoading(false);
+        return;
+      }
       // Initial fetch failed — start empty so the UI can render. The fallback
       // poll will retry shortly; until then `decks` stays empty without
       // triggering the save effect (lastExternalUpdateRef is bumped).
-      const currentOpenDeckId =
-        typeof window === "undefined"
-          ? null
-          : deckIdFromPathname(window.location.pathname);
-      const initial = await includeOpenDeckIfMissing(
-        loaded ?? [],
-        currentOpenDeckId,
-      );
+      const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      setDecks(initial);
-      setHistory([
-        {
-          timestamp: Date.now(),
-          label: "Initial state",
-          decks: JSON.parse(JSON.stringify(initial)),
-        },
-      ]);
-      setHistoryIndex(0);
+      resetDeckBaseline(initial);
       setLoading(false);
     });
-  }, []);
+  }, [resetDeckBaseline]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
@@ -502,8 +549,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         if (
           currentOpenId &&
           !pending.has(currentOpenId) &&
-          !pendingSaves.has(currentOpenId) &&
-          !inFlightSaves.has(currentOpenId)
+          !hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current)
         ) {
           try {
             const res = await fetch(
@@ -597,7 +643,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           // copy may be a few hundred ms behind what the user just typed.
           // Polling and the next save's response will bring the canonical
           // state once the local burst settles.
-          if (pendingSaves.has(data.deckId) || inFlightSaves.has(data.deckId)) {
+          if (hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)) {
             return;
           }
           // Refetch the changed deck from the API
@@ -1015,6 +1061,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         duplicateDeck,
         deleteDeck,
         updateDeck,
+        reloadDecks,
         getDeck,
         addSlide,
         updateSlide,

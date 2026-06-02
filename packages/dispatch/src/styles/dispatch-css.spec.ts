@@ -52,4 +52,13 @@ describe("dispatch route shells", () => {
     expect(indexRoute).toContain("HydrateFallback");
     expect(indexRoute).toContain("@agent-native/dispatch/routes/pages/_index");
   });
+
+  it("re-exports the chat route from the Dispatch template", () => {
+    const chatRoute = fs.readFileSync(
+      path.join(repoRoot, "templates/dispatch/app/routes/chat.tsx"),
+      "utf-8",
+    );
+
+    expect(chatRoute).toContain("@agent-native/dispatch/routes/pages/chat");
+  });
 });

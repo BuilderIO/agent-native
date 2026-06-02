@@ -19,6 +19,38 @@ describe("buildGmailEmailSearchQuery", () => {
     );
   });
 
+  it("expands bare email-address searches across address fields", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: "ada@example.com",
+      }),
+    ).toBe(
+      "{from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
+    );
+  });
+
+  it("keeps explicit Gmail address operators unchanged", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "all",
+        q: "from:ada@example.com",
+      }),
+    ).toBe("from:ada@example.com");
+  });
+
+  it("keeps label and view clauses when expanding an email address search", () => {
+    expect(
+      buildGmailEmailSearchQuery({
+        view: "inbox",
+        label: "customer success",
+        q: "ada@example.com",
+      }),
+    ).toBe(
+      "in:inbox -in:sent label:customer-success {from:ada@example.com to:ada@example.com cc:ada@example.com bcc:ada@example.com deliveredto:ada@example.com ada@example.com}",
+    );
+  });
+
   it("scopes archive searches to archived mail", () => {
     expect(buildGmailEmailSearchQuery({ view: "archive", q: "receipt" })).toBe(
       "-in:inbox -in:sent -in:drafts -in:trash receipt",
@@ -67,7 +99,7 @@ describe("buildGmailEmailSearchQuery", () => {
   it("keeps note-to-self scoped to inbox without dropping sent-to-self mail", () => {
     expect(
       buildGmailEmailSearchQuery({ view: "inbox", label: "note-to-self" }),
-    ).toBe("in:inbox from:me");
+    ).toBe("in:inbox from:me {to:me cc:me bcc:me}");
   });
 });
 
@@ -168,5 +200,63 @@ describe("filterInboxScopedThreadMessages", () => {
         (m) => m.id,
       ),
     ).toEqual(["unread-old", "sent-latest"]);
+  });
+
+  it("does not classify ordinary threads as note-to-self just because the latest message is from me", () => {
+    const received = message({
+      id: "received-old",
+      date: "2025-10-01T00:00:00.000Z",
+      from: { name: "Mike", email: "mike@example.com" },
+      to: [{ name: "Steve", email: "steve@builder.io" }],
+      labelIds: ["inbox"],
+    });
+    const sentLatest = message({
+      id: "sent-latest",
+      date: "2026-05-21T00:00:00.000Z",
+      from: { name: "Steve", email: "steve@builder.io" },
+      to: [
+        { name: "Mike", email: "mike@example.com" },
+        { name: "Steve", email: "steve@builder.io" },
+      ],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages(
+        [received, sentLatest],
+        "inbox",
+        "note-to-self",
+        new Set(["steve@builder.io"]),
+      ).map((m) => m.id),
+    ).toEqual([]);
+  });
+
+  it("keeps all-self note-to-self threads in inbox label views", () => {
+    const first = message({
+      id: "self-note",
+      date: "2025-10-01T00:00:00.000Z",
+      from: { name: "Steve", email: "steve@builder.io" },
+      to: [{ name: "Steve", email: "steve@builder.io" }],
+      isSent: true,
+      labelIds: ["inbox", "sent"],
+    });
+    const latest = message({
+      id: "self-note-follow-up",
+      date: "2026-05-21T00:00:00.000Z",
+      from: { name: "Steve", email: "steve@builder.io" },
+      to: [{ name: "Steve", email: "steve@builder.io" }],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(
+      filterInboxScopedThreadMessages(
+        [first, latest],
+        "inbox",
+        "note-to-self",
+        new Set(["steve@builder.io"]),
+      ).map((m) => m.id),
+    ).toEqual(["self-note", "self-note-follow-up"]);
   });
 });

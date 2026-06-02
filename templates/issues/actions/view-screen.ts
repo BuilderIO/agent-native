@@ -65,7 +65,8 @@ async function fetchIssueList(
     if (nav.search) {
       const base = jql.split("ORDER BY")[0].trim();
       const order = jql.split("ORDER BY")[1]?.trim() || "updated DESC";
-      jql = `text ~ "${nav.search}" AND (${base}) ORDER BY ${order}`;
+      const safeSearch = nav.search.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      jql = `text ~ "${safeSearch}" AND (${base}) ORDER BY ${order}`;
     }
 
     const result = await jiraSearchIssues(cloudId, accessToken, {

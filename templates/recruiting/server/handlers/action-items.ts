@@ -101,10 +101,6 @@ export const getActionItemsHandler = defineEventHandler(
       const fourteenDaysAgo = new Date(
         now.getTime() - 14 * 24 * 60 * 60 * 1000,
       ).toISOString();
-      const thirtyDaysAgo = new Date(
-        now.getTime() - 30 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-
       const [interviews, openJobs] = await Promise.all([
         gh.listScheduledInterviews({ created_after: fourteenDaysAgo }),
         gh.listJobs({ status: "open" }),
