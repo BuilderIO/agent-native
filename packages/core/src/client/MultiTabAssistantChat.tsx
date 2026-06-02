@@ -725,6 +725,13 @@ function isActiveAgentTeamStatus(status?: AgentTeamRunStatus): boolean {
   );
 }
 
+function chatTabStatusFromAgentTeamStatus(
+  status?: AgentTeamRunStatus,
+): ChatTab["status"] | undefined {
+  if (!status) return undefined;
+  return isActiveAgentTeamStatus(status) ? "running" : "completed";
+}
+
 function runToAgentTeamTabInfo(
   run: AgentTeamRunSummary,
 ): AgentTeamTabInfo | null {
@@ -1665,6 +1672,9 @@ export function MultiTabAssistantChat({
 
   const closeTab = useCallback(
     (tabId: string) => {
+      if (parentMapRef.current[tabId]) {
+        dismissedSubAgentTabsRef.current.add(tabId);
+      }
       setOpenTabIds((prev) => {
         if (prev.length <= 1) {
           // Last tab — create a new one and replace the old tab atomically
@@ -1699,12 +1709,22 @@ export function MultiTabAssistantChat({
         const { [tabId]: _, ...rest } = prev;
         return rest;
       });
+      setSubAgentStatuses((prev) => {
+        if (!(tabId in prev)) return prev;
+        const { [tabId]: _, ...rest } = prev;
+        return rest;
+      });
     },
     [switchThread, createThread],
   );
 
   const closeOtherTabs = useCallback(
     (tabId: string) => {
+      for (const id of openTabIdsRef.current) {
+        if (id !== tabId && parentMapRef.current[id]) {
+          dismissedSubAgentTabsRef.current.add(id);
+        }
+      }
       setOpenTabIds([tabId]);
       if (activeThreadIdRef.current !== tabId) {
         switchThread(tabId);
@@ -1712,6 +1732,9 @@ export function MultiTabAssistantChat({
       // Clean up refs for closed tabs
       for (const key of chatRefs.current.keys()) {
         if (key !== tabId) {
+          if (parentMapRef.current[key]) {
+            dismissedSubAgentTabsRef.current.add(key);
+          }
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
           newThreadIds.current.delete(key);
@@ -1727,6 +1750,10 @@ export function MultiTabAssistantChat({
         if (tabId in prev) return { [tabId]: prev[tabId] };
         return {};
       });
+      setSubAgentStatuses((prev) => {
+        if (tabId in prev) return { [tabId]: prev[tabId] };
+        return {};
+      });
     },
     [switchThread],
   );
@@ -1737,12 +1764,14 @@ export function MultiTabAssistantChat({
       newThreadIds.current.add(id);
       setOpenTabIds([id]);
       switchThread(id);
+      dismissedSubAgentTabsRef.current.clear();
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
       threadModelRef.current.clear();
       setParentMap({});
       setSubAgentNames({});
+      setSubAgentStatuses({});
     }
   }, [createThread, switchThread]);
 
@@ -1814,8 +1843,14 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
-      // The current active thread is the parent that spawned this sub-agent
-      const parentId = activeThreadIdRef.current;
+      dismissedSubAgentTabsRef.current.delete(threadId);
+      // Prefer an explicit parent (RunsTray/background hydration knows it);
+      // inline task cards fall back to the active orchestrator thread.
+      const explicitParentId =
+        typeof detail?.parentThreadId === "string"
+          ? detail.parentThreadId.trim()
+          : "";
+      const parentId = explicitParentId || activeThreadIdRef.current;
       if (parentId && parentId !== threadId) {
         setParentMap((prev) =>
           prev[threadId] === parentId
