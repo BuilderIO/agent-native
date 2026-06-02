@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, and routing forms.",
   "license": "MIT",
