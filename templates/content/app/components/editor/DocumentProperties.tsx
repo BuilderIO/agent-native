@@ -2637,7 +2637,7 @@ export function AddProperty({
   popoversPortalled = true,
 }: {
   documentId: string;
-  variant?: "default" | "icon";
+  variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
 }) {
@@ -2692,13 +2692,13 @@ export function AddProperty({
           aria-label={label}
           className={cn(
             "flex h-8 items-center gap-2 rounded text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-            variant === "icon"
-              ? "size-7 justify-center px-0"
-              : "mt-1 px-1 text-sm",
+            variant === "icon" && "size-7 justify-center px-0",
+            variant === "header" && "h-7 px-2 text-xs font-medium",
+            variant === "default" && "mt-1 px-1 text-sm",
           )}
         >
           <IconPlus className="size-4" />
-          {variant === "default" ? label : null}
+          {variant === "default" || variant === "header" ? label : null}
         </button>
       </PopoverTrigger>
       <PopoverContent

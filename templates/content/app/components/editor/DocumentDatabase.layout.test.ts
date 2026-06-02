@@ -21,7 +21,7 @@ describe("document database layout", () => {
       "flex max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
-      "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
+      "group/viewtabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
     );
   });
 
@@ -116,7 +116,7 @@ describe("document database layout", () => {
     expect(source).toContain('aria-label="Search"');
     expect(source).toContain('aria-label="View settings"');
     expect(source).toContain("Property visibility");
-    expect(source).toContain("bg-foreground px-0 text-xs font-medium");
+    expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
 
   it("renders a Notion-like right-side view settings panel", () => {
@@ -131,6 +131,21 @@ describe("document database layout", () => {
     );
     expect(source).toContain("function DatabaseSettingsGroupPanel");
     expect(source).toContain("fixed bottom-0 right-0 top-12");
+  });
+
+  it("keeps the Layout settings panel limited to implemented controls", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("function DatabaseOpenPagesInSetting");
+    expect(source).toContain("databaseOpenPagesInDescription");
+    expect(source).toContain("Wrap all content");
+    expect(source).toContain("Open pages in");
+    expect(source).not.toContain("Row density");
+    expect(source).not.toContain("DATABASE_ROW_DENSITIES");
+    expect(source).not.toContain("databaseRowDensityLabel");
+    expect(source).not.toContain("Show vertical lines");
+    expect(source).not.toContain("Show page icon");
+    expect(source).not.toContain('["Chart", "Feed", "Map", "Dashboard"]');
   });
 
   it("omits unavailable database settings placeholders", () => {
@@ -149,10 +164,24 @@ describe("document database layout", () => {
   it("keeps empty table chrome quiet", () => {
     const source = readDatabaseSource();
 
+    expect(source).toContain("const cleanDefaultTable");
+    expect(source).toContain("EMPTY_DEFAULT_ADD_PROPERTY_COLUMN_WIDTH");
+    expect(source).toContain("function DatabaseBlankDefaultRows");
+    expect(source).toContain('variant={cleanDefaultTable ? "header" : "icon"}');
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
     expect(source).toContain('aria-label="New database row"');
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
+  });
+
+  it("uses pill view tabs without a separate active chevron", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("const [openViewMenuId, setOpenViewMenuId]");
+    expect(source).toContain("onContextMenu={(event) => {");
+    expect(source).toContain('aria-label="Add database view"');
+    expect(source).toContain("group-hover/viewtabs:opacity-100");
+    expect(source).not.toContain("hover:bg-background/80 hover:text-foreground");
   });
 });
