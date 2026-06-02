@@ -124,8 +124,7 @@ pub async fn whisper_model_download(app: AppHandle) -> Result<(), String> {
                 let _ = app_clone.emit("whisper:model-ready", ());
             }
             Err(e) => {
-                let _ = app_clone
-                    .emit("whisper:model-error", serde_json::json!({ "error": e }));
+                let _ = app_clone.emit("whisper:model-error", serde_json::json!({ "error": e }));
             }
         }
     });
@@ -165,14 +164,34 @@ pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
+    // If a download is already in progress, wait for it rather than failing —
+    // the caller (meeting start) should succeed once the model lands.
+    if DOWNLOADING.load(Ordering::SeqCst) {
+        eprintln!("[whisper] waiting for in-progress model download…");
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if !DOWNLOADING.load(Ordering::SeqCst) {
+                break;
+            }
+        }
+        // Re-check: the download that just finished may have placed the model.
+        if path.exists() {
+            if custom {
+                return Ok(path);
+            }
+            if let Ok(m) = std::fs::metadata(&path) {
+                if m.len() == MODEL_SIZE {
+                    return Ok(path);
+                }
+            }
+        }
+    }
     // Guard against concurrent downloads.
     if DOWNLOADING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return Err(
-            "Whisper model download already in progress — please wait.".to_string(),
-        );
+        return Err("Whisper model download already in progress — please wait.".to_string());
     }
     DOWNLOADED_BYTES.store(0, Ordering::Relaxed);
 
@@ -204,8 +223,7 @@ async fn do_download(app: &AppHandle, path: &PathBuf, custom: bool) -> Result<Pa
     use std::io::Write as _;
 
     let tmp = path.with_extension("bin.tmp");
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| format!("create model tmp: {e}"))?;
+    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create model tmp: {e}"))?;
     let mut hasher = Sha256::new();
     let mut total: u64 = 0;
     let mut last_progress: u64 = 0;
@@ -245,8 +263,7 @@ async fn do_download(app: &AppHandle, path: &PathBuf, custom: bool) -> Result<Pa
     if !custom {
         if total != MODEL_SIZE {
             let _ = std::fs::remove_file(&tmp);
-            let msg =
-                format!("model size mismatch: got {total} bytes, expected {MODEL_SIZE}");
+            let msg = format!("model size mismatch: got {total} bytes, expected {MODEL_SIZE}");
             eprintln!("[whisper] {msg}");
             return Err(msg);
         }
@@ -257,8 +274,7 @@ async fn do_download(app: &AppHandle, path: &PathBuf, custom: bool) -> Result<Pa
             .collect();
         if digest != MODEL_SHA256 {
             let _ = std::fs::remove_file(&tmp);
-            let msg =
-                format!("model checksum mismatch: got {digest}, expected {MODEL_SHA256}");
+            let msg = format!("model checksum mismatch: got {digest}, expected {MODEL_SHA256}");
             eprintln!("[whisper] {msg}");
             return Err(msg);
         }

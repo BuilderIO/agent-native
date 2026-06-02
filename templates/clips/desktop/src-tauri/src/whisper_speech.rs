@@ -147,6 +147,7 @@ mod macos {
         /// Raw mono f32 at `src_rate` — the worker resamples to 16 kHz.
         buf: Mutex<Vec<f32>>,
         running: Arc<AtomicBool>,
+        done: Arc<AtomicBool>,
         app: AppHandle,
         /// Capture start — t=0 of the meeting timeline. Mic and system streams
         /// start within a few ms of each other, so their segment timestamps
@@ -165,20 +166,25 @@ mod macos {
             src_rate: f64,
             language: Option<String>,
             ctx: Arc<WhisperContext>,
+            stream_start: Instant,
         ) -> Arc<Self> {
-            let now = Instant::now();
+            let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
                 source,
                 src_rate: AtomicU32::new(src_rate as u32),
                 language,
                 buf: Mutex::new(Vec::new()),
                 running: Arc::new(AtomicBool::new(true)),
+                done: done.clone(),
                 app,
-                stream_start: now,
-                buffer_start: Mutex::new(now),
+                stream_start,
+                buffer_start: Mutex::new(stream_start),
             });
             let worker_stream = stream.clone();
-            std::thread::spawn(move || worker(worker_stream, ctx));
+            std::thread::spawn(move || {
+                worker(worker_stream, ctx);
+                done.store(true, Ordering::SeqCst);
+            });
             stream
         }
 
@@ -230,7 +236,12 @@ mod macos {
             if raw_segs.is_empty() {
                 return;
             }
-            let joined: String = raw_segs.iter().map(|(_, _, t)| t.as_str()).collect();
+            let joined: String = raw_segs
+                .iter()
+                .map(|(_, _, t)| t.trim())
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
             // Drop a whole-output hallucination ("you", "thank you", …).
             let Some(clean) = clean_transcript(&joined) else {
                 return;
@@ -366,8 +377,10 @@ mod macos {
                     let segs = infer(&mut state, &samples, lang);
                     stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
                 }
+                let n_processed = raw.len();
                 if let Ok(mut b) = stream.buf.lock() {
-                    b.clear();
+                    let to_drain = n_processed.min(b.len());
+                    b.drain(..to_drain);
                 }
                 // New buffer begins now — advance the timeline offset so the
                 // next utterance's whisper timestamps map correctly.
@@ -464,7 +477,10 @@ mod macos {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
-        let ctx = context(&app)?;
+        let ctx = context(&app).map_err(|e| {
+            let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
+            e
+        })?;
 
         // Resolve the whisper language. A custom model (CLIPS_WHISPER_MODEL)
         // may be multilingual, so if no locale was supplied we let whisper
@@ -484,7 +500,8 @@ mod macos {
 
         // Mic stream + capture. The real hardware rate is read back from the
         // capture handle and pushed into the stream (default 48 kHz until then).
-        let mic_stream = WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone());
+        let session_start = Instant::now();
+        let mic_stream = WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone(), session_start);
         let mic_for_cb = mic_stream.clone();
         let mic_cap = start_raw_mic_capture(
             app.clone(),
@@ -500,7 +517,7 @@ mod macos {
 
         // System stream + capture (SCK delivers 48 kHz).
         let sys_stream =
-            WhisperStream::new(app.clone(), "system", 48000.0, lang.clone(), ctx.clone());
+            WhisperStream::new(app.clone(), "system", 48000.0, lang.clone(), ctx.clone(), session_start);
         let sys_for_cb = sys_stream.clone();
         let sys_cap = match start_raw_system_capture(
             app.clone(),
@@ -535,12 +552,23 @@ mod macos {
         let Some(session) = session else {
             return;
         };
-        // Stop the workers first (they flush a final transcript), then the
-        // captures so no more buffers arrive.
+        // Signal workers to stop. They flush a final transcript after the loop.
         session.mic.stop();
         session.sys.stop();
+        // Stop captures so no more samples arrive while workers flush.
         session.mic_cap.stop();
         session.sys_cap.stop();
+        // Wait up to 4 s for both workers to finish their final flush so
+        // trailing speech is not lost when the frontend unregisters listeners.
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while Instant::now() < deadline {
+            if session.mic.done.load(Ordering::SeqCst)
+                && session.sys.done.load(Ordering::SeqCst)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
         eprintln!("[whisper] meeting transcription stopped");
     }
 }
