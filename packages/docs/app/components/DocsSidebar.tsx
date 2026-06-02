@@ -75,7 +75,7 @@ export default function DocsSidebar() {
     <aside className="hidden w-[220px] shrink-0 lg:block">
       <nav
         ref={navRef}
-        className="sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pr-4"
+        className="docs-sidebar-nav sticky top-[65px] max-h-[calc(100vh-65px)] overflow-y-auto pb-8 pt-8 pr-4"
       >
         {NAV_SECTIONS.map((section, index) => {
           const isAlwaysOpen = index === ALWAYS_OPEN_SECTION_INDEX;
@@ -108,16 +108,23 @@ export default function DocsSidebar() {
                 </button>
               )}
 
-              {isOpen ? (
-                <ul id={sectionId} className="docs-sidebar-section-items">
+              <div
+                id={sectionId}
+                className="docs-sidebar-section-items-clip"
+                data-state={isOpen ? "open" : "closed"}
+                aria-hidden={isOpen ? undefined : true}
+                inert={isOpen ? undefined : true}
+              >
+                <ul className="docs-sidebar-section-items">
                   {section.items.map((item) => {
                     const active = isItemActive(item.to, location.pathname);
                     return (
                       <li key={item.to}>
                         <Link
-                          data-an-prefetch="render"
+                          data-an-prefetch={isOpen ? "render" : undefined}
                           to={item.to}
                           className={`sidebar-link${active ? " is-active" : ""}`}
+                          tabIndex={isOpen ? undefined : -1}
                         >
                           {item.label}
                         </Link>
@@ -125,7 +132,7 @@ export default function DocsSidebar() {
                     );
                   })}
                 </ul>
-              ) : null}
+              </div>
             </section>
           );
         })}
