@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.8.29
+
+### Patch Changes
+
+- 966838d: Expose the Contracts template in public metadata with its dedicated icon alias.
+
 ## 0.8.28
 
 ### Patch Changes
