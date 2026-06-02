@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use crate::dlog;
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, primary_monitor_physical_size,
-    set_capture_excluded, show_without_activation,
+    show_without_activation,
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
@@ -86,7 +86,6 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     // record it" reminder — it should behave like a normal macOS notification
     // and stay visible, including in any screen recording in progress. (Clips's
     // own recording chrome is still excluded elsewhere so it won't leak.)
-    set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     show_without_activation(&win);
     Ok(())

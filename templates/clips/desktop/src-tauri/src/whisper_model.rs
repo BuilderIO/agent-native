@@ -142,6 +142,13 @@ pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     let path = model_file(app)?;
     let custom = custom_model_override();
 
+    if custom && !path.exists() {
+        return Err(format!(
+            "CLIPS_WHISPER_MODEL is set to '{}' but the file does not exist.",
+            path.display()
+        ));
+    }
+
     if path.exists() {
         if custom {
             eprintln!("[whisper] using custom model at {}", path.display());

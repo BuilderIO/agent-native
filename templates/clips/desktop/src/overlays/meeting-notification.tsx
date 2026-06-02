@@ -204,14 +204,6 @@ export function MeetingNotification() {
       ...payload,
       subtitle: `${payload.subtitle} (snoozed)`,
     } as NotificationData).catch(() => {});
-    // We use a setTimeout in the watcher process by going through the
-    // backend — but since the renderer owns this banner, do it here too as
-    // a safety net.
-    setTimeout(() => {
-      const latest = dataRef.current;
-      if (latest && latest.meetingId === payload.meetingId) return;
-      emit("meetings:show-notification", payload).catch(() => {});
-    }, SNOOZE_MS);
     hideNotification();
   }
 
