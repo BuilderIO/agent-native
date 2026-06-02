@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.15
+
+### Patch Changes
+
+- ba34976: Make repo-root pnpm dev use the lazy framework gateway by default.
+
 ## 0.32.14
 
 ### Patch Changes
