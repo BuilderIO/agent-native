@@ -114,6 +114,27 @@ describe("document properties", () => {
         Owner: "Alice Moore",
       }),
     ).toBe("Owner: Alice Moore");
+    expect(
+      evaluatePropertyFormula('if({MSV} >= 1000, "High", "Low")', {
+        MSV: 1000,
+      }),
+    ).toBe("High");
+    expect(
+      evaluatePropertyFormula('concat("SEO: ", {Keyword})', {
+        Keyword: "generative ui",
+      }),
+    ).toBe("SEO: generative ui");
+    expect(
+      evaluatePropertyFormula("round({MSV} / 3)", {
+        MSV: 1000,
+      }),
+    ).toBe(333);
+    expect(
+      evaluatePropertyFormula('contains({Keyword}, "ui")', {
+        Keyword: "generative ui",
+      }),
+    ).toBe(true);
+    expect(evaluatePropertyFormula("2 + nope", {})).toBe("2 + nope");
   });
 
   it("round-trips options and values through JSON storage", () => {

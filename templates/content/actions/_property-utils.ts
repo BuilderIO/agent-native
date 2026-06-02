@@ -46,10 +46,11 @@ export function nanoid(size = 12): string {
 export function computedPropertyValue(
   type: DocumentPropertyType,
   document: DocumentRow,
+  context: { databaseRowNumber?: number | null } = {},
 ): DocumentPropertyValue {
   switch (type) {
     case "id":
-      return document.id;
+      return context.databaseRowNumber ?? document.id;
     case "created_time":
       return document.createdAt;
     case "created_by":
@@ -411,6 +412,9 @@ export async function listPropertiesForDatabase(
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
   );
+  const rowNumberByDocumentId = valueDocument
+    ? await databaseRowNumbersByDocumentId(databaseId)
+    : new Map<string, number>();
 
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
@@ -430,7 +434,9 @@ export async function listPropertiesForDatabase(
       },
       value:
         valueDocument && isComputedPropertyType(type) && type !== "formula"
-          ? computedPropertyValue(type, valueDocument)
+          ? computedPropertyValue(type, valueDocument, {
+              databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
+            })
           : parsePropertyValue(storedValue?.valueJson),
       editable: !isComputedPropertyType(type),
     };
@@ -542,9 +548,16 @@ async function propertyValuesForLinkedDocuments(
   const docById = new Map(docs.map((doc) => [doc.id, doc]));
 
   if (isComputedPropertyType(property.definition.type)) {
+    const rowNumberByDocumentId = property.definition.databaseId
+      ? await databaseRowNumbersByDocumentId(property.definition.databaseId)
+      : new Map<string, number>();
     return documentIds.map((documentId) => {
       const doc = docById.get(documentId);
-      return doc ? computedPropertyValue(property.definition.type, doc) : null;
+      return doc
+        ? computedPropertyValue(property.definition.type, doc, {
+            databaseRowNumber: rowNumberByDocumentId.get(documentId),
+          })
+        : null;
     });
   }
 
@@ -565,6 +578,24 @@ async function propertyValuesForLinkedDocuments(
   );
   return documentIds.map(
     (documentId) => valueByDocumentId.get(documentId) ?? null,
+  );
+}
+
+async function databaseRowNumbersByDocumentId(databaseId: string) {
+  const db = getDb();
+  const items = await db
+    .select({
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    .orderBy(
+      asc(schema.contentDatabaseItems.position),
+      asc(schema.contentDatabaseItems.createdAt),
+      asc(schema.contentDatabaseItems.id),
+    );
+  return new Map(
+    items.map((item, index) => [item.documentId, index + 1] as const),
   );
 }
 

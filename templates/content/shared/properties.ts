@@ -431,6 +431,9 @@ export function evaluatePropertyFormula(
   const trimmed = formula?.trim() ?? "";
   if (!trimmed) return null;
 
+  const formulaValue = evaluateFormulaExpression(trimmed, valuesByName);
+  if (formulaValue !== null) return formulaValue;
+
   const expression = trimmed.replace(/\{([^{}]+)\}/g, (_match, name) => {
     const value = valuesByName[String(name).trim()];
     const numericValue = Number(formulaValueText(value));
@@ -442,6 +445,340 @@ export function evaluatePropertyFormula(
   return trimmed.replace(/\{([^{}]+)\}/g, (_match, name) =>
     formulaValueText(valuesByName[String(name).trim()]),
   );
+}
+
+type FormulaPrimitive = string | number | boolean | null;
+
+type FormulaToken =
+  | { type: "number"; value: number }
+  | { type: "string"; value: string }
+  | { type: "property"; value: string }
+  | { type: "identifier"; value: string }
+  | { type: "operator"; value: string }
+  | { type: "punctuation"; value: "(" | ")" | "," };
+
+function evaluateFormulaExpression(
+  expression: string,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): FormulaPrimitive {
+  const tokens = tokenizeFormulaExpression(expression);
+  if (!tokens) return null;
+  let index = 0;
+
+  function peek() {
+    return tokens[index];
+  }
+
+  function consume() {
+    const token = tokens[index];
+    index += 1;
+    return token;
+  }
+
+  function consumeValue(value: string) {
+    const token = peek();
+    if (!token || !("value" in token) || token.value !== value) return false;
+    index += 1;
+    return true;
+  }
+
+  function parseExpression(): FormulaPrimitive {
+    return parseComparison();
+  }
+
+  function parseComparison(): FormulaPrimitive {
+    let left = parseAdditive();
+    while (true) {
+      const token = peek();
+      if (
+        token?.type !== "operator" ||
+        ![">", ">=", "<", "<=", "==", "!="].includes(token.value)
+      ) {
+        return left;
+      }
+      consume();
+      const right = parseAdditive();
+      left = compareFormulaValues(left, right, token.value);
+    }
+  }
+
+  function parseAdditive(): FormulaPrimitive {
+    let left = parseMultiplicative();
+    while (true) {
+      const token = peek();
+      if (token?.type !== "operator" || !["+", "-"].includes(token.value)) {
+        return left;
+      }
+      consume();
+      const right = parseMultiplicative();
+      if (token.value === "+") {
+        const leftNumber = formulaNumberValue(left);
+        const rightNumber = formulaNumberValue(right);
+        left =
+          leftNumber !== null && rightNumber !== null
+            ? leftNumber + rightNumber
+            : typeof left === "string" || typeof right === "string"
+              ? formulaTextValue(left) + formulaTextValue(right)
+              : null;
+      } else {
+        left = numericFormulaOperation(left, right, (a, b) => a - b);
+      }
+    }
+  }
+
+  function parseMultiplicative(): FormulaPrimitive {
+    let left = parseUnary();
+    while (true) {
+      const token = peek();
+      if (token?.type !== "operator" || !["*", "/"].includes(token.value)) {
+        return left;
+      }
+      consume();
+      const right = parseUnary();
+      left = numericFormulaOperation(left, right, (a, b) =>
+        token.value === "*" ? a * b : a / b,
+      );
+    }
+  }
+
+  function parseUnary(): FormulaPrimitive {
+    const token = peek();
+    if (
+      token?.type === "operator" &&
+      (token.value === "+" || token.value === "-")
+    ) {
+      consume();
+      const value = formulaNumberValue(parseUnary());
+      if (value === null) return null;
+      return token.value === "-" ? -value : value;
+    }
+    return parsePrimary();
+  }
+
+  function parsePrimary(): FormulaPrimitive {
+    const token = consume();
+    if (!token) return null;
+    if (token.type === "number" || token.type === "string") return token.value;
+    if (token.type === "property") {
+      return formulaPrimitiveValue(valuesByName[token.value.trim()]);
+    }
+    if (token.type === "punctuation" && token.value === "(") {
+      const value = parseExpression();
+      return consumeValue(")") ? value : null;
+    }
+    if (token.type !== "identifier") return null;
+
+    const name = token.value.toLowerCase();
+    if (name === "true") return true;
+    if (name === "false") return false;
+    if (!consumeValue("(")) return null;
+
+    const args: FormulaPrimitive[] = [];
+    if (!consumeValue(")")) {
+      do {
+        args.push(parseExpression());
+      } while (consumeValue(","));
+      if (!consumeValue(")")) return null;
+    }
+    return evaluateFormulaFunction(name, args);
+  }
+
+  const value = parseExpression();
+  return index === tokens.length ? value : null;
+}
+
+function tokenizeFormulaExpression(expression: string): FormulaToken[] | null {
+  const tokens: FormulaToken[] = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "{") {
+      const end = expression.indexOf("}", index + 1);
+      if (end === -1) return null;
+      tokens.push({
+        type: "property",
+        value: expression.slice(index + 1, end),
+      });
+      index = end + 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      const parsed = readFormulaString(expression, index, char);
+      if (!parsed) return null;
+      tokens.push({ type: "string", value: parsed.value });
+      index = parsed.nextIndex;
+      continue;
+    }
+    if ("(),".includes(char)) {
+      tokens.push({
+        type: "punctuation",
+        value: char as "(" | ")" | ",",
+      });
+      index += 1;
+      continue;
+    }
+    const operator = expression.slice(index).match(/^(>=|<=|==|!=|[+\-*/<>])/);
+    if (operator) {
+      tokens.push({ type: "operator", value: operator[0] });
+      index += operator[0].length;
+      continue;
+    }
+    const numberMatch = expression.slice(index).match(/^\d+(?:\.\d+)?/);
+    if (numberMatch) {
+      tokens.push({ type: "number", value: Number(numberMatch[0]) });
+      index += numberMatch[0].length;
+      continue;
+    }
+    const identifier = expression.slice(index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (identifier) {
+      tokens.push({ type: "identifier", value: identifier[0] });
+      index += identifier[0].length;
+      continue;
+    }
+    return null;
+  }
+
+  return tokens.length > 0 ? tokens : null;
+}
+
+function readFormulaString(
+  expression: string,
+  startIndex: number,
+  quote: string,
+) {
+  let value = "";
+  let index = startIndex + 1;
+  while (index < expression.length) {
+    const char = expression[index];
+    if (char === "\\") {
+      const next = expression[index + 1];
+      if (!next) return null;
+      value += next;
+      index += 2;
+      continue;
+    }
+    if (char === quote) {
+      return { value, nextIndex: index + 1 };
+    }
+    value += char;
+    index += 1;
+  }
+  return null;
+}
+
+function formulaPrimitiveValue(value: DocumentPropertyValue): FormulaPrimitive {
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value === null || value === undefined) return null;
+  return formulaValueText(value);
+}
+
+function formulaNumberValue(value: FormulaPrimitive): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "string" && value.trim()) {
+    const numberValue = Number(value.trim());
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+  return null;
+}
+
+function formulaTextValue(value: FormulaPrimitive) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function formulaTruthy(value: FormulaPrimitive) {
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "number") return value !== 0;
+  return Boolean(value);
+}
+
+function numericFormulaOperation(
+  left: FormulaPrimitive,
+  right: FormulaPrimitive,
+  operation: (left: number, right: number) => number,
+): FormulaPrimitive {
+  const leftNumber = formulaNumberValue(left);
+  const rightNumber = formulaNumberValue(right);
+  if (leftNumber === null || rightNumber === null) return null;
+  const result = operation(leftNumber, rightNumber);
+  return Number.isFinite(result) ? result : null;
+}
+
+function compareFormulaValues(
+  left: FormulaPrimitive,
+  right: FormulaPrimitive,
+  operator: string,
+): boolean {
+  if (operator === "==" || operator === "!=") {
+    const equal = formulaTextValue(left) === formulaTextValue(right);
+    return operator === "==" ? equal : !equal;
+  }
+
+  const leftNumber = formulaNumberValue(left);
+  const rightNumber = formulaNumberValue(right);
+  if (leftNumber !== null && rightNumber !== null) {
+    if (operator === ">") return leftNumber > rightNumber;
+    if (operator === ">=") return leftNumber >= rightNumber;
+    if (operator === "<") return leftNumber < rightNumber;
+    return leftNumber <= rightNumber;
+  }
+
+  const leftText = formulaTextValue(left);
+  const rightText = formulaTextValue(right);
+  if (operator === ">") return leftText > rightText;
+  if (operator === ">=") return leftText >= rightText;
+  if (operator === "<") return leftText < rightText;
+  return leftText <= rightText;
+}
+
+function evaluateFormulaFunction(
+  name: string,
+  args: FormulaPrimitive[],
+): FormulaPrimitive {
+  switch (name) {
+    case "if":
+      return formulaTruthy(args[0]) ? (args[1] ?? null) : (args[2] ?? null);
+    case "concat":
+      return args.map(formulaTextValue).join("");
+    case "contains":
+      return formulaTextValue(args[0]).includes(formulaTextValue(args[1]));
+    case "empty":
+      return !formulaTruthy(args[0]);
+    case "not":
+      return !formulaTruthy(args[0]);
+    case "and":
+      return args.every(formulaTruthy);
+    case "or":
+      return args.some(formulaTruthy);
+    case "round":
+    case "ceil":
+    case "floor":
+    case "abs": {
+      const value = formulaNumberValue(args[0]);
+      if (value === null) return null;
+      if (name === "round") return Math.round(value);
+      if (name === "ceil") return Math.ceil(value);
+      if (name === "floor") return Math.floor(value);
+      return Math.abs(value);
+    }
+    case "min":
+    case "max": {
+      const numbers = args
+        .map(formulaNumberValue)
+        .filter((value): value is number => value !== null);
+      if (numbers.length !== args.length || numbers.length === 0) return null;
+      return name === "min" ? Math.min(...numbers) : Math.max(...numbers);
+    }
+    case "length":
+      return formulaTextValue(args[0]).length;
+    default:
+      return null;
+  }
 }
 
 export function evaluateNumericExpression(expression: string): number | null {

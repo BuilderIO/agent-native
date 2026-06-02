@@ -49,7 +49,7 @@ describe("document property layout", () => {
     expect(source).toContain("dateValueInputRef.current?.focus()");
     expect(source).toContain("dateValueInputRef.current?.select()");
     expect(source).toContain(
-      "aria-label={`Edit ${property.definition.name} date`}",
+      "aria-label={`Edit ${property.definition.name} start date`}",
     );
   });
 
