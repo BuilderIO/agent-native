@@ -2339,13 +2339,7 @@ export function createCoreRoutesPlugin(
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          // Include orgId so org-scoped Builder credentials resolve here too,
-          // keeping the Settings status in sync with the upload route.
-          let orgId = session?.orgId ?? undefined;
-          if (userEmail && !orgId) {
-            const orgCtx = await getOrgContext(event).catch(() => null);
-            orgId = orgCtx?.orgId ?? undefined;
-          }
+          const orgId = session?.orgId ?? undefined;
           let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
           try {
             const { resolveBuilderPrivateKey } =
@@ -2407,16 +2401,7 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          // Resolve the active org so org-scoped Builder credentials (written
-          // when an owner/admin connects Builder.io) are found during upload.
-          // Without orgId in the request context, resolveBuilderPrivateKey()
-          // skips the org-scope lookup and uploads fail with a misleading
-          // "needs file storage" 503 even though Builder is connected.
-          let orgId = session.orgId ?? undefined;
-          if (!orgId) {
-            const orgCtx = await getOrgContext(event).catch(() => null);
-            orgId = orgCtx?.orgId ?? undefined;
-          }
+          const orgId = session.orgId ?? undefined;
           const result = await runWithRequestContext({ userEmail, orgId }, () =>
             uploadFile({
               data: filePart.data,
