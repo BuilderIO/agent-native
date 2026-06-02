@@ -56,6 +56,10 @@ import {
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
+type SnoozeTarget = {
+  emailId: string;
+  accountEmail?: string;
+};
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
@@ -542,8 +546,9 @@ export function EmailList({
     if (selectedIdsRef.current.size > 0)
       return Array.from(selectedIdsRef.current);
     const fid = focusedIdRef.current;
-    if (!fid) return [];
-    const thread = threads.find((t) => t.latestMessage.id === fid);
+    const thread = fid
+      ? threads.find((t) => t.latestMessage.id === fid)
+      : threads[0];
     if (!thread) return [];
     return [thread.latestMessage.threadId || thread.latestMessage.id];
   }, [threads]);
@@ -772,6 +777,30 @@ export function EmailList({
     [threads],
   );
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (threadId) return;
+
+      const targets: SnoozeTarget[] = resolveTargets(getActionThreadKeys()).map(
+        (thread) => ({
+          emailId: thread.latestMessage.id,
+          accountEmail: thread.latestMessage.accountEmail,
+        }),
+      );
+      if (targets.length === 0) return;
+
+      event.preventDefault();
+      window.dispatchEvent(
+        new CustomEvent("email:request-snooze", {
+          detail: { targets },
+        }),
+      );
+    };
+
+    window.addEventListener("email:shortcut-snooze", handler);
+    return () => window.removeEventListener("email:shortcut-snooze", handler);
+  }, [getActionThreadKeys, resolveTargets, threadId]);
+
   const toggleFocusedRead = useCallback(() => {
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
@@ -987,19 +1016,35 @@ export function EmailList({
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
     const handler = (e: Event) => {
-      const emailId = (e as CustomEvent<{ emailId: string }>).detail.emailId;
-      const idx = threads.findIndex((t) => t.latestMessage.id === emailId);
+      const detail = (
+        e as CustomEvent<{ emailId?: string; emailIds?: string[] }>
+      ).detail;
+      const emailIds =
+        detail.emailIds && detail.emailIds.length > 0
+          ? detail.emailIds
+          : detail.emailId
+            ? [detail.emailId]
+            : [];
+      if (emailIds.length === 0) return;
+
+      const snoozedIds = new Set(emailIds);
+      const idx = threads.findIndex((t) => snoozedIds.has(t.latestMessage.id));
       if (idx === -1) return;
-      if (threads.length > 1) {
-        const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
-        setFocusedId(threads[nextIdx].latestMessage.id);
+
+      const remaining = threads.filter(
+        (thread) => !snoozedIds.has(thread.latestMessage.id),
+      );
+      if (remaining.length > 0) {
+        const nextIdx = Math.min(idx, remaining.length - 1);
+        setFocusedId(remaining[nextIdx].latestMessage.id);
       } else {
         setFocusedId(null);
       }
+      setSelectedIds(new Set());
     };
     window.addEventListener("email:snoozed", handler);
     return () => window.removeEventListener("email:snoozed", handler);
-  }, [threads, setFocusedId]);
+  }, [threads, setFocusedId, setSelectedIds]);
 
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
