@@ -26,14 +26,21 @@ import { createAnthropicEngine } from "../agent/engine/anthropic-engine.js";
 import { createThread } from "../chat-threads/store.js";
 import {
   abortRun,
+  getActiveRunForThreadAsync,
   getRun,
   startRun,
   subscribeToRun,
+  type ActiveRun,
 } from "../agent/run-manager.js";
 import { getRunEventsSince } from "../agent/run-store.js";
 import { runAgentLoop } from "../agent/production-agent.js";
 import { buildAssistantMessage } from "../agent/thread-data-builder.js";
 import type { RunEvent } from "../agent/types.js";
+import {
+  completeRun as completeProgressRun,
+  startRun as startProgressRun,
+  updateRunProgress,
+} from "../progress/registry.js";
 import type {
   BackgroundAgentRun,
   BackgroundAgentRunStatus,
@@ -63,6 +70,11 @@ export interface AgentTask {
   summary: string;
   currentStep: string;
   createdAt: number;
+  updatedAt?: number;
+  startedAt?: number;
+  completedAt?: number;
+  runId?: string;
+  error?: string;
 }
 
 export type AgentTeamBackgroundRun = Omit<
@@ -139,6 +151,8 @@ const THREAD_PREFIX = "agent-task-thread:";
 
 /** Key prefix for queued orchestrator→sub-agent messages. */
 const TASK_MESSAGE_PREFIX = "task-message:";
+
+const TASK_RUN_MISSING_GRACE_MS = 60_000;
 
 export interface QueuedTaskMessage {
   id: string;
@@ -322,6 +336,7 @@ function createTaskMessageFinalGuard(
 }
 
 async function saveTask(task: AgentTask): Promise<void> {
+  task.updatedAt = Date.now();
   await writeAppState(`${TASK_PREFIX}${task.taskId}`, task as any);
   await writeAppState(`${THREAD_PREFIX}${task.threadId}`, {
     taskId: task.taskId,
@@ -337,6 +352,76 @@ async function loadTaskByThread(threadId: string): Promise<AgentTask | null> {
   const ref = await readAppState(`${THREAD_PREFIX}${threadId}`);
   if (!ref || !ref.taskId) return null;
   return loadTask(ref.taskId as string);
+}
+
+async function reconcileTaskWithRun(task: AgentTask): Promise<AgentTask> {
+  if (task.status !== "running") return task;
+  if (!task.runId) return task;
+
+  let runState:
+    | Awaited<ReturnType<typeof getActiveRunForThreadAsync>>
+    | undefined;
+  try {
+    runState = await getActiveRunForThreadAsync(task.threadId);
+  } catch {
+    return task;
+  }
+
+  if (runState?.status === "running") return task;
+
+  const ownerEmail = getRequestUserEmail();
+  if (runState?.status === "completed") {
+    task.status = "completed";
+    task.summary = task.summary || task.preview || "Task completed.";
+    task.currentStep = "";
+    task.completedAt = Date.now();
+    await saveTask(task);
+    if (ownerEmail) {
+      await completeTaskProgressRun(
+        task,
+        ownerEmail,
+        "succeeded",
+        "Task completed.",
+      );
+    }
+    return task;
+  }
+
+  if (runState?.status === "errored" || runState?.status === "aborted") {
+    const message =
+      runState.status === "aborted" ? "Task stopped." : "Task failed.";
+    task.status = "errored";
+    task.summary = task.summary || task.preview || message;
+    task.error = task.error || message;
+    task.currentStep = "";
+    task.completedAt = Date.now();
+    await saveTask(task);
+    if (ownerEmail) {
+      await completeTaskProgressRun(
+        task,
+        ownerEmail,
+        runState.status === "aborted" ? "cancelled" : "failed",
+        message,
+      );
+    }
+    return task;
+  }
+
+  const referenceAt = task.startedAt ?? task.createdAt;
+  if (Date.now() - referenceAt < TASK_RUN_MISSING_GRACE_MS) return task;
+
+  const message =
+    "Sub-agent run is no longer active and did not produce a result.";
+  task.status = "errored";
+  task.summary = message;
+  task.error = message;
+  task.currentStep = "";
+  task.completedAt = Date.now();
+  await saveTask(task);
+  if (ownerEmail) {
+    await completeTaskProgressRun(task, ownerEmail, "failed", message);
+  }
+  return task;
 }
 
 function generateTaskId(): string {
@@ -370,10 +455,141 @@ function latestTaskText(task: AgentTask): string | undefined {
   return task.summary || task.preview || task.currentStep || undefined;
 }
 
+function formatTaskPhase(task: AgentTask): string {
+  if (task.status === "running") return task.currentStep || "Running";
+  if (task.status === "completed") return "Completed";
+  const phase = task.error || task.summary || "Task failed.";
+  return phase.length > 120 ? `${phase.slice(0, 117)}...` : phase;
+}
+
+type TerminalProgressStatus = "succeeded" | "failed" | "cancelled";
+
+function taskProgressMetadata(task: AgentTask): Record<string, unknown> {
+  return {
+    kind: "agent-team",
+    source: "agent-teams",
+    taskId: task.taskId,
+    threadId: task.threadId,
+    description: task.description,
+    preview: task.preview,
+    summary: task.summary,
+    currentStep: task.currentStep,
+    surfaceUrl: `agent-native://threads/${encodeURIComponent(task.threadId)}`,
+  };
+}
+
+function currentTaskProgressStep(task: AgentTask): string {
+  return (
+    task.currentStep ||
+    (task.preview ? "Working on response" : "Starting sub-agent")
+  );
+}
+
+async function startTaskProgressRun(
+  task: AgentTask,
+  ownerEmail: string,
+): Promise<void> {
+  const runId = task.runId ?? taskRunId(task.taskId);
+  task.runId = runId;
+  try {
+    await startProgressRun({
+      id: runId,
+      owner: ownerEmail,
+      title: task.description,
+      step: currentTaskProgressStep(task),
+      metadata: taskProgressMetadata(task),
+    });
+  } catch {
+    // Progress rows are user-facing visibility. A write failure should not
+    // prevent the sub-agent from running or the task card from updating.
+  }
+}
+
+async function updateTaskProgressRun(
+  task: AgentTask,
+  ownerEmail: string,
+): Promise<void> {
+  const runId = task.runId ?? taskRunId(task.taskId);
+  task.runId = runId;
+  try {
+    await updateRunProgress(runId, ownerEmail, {
+      step: currentTaskProgressStep(task),
+      metadata: taskProgressMetadata(task),
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+async function completeTaskProgressRun(
+  task: AgentTask,
+  ownerEmail: string,
+  status: TerminalProgressStatus,
+  step: string,
+): Promise<void> {
+  const runId = task.runId ?? taskRunId(task.taskId);
+  task.runId = runId;
+  try {
+    await completeProgressRun(runId, ownerEmail, status, {
+      step,
+      metadata: taskProgressMetadata(task),
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+function resolveTaskCompletion(
+  run: Pick<ActiveRun, "status" | "abortReason">,
+  accumulatedText: string,
+): {
+  taskStatus: "completed" | "errored";
+  summary: string;
+  progressStatus: TerminalProgressStatus;
+  progressStep: string;
+  error?: string;
+} {
+  const text = accumulatedText.trim();
+  if (run.status === "aborted") {
+    const stopped =
+      run.abortReason && run.abortReason !== "user"
+        ? `Task stopped: ${run.abortReason}`
+        : "Task stopped.";
+    return {
+      taskStatus: "errored",
+      summary: stopped,
+      progressStatus: "cancelled",
+      progressStep: stopped,
+      error: stopped,
+    };
+  }
+  if (run.status === "errored") {
+    const failed = text.slice(-500) || "Task failed.";
+    return {
+      taskStatus: "errored",
+      summary: failed,
+      progressStatus: "failed",
+      progressStep: "Task failed.",
+      error: failed,
+    };
+  }
+  const summary = text.slice(-1000) || "Task completed successfully.";
+  return {
+    taskStatus: "completed",
+    summary,
+    progressStatus: "succeeded",
+    progressStep: "Task completed.",
+  };
+}
+
 export function toAgentTaskBackgroundRun(
   task: AgentTask,
 ): AgentTeamBackgroundRun {
   const createdAt = taskTimestampToIso(task.createdAt);
+  const updatedAt = taskTimestampToIso(
+    task.completedAt ?? task.updatedAt ?? task.createdAt,
+  );
+  const phase = formatTaskPhase(task);
   return {
     schemaVersion: 1,
     id: taskRunId(task.taskId),
@@ -386,11 +602,12 @@ export function toAgentTaskBackgroundRun(
       threadId: task.threadId,
     },
     title: task.description,
-    subtitle: task.currentStep || undefined,
+    subtitle:
+      task.currentStep || (task.status === "errored" ? phase : undefined),
     status: mapTaskStatusToBackgroundStatus(task.status),
-    phase: task.currentStep || task.status,
+    phase,
     createdAt,
-    updatedAt: createdAt,
+    updatedAt,
     goalId: "agent-team",
     needsInput: false,
     needsApproval: false,
@@ -407,6 +624,8 @@ export function toAgentTaskBackgroundRun(
       summary: task.summary,
       currentStep: task.currentStep,
       latestText: latestTaskText(task),
+      completedAt: task.completedAt,
+      error: task.error,
     },
   };
 }
@@ -597,6 +816,8 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     // Best effort — thread will still work without persisted messages
   }
 
+  const runId = taskRunId(taskId);
+  const createdAt = Date.now();
   const task: AgentTask = {
     taskId,
     threadId: thread.id,
@@ -604,11 +825,15 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     status: "running",
     preview: "",
     summary: "",
-    currentStep: "",
-    createdAt: Date.now(),
+    currentStep: "Starting sub-agent",
+    createdAt,
+    updatedAt: createdAt,
+    startedAt: createdAt,
+    runId,
   };
 
   await saveTask(task);
+  await startTaskProgressRun(task, opts.ownerEmail);
 
   // Notify parent chat that a sub-agent was spawned
   opts.parentSend({
@@ -655,10 +880,11 @@ You are a focused sub-agent with a specific task. You have been given a curated 
   ];
 
   // Start the agent run in background
-  const runId = `run-task-${taskId}`;
   let accumulatedText = "";
   let lastPreviewSent = 0;
   const PREVIEW_INTERVAL_MS = 300; // Throttle preview updates to every 300ms
+  let lastProgressSent = 0;
+  const PROGRESS_INTERVAL_MS = 2000;
   // Gate to prevent sendPreviewUpdate from overwriting terminal status
   let runFinished = false;
 
@@ -674,6 +900,12 @@ You are a focused sub-agent with a specific task. You have been given a curated 
         task.preview = accumulatedText.slice(-800);
         // Persist to SQL so status checks from other processes see live state
         await saveTask(task);
+        const shouldUpdateProgress =
+          force || now - lastProgressSent >= PROGRESS_INTERVAL_MS;
+        if (shouldUpdateProgress) {
+          lastProgressSent = now;
+          void updateTaskProgressRun(task, opts.ownerEmail);
+        }
         opts.parentSend({
           type: "agent_task_update",
           taskId,
@@ -715,10 +947,21 @@ You are a focused sub-agent with a specific task. You have been given a curated 
       // Prevent any in-flight sendPreviewUpdate from overwriting terminal status
       runFinished = true;
 
-      if (run.status === "errored") {
-        task.status = "errored";
-        task.summary = accumulatedText.slice(-500) || "Task failed.";
-        await saveTask(task);
+      const terminal = resolveTaskCompletion(run, accumulatedText);
+      task.status = terminal.taskStatus;
+      task.summary = terminal.summary;
+      task.error = terminal.error;
+      task.currentStep = "";
+      task.completedAt = Date.now();
+      await saveTask(task);
+      await completeTaskProgressRun(
+        task,
+        opts.ownerEmail,
+        terminal.progressStatus,
+        terminal.progressStep,
+      );
+
+      if (terminal.taskStatus === "errored") {
         // Emit error as agent_task_complete with errored status
         opts.parentSend({
           type: "agent_task",
@@ -728,10 +971,6 @@ You are a focused sub-agent with a specific task. You have been given a curated 
           status: "errored",
         });
       } else {
-        task.status = "completed";
-        task.summary =
-          accumulatedText.slice(-1000) || "Task completed successfully.";
-        await saveTask(task);
         opts.parentSend({
           type: "agent_task_complete",
           taskId,
@@ -847,7 +1086,7 @@ You are a focused sub-agent with a specific task. You have been given a curated 
 /** Get task by ID */
 export async function getTask(taskId: string): Promise<AgentTask | undefined> {
   const task = await loadTask(taskId);
-  return task ?? undefined;
+  return task ? await reconcileTaskWithRun(task) : undefined;
 }
 
 /** Get task by thread ID */
@@ -855,14 +1094,19 @@ export async function getTaskByThread(
   threadId: string,
 ): Promise<AgentTask | undefined> {
   const task = await loadTaskByThread(threadId);
-  return task ?? undefined;
+  return task ? await reconcileTaskWithRun(task) : undefined;
 }
 
 /** List all tasks (most recent first) */
 export async function listTasks(): Promise<AgentTask[]> {
   const entries = await listAppState(TASK_PREFIX);
   const tasks = entries.map((e) => e.value as unknown as AgentTask);
-  return tasks.sort((a, b) => b.createdAt - a.createdAt);
+  const reconciled = await Promise.all(tasks.map(reconcileTaskWithRun));
+  return reconciled.sort(
+    (a, b) =>
+      (b.updatedAt ?? b.completedAt ?? b.createdAt) -
+      (a.updatedAt ?? a.completedAt ?? a.createdAt),
+  );
 }
 
 export async function listAgentTeamBackgroundRuns(): Promise<
@@ -875,7 +1119,9 @@ export async function getAgentTeamBackgroundRun(
   runId: string,
 ): Promise<AgentTeamBackgroundRun | null> {
   const task = await loadTask(taskIdFromBackgroundRunId(runId));
-  return task ? toAgentTaskBackgroundRun(task) : null;
+  return task
+    ? toAgentTaskBackgroundRun(await reconcileTaskWithRun(task))
+    : null;
 }
 
 export async function listAgentTeamBackgroundTranscriptEvents(
@@ -1021,7 +1267,14 @@ export async function stopAgentTeamBackgroundRun(
   task.status = "errored";
   task.summary =
     reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
+  task.error = task.summary;
+  task.currentStep = "";
+  task.completedAt = Date.now();
   await saveTask(task);
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) {
+    await completeTaskProgressRun(task, ownerEmail, "cancelled", task.summary);
+  }
   return { ok: true };
 }
 
@@ -1034,7 +1287,14 @@ export async function markTaskErrored(
   if (task) {
     task.status = "errored";
     task.summary = error;
+    task.error = error;
+    task.currentStep = "";
+    task.completedAt = Date.now();
     await saveTask(task);
+    const ownerEmail = getRequestUserEmail();
+    if (ownerEmail) {
+      await completeTaskProgressRun(task, ownerEmail, "failed", error);
+    }
   }
 }
 
@@ -1043,4 +1303,5 @@ export const _agentTeamsQueueForTests = {
   createTaskMessageFinalGuard,
   drainQueuedTaskMessages,
   formatQueuedTaskMessages,
+  resolveTaskCompletion,
 };

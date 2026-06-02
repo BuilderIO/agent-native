@@ -9,6 +9,7 @@ import type { LoaderFunctionArgs } from "react-router";
 import { eq, inArray } from "drizzle-orm";
 import { agentNativePath } from "@agent-native/core/client";
 import { getDb, schema } from "../../server/db";
+import { buildSocialOgImageUrl, socialImageMeta } from "@/lib/social-og";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,8 +21,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function meta() {
-  return [{ title: "Routing form" }];
+export function meta({
+  data,
+}: {
+  data?: {
+    form: { name: string; description?: string | null };
+    ogImageUrl?: string;
+  };
+}) {
+  const title = data?.form?.name || "Routing form";
+  const description =
+    data?.form?.description ||
+    "Answer a few questions to find the right meeting.";
+  return [
+    { title },
+    { name: "description", content: description },
+    { property: "og:title", content: title },
+    { property: "og:description", content: description },
+    { property: "og:type", content: "website" },
+    ...(data?.ogImageUrl
+      ? socialImageMeta(data.ogImageUrl, "Agent-Native Scheduling routing form")
+      : []),
+  ];
 }
 
 function safeExternalUrl(value: unknown): string | null {
@@ -36,7 +57,7 @@ function safeExternalUrl(value: unknown): string | null {
   }
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const db = getDb();
   const rows = await db
     .select()
@@ -67,6 +88,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     }
   }
 
+  const title = row.name;
   return {
     form: {
       id: row.id,
@@ -77,6 +99,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
       fallback,
       eventRoutes,
     },
+    ogImageUrl: buildSocialOgImageUrl({
+      request,
+      title,
+      subtitle: "Agent-Native Scheduling",
+    }),
   };
 }
 

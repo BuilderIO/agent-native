@@ -19,6 +19,13 @@ import {
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -77,6 +84,7 @@ export interface OnboardingHtmlOptions {
    */
   requestHost?: string;
   requestPath?: string;
+  requestOrigin?: string;
   /**
    * Optional preflight copy shown before redirecting through Google sign-in.
    * Use this when a hosted app needs to warn about provider-specific consent
@@ -116,6 +124,9 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const hasMarketing = !!marketing;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
+  const socialImageUrl = opts.requestOrigin
+    ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
+    : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH);
   const esc = (s: string) =>
     s
       .replace(/&/g, "&amp;")
@@ -543,7 +554,16 @@ ${
   hasMarketing
     ? `<meta name="description" content="${esc(marketing!.tagline)}">
 <meta property="og:title" content="${esc(marketing!.appName)}">
-<meta property="og:description" content="${esc(marketing!.tagline)}">`
+<meta property="og:description" content="${esc(marketing!.tagline)}">
+<meta property="og:image" content="${esc(socialImageUrl)}">
+<meta property="og:image:secure_url" content="${esc(socialImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${esc(socialImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`
     : ""
 }
 <style>

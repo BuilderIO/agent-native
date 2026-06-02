@@ -126,6 +126,41 @@ describe("agent teams message queue", () => {
     ).resolves.toEqual([]);
   });
 
+  it("maps aborted and errored child runs to non-success task outcomes", async () => {
+    const { _agentTeamsQueueForTests } = await import("./agent-teams.js");
+
+    expect(
+      _agentTeamsQueueForTests.resolveTaskCompletion(
+        { status: "aborted", abortReason: "user" },
+        "",
+      ),
+    ).toMatchObject({
+      taskStatus: "errored",
+      progressStatus: "cancelled",
+      summary: "Task stopped.",
+    });
+    expect(
+      _agentTeamsQueueForTests.resolveTaskCompletion(
+        { status: "errored" },
+        "partial failure detail",
+      ),
+    ).toMatchObject({
+      taskStatus: "errored",
+      progressStatus: "failed",
+      summary: "partial failure detail",
+    });
+    expect(
+      _agentTeamsQueueForTests.resolveTaskCompletion(
+        { status: "completed" },
+        "finished",
+      ),
+    ).toMatchObject({
+      taskStatus: "completed",
+      progressStatus: "succeeded",
+      summary: "finished",
+    });
+  });
+
   it("maps tasks into the shared background run vocabulary", async () => {
     const {
       getAgentTeamBackgroundRun,
@@ -279,7 +314,7 @@ describe("agent teams message queue", () => {
       controller.control({ runId: "run-task-task-1", command: "stop" }),
     ).resolves.toMatchObject({
       ok: true,
-      run: { status: "errored", phase: "Scanning" },
+      run: { status: "errored", phase: "Task stopped." },
     });
   });
 

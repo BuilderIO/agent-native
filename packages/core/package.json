@@ -130,6 +130,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@sentry/browser": "^10.50.0",
     "@sentry/node": "^10.50.0",
     "@standard-schema/spec": "^1.1.0",

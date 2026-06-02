@@ -11,5 +11,5 @@ export default createAuthPlugin({
       "Response summaries, exports, and trend analysis on demand",
     ],
   },
-  publicPaths: ["/f", "/api/forms/public", "/api/submit"],
+  publicPaths: ["/f", "/api/forms/public", "/api/forms/og", "/api/submit"],
 });

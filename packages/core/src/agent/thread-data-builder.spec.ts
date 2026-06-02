@@ -81,6 +81,32 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("scopes rebuilt tool call ids by run id", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "logs" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "found" },
+        },
+      ],
+      "run-tools",
+      { turnId: "turn-tools" },
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "run-tools:tc_1",
+        toolName: "search",
+        result: "found",
+      }),
+    ]);
+  });
+
   it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
@@ -405,6 +431,60 @@ describe("buildAssistantMessage", () => {
     });
     expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
   });
+
+  it("keeps tool call ids unique when folding continuation chunks", () => {
+    const firstChunk = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "one" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "one" },
+        },
+        { seq: 2, event: { type: "auto_continue", reason: "run_timeout" } },
+      ],
+      "run-fold-tools-1",
+      { suppressInternalContinuation: true, turnId: "turn-fold-tools" },
+    );
+    const secondChunk = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: { type: "tool_start", tool: "search", input: { q: "two" } },
+        },
+        {
+          seq: 1,
+          event: { type: "tool_done", tool: "search", result: "two" },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-fold-tools-2",
+      { suppressInternalContinuation: true, turnId: "turn-fold-tools" },
+    );
+    expect(firstChunk).not.toBeNull();
+    expect(secondChunk).not.toBeNull();
+
+    let repo = foldAssistantTurn({ messages: [] }, firstChunk!, {
+      turnId: "turn-fold-tools",
+      runId: "run-fold-tools-1",
+    });
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold-tools",
+      runId: "run-fold-tools-2",
+    });
+
+    const toolCallIds = repo.messages[0].message.content
+      .filter((part: any) => part.type === "tool-call")
+      .map((part: any) => part.toolCallId);
+
+    expect(toolCallIds).toEqual([
+      "run-fold-tools-1:tc_1",
+      "run-fold-tools-2:tc_1",
+    ]);
+    expect(new Set(toolCallIds).size).toBe(toolCallIds.length);
+  });
 });
 
 describe("mergeThreadDataForClientSave", () => {
@@ -712,6 +792,31 @@ describe("normalizeThreadRepository", () => {
         message: expect.objectContaining({ id: "assistant-1" }),
       }),
     ]);
+  });
+
+  it("deduplicates persisted assistant tool call ids", () => {
+    const normalized = normalizeThreadRepository({
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+              { type: "tool-call", toolCallId: "tc_1", toolName: "search" },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    expect(
+      normalized.messages[0].message.content.map(
+        (part: any) => part.toolCallId,
+      ),
+    ).toEqual(["tc_1", "tc_1__dedup_2", "tc_1__dedup_3"]);
   });
 });
 

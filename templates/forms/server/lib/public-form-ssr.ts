@@ -2,6 +2,12 @@ import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getAppBasePath } from "@agent-native/core/server";
 import { DEFAULT_SSR_CACHE_HEADERS } from "@agent-native/core/server/ssr-handler";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "@agent-native/core/shared";
 import { getDb, schema } from "../db/index.js";
 import {
   toPublicFormSettings,
@@ -20,7 +26,7 @@ function getCached(key: string) {
   return null;
 }
 
-async function getFormBySlugOrId(slugOrId: string) {
+export async function getPublicFormBySlugOrId(slugOrId: string) {
   const cached = getCached(slugOrId);
   if (cached) return cached;
 
@@ -49,6 +55,7 @@ async function getFormBySlugOrId(slugOrId: string) {
   const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,
+    slug: row.slug,
     title: row.title,
     description: row.description,
     fields: JSON.parse(row.fields) as FormField[],
@@ -85,6 +92,24 @@ function escapeHtml(value: unknown): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+const FALLBACK_PUBLIC_FORM_ORIGIN = "http://agent-native.local";
+
+function parsePublicFormUrl(url: string): {
+  pathname: string;
+  origin?: string;
+} {
+  try {
+    const parsed = new URL(url, FALLBACK_PUBLIC_FORM_ORIGIN);
+    const isAbsolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(url);
+    return {
+      pathname: parsed.pathname,
+      origin: isAbsolute ? parsed.origin : undefined,
+    };
+  } catch {
+    return { pathname: url.split("?")[0] || "/" };
+  }
 }
 
 // Mirror app/components/builder/FieldRenderer.tsx#dedupeRenderableOptions.
@@ -225,19 +250,20 @@ export async function renderPublicFormHtml(
 ): Promise<{ html: string; status: number }> {
   // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
   const basePath = getAppBasePath();
-  const pathname = url.split("?")[0];
+  const parsedUrl = parsePublicFormUrl(url);
+  const pathname = parsedUrl.pathname;
   const pathWithoutBase =
     basePath && pathname.startsWith(`${basePath}/`)
       ? pathname.slice(basePath.length)
       : pathname;
   const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
-  const form = slugOrId ? await getFormBySlugOrId(slugOrId) : null;
+  const form = slugOrId ? await getPublicFormBySlugOrId(slugOrId) : null;
 
   if (!form) {
-    return { html: notFoundPage(), status: 404 };
+    return { html: notFoundPage(parsedUrl.origin), status: 404 };
   }
 
-  return { html: renderFormPage(form), status: 200 };
+  return { html: renderFormPage(form, parsedUrl.origin), status: 200 };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +272,7 @@ export async function renderPublicFormHtml(
 
 export async function renderPublicForm(event: H3Event) {
   const reqUrl = getRequestURL(event);
-  const url = reqUrl.pathname + reqUrl.search;
+  const url = reqUrl.toString();
   const { html, status } = await renderPublicFormHtml(url);
 
   const headers: Record<string, string> = {
@@ -269,19 +295,31 @@ export async function renderPublicForm(event: H3Event) {
 // HTML generation
 // ---------------------------------------------------------------------------
 
-function renderFormPage(form: {
-  id: string;
-  title: string;
-  description?: string | null;
-  fields: FormField[];
-  settings: PublicFormSettings;
-}): string {
+function renderFormPage(
+  form: {
+    id: string;
+    slug: string;
+    title: string;
+    description?: string | null;
+    fields: FormField[];
+    settings: PublicFormSettings;
+  },
+  origin?: string,
+): string {
   const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
   const faviconPath = `${appBasePath}/favicon.svg`;
+  const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
+    form.slug || form.id,
+  )}/og.png`;
+  const ogImageUrl = origin
+    ? new URL(ogImagePath, origin).toString()
+    : ogImagePath;
+  const metaDescription =
+    form.description || "Submit this Agent-Native Forms form.";
 
   const fieldsHtml = fields.map(renderField).join("\n");
 
@@ -291,7 +329,19 @@ function renderFormPage(form: {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${escapeHtml(form.title)}</title>
-${form.description ? `<meta name="description" content="${escapeHtml(form.description)}">` : ""}
+<meta name="description" content="${escapeHtml(metaDescription)}">
+<meta property="og:title" content="${escapeHtml(form.title)}">
+<meta property="og:description" content="${escapeHtml(metaDescription)}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
 <link rel="icon" type="image/svg+xml" href="${faviconPath}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -545,13 +595,30 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 // 404 page
 // ---------------------------------------------------------------------------
 
-function notFoundPage() {
+function notFoundPage(origin?: string) {
+  const appBasePath = getAppBasePath();
+  const ogImagePath = `${appBasePath}/_agent-native/og-image.png`;
+  const ogImageUrl = origin
+    ? new URL(ogImagePath, origin).toString()
+    : ogImagePath;
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Form not found</title>
+<meta name="description" content="This Agent-Native Forms link is no longer available.">
+<meta property="og:title" content="Form not found">
+<meta property="og:description" content="This Agent-Native Forms link is no longer available.">
+<meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>${CSS()}</style>
 </head>

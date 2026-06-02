@@ -41,6 +41,11 @@ export {
 } from "./agent-sidebar-url.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   defaultSocialImageMeta,
   withDefaultSocialImage,
   type SocialMetaDescriptor,

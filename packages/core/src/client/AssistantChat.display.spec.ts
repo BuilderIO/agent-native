@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
+  assistantUiRecoverableRenderErrorKind,
   displayableUserMessageText,
+  isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
   latestNonRecoveryUserMessageText,
 } from "./AssistantChat.js";
@@ -72,8 +74,58 @@ describe("isAssistantUiStaleIndexError", () => {
     ).toBe(true);
   });
 
+  it("does not match other assistant-ui recoverable errors", () => {
+    expect(
+      isAssistantUiStaleIndexError(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe(false);
+  });
+
   it("ignores unrelated errors", () => {
     expect(isAssistantUiStaleIndexError(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("assistantUiRecoverableRenderErrorKind", () => {
+  it("matches assistant-ui stale message index crashes", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error("tapClientLookup: Index 79 out of bounds (length: 78)"),
+      ),
+    ).toBe("assistant-ui-stale-message-index");
+  });
+
+  it("matches React fiber unmount crashes from assistant-ui composer teardown", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Tried to unmount a fiber that is already unmounted. This is a React internal error.",
+        ),
+      ),
+    ).toBe("assistant-ui-react-fiber-unmount");
+  });
+
+  it("matches duplicate resource-key crashes from assistant-ui composer state", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe("assistant-ui-duplicate-resource-key");
+  });
+
+  it("ignores unrelated errors", () => {
+    expect(assistantUiRecoverableRenderErrorKind(new Error("boom"))).toBeNull();
+  });
+});
+
+describe("isAssistantUiRecoverableRenderError", () => {
+  it("matches assistant-ui duplicate resource key crashes", () => {
+    expect(
+      isAssistantUiRecoverableRenderError(
+        new Error("Duplicate key toolCallId-tc_1 in tapResources"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -172,5 +224,61 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     });
 
     expect(container.textContent).toContain("Recovered composer");
+  });
+
+  it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {
+    let renders = 0;
+    function FlakyComposer() {
+      renders += 1;
+      if (renders === 1) {
+        throw new Error(
+          "Tried to unmount a fiber that is already unmounted. This is a React internal error.",
+        );
+      }
+      return React.createElement("div", null, "Recovered composer");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "AssistantChat" },
+          React.createElement(FlakyComposer),
+        ),
+      );
+    });
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Recovered composer");
+  });
+
+  it("remounts any assistant-ui subtree after a duplicate resource key error", async () => {
+    let renders = 0;
+    function FlakyComposer() {
+      renders += 1;
+      if (renders === 1) {
+        throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+      }
+      return React.createElement("div", null, "Recovered resources");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "PromptComposer" },
+          React.createElement(FlakyComposer),
+        ),
+      );
+    });
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Recovered resources");
   });
 });

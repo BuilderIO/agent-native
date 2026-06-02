@@ -60,6 +60,10 @@ import {
   readSSEStreamRaw,
 } from "./sse-event-processor.js";
 import { captureError } from "./analytics.js";
+import {
+  AssistantMessageListErrorBoundary,
+  AssistantUiStaleIndexErrorBoundary,
+} from "./assistant-ui-recovery.js";
 import { cn } from "./utils.js";
 import { writeClipboardText } from "./clipboard.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
@@ -146,6 +150,14 @@ import {
   IconArrowsMinimize,
   IconPlus,
 } from "@tabler/icons-react";
+
+export {
+  AssistantMessageListErrorBoundary,
+  AssistantUiStaleIndexErrorBoundary,
+  assistantUiRecoverableRenderErrorKind,
+  isAssistantUiRecoverableRenderError,
+  isAssistantUiStaleIndexError,
+} from "./assistant-ui-recovery.js";
 
 class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = "image/*";
@@ -2118,121 +2130,6 @@ function UserMessageText({ text }: { text: string }) {
 
 export function displayableUserMessageText(text: string): string {
   return text.replace(/<context>[\s\S]*?<\/context>\n?/g, "").trim();
-}
-
-export function isAssistantUiStaleIndexError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /^tapClientLookup: Index \d+ out of bounds \(length: \d+\)$/.test(
-    message,
-  );
-}
-
-type AssistantUiStaleIndexErrorBoundaryProps = {
-  resetKey: string;
-  componentName?: string;
-  children: React.ReactNode;
-};
-
-type AssistantUiStaleIndexErrorBoundaryState = {
-  error: Error | null;
-  retryToken: number;
-};
-
-export class AssistantUiStaleIndexErrorBoundary extends React.Component<
-  AssistantUiStaleIndexErrorBoundaryProps,
-  AssistantUiStaleIndexErrorBoundaryState
-> {
-  state: AssistantUiStaleIndexErrorBoundaryState = {
-    error: null,
-    retryToken: 0,
-  };
-
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-  static getDerivedStateFromError(
-    error: unknown,
-  ): Partial<AssistantUiStaleIndexErrorBoundaryState> {
-    return {
-      error: error instanceof Error ? error : new Error(String(error ?? "")),
-    };
-  }
-
-  componentDidCatch(error: unknown, info: React.ErrorInfo) {
-    if (!isAssistantUiStaleIndexError(error)) return;
-
-    captureError(error, {
-      tags: {
-        component: this.props.componentName ?? "AssistantChat",
-        recoverable: "assistant-ui-stale-message-index",
-      },
-      extra: {
-        resetKey: this.props.resetKey,
-        componentStack: info.componentStack,
-      },
-    });
-
-    if (this.retryTimer) return;
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      this.setState((state) => {
-        if (!state.error || !isAssistantUiStaleIndexError(state.error)) {
-          return null;
-        }
-        return { error: null, retryToken: state.retryToken + 1 };
-      });
-    }, 0);
-  }
-
-  componentDidUpdate(prevProps: AssistantUiStaleIndexErrorBoundaryProps) {
-    if (
-      this.state.error &&
-      isAssistantUiStaleIndexError(this.state.error) &&
-      prevProps.resetKey !== this.props.resetKey
-    ) {
-      this.setState((state) => ({
-        error: null,
-        retryToken: state.retryToken + 1,
-      }));
-    }
-  }
-
-  componentWillUnmount() {
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      if (!isAssistantUiStaleIndexError(this.state.error)) {
-        throw this.state.error;
-      }
-      return null;
-    }
-
-    return (
-      <React.Fragment key={`${this.props.resetKey}:${this.state.retryToken}`}>
-        {this.props.children}
-      </React.Fragment>
-    );
-  }
-}
-
-export function AssistantMessageListErrorBoundary({
-  resetKey,
-  children,
-}: {
-  resetKey: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <AssistantUiStaleIndexErrorBoundary
-      resetKey={resetKey}
-      componentName="AssistantMessageList"
-    >
-      {children}
-    </AssistantUiStaleIndexErrorBoundary>
-  );
 }
 
 function UserMessageAttachments() {

@@ -120,7 +120,10 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
-      const toolCallId = `tc_${++toolCallCounter}`;
+      toolCallCounter += 1;
+      const toolCallId = runId
+        ? `${runId}:tc_${toolCallCounter}`
+        : `tc_${toolCallCounter}`;
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
         type: "tool-call",
@@ -381,12 +384,50 @@ function normalizeMessageEntry(
 ): { message: any; parentId: string | null; runConfig?: any } | null {
   const message = getStoredMessage(entry);
   if (!messageId(message)) return null;
+  const normalizedMessage = normalizeAssistantToolCallIds(message);
   const runConfig = getStoredRunConfig(entry);
   return {
-    message,
+    message: normalizedMessage,
     parentId,
     ...(runConfig !== undefined ? { runConfig } : {}),
   };
+}
+
+function uniqueToolCallId(toolCallId: string, seen: Set<string>): string {
+  if (!seen.has(toolCallId)) return toolCallId;
+  let suffix = 2;
+  let candidate = `${toolCallId}__dedup_${suffix}`;
+  while (seen.has(candidate)) {
+    suffix += 1;
+    candidate = `${toolCallId}__dedup_${suffix}`;
+  }
+  return candidate;
+}
+
+function normalizeAssistantToolCallIds(message: any): any {
+  if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+    return message;
+  }
+
+  const seen = new Set<string>();
+  let changed = false;
+  const content = message.content.map((part: any) => {
+    if (
+      part?.type !== "tool-call" ||
+      typeof part.toolCallId !== "string" ||
+      part.toolCallId.length === 0
+    ) {
+      return part;
+    }
+
+    const nextToolCallId = uniqueToolCallId(part.toolCallId, seen);
+    seen.add(nextToolCallId);
+    if (nextToolCallId === part.toolCallId) return part;
+    changed = true;
+    return { ...part, toolCallId: nextToolCallId };
+  });
+
+  return changed ? { ...message, content } : message;
 }
 
 /**
@@ -1053,7 +1094,10 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       merged.push({ ...part });
     }
   }
-  return merged;
+  return normalizeAssistantToolCallIds({
+    role: "assistant",
+    content: merged,
+  }).content;
 }
 
 /**
@@ -1144,7 +1188,10 @@ export function foldAssistantTurn(
 
   const mergedMessage = {
     ...lastMsg,
-    content: mergedContent,
+    content: normalizeAssistantToolCallIds({
+      role: "assistant",
+      content: mergedContent,
+    }).content,
     // The freshest chunk's status wins: a clean done supersedes a prior
     // partial; a real error supersedes a partial.
     status: assistantMsg.status ?? lastMsg.status,
