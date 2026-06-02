@@ -3875,6 +3875,88 @@ body[data-clips-route="recording-pill"] #root {
 .pill-transcript-area {
   min-height: 0;
   flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.lt-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f4f4f5;
+}
+
+.lt-empty {
+  color: #71717a;
+}
+
+.lt-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.lt-row-you {
+  align-items: flex-end;
+}
+
+.lt-row-them {
+  align-items: flex-start;
+}
+
+.lt-row-pending {
+  opacity: 0.6;
+}
+
+.lt-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.lt-time {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  opacity: 0.55;
+}
+
+.lt-row-you .lt-label {
+  color: rgba(252, 211, 77, 0.8);
+}
+
+.lt-row-them .lt-label {
+  color: rgba(125, 211, 252, 0.8);
+}
+
+.lt-bubble {
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: 16px;
+  word-break: break-word;
+}
+
+.lt-row-you .lt-bubble {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fffbeb;
+  border-bottom-right-radius: 4px;
+}
+
+.lt-row-them .lt-bubble {
+  background: rgba(14, 165, 233, 0.2);
+  color: #f0f9ff;
+  border-bottom-left-radius: 4px;
 }
 
 .pill-footer {

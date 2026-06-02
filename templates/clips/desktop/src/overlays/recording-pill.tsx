@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconChevronDown,
   IconChevronUp,
@@ -257,6 +258,17 @@ export function RecordingPill() {
     }
   }
 
+  const handlePillMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-no-drag]")) return;
+    getCurrentWindow()
+      .startDragging()
+      .catch((err) => {
+        console.warn("[clips-pill] startDragging failed", err);
+      });
+  };
+
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
   const stopLabel =
@@ -264,7 +276,7 @@ export function RecordingPill() {
 
   return (
     <div className="pill-outer">
-      <div className="pill-inner" data-tauri-drag-region>
+      <div className="pill-inner" onMouseDown={handlePillMouseDown}>
         <div
           className={`pill-header${detached ? " pill-header-detached" : ""}`}
         >

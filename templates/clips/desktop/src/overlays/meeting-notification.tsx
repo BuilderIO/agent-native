@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconAlertCircle, IconClock, IconX } from "@tabler/icons-react";
 
 interface NotificationData {
@@ -11,12 +12,6 @@ interface NotificationData {
   meetingId: string;
   joinUrl?: string | null;
   autoStart?: boolean;
-}
-
-interface StartRecordingPayload {
-  meetingId: string;
-  joinUrl?: string | null;
-  reason?: string;
 }
 
 interface TranscriptionStatusPayload {
@@ -68,6 +63,20 @@ export function MeetingNotification() {
   // re-subscribing on every render.
   useEffect(() => {
     dataRef.current = data;
+  }, [data]);
+
+  // The notification window is a single persistent overlay (created once at
+  // startup so it can receive `meetings:show-notification` events). Drive its
+  // OS-level visibility from React state: a shown-but-empty transparent window
+  // would otherwise sit at the top of the screen swallowing clicks. Visible
+  // only while there's a notification on screen.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    if (data) {
+      win.show().catch(() => {});
+    } else {
+      win.hide().catch(() => {});
+    }
   }, [data]);
 
   function showNotification(
