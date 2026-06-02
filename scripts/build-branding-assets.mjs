@@ -90,19 +90,15 @@ const TEMPLATE_DIRS = [
   "templates/calendar",
   "templates/clips",
   "templates/content",
+  "templates/contracts",
   "templates/design",
   "templates/dispatch",
   "templates/forms",
-  "templates/issues",
   "templates/macros",
   "templates/mail",
-  "templates/meeting-notes",
-  "templates/recruiting",
-  "templates/scheduling",
   "templates/slides",
   "templates/starter",
   "templates/videos",
-  "templates/voice",
 ];
 
 for (const t of TEMPLATE_DIRS) {

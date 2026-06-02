@@ -61,11 +61,22 @@ const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   color: template.color,
 }));
 
-const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
-  TEMPLATES.filter(
+const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set([
+  ...TEMPLATES.filter(
     (template) => template.hidden && !template.defaultAgent && template.prodUrl,
   ).map((template) => template.name),
-);
+  // Stale resources for removed first-party apps should not reappear as
+  // custom remote agents just because the template metadata entry is gone.
+  "calls",
+  "code",
+  "issues",
+  "meeting-notes",
+  "migration",
+  "recruiting",
+  "scheduling",
+  "voice",
+  "workbench",
+]);
 
 function normalizeAgentId(id: string): string {
   const normalized = id.trim().toLowerCase();

@@ -239,7 +239,6 @@ Workspace-scope secret writes still require org owner/admin role regardless of t
 - [ ] `EMAIL_INBOUND_WEBHOOK_SECRET` if Resend / SendGrid inbound is enabled
 - [ ] `SLACK_SIGNING_SECRET` if Slack is enabled
 - [ ] `TELEGRAM_WEBHOOK_SECRET` / `WHATSAPP_APP_SECRET` for those integrations
-- [ ] `RECALL_WEBHOOK_SECRET`, `DEEPGRAM_WEBHOOK_SECRET`, `ZOOM_WEBHOOK_SECRET` for calls
 - [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
 
 ### Schema

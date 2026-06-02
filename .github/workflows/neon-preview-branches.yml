@@ -45,9 +45,6 @@ jobs:
           - template: forms
             neon_project: curly-glade-91979555
             netlify_site: aa0b2020-9983-4d6c-8fb0-65462f960fc4
-          - template: issues
-            neon_project: crimson-wave-50288362
-            netlify_site: 76b94d46-f566-43cd-bddd-01123137ab9a
           - template: mail
             neon_project: patient-cake-44789837
             netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5
@@ -117,9 +114,6 @@ jobs:
           - template: forms
             neon_project: curly-glade-91979555
             netlify_site: aa0b2020-9983-4d6c-8fb0-65462f960fc4
-          - template: issues
-            neon_project: crimson-wave-50288362
-            netlify_site: 76b94d46-f566-43cd-bddd-01123137ab9a
           - template: mail
             neon_project: patient-cake-44789837
             netlify_site: dee98bb0-6143-4205-8c04-afe7bf83d5b5

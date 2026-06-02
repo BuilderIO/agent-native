@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "contracts",
+  "displayName": "Contracts",
+  "description": "Review coding-agent assumptions and proof before work is called done.",
+  "hosted": {
+    "url": "https://contracts.agent-native.com",
+    "mcpUrl": "https://contracts.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-contracts"
+  },
+  "local": {
+    "template": "contracts",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8105",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Authenticate with the Contracts MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector."
+  },
+  "surfaces": [
+    {
+      "id": "review-inbox",
+      "action": "create-contract",
+      "path": "/contracts",
+      "description": "Create or open a Contracts review queue for a coding-agent task."
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/contracts",
+      "visibility": "both",
+      "exportAs": "contracts"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

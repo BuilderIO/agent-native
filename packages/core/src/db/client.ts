@@ -505,7 +505,7 @@ export function attachNeonPoolErrorLogger(
   if (!pool || typeof pool !== "object") return;
   if (loggedNeonPools.has(pool)) return;
   const withEvents = pool as {
-    on?: (event: "error", listener: (err: unknown) => void) => unknown;
+    on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
   };
   if (typeof withEvents.on !== "function") return;
 
@@ -515,6 +515,34 @@ export function attachNeonPoolErrorLogger(
       `[${label}] pool error (will reconnect on next query):`,
       err instanceof Error ? err.message : err,
     );
+  });
+
+  // Attach a persistent 'error' listener to EVERY client for its whole lifetime.
+  //
+  // @neondatabase/serverless mirrors pg-pool, which only keeps its own idle
+  // error listener on a client while that client is idle — it REMOVES the
+  // listener the moment the client is checked out. So when a checked-out
+  // client's WebSocket drops mid-flight (Lambda freeze/thaw, Neon "terminating
+  // connection due to administrator command", an idle socket the pooler closed),
+  // the client emits 'error' with no listener. Node turns an unhandled 'error'
+  // EventEmitter event into an uncaught exception, which crashes the whole
+  // serverless function. This was by far the single highest-volume production
+  // crash (Sentry "Unhandled error. ()", mechanism auto.node.onuncaughtexception,
+  // culprit neondatabase__serverless). pg routes the failure to the in-flight
+  // query independently, so this listener only needs to keep the emit from going
+  // unhandled — the dropped client is discarded and the next query reconnects.
+  withEvents.on("connect", (client: unknown) => {
+    if (!client || typeof client !== "object") return;
+    const clientEvents = client as {
+      on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
+    };
+    if (typeof clientEvents.on !== "function") return;
+    clientEvents.on("error", (err: unknown) => {
+      console.warn(
+        `[${label}] client connection error (connection discarded, next query reconnects):`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   });
 }
 

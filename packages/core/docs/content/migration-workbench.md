@@ -20,7 +20,7 @@ npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
 
 See [Agent-Native Code UI](/docs/code-agents-ui) for the shared CLI run controls (`list`/`attach`/`logs`/`resume`/`status`/`stop`/`ui`) and the file-backed, long-running background-run model that `/migrate` sessions use.
 
-By default `/migrate` creates a generic Agent-Native Code session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The hidden `migration` app is now a legacy/internal detail surface, available with `--app-surface` when a run needs a richer assessment/approval/task/verifier dashboard.
+By default `/migrate` creates a generic Agent-Native Code session plus a portable migration dossier. Migration is a slash command in the Code workspace, not a normal template to scaffold. The legacy hidden `migration` detail app has been removed; use the Code workspace, Desktop Code tab, or emitted dossier as the supported surfaces.
 
 The direct `migrate` command remains a shortcut into the same goal:
 
@@ -104,26 +104,9 @@ npx @agent-native/core@latest code /migrate --describe "A Rails admin app with r
 
 For local paths, the source is read-only. Generated output must live outside the source tree.
 
-## Internal Run Surface
+## Internal Run Flow
 
-The normal command creates a generic Agent-Native Code session and writes artifacts under the Agent-Native Code run store. It does **not** scaffold an app/template.
-
-Open the legacy hidden `migration` detail surface only when you explicitly want that richer dashboard:
-
-```bash
-npx @agent-native/core@latest code /migrate ./my-next-app --app-surface
-cd migration
-pnpm install
-pnpm dev
-```
-
-The local dev URL is printed by Vite. In first-party dev setups it is usually:
-
-```text
-http://localhost:8101/
-```
-
-Inside that optional internal surface, the flow is:
+The normal command creates a generic Agent-Native Code session and writes artifacts under the Agent-Native Code run store. It does **not** scaffold an app/template. The flow is:
 
 1. **Discover** reads the source and creates `01-assessment.md`.
 2. **Plan** creates recipe tasks and writes `02-plan.md` plus `03-tasks.md`.
@@ -131,7 +114,7 @@ Inside that optional internal surface, the flow is:
 4. **Sweep** runs migration tasks against the generated output project.
 5. **Verify** runs deterministic checks and writes `04-report.md`.
 
-Drive this surface with the standard run controls (`status`/`list`/`attach`/`logs`/`approve`/`resume`/`ui`/`stop`, plus `--continue "prompt"` to record and run a follow-up). See [Agent-Native Code UI](/docs/code-agents-ui) for what each control does and how stop/approve behave.
+Drive the session with the standard run controls (`status`/`list`/`attach`/`logs`/`approve`/`resume`/`ui`/`stop`, plus `--continue "prompt"` to record and run a follow-up). See [Agent-Native Code UI](/docs/code-agents-ui) for what each control does and how stop/approve behave.
 
 ## Long-Running Goals
 

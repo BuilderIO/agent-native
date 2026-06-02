@@ -8,6 +8,7 @@ import {
   IconChartBar,
   IconChevronDown,
   IconClipboardList,
+  IconContract,
   IconEyeOff,
   IconFileText,
   IconLoader2,
@@ -64,6 +65,7 @@ const TEMPLATE_ICONS: Record<string, typeof IconMail> = {
   Photo: IconPhoto,
   ChartBar: IconChartBar,
   ClipboardList: IconClipboardList,
+  Contract: IconContract,
   Brush: IconBrush,
   Video: IconVideo,
 };
