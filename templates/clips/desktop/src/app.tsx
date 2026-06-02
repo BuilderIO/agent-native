@@ -939,7 +939,7 @@ export function App() {
       recordingId: session.recordingId,
       fullText: session.lines.join("\n\n"),
       segments: session.segments,
-      source: "macos-native",
+      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
       overwriteReady: true,
     });
   }, [callClipsAction]);

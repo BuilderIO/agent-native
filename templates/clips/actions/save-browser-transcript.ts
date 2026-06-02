@@ -53,7 +53,7 @@ export default defineAction({
       .default("")
       .describe("Full transcript text from native speech recognition"),
     source: z
-      .enum(["web-speech", "macos-native"])
+      .enum(["web-speech", "macos-native", "whisper"])
       .optional()
       .describe("Native transcription source"),
     segments: z
