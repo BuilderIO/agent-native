@@ -114,9 +114,12 @@ export async function getContentDatabaseResponse(
           .select()
           .from(schema.documents)
           .where(
-            inArray(
-              schema.documents.id,
-              items.map((item) => item.documentId),
+            and(
+              inArray(
+                schema.documents.id,
+                items.map((item) => item.documentId),
+              ),
+              eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];
