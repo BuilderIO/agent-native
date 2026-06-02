@@ -491,8 +491,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     ) : undefined;
 
   return (
-    <div className="relative flex-1 flex min-h-0">
-      <div className="flex-1 flex flex-col min-h-0">
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DocumentToolbar
           documentId={documentId}
           documentTitle={localTitle || document.title}

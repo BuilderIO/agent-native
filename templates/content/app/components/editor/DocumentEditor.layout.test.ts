@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   databaseMembershipDatabaseTitle,
@@ -19,6 +20,22 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(true)).toContain("pb-2");
     expect(documentEditorDatabaseRegionClassName()).toContain("max-w-none");
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
+  });
+
+  it("keeps the editor flex chain shrinkable inside the app shell", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      'className="relative flex min-h-0 min-w-0 flex-1"',
+    );
+    expect(source).toContain(
+      'className="flex min-h-0 min-w-0 flex-1 flex-col"',
+    );
   });
 
   it("defaults database pages to the database icon in the editor", () => {
