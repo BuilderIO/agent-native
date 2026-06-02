@@ -79,9 +79,36 @@ The user asked a question in the Knowledge Assistant. The app has already:
 There are two distinct dashboard sources — always check both when a question is about dashboards or data visibility:
 
 - **App dashboards** — SQL panel dashboards built inside this analytics app (HubSpot Sales, Revenue Dashboard, etc.). Use the `list-dashboards` action to retrieve these.
-- **Sigma workbooks** — BI dashboards in the organization's Sigma Computing instance (e.g. "Enterprise Contract Terms and Details"). Use Sigma MCP (`begin_session` → `search`) to find these.
+- **Sigma workbooks** — BI dashboards in the organization's Sigma Computing instance. Use Sigma MCP (`begin_session` → `search`) to find these.
 
 **Always search both sources** and include relevant findings from each in your answer. A user asking "is there a dashboard for X?" may find the answer in either place.
+
+---
+
+## Known Sigma Workbooks — Check These Directly When Search Fails
+
+Sigma search is keyword-based and may miss workbooks whose names don't match the query terms. Use the registry below to determine which known workbook to `describe` directly.
+
+| Business domain / topic | Sigma Workbook to check |
+|---|---|
+| Case study opt-ins, case study status, customer references | **Enterprise Contract Terms and Details** |
+| Contract details, contract value, contract dates | **Enterprise Contract Terms and Details** |
+| Enterprise accounts, enterprise tier data | **Enterprise Contract Terms and Details** |
+| CSM assignments, customer success managers | **Enterprise Contract Terms and Details** |
+| Opt-in flags, permission flags, customer consent | **Enterprise Contract Terms and Details** |
+
+**When to use this registry:**
+1. Run `mcp__sigma__search` first with the question's keywords.
+2. If search returns no match (or no match that looks relevant), check whether the topic maps to a known workbook in the table above.
+3. If it does: use `mcp__sigma__search` with the **workbook name** (e.g. `"Enterprise Contract Terms and Details"`) to locate it, then call `mcp__sigma__describe` on the result to inspect its sheets and columns.
+4. Surface the relevant sheet/tab name and column names in your answer so the user knows exactly where the data lives.
+
+**Example:** The question "Is there a dashboard for case study opt-ins?" should trigger:
+- Sigma search for "case study" → likely no direct hit
+- Lookup in registry → "Enterprise Contract Terms and Details" is the known workbook
+- Sigma search for "Enterprise Contract Terms" → find the workbook ID
+- `describe` the workbook → identify the sheet/tab that tracks opt-in status
+- Answer: "Yes — the **Enterprise Contract Terms and Details** Sigma workbook has a [Sheet Name] tab that tracks case study opt-in status."
 
 ---
 

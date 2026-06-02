@@ -144,12 +144,23 @@ export default defineAction({
       .insert(schema.askSessions)
       .values({ id, question, status: "searching", userEmail });
 
+    const sigmaKnownWorkbooks: Source = {
+      type: "other" as const,
+      title: "Known Sigma Workbooks Registry",
+      excerpt: [
+        "The following Sigma workbooks are known resources. Search Sigma by workbook name to locate them, then describe to inspect sheets/columns.",
+        "",
+        "- Enterprise Contract Terms and Details",
+        "  Covers: contract details, enterprise tier, case study opt-in status, CSM assignments, opt-in/consent flags, customer references",
+      ].join("\n"),
+    };
+
     const [ghSources, dashboardSources] = await Promise.all([
       searchGitHub(question, process.env.GITHUB_TOKEN),
       fetchDashboardCatalog(),
     ]);
 
-    const allSources = [...dashboardSources, ...ghSources];
+    const allSources = [...dashboardSources, sigmaKnownWorkbooks, ...ghSources];
 
     await db
       .update(schema.askSessions)
