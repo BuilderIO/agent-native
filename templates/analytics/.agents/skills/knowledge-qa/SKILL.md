@@ -74,6 +74,17 @@ The user asked a question in the Knowledge Assistant. The app has already:
 
 ---
 
+## Dashboard Sources — Critical Distinction
+
+There are two completely different sets of dashboards:
+
+- **App dashboards** — SQL panel dashboards built inside this analytics app (listed in the sidebar, stored in the app's own database). These are NOT the dashboards the user is asking about when they ask "is there a dashboard for X?".
+- **Sigma workbooks** — the actual BI/analytics dashboards in the organization's Sigma Computing instance (e.g. "Enterprise Contract Terms and Details", "Revenue Dashboard"). **These are the dashboards users refer to when asking about business dashboards.**
+
+**Never use `list-dashboards`, the app's SQL dashboard list, or any internal app action to answer "is there a dashboard for X?" questions.** Always use Sigma MCP to search for business dashboards. The app's own dashboards are a development artifact; Sigma is the business BI source of truth.
+
+---
+
 ## Hard Constraints — READ FIRST
 
 **DO NOT build, create, or modify any dashboards, analyses, SQL panels, or other resources.**
