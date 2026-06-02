@@ -71,6 +71,9 @@ export function Layout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const isKnowledgeRoute =
+    location.pathname === "/knowledge" ||
+    location.pathname.startsWith("/knowledge/");
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -79,7 +82,7 @@ export function Layout({ children }: LayoutProps) {
         </div>
         <AgentSidebar
           position="right"
-          defaultOpen
+          defaultOpen={!isKnowledgeRoute}
           emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
           suggestions={[
             "What's driving ARR growth this quarter?",
