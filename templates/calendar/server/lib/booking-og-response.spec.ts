@@ -9,4 +9,10 @@ describe("booking OG response headers", () => {
       "Cross-Origin-Resource-Policy": "cross-origin",
     });
   });
+
+  it("omits content length when image bytes were not rendered", () => {
+    expect(bookingOgImageResponseHeaders()).not.toHaveProperty(
+      "Content-Length",
+    );
+  });
 });

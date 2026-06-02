@@ -182,6 +182,35 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  class ParentErrorBoundary extends React.Component<
+    {
+      children: React.ReactNode;
+      onError: (error: Error) => void;
+    },
+    { error: Error | null }
+  > {
+    state: { error: Error | null } = { error: null };
+
+    static getDerivedStateFromError(error: unknown) {
+      return {
+        error: error instanceof Error ? error : new Error(String(error ?? "")),
+      };
+    }
+
+    componentDidCatch(error: unknown) {
+      this.props.onError(
+        error instanceof Error ? error : new Error(String(error ?? "")),
+      );
+    }
+
+    render() {
+      if (this.state.error) {
+        return React.createElement("div", null, "Parent caught");
+      }
+      return this.props.children;
+    }
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
@@ -280,5 +309,82 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     });
 
     expect(container.textContent).toContain("Recovered resources");
+  });
+
+  it("escalates persistent recoverable render errors after a retry budget", async () => {
+    const caught: Error[] = [];
+    function BrokenComposer() {
+      throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          ParentErrorBoundary,
+          { onError: (error) => caught.push(error) },
+          React.createElement(
+            AssistantUiStaleIndexErrorBoundary,
+            { resetKey: "thread-1", componentName: "PromptComposer" },
+            React.createElement(BrokenComposer),
+          ),
+        ),
+      );
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+
+    expect(caught).toHaveLength(1);
+    expect(caught[0].message).toContain("Duplicate key");
+    expect(container.textContent).toContain("Parent caught");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resets the recoverable retry budget after a successful remount", async () => {
+    const caught: Error[] = [];
+    let failuresRemaining = 2;
+    function FlakyComposer({ cycle }: { cycle: number }) {
+      if (failuresRemaining > 0) {
+        failuresRemaining -= 1;
+        throw new Error("Duplicate key toolCallId-tc_1 in tapResources");
+      }
+      return React.createElement("div", null, `Recovered resources ${cycle}`);
+    }
+
+    function renderCycle(cycle: number) {
+      root.render(
+        React.createElement(
+          ParentErrorBoundary,
+          { onError: (error) => caught.push(error) },
+          React.createElement(
+            AssistantUiStaleIndexErrorBoundary,
+            { resetKey: "thread-1", componentName: "PromptComposer" },
+            React.createElement(FlakyComposer, { cycle }),
+          ),
+        ),
+      );
+    }
+
+    act(() => renderCycle(1));
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+    expect(container.textContent).toContain("Recovered resources 1");
+
+    failuresRemaining = 2;
+    act(() => renderCycle(2));
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
+    }
+
+    expect(caught).toHaveLength(0);
+    expect(container.textContent).toContain("Recovered resources 2");
   });
 });

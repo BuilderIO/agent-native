@@ -4989,7 +4989,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // mark dead runs failed) so the tray reflects precise status without
       // waiting on the orchestrator chat to poll. Registered here to keep the
       // generic progress store free of feature-module imports.
-      setProgressPreListHook(reconcileAgentTeamRunsForOwner);
+      setProgressPreListHook((owner, context) =>
+        runWithRequestContext({ userEmail: owner }, () =>
+          reconcileAgentTeamRunsForOwner(owner, context.event),
+        ),
+      );
 
       // ─── Agent Teams: durable sub-agent run processor ─────────────────
       // Self-fire target for `spawnTask`. Executes one chunk of a queued
