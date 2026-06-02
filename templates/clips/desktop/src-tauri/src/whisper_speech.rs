@@ -21,6 +21,9 @@ pub async fn meeting_whisper_start(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
 ) -> Result<(), String> {
+    if !crate::config::feature_config(&app).whisper_model_enabled {
+        return Err("whisper-model-disabled".into());
+    }
     #[cfg(target_os = "macos")]
     {
         macos::start(app, language, mic_device_id, mic_device_label).await
@@ -469,17 +472,19 @@ mod macos {
         // (e.g. "en-US" -> "en"). The bundled ggml-base.en is English-only and
         // ignores this, but it keeps custom multilingual models honest.
         let lang: Option<String> = match language.as_deref() {
-            Some(l) if !l.trim().is_empty() => {
-                Some(l.split(['-', '_']).next().unwrap_or("en").to_ascii_lowercase())
-            }
+            Some(l) if !l.trim().is_empty() => Some(
+                l.split(['-', '_'])
+                    .next()
+                    .unwrap_or("en")
+                    .to_ascii_lowercase(),
+            ),
             _ if custom_model_override() => None,
             _ => Some("en".to_string()),
         };
 
         // Mic stream + capture. The real hardware rate is read back from the
         // capture handle and pushed into the stream (default 48 kHz until then).
-        let mic_stream =
-            WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone());
+        let mic_stream = WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone());
         let mic_for_cb = mic_stream.clone();
         let mic_cap = start_raw_mic_capture(
             app.clone(),
