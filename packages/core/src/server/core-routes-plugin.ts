@@ -2345,7 +2345,10 @@ export function createCoreRoutesPlugin(
               await import("./credential-provider.js");
             const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
             builderConfigured = userEmail
-              ? await runWithRequestContext({ userEmail }, resolve)
+              ? await runWithRequestContext(
+                  { userEmail, orgId: session?.orgId },
+                  resolve,
+                )
               : await resolve();
           } catch {
             // fall back to env check above
@@ -2400,13 +2403,15 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext({ userEmail }, () =>
-            uploadFile({
-              data: filePart.data,
-              filename: filePart.filename,
-              mimeType: filePart.type,
-              ownerEmail: userEmail,
-            }),
+          const result = await runWithRequestContext(
+            { userEmail, orgId: session.orgId },
+            () =>
+              uploadFile({
+                data: filePart.data,
+                filename: filePart.filename,
+                mimeType: filePart.type,
+                ownerEmail: userEmail,
+              }),
           );
 
           if (result) {
