@@ -509,7 +509,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
         <div
           ref={scrollContainerRef}
-          className="flex-1 min-h-0 overflow-auto flex flex-col"
+          className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
         >
           <div
             className={documentEditorTitleRegionClassName(

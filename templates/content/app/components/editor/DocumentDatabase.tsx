@@ -2399,7 +2399,7 @@ function DatabaseTableView({
   return (
     <div
       data-database-scroll-surface="table"
-      className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
+      className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
     >
       <div className="w-max min-w-full min-w-[720px]">
         {selectedCount > 0 ? (

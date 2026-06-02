@@ -156,7 +156,7 @@ export function Layout({ children }: LayoutProps) {
           scope={documentScope}
         >
           <main
-            className="relative flex min-w-0 min-h-0 flex-1 flex-col"
+            className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
             style={
               {
                 "--content-sidebar-width": `${contentSidebarWidth}px`,
