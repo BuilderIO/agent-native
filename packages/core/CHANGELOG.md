@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.11
+
+### Patch Changes
+
+- 4ee09b9: Copy ffmpeg-static into serverless bundles so Clips media transcription fallback can extract audio in production.
+
 ## 0.32.10
 
 ### Patch Changes
