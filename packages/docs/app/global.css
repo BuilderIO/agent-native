@@ -498,7 +498,6 @@ h4 {
   }
 
   .docs-sidebar-section-items-clip[data-state="closed"] {
-    height: auto;
     max-height: 0;
   }
 }
