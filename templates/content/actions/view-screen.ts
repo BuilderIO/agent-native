@@ -13,6 +13,7 @@ import type {
   ContentDatabaseColumnCalculation,
   ContentDatabaseFilterMode,
   ContentDatabaseItem,
+  ContentDatabaseOpenPagesIn,
   ContentDatabaseResponse,
   ContentDatabaseRowDensity,
   ContentDatabaseView,
@@ -85,6 +86,13 @@ function rowDensityValue(
   if (value === "compact" || value === "default" || value === "comfortable") {
     return value;
   }
+  return undefined;
+}
+
+function openPagesInValue(
+  value: unknown,
+): ContentDatabaseOpenPagesIn | undefined {
+  if (value === "preview" || value === "full_page") return value;
   return undefined;
 }
 
@@ -604,6 +612,10 @@ export function databaseCurrentViewSnapshot(
       rowDensityValue(nav.databaseRowDensity) ??
       activeView?.rowDensity ??
       "default",
+    openPagesIn:
+      openPagesInValue(nav.databaseOpenPagesIn) ??
+      activeView?.openPagesIn ??
+      "preview",
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ?? response.items.length,
     totalItemCount:

@@ -24,6 +24,7 @@ import type {
   ContentDatabaseViewConfig,
   ContentDatabaseColumnCalculation,
   ContentDatabaseRowDensity,
+  ContentDatabaseOpenPagesIn,
   DocumentProperty,
 } from "../shared/api.js";
 
@@ -231,6 +232,7 @@ function defaultDatabaseView(
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
+    openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
   };
 }
 
@@ -278,6 +280,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     calculations: normalizeCalculations(view.calculations),
     wrapCells: view.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
+    openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
   };
 }
 
@@ -292,6 +295,12 @@ function normalizeDatabaseRowDensity(
 ): ContentDatabaseRowDensity {
   if (value === "compact" || value === "comfortable") return value;
   return "default";
+}
+
+function normalizeDatabaseOpenPagesIn(
+  value: unknown,
+): ContentDatabaseOpenPagesIn {
+  return value === "full_page" ? "full_page" : "preview";
 }
 
 function normalizeCalculations(value: unknown) {

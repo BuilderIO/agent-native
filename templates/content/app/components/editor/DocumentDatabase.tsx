@@ -128,6 +128,7 @@ import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
   ContentDatabaseFilterOperator,
+  ContentDatabaseOpenPagesIn,
   ContentDatabaseRowDensity,
   ContentDatabaseSort,
   ContentDatabaseSortDirection,
@@ -178,6 +179,10 @@ const DATABASE_ROW_DENSITIES: DatabaseRowDensity[] = [
   "compact",
   "default",
   "comfortable",
+];
+const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
+  "preview",
+  "full_page",
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 type CreateDatabaseRowHandler = (
@@ -427,6 +432,10 @@ function DatabaseTable({
   ]);
 
   function previewItemPage(item: ContentDatabaseItem) {
+    if (activeView.openPagesIn === "full_page") {
+      openItemPage(item);
+      return;
+    }
     setPreviewDocumentId(item.document.id);
   }
 
@@ -612,6 +621,10 @@ function DatabaseTable({
 
   function setRowDensity(rowDensity: DatabaseRowDensity) {
     updateActiveView((view) => ({ ...view, rowDensity }));
+  }
+
+  function setOpenPagesIn(openPagesIn: ContentDatabaseOpenPagesIn) {
+    updateActiveView((view) => ({ ...view, openPagesIn }));
   }
 
   function setGroupCollapsed(groupId: string, collapsed: boolean) {
@@ -804,6 +817,7 @@ function DatabaseTable({
             activeView={activeView}
             onWrapCellsChange={setWrapCells}
             onRowDensityChange={setRowDensity}
+            onOpenPagesInChange={setOpenPagesIn}
           />
           {canEdit && properties.length > 0 ? (
             <DatabasePropertiesMenu
@@ -1140,6 +1154,7 @@ export function databaseNavigationState({
     | "calculations"
     | "wrapCells"
     | "rowDensity"
+    | "openPagesIn"
   >;
   searchQuery?: string;
   sorts?: DatabaseSort[];
@@ -1222,6 +1237,10 @@ export function databaseNavigationState({
     databaseRowDensity:
       activeView.rowDensity && activeView.rowDensity !== "default"
         ? activeView.rowDensity
+        : undefined,
+    databaseOpenPagesIn:
+      activeView.openPagesIn === "full_page"
+        ? activeView.openPagesIn
         : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
@@ -2495,13 +2514,19 @@ function DatabaseViewOptionsMenu({
   activeView,
   onWrapCellsChange,
   onRowDensityChange,
+  onOpenPagesInChange,
 }: {
-  activeView: Pick<ContentDatabaseView, "type" | "wrapCells" | "rowDensity">;
+  activeView: Pick<
+    ContentDatabaseView,
+    "type" | "wrapCells" | "rowDensity" | "openPagesIn"
+  >;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onRowDensityChange: (rowDensity: DatabaseRowDensity) => void;
+  onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
 }) {
   const wrapCells = activeView.wrapCells === true;
   const rowDensity = activeView.rowDensity ?? "default";
+  const openPagesIn = activeView.openPagesIn ?? "preview";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -2521,6 +2546,32 @@ function DatabaseViewOptionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuLabel>View options</DropdownMenuLabel>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span className="flex-1">Open pages in</span>
+            <span className="text-xs text-muted-foreground">
+              {databaseOpenPagesInLabel(openPagesIn)}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-44">
+            {DATABASE_OPEN_PAGES_IN.map((value) => (
+              <DropdownMenuItem
+                key={value}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onOpenPagesInChange(value);
+                }}
+              >
+                <span className="flex-1">
+                  {databaseOpenPagesInLabel(value)}
+                </span>
+                {openPagesIn === value ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuItem
           disabled={activeView.type !== "table"}
           onSelect={(event) => {
@@ -2814,6 +2865,10 @@ function databaseRowDensityLabel(rowDensity: DatabaseRowDensity) {
   if (rowDensity === "compact") return "Compact";
   if (rowDensity === "comfortable") return "Comfortable";
   return "Default";
+}
+
+function databaseOpenPagesInLabel(value: ContentDatabaseOpenPagesIn) {
+  return value === "full_page" ? "Full page" : "Side preview";
 }
 
 function databaseFilterModeLabel(filterMode: DatabaseFilterMode) {
@@ -5853,6 +5908,7 @@ export function createDatabaseView(
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
+    openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
   };
 }
 
@@ -6006,6 +6062,7 @@ export function duplicateDatabaseView(
       calculations: view.calculations,
       wrapCells: view.wrapCells,
       rowDensity: view.rowDensity,
+      openPagesIn: view.openPagesIn,
     },
     view.type,
   );
@@ -6101,6 +6158,7 @@ function normalizeClientDatabaseView(
       calculations: normalizeClientCalculations(value.calculations),
       wrapCells: value.wrapCells === true,
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
+      openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
     },
     type,
   );
@@ -9599,6 +9657,12 @@ export function normalizeClientDatabaseRowDensity(
 ): DatabaseRowDensity {
   if (value === "compact" || value === "comfortable") return value;
   return "default";
+}
+
+export function normalizeClientDatabaseOpenPagesIn(
+  value: unknown,
+): ContentDatabaseOpenPagesIn {
+  return value === "full_page" ? "full_page" : "preview";
 }
 
 export function normalizeClientDatabaseFilterMode(

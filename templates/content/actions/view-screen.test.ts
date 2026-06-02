@@ -296,6 +296,7 @@ describe("view-screen current database view", () => {
           ],
           databaseWrapCells: true,
           databaseRowDensity: "compact",
+          databaseOpenPagesIn: "full_page",
           databaseVisibleItemCount: 1,
           databaseTotalItemCount: 2,
           databaseVisibleItems: [
@@ -334,6 +335,7 @@ describe("view-screen current database view", () => {
       groupByPropertyName: "Status",
       collapsedGroupIds: ["status:published"],
       hideEmptyGroups: true,
+      openPagesIn: "full_page",
       datePropertyId: "publish",
       datePropertyName: "Publish Date",
       endDatePropertyId: "end",
@@ -397,6 +399,7 @@ describe("view-screen current database view", () => {
       groupByPropertyName: "Status",
       collapsedGroupIds: ["status:published"],
       hideEmptyGroups: true,
+      openPagesIn: "preview",
       datePropertyId: undefined,
       datePropertyName: undefined,
       endDatePropertyId: undefined,

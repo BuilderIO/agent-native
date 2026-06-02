@@ -244,6 +244,7 @@ export type ContentDatabaseViewType =
 
 export type ContentDatabaseRowDensity = "compact" | "default" | "comfortable";
 export type ContentDatabaseFilterMode = "and" | "or";
+export type ContentDatabaseOpenPagesIn = "preview" | "full_page";
 
 export interface ContentDatabaseView {
   id: string;
@@ -263,6 +264,7 @@ export interface ContentDatabaseView {
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
   rowDensity?: ContentDatabaseRowDensity;
+  openPagesIn?: ContentDatabaseOpenPagesIn;
 }
 
 export interface ContentDatabaseViewConfig {
