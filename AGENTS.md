@@ -42,7 +42,12 @@ manual step is still pending. Use `🔴` only when blocked on user input.
 - Data lives in SQL via Drizzle. Keep schemas provider-agnostic.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
-  mounted HTTP endpoint.
+  auto-mounted `/_agent-native/actions/:name` endpoint through
+  `useActionQuery` / `useActionMutation`.
+- Before adding any custom API or Nitro route for app data, inspect existing
+  actions first. Reuse or extend the action surface instead of creating REST
+  wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
+  actions.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
@@ -102,7 +107,8 @@ instructions, and application state.
 Extensions are sandboxed Alpine.js mini-apps stored in SQL. When the user asks
 to create or edit an extension/widget/dashboard/calculator/mini-app, use the
 extension actions and `extensionData` instead of source changes. Extensions can
-call `appAction`, `dbQuery`, `dbExec`, `appFetch`, and `extensionFetch` from the
+call `appAction` for app actions/data, `dbQuery`, `dbExec`, `appFetch` for
+allowed framework endpoints, and `extensionFetch` for external APIs from the
 iframe bridge. Use the `extensions` skill for the full rules.
 
 ## Project Map

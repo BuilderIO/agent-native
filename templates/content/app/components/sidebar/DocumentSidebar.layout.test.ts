@@ -27,4 +27,14 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("{canEdit && (");
     expect(treeItem).toContain("{canManage && (");
   });
+
+  it("keeps active ancestor expansion separate from user-expanded state", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const activeAncestorIds = useMemo");
+    expect(sidebar).toContain(
+      "for (const id of activeAncestorIds) expandedIds.add(id)",
+    );
+    expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
+  });
 });

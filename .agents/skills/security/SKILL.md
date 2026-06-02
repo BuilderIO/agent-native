@@ -100,6 +100,9 @@ Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant
 ## Auth
 
 - All actions are protected by the auth guard automatically.
+- Prefer actions for normal app data. Do not hand-write `/api/*` routes for
+  CRUD, data queries, or action re-exports just to add auth; action endpoints
+  already get auth and request context.
 - If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session:
 
 ```ts

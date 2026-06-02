@@ -8,7 +8,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **All AI through agent chat** -- No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
-3. **Actions for agent operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`.
+3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
 5. **Agent can update code** -- The agent can modify this app's source code directly.
 
@@ -61,7 +61,7 @@ The `navigation` key is written by the UI whenever the route changes. The `navig
 
 This app may be mounted under `/<app-id>` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/review">` and `navigate("/review")`, not `/<app-id>/review`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/<app-id>/<app-id>/review`.
 
-For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for `/api/*`, and `agentNativePath()` for `/_agent-native/*`.
+For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for legitimate route-only `/api/*` endpoints, and `agentNativePath()` for `/_agent-native/*`. Do not use `appApiPath()` to build action-backed CRUD wrappers.
 
 ## Agent Operations
 
@@ -76,6 +76,11 @@ A `<current-screen>` block is auto-injected into every user message with the cur
 You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at the start of every task and before any edit** so you're acting on the IDs the user currently sees, not what was open earlier. Do not rely on cached context from previous turns.
 
 ### Actions
+
+Use existing domain actions before reaching for SQL or custom routes. If a
+capability is missing, add or extend a `defineAction` so both the agent and UI
+share the same operation. Do not create `/api/*` routes that only call,
+repackage, or proxy an action.
 
 | Action        | Args                                                                           | Purpose                                                                                 |
 | ------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -120,7 +125,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes
 2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
-3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models
+3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models; do not create REST wrappers around those actions
 4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
 5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
 6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks

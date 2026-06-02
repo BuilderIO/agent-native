@@ -74,7 +74,9 @@ create `defineAction` files in `actions/`, mark reads with
 `http: { method: "GET" }`, and call them from React with `useActionQuery` /
 `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*` for
 the same data unless the route is for uploads, streaming, webhooks, OAuth, or
-another route-only concern. Action-backed UI is what makes agent-created or
+another route-only concern. Do not add routes whose main job is to wrap,
+proxy, or re-export an action; the action endpoint already exists at
+`/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
 App database code must be provider-agnostic. Define schemas with

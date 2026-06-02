@@ -67,7 +67,10 @@ const navigation = await readAppState("navigation");
 
 ### 2. The `view-screen` Script
 
-Every template should have a `view-screen` script. It reads navigation state, fetches the relevant data from the API, and returns a snapshot of what the user sees. This is the agent's eyes.
+Every template should have a `view-screen` script. It reads navigation state,
+fetches the relevant data from existing domain actions, shared data helpers, or
+Drizzle queries, and returns a snapshot of what the user sees. Do not add REST
+wrappers just so `view-screen` can read app data. This is the agent's eyes.
 
 ```ts
 // actions/view-screen.ts
