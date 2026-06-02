@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.32.12
+
+### Patch Changes
+
+- 9dc6a6f: Tighten generated agent instructions to prefer existing actions over duplicate REST wrappers.
+
 ## 0.32.11
 
 ### Patch Changes
