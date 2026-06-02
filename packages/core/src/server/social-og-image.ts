@@ -77,8 +77,6 @@ interface TitleLayout {
   lines: string[];
   fontSize: number;
   lineHeight: number;
-  firstLineY: number;
-  accentTextY: number;
 }
 
 function estimateTextWidth(value: string, fontSize: number): number {
@@ -166,14 +164,12 @@ function wrapTextToWidth(
 }
 
 function getTitleLayout(title: string): TitleLayout {
-  const maxTitleWidth = 1040;
-  if (estimateTextWidth(title, 84) <= maxTitleWidth) {
+  const maxTitleWidth = 900;
+  if (estimateTextWidth(title, 88) <= maxTitleWidth) {
     return {
       lines: [title],
-      fontSize: 84,
-      lineHeight: 92,
-      firstLineY: 330,
-      accentTextY: 396,
+      fontSize: 88,
+      lineHeight: 96,
     };
   }
 
@@ -185,11 +181,6 @@ function getTitleLayout(title: string): TitleLayout {
         lines: wrapped.lines,
         fontSize,
         lineHeight,
-        firstLineY: wrapped.lines.length > 1 ? 292 : 330,
-        accentTextY:
-          (wrapped.lines.length > 1 ? 292 : 330) +
-          lineHeight * (wrapped.lines.length - 1) +
-          66,
       };
     }
   }
@@ -200,11 +191,6 @@ function getTitleLayout(title: string): TitleLayout {
     lines: wrapped.lines,
     fontSize: fallbackFontSize,
     lineHeight: 60,
-    firstLineY: wrapped.lines.length > 1 ? 292 : 330,
-    accentTextY:
-      (wrapped.lines.length > 1 ? 292 : 330) +
-      60 * (wrapped.lines.length - 1) +
-      66,
   };
 }
 
@@ -263,8 +249,9 @@ export function renderAgentNativeOgImageSvg(
   const title = cleanText(input.title) || titleFromAppName(appName);
   const accentText = cleanText(input.accentText) || DEFAULT_ACCENT_TEXT;
   const titleLayout = getTitleLayout(title);
-  const logoScale = 1.16;
-  const logoWidth = 114 * logoScale;
+  const titleY = titleLayout.lines.length > 1 ? 288 : 330;
+  const accentY =
+    titleY + titleLayout.lineHeight * (titleLayout.lines.length - 1) + 70;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(title)} - Agent-Native preview</title>
@@ -273,23 +260,26 @@ export function renderAgentNativeOgImageSvg(
       <stop stop-color="${BRAND_BLUE}"/>
       <stop offset="1" stop-color="${BRAND_MINT}"/>
     </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
+    </pattern>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
-  <g transform="translate(${(WIDTH - logoWidth) / 2} 148) scale(${logoScale})">
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
+  <g transform="translate(80 116) scale(0.94)">
     ${LOGO_MARK}
   </g>
   <g>
     ${textBlock({
       lines: titleLayout.lines,
-      x: WIDTH / 2,
-      y: titleLayout.firstLineY,
+      x: 80,
+      y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
       weight: 850,
       fill: FG,
-      anchor: "middle",
     })}
-    <text x="${WIDTH / 2}" y="${titleLayout.accentTextY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="32" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
+    <text x="84" y="${accentY}" font-family="${FONT_FAMILY}" font-size="34" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
   </g>
 </svg>`;
 }

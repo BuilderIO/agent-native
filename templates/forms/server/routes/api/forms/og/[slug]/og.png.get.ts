@@ -5,10 +5,8 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import {
-  agentNativeOgImageResponseHeaders,
-  renderAgentNativeOgImagePng,
-} from "@agent-native/core/server";
+import { agentNativeOgImageResponseHeaders } from "@agent-native/core/server";
+import { renderFormOgImagePng } from "../../../../../lib/form-og-image.js";
 import { getPublicFormBySlugOrId } from "../../../../../lib/public-form-ssr.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -24,10 +22,8 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const png = await renderAgentNativeOgImagePng({
-    appName: "Agent-Native Forms",
+  const png = renderFormOgImagePng({
     title: form.title,
-    subtitle: "Agent-Native Forms",
   });
   const body = png.buffer.slice(
     png.byteOffset,
