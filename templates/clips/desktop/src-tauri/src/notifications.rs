@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
-use tauri_plugin_notification::NotificationExt;
 
 use crate::dlog;
-use crate::util::{build_overlay_url, primary_monitor_physical_size, show_without_activation};
+use crate::util::{
+    build_overlay_url, configure_overlay_behavior, primary_monitor_physical_size,
+    show_without_activation,
+};
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
 const NOTIFICATION_W_LOGICAL: u32 = 380;
@@ -49,11 +51,12 @@ fn notification_rect(app: &AppHandle) -> (u32, u32, i32, i32) {
     (w, h, x, top.max(0))
 }
 
-fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
+pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
+        configure_overlay_behavior(&existing);
         show_without_activation(&existing);
         return Ok(());
     }
@@ -83,6 +86,7 @@ fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     // record it" reminder — it should behave like a normal macOS notification
     // and stay visible, including in any screen recording in progress. (Clips's
     // own recording chrome is still excluded elsewhere so it won't leak.)
+    configure_overlay_behavior(&win);
     show_without_activation(&win);
     Ok(())
 }
@@ -132,23 +136,6 @@ pub async fn notify_meeting_starting(
         title,
         body
     );
-
-    let result = app
-        .notification()
-        .builder()
-        .title(format!("Meeting: {}", title))
-        .body(&body)
-        .show();
-
-    if let Err(err) = result {
-        eprintln!("[clips-tray] notify_meeting_starting failed: {err}");
-        // Don't return Err — we still want to fire the in-app banner so the
-        // user sees something even if macOS blocks notifications.
-    }
-
-    if let Err(err) = show_meeting_notification_window(&app) {
-        eprintln!("[clips-tray] show meeting notification failed: {err}");
-    }
 
     // Keep the latest payload available for cold overlay windows, then emit
     // for already-mounted listeners.

@@ -72,6 +72,10 @@ interface ActionItem {
 
 type Participant = AttendeeStackParticipant;
 
+interface Bullet {
+  text: string;
+}
+
 interface Meeting {
   id: string;
   title: string;
@@ -86,7 +90,7 @@ interface Meeting {
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
   summaryMd?: string | null;
   userNotesMd?: string | null;
-  bulletsJson?: string[] | null;
+  bulletsJson?: Bullet[] | null;
   actionItemsJson?: ActionItem[] | null;
   segmentsJson?: TranscriptSegment[] | null;
   participants?: Participant[];
@@ -336,7 +340,7 @@ export default function MeetingDetailRoute() {
     return {
       ...data.meeting,
       participants: data.participants ?? [],
-      bulletsJson: safeArray<string>(data.meeting.bulletsJson),
+      bulletsJson: safeArray<Bullet>(data.meeting.bulletsJson),
       segmentsJson: segmentsRaw
         ? safeArray<TranscriptSegment>(segmentsRaw)
         : null,
@@ -689,20 +693,6 @@ export default function MeetingDetailRoute() {
             </span>
           </span>
         )}
-        {meeting.recordingId && (
-          <NavLink
-            to={`/r/${meeting.recordingId}`}
-            className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
-          >
-            <IconVideo className="h-3.5 w-3.5" />
-            Open transcript source
-            {recordingDuration && (
-              <span className="tabular-nums text-muted-foreground/80">
-                · {recordingDuration}
-              </span>
-            )}
-          </NavLink>
-        )}
         {meeting.joinUrl && !meeting.actualEnd && (
           <a
             href={meeting.joinUrl}
@@ -738,7 +728,7 @@ export default function MeetingDetailRoute() {
           </div>
           <CanvasEditor
             summaryMd={meeting.summaryMd ?? ""}
-            bullets={bullets}
+            bullets={bullets.map((b) => b.text)}
             actionItems={actionItems}
             userNotesMd={meeting.userNotesMd ?? ""}
             onUserNotesChange={handleUserNotesChange}

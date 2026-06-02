@@ -37,7 +37,9 @@ import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
+  IconCircleCheck,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
@@ -87,10 +89,23 @@ interface MeetingTranscriptionPayload {
   reason?: "user" | "calendar-auto" | string;
 }
 
+interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  // Raw stream the segment came from. The transcript UI maps this to the
+  // "Me" (mic) / "Them" (system) speaker label.
+  source: "mic" | "system";
+}
+
 interface MeetingTranscriptionSession {
   meetingId: string;
   recordingId: string;
   lines: string[];
+  // Real per-segment timestamps from the Whisper engine, accumulated across
+  // the meeting and persisted alongside the text. Empty on the SFSpeech
+  // mic-only fallback (no real timestamps available).
+  segments: TranscriptSegment[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
@@ -915,10 +930,17 @@ export function App() {
   const flushMeetingTranscript = useCallback(async () => {
     const session = meetingTranscriptionRef.current;
     if (!session || !session.lines.length) return;
+    // Cumulative replace: send the full transcript-so-far plus the real
+    // Whisper segment timestamps on every flush. Re-sending the whole thing is
+    // idempotent (last write wins), so a failed/retried flush self-heals.
+    // overwriteReady tells the action this live session owns the transcript and
+    // may overwrite its own already-"ready" row. Buffer is NOT cleared.
     await callClipsAction("save-browser-transcript", {
       recordingId: session.recordingId,
       fullText: session.lines.join("\n\n"),
-      source: "macos-native",
+      segments: session.segments,
+      source: session.audioMode === "mic-system" ? "whisper" : "macos-native",
+      overwriteReady: true,
     });
   }, [callClipsAction]);
 
@@ -982,7 +1004,7 @@ export function App() {
       const existing = meetingTranscriptionRef.current;
       if (existing && !existing.stopping) {
         if (existing.meetingId === meetingId) {
-          emit("meetings:transcription-started", { meetingId }).catch(() => {});
+          emit("meetings:hide-notification", { meetingId }).catch(() => {});
           return;
         }
         await stopMeetingTranscription("replaced");
@@ -1003,6 +1025,7 @@ export function App() {
           meetingId: resolvedMeetingId,
           recordingId,
           lines: [],
+          segments: [],
           unlisten: [],
           flushTimer: null,
           stopping: false,
@@ -1037,29 +1060,39 @@ export function App() {
         };
 
         addUnlisten(
-          listen<{ text?: string; source?: TranscriptSource }>(
-            "voice:final-transcript",
-            (event) => {
-              if (meetingTranscriptionRef.current !== session) return;
-              const text = event.payload?.text?.trim();
-              if (!text) return;
-              const speaker =
-                event.payload?.source === "system" ? "Them" : "Me";
-              session.lines.push(`${speaker}: ${text}`);
-              scheduleFlush();
-            },
-          ),
+          listen<{
+            text?: string;
+            source?: TranscriptSource;
+            segments?: Array<{ startMs: number; endMs: number; text: string }>;
+          }>("voice:final-transcript", (event) => {
+            if (meetingTranscriptionRef.current !== session) return;
+            const text = event.payload?.text?.trim();
+            if (!text) return;
+            const source: "mic" | "system" =
+              event.payload?.source === "system" ? "system" : "mic";
+            const speaker = source === "system" ? "Them" : "Me";
+            session.lines.push(`${speaker}: ${text}`);
+            // Keep the real Whisper segment timestamps (offset onto the meeting
+            // timeline) so the transcript persists accurate timings instead of
+            // synthetic ones. Tag each with the source stream.
+            for (const seg of event.payload?.segments ?? []) {
+              const segText = seg.text?.trim();
+              if (!segText) continue;
+              session.segments.push({
+                startMs: seg.startMs,
+                endMs: seg.endMs,
+                text: segText,
+                source,
+              });
+            }
+            scheduleFlush();
+          }),
         );
         addUnlisten(
           listen<{ meetingId?: string | null }>("clips:pill-stop", (event) => {
             const stoppedMeetingId = event.payload?.meetingId;
             if (stoppedMeetingId && stoppedMeetingId !== resolvedMeetingId)
               return;
-            stopMeetingTranscription("manual").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("clips:recorder-stop", () => {
             stopMeetingTranscription("manual").catch(() => {});
           }),
         );
@@ -1119,8 +1152,9 @@ export function App() {
             joinUrl: payload.joinUrl,
           }).catch(() => {});
         }
-        emit("meetings:transcription-started", {
-          meetingId: resolvedMeetingId,
+
+        emit("meetings:hide-notification", {
+          meetingId,
         }).catch(() => {});
       } catch (err) {
         meetingTranscriptionRef.current = null;
@@ -3918,6 +3952,18 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
+  const whisperModelEnabled = featureConfig?.whisperModelEnabled !== false;
+  type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
+  interface WhisperModelStatus {
+    state: WhisperModelState;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  }
+  const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
+    null,
+  );
+
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -3944,6 +3990,20 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
+  }
+
+  function triggerWhisperDownload() {
+    invoke("whisper_model_download").catch(() => {});
+  }
+
+  function setWhisperModelEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, whisperModelEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+    if (enabled) triggerWhisperDownload();
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -4075,6 +4135,47 @@ function Setup({
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Load model status on mount and keep it current via events.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      invoke<WhisperModelStatus>("whisper_model_status")
+        .then((s) => {
+          if (!cancelled) setWhisperStatus(s);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const unlistens: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (cancelled) {
+          try {
+            u();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        unlistens.push(u);
+      }).catch(() => {});
+    };
+    track(listen("whisper:model-progress", () => refresh()));
+    track(listen("whisper:model-ready", () => refresh()));
+    track(listen("whisper:model-error", () => refresh()));
+    track(listen("whisper:model-enabled-changed", () => refresh()));
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          /* ignore */
+        }
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -4475,6 +4576,25 @@ function Setup({
           <div className="setup-section">
             <div className="setup-toggle-row">
               <SettingLabel
+                label="Whisper model"
+                hint="Local AI model for offline meeting transcription. Captures both your mic and other speakers — no API key required."
+              />
+              <Switch
+                on={whisperModelEnabled}
+                onChange={setWhisperModelEnabled}
+                label="Enable Whisper model"
+              />
+            </div>
+            <WhisperModelStatusRow
+              status={whisperStatus}
+              enabled={whisperModelEnabled}
+              onDownload={triggerWhisperDownload}
+            />
+          </div>
+
+          <div className="setup-section">
+            <div className="setup-toggle-row">
+              <SettingLabel
                 label="Meeting widget"
                 hint="Show the on-screen meeting widget near calendar start times, even when macOS notifications are hidden."
               />
@@ -4782,6 +4902,78 @@ function SettingLabel({
         <TooltipContent>{hint}</TooltipContent>
       </Tooltip>
     </label>
+  );
+}
+
+function WhisperModelStatusRow({
+  status,
+  enabled,
+  onDownload,
+}: {
+  status: {
+    state: string;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  } | null;
+  enabled: boolean;
+  onDownload: () => void;
+}) {
+  if (!enabled) {
+    return (
+      <div className="whisper-status whisper-status-disabled">
+        <IconAlertTriangle size={13} className="whisper-status-icon" />
+        <span>
+          Without the Whisper model, only your microphone is transcribed — other
+          speakers are not captured.
+        </span>
+      </div>
+    );
+  }
+  if (!status) return null;
+
+  if (status.state === "ready") {
+    return (
+      <div className="whisper-status whisper-status-ready">
+        <IconCircleCheck size={13} className="whisper-status-icon" />
+        <span>
+          Ready · {status.totalMb} MB
+          <span className="whisper-status-path">{status.path}</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (status.state === "downloading") {
+    const pct =
+      status.totalMb > 0
+        ? Math.round((status.downloadedMb / status.totalMb) * 100)
+        : 0;
+    return (
+      <div className="whisper-status whisper-status-downloading">
+        <span className="whisper-progress-label">
+          Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
+        </span>
+        <div className="whisper-progress-bar">
+          <div className="whisper-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  // "missing" state
+  return (
+    <div className="whisper-status whisper-status-missing">
+      <IconAlertTriangle size={13} className="whisper-status-icon" />
+      <span>Model not downloaded.</span>
+      <button
+        type="button"
+        className="whisper-download-btn"
+        onClick={onDownload}
+      >
+        Download now
+      </button>
+    </div>
   );
 }
 

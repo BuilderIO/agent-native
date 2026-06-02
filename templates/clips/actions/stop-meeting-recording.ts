@@ -1,20 +1,23 @@
 /**
- * Stop a meeting recording — stamps `actualEnd` and signals the UI.
+ * Stop a meeting recording.
  *
- * The actual MediaRecorder stop and chunked-upload finalize are UI gestures —
- * this action just marks the meeting as ended and bumps the refresh signal.
+ * Stamps the meeting's `actualEnd`, flips a still-`uploading` recording to
+ * `ready`, writes a `recording-stop-*` app-state signal so the recorder UI
+ * finalizes, and bumps the refresh signal.
+ *
+ * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
  */
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
-    "Stop a meeting recording. Stamps actualEnd on the meeting and signals the UI to finalize the underlying recording.",
+    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
   }),
@@ -35,10 +38,21 @@ export default defineAction({
       .set({
         actualEnd: meeting.actualEnd ?? nowIso,
         updatedAt: nowIso,
+        transcriptStatus: "ready",
       })
       .where(eq(schema.meetings.id, args.meetingId));
 
     if (meeting.recordingId) {
+      await db
+        .update(schema.recordings)
+        .set({ status: "ready", updatedAt: nowIso })
+        .where(
+          and(
+            eq(schema.recordings.id, meeting.recordingId),
+            eq(schema.recordings.status, "uploading"),
+          ),
+        );
+
       await writeAppState(`recording-stop-${meeting.recordingId}`, {
         recordingId: meeting.recordingId,
         meetingId: args.meetingId,

@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   isNotNull,
+  notInArray,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -93,6 +94,16 @@ export default defineAction({
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
+      // Meeting recordings are transcript-only (no playable media) and live on
+      // the /meetings surface, so keep them out of the Library list. The link
+      // is meetings.recordingId (no meetingId column on recordings), so exclude
+      // any recording referenced by a meeting. The subquery filters out NULLs
+      // so NOT IN doesn't collapse to an empty result under SQL NULL semantics.
+      const meetingRecordingIds = db
+        .select({ id: schema.meetings.recordingId })
+        .from(schema.meetings)
+        .where(isNotNull(schema.meetings.recordingId));
+      whereClauses.push(notInArray(schema.recordings.id, meetingRecordingIds));
     }
 
     // Lifecycle view filters

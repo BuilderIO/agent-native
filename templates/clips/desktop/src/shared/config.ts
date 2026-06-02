@@ -30,6 +30,7 @@ export interface FeatureConfig {
   showInScreenCapture: boolean;
   regionGuides: RegionGuidesConfig;
   onboardingComplete: boolean;
+  whisperModelEnabled: boolean;
 }
 
 export function useFeatureConfig() {

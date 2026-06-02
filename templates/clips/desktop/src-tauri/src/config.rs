@@ -60,6 +60,8 @@ pub struct FeatureConfig {
     #[serde(default)]
     pub region_guides: RegionGuidesConfig,
     pub onboarding_complete: bool,
+    #[serde(default = "default_whisper_model_enabled")]
+    pub whisper_model_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +93,10 @@ fn default_show_meeting_widget_enabled() -> bool {
     true
 }
 
+fn default_whisper_model_enabled() -> bool {
+    true
+}
+
 impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
@@ -105,6 +111,7 @@ impl Default for FeatureConfig {
             show_in_screen_capture: false,
             region_guides: RegionGuidesConfig::default(),
             onboarding_complete: false,
+            whisper_model_enabled: default_whisper_model_enabled(),
         }
     }
 }
@@ -223,6 +230,9 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
     // changes, master enable/disable) without requiring a recording-flow
     // round trip. Cheap — it just inspects current state.
     crate::clips::reconcile_region_guides(&app);
+    if previous.whisper_model_enabled != config.whisper_model_enabled {
+        let _ = app.emit("whisper:model-enabled-changed", serde_json::json!({ "enabled": config.whisper_model_enabled }));
+    }
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
 }
