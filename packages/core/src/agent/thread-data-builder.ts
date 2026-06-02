@@ -1,4 +1,5 @@
 import type { AgentChatAttachment, RunEvent } from "./types.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -120,7 +121,10 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
-      const toolCallId = `tc_${++toolCallCounter}`;
+      toolCallCounter += 1;
+      const toolCallId = runId
+        ? `${runId}:tc_${toolCallCounter}`
+        : `tc_${toolCallCounter}`;
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
         type: "tool-call",
@@ -284,6 +288,23 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
   }));
 }
 
+// Strip the render-only `toolCallId` before fingerprinting. The id is generated
+// differently depending on who built the message — the server now scopes it by
+// run (`${runId}:tc_1`) while the client's live stream uses a bare counter
+// (`tc_1`) — so the client export and the server fold of the SAME tool-call turn
+// would otherwise hash to different fingerprints and fail to dedupe, leaving the
+// turn rendered twice. The id never participates in message identity (history
+// replay regenerates its own ids), so hashing content without it is the correct
+// notion of "same message".
+function normalizeContentForFingerprint(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((part: any) =>
+    part && typeof part === "object" && part.type === "tool-call"
+      ? { ...part, toolCallId: undefined }
+      : part,
+  );
+}
+
 function messageIdentityKeys(message: any): string[] {
   const keys: string[] = [];
   if (typeof message?.id === "string" && message.id) {
@@ -312,7 +333,7 @@ function messageIdentityKeys(message: any): string[] {
     keys.push(
       `fingerprint:${JSON.stringify({
         role: message?.role,
-        content: message?.content,
+        content: normalizeContentForFingerprint(message?.content),
         attachments: normalizeAttachmentIdentity(message?.attachments),
       })}`,
     );
@@ -324,7 +345,7 @@ function messageIdentityKeys(message: any): string[] {
       keys.push(
         `user-fingerprint:${JSON.stringify({
           role: message.role,
-          content: message.content,
+          content: normalizeContentForFingerprint(message.content),
           attachments: normalizeAttachmentIdentity(message.attachments),
         })}`,
       );
@@ -381,12 +402,50 @@ function normalizeMessageEntry(
 ): { message: any; parentId: string | null; runConfig?: any } | null {
   const message = getStoredMessage(entry);
   if (!messageId(message)) return null;
+  const normalizedMessage = normalizeAssistantToolCallIds(message);
   const runConfig = getStoredRunConfig(entry);
   return {
-    message,
+    message: normalizedMessage,
     parentId,
     ...(runConfig !== undefined ? { runConfig } : {}),
   };
+}
+
+function uniqueToolCallId(toolCallId: string, seen: Set<string>): string {
+  if (!seen.has(toolCallId)) return toolCallId;
+  let suffix = 2;
+  let candidate = `${toolCallId}__dedup_${suffix}`;
+  while (seen.has(candidate)) {
+    suffix += 1;
+    candidate = `${toolCallId}__dedup_${suffix}`;
+  }
+  return candidate;
+}
+
+function normalizeAssistantToolCallIds(message: any): any {
+  if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+    return message;
+  }
+
+  const seen = new Set<string>();
+  let changed = false;
+  const content = message.content.map((part: any) => {
+    if (
+      part?.type !== "tool-call" ||
+      typeof part.toolCallId !== "string" ||
+      part.toolCallId.length === 0
+    ) {
+      return part;
+    }
+
+    const nextToolCallId = uniqueToolCallId(part.toolCallId, seen);
+    seen.add(nextToolCallId);
+    if (nextToolCallId === part.toolCallId) return part;
+    changed = true;
+    return { ...part, toolCallId: nextToolCallId };
+  });
+
+  return changed ? { ...message, content } : message;
 }
 
 /**
@@ -431,6 +490,48 @@ export function normalizeThreadRepository(repo: any): any {
   normalized.headId =
     headId && seenIds.has(headId) ? headId : (previousId ?? null);
   return normalized;
+}
+
+/**
+ * Rebuild a flat `EngineMessage[]` from persisted thread_data (the
+ * assistant-ui ExportedMessageRepository shape). Text-only — tool calls/results
+ * are flattened to their text so a continuation run gets the conversation
+ * prefix as plain context (Anthropic's prompt cache makes the resume cheap).
+ *
+ * Used to resume a background sub-agent in a fresh function invocation (the
+ * server-side analog of the browser re-POSTing history for the main chat).
+ * Originally inlined in `integrations/webhook-handler.ts`.
+ */
+export function threadDataToEngineMessages(
+  threadData: string | Record<string, unknown> | null | undefined,
+): EngineMessage[] {
+  const messages: EngineMessage[] = [];
+  if (!threadData) return messages;
+  let data: any;
+  try {
+    data = typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  } catch {
+    return messages;
+  }
+  if (!Array.isArray(data?.messages)) return messages;
+  for (const entry of data.messages) {
+    const m = entry?.message ?? entry;
+    if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
+              .filter(
+                (c: any) => c?.type === "text" && typeof c.text === "string",
+              )
+              .map((c: any) => c.text)
+              .join("\n")
+          : "";
+    if (!text.trim()) continue;
+    messages.push({ role: m.role, content: [{ type: "text", text }] });
+  }
+  return messages;
 }
 
 export interface CodeAgentThreadTranscriptEvent {
@@ -1053,7 +1154,10 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
       merged.push({ ...part });
     }
   }
-  return merged;
+  return normalizeAssistantToolCallIds({
+    role: "assistant",
+    content: merged,
+  }).content;
 }
 
 /**
@@ -1144,7 +1248,10 @@ export function foldAssistantTurn(
 
   const mergedMessage = {
     ...lastMsg,
-    content: mergedContent,
+    content: normalizeAssistantToolCallIds({
+      role: "assistant",
+      content: mergedContent,
+    }).content,
     // The freshest chunk's status wins: a clean done supersedes a prior
     // partial; a real error supersedes a partial.
     status: assistantMsg.status ?? lastMsg.status,

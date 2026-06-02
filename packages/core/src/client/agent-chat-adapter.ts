@@ -69,7 +69,14 @@ const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
-const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 1;
+// How many consecutive continuations that produce NO progress (no streamed
+// text, no completed/in-flight tool) we tolerate before giving up. A complex
+// first turn can spend the whole soft-timeout window (~40s) "thinking" with no
+// visible output; giving up after a single such window made the agent feel like
+// it "craps out / stops midway" on heavier prompts (Analytics). Retrying a few
+// times lets a transient slow start recover, while the cap still terminates a
+// genuinely stuck turn with a clear message instead of looping forever.
+const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -1372,7 +1379,6 @@ export function createAgentChatAdapter(options?: {
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
-          const madeVisibleProgress = visibleContent.length > 0;
           const madeDurableToolProgress = visibleContent.some(
             (part) => part.type === "tool-call" && part.result !== undefined,
           );
@@ -1382,16 +1388,12 @@ export function createAgentChatAdapter(options?: {
             emptyTransientContinuationAttempts = 0;
           } else {
             totalTransientContinuationAttempts += 1;
-            const madeActivityProgress =
-              signal.activityTrail.length > 0 ||
-              Boolean(lastActivityTool(signal.activityTrail));
-            if (
-              !madeVisibleProgress &&
-              signal.reason === "run_timeout" &&
-              !madeActivityProgress
-            ) {
-              return { ok: false, resetVisibleContent: false };
-            }
+            // A run_timeout that produced nothing visible and no activity (the
+            // model spent the whole soft-timeout window thinking before its
+            // first output) is NOT an immediate give-up: a transient slow start
+            // routinely recovers on the next continuation. Let it fall through
+            // to the empty-continuation budget below so it retries a bounded
+            // number of times before surfacing the "no visible progress" error.
             // Reset the empty-continuation counter on real progress — streamed
             // text/completed tool OR an in-flight tool the server is running —
             // not merely on a non-zero part count, which whitespace-only or

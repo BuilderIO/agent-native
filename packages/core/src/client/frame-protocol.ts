@@ -6,7 +6,10 @@
  * between the app iframe and the parent frame.
  */
 
-import type { AgentChatMessage } from "./agent-chat.js";
+import type {
+  AgentChatContextMessage,
+  AgentChatMessage,
+} from "./agent-chat.js";
 
 // ---------------------------------------------------------------------------
 // Messages FROM app TO frame
@@ -19,6 +22,11 @@ export interface AppReadyMessage {
 export interface SubmitChatMessage {
   type: "agentNative.submitChat";
   data: AgentChatMessage;
+}
+
+export interface SetChatContextMessage {
+  type: "agentNative.setChatContext";
+  data: AgentChatContextMessage;
 }
 
 export interface GetUserInfoMessage {
@@ -67,6 +75,7 @@ export interface PresentationModeMessage {
 export type AppToFrameMessage =
   | AppReadyMessage
   | SubmitChatMessage
+  | SetChatContextMessage
   | GetUserInfoMessage
   | SetEnvVarsMessage
   | DevModeChangeMessage

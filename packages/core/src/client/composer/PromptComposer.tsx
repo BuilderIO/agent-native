@@ -43,6 +43,7 @@ import type {
 } from "./types.js";
 import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
@@ -632,6 +633,11 @@ export function PromptComposer(props: PromptComposerProps) {
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },
   });
+  const resetKey = [
+    props.draftScope ?? "",
+    props.initialTextKey ?? "",
+    props.initialText ?? "",
+  ].join(":");
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -640,7 +646,12 @@ export function PromptComposer(props: PromptComposerProps) {
           className="contents"
           style={{ display: "contents" }}
         >
-          <PromptComposerInner {...props} />
+          <AssistantUiStaleIndexErrorBoundary
+            resetKey={resetKey}
+            componentName="PromptComposer"
+          >
+            <PromptComposerInner {...props} />
+          </AssistantUiStaleIndexErrorBoundary>
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
     </TooltipProvider>

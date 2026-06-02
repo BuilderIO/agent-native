@@ -29,7 +29,13 @@ import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
@@ -164,7 +170,14 @@ const TWITTER_CARD_META_RE =
 const TWITTER_IMAGE_META_RE =
   /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
 
-function injectDefaultSocialImageMeta(html: string): string {
+function defaultSocialImageUrl(requestUrl: string, basePath: string): string {
+  return new URL(
+    prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath),
+    requestUrl,
+  ).toString();
+}
+
+function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   const headCloseIdx = html.indexOf("</head>");
   if (headCloseIdx === -1) return html;
 
@@ -173,16 +186,28 @@ function injectDefaultSocialImageMeta(html: string): string {
   const tags: string[] = [];
 
   if (!hasAnySocialImage) {
+    tags.push(`<meta property="og:image" content="${imageUrl}">`);
+    tags.push(`<meta property="og:image:secure_url" content="${imageUrl}">`);
     tags.push(
-      `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+      `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">`,
+    );
+    tags.push(
+      `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">`,
+    );
+    tags.push(
+      `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">`,
+    );
+    tags.push(
+      `<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
     );
   }
   if (!TWITTER_CARD_META_RE.test(html)) {
     tags.push(`<meta name="twitter:card" content="summary_large_image">`);
   }
   if (!hasAnySocialImage) {
+    tags.push(`<meta name="twitter:image" content="${imageUrl}">`);
     tags.push(
-      `<meta name="twitter:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+      `<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
     );
   }
 
@@ -337,6 +362,7 @@ async function rewriteMountedResponse(
   response: Response,
   basePath: string,
   pathname: string,
+  requestUrl: string,
   requestContext?: RequestContext,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
@@ -367,7 +393,10 @@ async function rewriteMountedResponse(
   headers.delete("content-length");
   return new Response(
     injectHeadScript(
-      injectDefaultSocialImageMeta(prefixMountedHtml(html, basePath)),
+      injectDefaultSocialImageMeta(
+        prefixMountedHtml(html, basePath),
+        defaultSocialImageUrl(requestUrl, basePath),
+      ),
       sentryClientConfigScript,
     ),
     {
@@ -428,6 +457,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           }),
           basePath,
           p,
+          request.url,
           ctx,
         );
       }
@@ -435,6 +465,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
         p,
+        request.url,
         ctx,
       );
     } catch (err) {

@@ -91,6 +91,7 @@ import {
   isElectron as isElectronRequest,
   getAppBasePath,
   getAppUrl,
+  getOrigin,
   encodeOAuthState,
   decodeOAuthState,
   createOAuthSession,
@@ -103,6 +104,13 @@ import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -536,7 +544,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const url = event.node?.req?.url ?? event.path ?? "/";
   const queryStart = url.indexOf("?");
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-  return config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  const loginHtml =
+    config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
 }
 
 /**
@@ -873,6 +883,7 @@ function getOnboardingHtmlOptions(
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
+    requestOrigin: event ? getOrigin(event) : undefined,
   };
 }
 
@@ -1303,8 +1314,69 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   return false;
 }
 
-function loginHtmlResponse(loginHtml: string): Response {
-  return new Response(loginHtml, {
+const LOGIN_OG_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const LOGIN_TWITTER_CARD_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
+const LOGIN_TWITTER_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
+  const headCloseIdx = loginHtml.indexOf("</head>");
+  if (headCloseIdx === -1) return loginHtml;
+
+  const hasAnySocialImage =
+    LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
+    LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
+  const imageUrl = escapeHtmlAttr(
+    getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+  );
+  const tags: string[] = [];
+
+  if (!hasAnySocialImage) {
+    tags.push(`<meta property="og:image" content="${imageUrl}">`);
+    tags.push(`<meta property="og:image:secure_url" content="${imageUrl}">`);
+    tags.push(
+      `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">`,
+    );
+    tags.push(
+      `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">`,
+    );
+    tags.push(
+      `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">`,
+    );
+    tags.push(
+      `<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+  if (!LOGIN_TWITTER_CARD_META_RE.test(loginHtml)) {
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  if (!hasAnySocialImage) {
+    tags.push(`<meta name="twitter:image" content="${imageUrl}">`);
+    tags.push(
+      `<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+
+  if (tags.length === 0) return loginHtml;
+  return (
+    loginHtml.slice(0, headCloseIdx) +
+    tags.join("") +
+    loginHtml.slice(headCloseIdx)
+  );
+}
+
+function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
+  return new Response(injectLoginSocialImageMeta(loginHtml, event), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -1401,6 +1473,14 @@ function createAuthGuardFn(): (
     // integration tasks. It uses the same HMAC internal-token scheme as the
     // primary integration processor, so it must bypass cookie/session auth.
     if (p === "/_agent-native/integrations/process-a2a-continuation") {
+      return;
+    }
+
+    // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
+    // a queued sub-agent in a fresh function invocation; authenticity is
+    // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
+    // so it bypasses cookie/session auth (mirrors the integration processor).
+    if (p === "/_agent-native/agent-teams/_process-run") {
       return;
     }
 
@@ -1516,7 +1596,7 @@ function createAuthGuardFn(): (
           headers: { Location: safeReturn },
         });
       }
-      return loginHtmlResponse(loginHtml);
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Auth entry pages are framework-owned pages, not app routes. When a user
@@ -1530,7 +1610,7 @@ function createAuthGuardFn(): (
           headers: { Location: getAppBasePath() || "/" },
         });
       }
-      return loginHtmlResponse(loginHtml);
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Skip static assets (Vite chunks, fonts, images, etc.)
@@ -1586,7 +1666,7 @@ function createAuthGuardFn(): (
       if (autoSession) return autoSession;
     }
 
-    return loginHtmlResponse(loginHtml);
+    return loginHtmlResponse(loginHtml, event);
   };
 }
 

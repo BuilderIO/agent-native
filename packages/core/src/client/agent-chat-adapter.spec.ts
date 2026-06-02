@@ -1346,7 +1346,7 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("finished after idle recovery");
   });
 
-  it("stops silent run timeouts without retrying the same no-progress request", async () => {
+  it("retries silent run timeouts a few times before giving up", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -1395,7 +1395,12 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
 
-    expect(postCount).toBe(1);
+    // A run that produces nothing visible no longer gives up on the first
+    // soft-timeout (that made heavier prompts feel like they "stop midway").
+    // It retries through the empty-continuation budget
+    // (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) — 1 initial + 3 retries = 4
+    // POSTs — then surfaces the "no visible progress" error.
+    expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -1412,6 +1417,75 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "did not produce any visible progress",
     );
+  });
+
+  it("recovers when a silent run timeout is followed by real output", async () => {
+    // The point of the empty-continuation budget: a transient slow start (the
+    // model thinks through the soft-timeout window with no visible output) must
+    // recover on a later continuation, not give up. Two empty run_timeouts
+    // followed by real text should finish cleanly with no "no visible progress"
+    // error. This is the regression that made heavier prompts feel like they
+    // "crap out / stop midway".
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        if (postCount < 3) {
+          return sseResponse([
+            { type: "auto_continue", reason: "run_timeout" },
+          ]);
+        }
+        return sseResponse([{ type: "text", text: "done" }, { type: "done" }]);
+      }
+      if (url.includes("/runs/")) {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-recover",
+      threadId: "thread-recover",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "slow analytical question" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    // 2 empty run_timeouts (within the budget of 3) then a successful run.
+    expect(postCount).toBe(3);
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-chat:run-error" }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("done");
   });
 
   it("continues once when a run timeout happened during action input streaming", async () => {
@@ -2484,9 +2558,9 @@ describe("createAgentChatAdapter", () => {
   it("counts whitespace-only output against the empty recovery cap", async () => {
     // Resetting the empty-continuation counter on a non-zero PART count let
     // whitespace-only output keep the run alive indefinitely. The counter must
-    // reset on real content-weight progress, so two whitespace-only timeouts
-    // exhaust the empty cap (1) and give up promptly instead of looping until
-    // the stalled cap (8).
+    // reset only on real content-weight progress, so whitespace-only timeouts
+    // exhaust the empty cap (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) and give up
+    // instead of looping until the much larger stalled cap (8).
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -2535,9 +2609,9 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 1 initial + 1 empty retry, then the empty cap (1) is exceeded — no
+    // 1 initial + 3 empty retries, then the empty cap (3) is exceeded — no
     // 10-POST runaway up to the stalled cap.
-    expect(postCount).toBe(2);
+    expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",

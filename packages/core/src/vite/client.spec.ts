@@ -508,6 +508,47 @@ describe("Vite connection reset noise", () => {
     expect(hotSend).toHaveBeenCalledWith(payload);
     expect(wsSend).toHaveBeenCalledWith(payload);
   });
+
+  it("suppresses Node web stream close races from socket error handlers", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    let connectionHandler: ((socket: { on: Function }) => void) | undefined;
+    let socketErrorHandler: ((err: Error) => void) | undefined;
+    const server = {
+      httpServer: {
+        on: vi.fn((event: string, handler: typeof connectionHandler) => {
+          if (event === "connection") connectionHandler = handler;
+        }),
+      },
+      config: { logger: { error: vi.fn() } },
+    };
+
+    plugin.configureServer(server);
+    connectionHandler?.({
+      on: vi.fn((event: string, handler: typeof socketErrorHandler) => {
+        if (event === "error") socketErrorHandler = handler;
+      }),
+    });
+
+    const err = Object.assign(
+      new TypeError("Invalid state: Controller is already closed"),
+      {
+        code: "ERR_INVALID_STATE",
+        stack:
+          "TypeError: Invalid state: Controller is already closed\n" +
+          "    at ReadableStreamDefaultController.close " +
+          "(node:internal/webstreams/readablestream:1068:13)\n" +
+          "    at IncomingMessage.<anonymous> " +
+          "(node:internal/webstreams/adapters:483:16)\n" +
+          "    at IncomingMessage.onclose " +
+          "(node:internal/streams/end-of-stream:161:14)",
+      },
+    );
+
+    expect(() => socketErrorHandler?.(err)).not.toThrow();
+    expect(() =>
+      socketErrorHandler?.(Object.assign(new Error("real socket failure"), {})),
+    ).toThrow("real socket failure");
+  });
 });
 
 describe("Vite CSS build defaults", () => {

@@ -63,12 +63,13 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { FeedbackButton } from "./FeedbackButton.js";
+import { RunsTray } from "./progress/RunsTray.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import {
-  isAssistantUiStaleIndexError,
+  assistantUiRecoverableRenderErrorKind,
   type AssistantChatProps,
 } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
@@ -561,6 +562,17 @@ function AgentPanelInner({
   const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
+  const openRunThread = useCallback(
+    (threadId: string) => {
+      switchMode("chat");
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    },
+    [switchMode],
+  );
   const activateOnKeyDown = useCallback(
     (activate: () => void) => (event: React.KeyboardEvent) => {
       if (!ACTIVATE_KEYS.has(event.key)) return;
@@ -838,6 +850,14 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
+        <RunsTray
+          pollMs={2000}
+          limit={12}
+          hideWhenIdle={false}
+          showRecent
+          triggerVariant="pill"
+          onOpenThread={openRunThread}
+        />
         <FeedbackButton
           variant="icon"
           side="bottom"
@@ -875,7 +895,14 @@ function AgentPanelInner({
         )}
       </div>
     ),
-    [onCollapse, canUseCodeTools, onToggleFullscreen, isFullscreen],
+    [
+      canUseCodeTools,
+      isFullscreen,
+      onCollapse,
+      onToggleFullscreen,
+      openRunThread,
+      storageKey,
+    ],
   );
 
   const [tabMenuOpen, setTabMenuOpen] = useState<string | null>(null);
@@ -1823,13 +1850,15 @@ class AgentPanelErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    if (isAssistantUiStaleIndexError(error)) {
+    const recoverableKind = assistantUiRecoverableRenderErrorKind(error);
+    if (recoverableKind) {
       console.warn(
-        "[agent-native] Recovering agent panel after stale UI index",
+        "[agent-native] Recovering agent panel after assistant UI render error",
+        recoverableKind,
       );
       if (this.state.staleIndexRecoveryCount >= 2) {
         console.error(
-          "[agent-native] Agent panel stale-index recovery failed",
+          "[agent-native] Agent panel assistant UI recovery failed",
           error,
           errorInfo,
         );
@@ -1887,7 +1916,7 @@ class AgentPanelErrorBoundary extends React.Component<
     if (!this.state.error) return this.props.children;
 
     if (
-      isAssistantUiStaleIndexError(this.state.error) &&
+      assistantUiRecoverableRenderErrorKind(this.state.error) &&
       this.state.staleIndexRecoveryCount < 2
     ) {
       return (

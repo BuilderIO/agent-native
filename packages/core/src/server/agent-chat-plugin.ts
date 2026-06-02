@@ -122,6 +122,20 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import {
+  AGENT_TEAM_PROCESS_RUN_PATH,
+  processAgentTeamRun,
+  reconcileAgentTeamRunsForOwner,
+} from "./agent-teams.js";
+import { setProgressPreListHook } from "../progress/store.js";
+import {
+  verifyInternalToken,
+  extractBearerToken,
+} from "../integrations/internal-token.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
+import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
@@ -1817,7 +1831,7 @@ function createTeamTools(deps: {
     "agent-teams": {
       tool: {
         description:
-          "Manage sub-agent tasks. Use action 'spawn' to start a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks.",
+          "Manage sub-agent tasks. Use action 'spawn' to launch a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks. A spawn result only confirms launch; it is not the task result.",
         parameters: {
           type: "object",
           properties: {
@@ -1906,6 +1920,7 @@ function createTeamTools(deps: {
             actions: subAgentActions,
             engine: deps.getEngine(),
             model: selectedModel,
+            name: selectedName || undefined,
             parentThreadId: deps.getParentThreadId(),
             parentSend: (event) => {
               if (capturedSend) capturedSend(event);
@@ -1914,7 +1929,11 @@ function createTeamTools(deps: {
           return JSON.stringify({
             taskId: task.taskId,
             threadId: task.threadId,
+            runId: task.runId,
             status: task.status,
+            state: "launched_pending_completion",
+            message:
+              "Sub-agent launched and is still running. Use status or read-result later; do not describe this task as completed from the spawn response alone.",
             description: task.description,
             name: selectedName,
           });
@@ -2266,7 +2285,7 @@ On the user's first interaction, check \`readAppState("personalization")\`. If i
 
 You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, live embedded browser sessions (\`list-browser-sessions\`, \`view-browser-session\`, \`run-browser-session-action\`, \`send-browser-session-command\`), and browser automation (\`activate-browser\` for Builder-provisioned Chrome; local development may also include \`set-browser-control\`). Call \`get-framework-context\` to read detailed instructions for any of these when needed — each capability's full doc lives there.
 
-**Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread — then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
+**Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread. Treat a spawn response as "launched and still running," never as completed work. Before claiming delegated work is done, use \`agent-teams\` "status" or "read-result" and synthesize the returned result. Full details: \`get-framework-context\` key \`agent-teams\`.
 
 For brand-consistent generated media, use the first-party Assets agent via \`call-agent\` with agent "assets" when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery. If this app has a native generation action, prefer that action because it may attach the asset to the local document/deck/design.
 `;
@@ -2310,13 +2329,15 @@ When the user asks to find a previous conversation, use \`chat-history\` with ac
   "agent-teams": `### Agent Teams — Orchestration
 
 You can delegate to background sub-agents with the \`agent-teams\` tool:
-- \`agent-teams\` (action: "spawn") — Start a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
+- \`agent-teams\` (action: "spawn") — Launch a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
 - \`agent-teams\` (action: "status") — Check a running sub-agent's progress.
 - \`agent-teams\` (action: "read-result") — Read a finished sub-agent's output.
 - \`agent-teams\` (action: "send") — Message a running sub-agent.
 - \`agent-teams\` (action: "list") — List sub-agent tasks.
 
 Sub-agents inherit all of your template tools but **cannot spawn sub-agents themselves** — only you orchestrate.
+
+Do not tell the user a spawned task completed from the spawn response. Use \`status\` or \`read-result\` before summarizing delegated work as done.
 
 **Default to doing the work yourself in this thread.** A sub-agent costs real tokens and adds a merge step, so reach for one only when delegation clearly pays for that overhead.
 
@@ -2521,7 +2542,7 @@ Each of these has a one-line pointer here and a full doc you can pull on demand 
 
 - **Inline embeds** — render an interactive app view inline in chat via an \`embed\` fenced code block. Detailed instructions: call \`get-framework-context\` with key \`embeds\`.
 - **Chat history** — search and reopen past conversations with \`chat-history\` (actions: search, open, rename, pin, unpin, archive). Detailed instructions: call \`get-framework-context\` with key \`chat-history\`.
-- **Agent teams / sub-agents** — orchestrate background sub-agents with \`agent-teams\` (actions: spawn, status, read-result, send, list). Default to doing the work yourself in this thread. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Detailed instructions: call \`get-framework-context\` with key \`agent-teams\`.
+- **Agent teams / sub-agents** — orchestrate background sub-agents with \`agent-teams\` (actions: spawn, status, read-result, send, list). Default to doing the work yourself in this thread. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries). Treat spawn as launch-only; use status/read-result before reporting delegated work as complete. Detailed instructions: call \`get-framework-context\` with key \`agent-teams\`.
 - **Recurring jobs** — create cron-scheduled jobs with \`manage-jobs\` (actions: create, list, update). After a task with obvious recurring value, offer in one line to save it as an automation. Detailed instructions: call \`get-framework-context\` with key \`recurring-jobs\`.
 - **Connecting Builder.io** — when the user needs a source-code change or hits "Builder not configured", call \`connect-builder\`; it renders a one-click Connect card. Do NOT write setup steps yourself, and never route users to Builder org/beta settings. Detailed instructions: call \`get-framework-context\` with key \`builder\`.
 - **Browser automation** — drive a real Chrome via \`set-browser-control\` (local dev) or \`activate-browser\` (production) for rendered pages, screenshots, and design-token extraction. Detailed instructions: call \`get-framework-context\` with key \`browser\`.
@@ -4496,31 +4517,36 @@ export function createAgentChatPlugin(
       >();
       const resolvedModel = options?.model ?? DEFAULT_ANTHROPIC_MODEL;
 
+      // The action set a sub-agent inherits. Shared between the spawn-time team
+      // tool and the `_process-run` processor route below so the durable run
+      // executes with exactly the tools the orchestrator intended.
+      const buildSubAgentActions = (): Record<string, ActionEntry> =>
+        isDevMode()
+          ? {
+              // Sub-agents spawned in dev mode also invoke template actions
+              // via bash, so omit them from the native tool registry.
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...devScriptsForA2A,
+            }
+          : {
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...urlTools,
+              ...chatScripts,
+            };
+
       const teamTools = createTeamTools({
         getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
         getSystemPrompt: () =>
           getRequestRunContext()?.systemPrompt ?? basePrompt,
-        getActions: () =>
-          isDevMode()
-            ? {
-                // Sub-agents spawned in dev mode also invoke template actions
-                // via bash, so omit them from the native tool registry.
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...chatScripts,
-                ...devScriptsForA2A,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-              },
+        getActions: buildSubAgentActions,
         getEngine: () => {
           const runCtx = getRequestRunContext();
           return (
@@ -4955,6 +4981,90 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             codeMode: currentDevMode,
             canToggle,
           };
+        }),
+      );
+
+      // Self-heal the RunsTray: when the tray lists this owner's runs, first
+      // reconcile their in-flight sub-agent runs (re-fire dropped dispatches,
+      // mark dead runs failed) so the tray reflects precise status without
+      // waiting on the orchestrator chat to poll. Registered here to keep the
+      // generic progress store free of feature-module imports.
+      setProgressPreListHook(reconcileAgentTeamRunsForOwner);
+
+      // ─── Agent Teams: durable sub-agent run processor ─────────────────
+      // Self-fire target for `spawnTask`. Executes one chunk of a queued
+      // sub-agent in this fresh function invocation (its own timeout budget)
+      // so background sub-agents survive serverless instead of dying as a
+      // detached promise. Mounted here so it closes over the sub-agent action
+      // set / base prompt / engine (per-deployment closures that can't be
+      // serialized into the queue). HMAC-authed with the same internal-token
+      // scheme as the A2A/webhook processors.
+      getH3App(nitroApp).use(
+        AGENT_TEAM_PROCESS_RUN_PATH,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const body = (await readBody(event)) as {
+            taskId?: unknown;
+            mode?: unknown;
+          } | null;
+          const taskId =
+            body && typeof body.taskId === "string" ? body.taskId : "";
+          if (!taskId) {
+            setResponseStatus(event, 400);
+            return { error: "taskId required" };
+          }
+          const mode: "start" | "continue" =
+            body?.mode === "continue" ? "continue" : "start";
+
+          if (hasConfiguredA2ASecret()) {
+            const tok = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(taskId, tok ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent Teams processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          try {
+            return await processAgentTeamRun({
+              taskId,
+              mode,
+              event,
+              resolveConfig: async ({ payload, ownerEmail }) => {
+                let apiKey: string | undefined;
+                try {
+                  const { getOwnerActiveApiKey } =
+                    await import("../agent/production-agent.js");
+                  apiKey =
+                    (await getOwnerActiveApiKey(ownerEmail)) ?? undefined;
+                } catch {
+                  apiKey = undefined;
+                }
+                const engine = createAnthropicEngine({
+                  apiKey:
+                    apiKey ?? options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
+                });
+                return {
+                  baseSystemPrompt: basePrompt,
+                  actions: buildSubAgentActions(),
+                  engine,
+                  model: payload.model ?? resolvedModel,
+                };
+              },
+            });
+          } catch (err: any) {
+            console.error("[agent-teams] _process-run failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-run failed" };
+          }
         }),
       );
 

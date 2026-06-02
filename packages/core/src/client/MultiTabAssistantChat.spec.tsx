@@ -8,6 +8,7 @@ import { MultiTabAssistantChat } from "./MultiTabAssistantChat.js";
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   prefillMessage: vi.fn(),
+  setComposerContextItem: vi.fn(),
   sendRecoveryMessage: vi.fn(),
   queueMessage: vi.fn(),
   focusComposer: vi.fn(),
@@ -91,6 +92,7 @@ vi.mock("./AssistantChat.js", async () => {
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
+        setComposerContextItem: chatHandleMocks.setComposerContextItem,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
         queueMessage: chatHandleMocks.queueMessage,
         isRunning: () => false,
@@ -177,6 +179,32 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Send this now",
       undefined,
     );
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+  });
+
+  it("adds keyed context to the active composer without prefill or submit", () => {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.setChatContext",
+            data: {
+              key: "selected-element",
+              title: "Selected Element",
+              context: "<button>Buy</button>",
+            },
+          },
+          origin: window.location.origin,
+        }),
+      );
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
+      key: "selected-element",
+      title: "Selected Element",
+      context: "<button>Buy</button>",
+    });
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 });

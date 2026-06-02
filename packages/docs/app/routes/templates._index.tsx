@@ -9,12 +9,14 @@ export default function TemplatesPage() {
     <main className="mx-auto max-w-[1200px] px-6 py-20">
       <div className="mb-12 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Open-source, Agent-native app templates you own
+          Open-source, Agent-native apps you own
         </h1>
+        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
+          100% free and open source
+        </p>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          Fork a template, run it locally, and let the agent evolve it.
-          Alternatives to Superhuman, Notion, Google Calendar, PowerPoint, and
-          more — you own the code and can customize everything.
+          Fork a template, run it locally, and let the agent evolve it. You own
+          the code and can customize everything.
         </p>
       </div>
 

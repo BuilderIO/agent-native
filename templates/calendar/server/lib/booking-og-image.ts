@@ -1,10 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-  Resvg,
-  type RenderedImage,
-  type ResvgRenderOptions,
-} from "@resvg/resvg-js";
+import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface BookingOgImageInput {
   title?: string | null;
@@ -123,33 +119,79 @@ function validProfileImageDataUrl(value: string | null | undefined): string {
   return /^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl) ? dataUrl : "";
 }
 
-function wrapText(value: string, maxChars: number, maxLines: number): string[] {
+function estimateTextWidth(value: string, fontSize: number): number {
+  let units = 0;
+  for (const char of value) {
+    if (char === " ") {
+      units += 0.28;
+    } else if (/[MW@#%&]/.test(char)) {
+      units += 0.86;
+    } else if (/[A-Z]/.test(char)) {
+      units += 0.64;
+    } else if (/[ilI.,:;|!']/u.test(char)) {
+      units += 0.26;
+    } else if (/[0-9]/.test(char)) {
+      units += 0.56;
+    } else {
+      units += 0.54;
+    }
+  }
+  return units * fontSize;
+}
+
+function trimTextToWidth(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+): string {
+  const ellipsis = "...";
+  let trimmed = value.trim();
+  while (
+    trimmed.length > 0 &&
+    estimateTextWidth(`${trimmed}${ellipsis}`, fontSize) > maxWidth
+  ) {
+    trimmed = trimmed.slice(0, -1).trimEnd();
+  }
+  return trimmed ? `${trimmed}${ellipsis}` : ellipsis;
+}
+
+function wrapText(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
   const words = value.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
 
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (next.length <= maxChars) {
+    if (estimateTextWidth(next, fontSize) <= maxWidth) {
       current = next;
       continue;
     }
-    if (current) lines.push(current);
-    current = word;
+    if (!current) {
+      lines.push(trimTextToWidth(word, fontSize, maxWidth));
+      current = "";
+    } else {
+      lines.push(current);
+      current = word;
+    }
     if (lines.length === maxLines) break;
   }
   if (current && lines.length < maxLines) lines.push(current);
 
-  if (lines.length > maxLines) return lines.slice(0, maxLines);
-  const last = lines[lines.length - 1];
-  const remainingWords = words.slice(lines.join(" ").split(/\s+/).length);
-  if (remainingWords.length > 0 && last) {
-    lines[lines.length - 1] =
-      last.length > maxChars - 1
-        ? `${last.slice(0, Math.max(0, maxChars - 1)).trim()}...`
-        : `${last}...`;
+  const usedWordCount = lines.join(" ").split(/\s+/).filter(Boolean).length;
+  if (usedWordCount < words.length && lines.length > 0) {
+    lines[lines.length - 1] = trimTextToWidth(
+      lines[lines.length - 1],
+      fontSize,
+      maxWidth,
+    );
   }
-  return lines.length ? lines : [value.slice(0, maxChars)];
+
+  return lines.length ? lines : [trimTextToWidth(value, fontSize, maxWidth)];
 }
 
 function textBlock({
@@ -182,16 +224,26 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     hostNameFromBookingPageTitle(input.bookingPageTitle) ??
     displayNameFromIdentifier(input.username, input.ownerEmail);
   const title = displayTitle(input, inferredHost);
-  const titleLines = wrapText(title, title.length > 34 ? 23 : 28, 2);
+  const titleFitsSingleLine = estimateTextWidth(title, 82) <= 820;
+  const titleLines = titleFitsSingleLine
+    ? [title]
+    : wrapText(title, 66, 820, 2);
   const duration = durationLabel(input);
   const initials = initialsFor(inferredHost);
   const profileImageDataUrl = validProfileImageDataUrl(
     input.profileImageDataUrl,
   );
-  const titleFontSize = titleLines.length > 1 ? 66 : 82;
+  const titleFontSize = titleFitsSingleLine ? 82 : 66;
   const titleLineHeight = titleLines.length > 1 ? 76 : 92;
-  const titleGroupY = titleLines.length > 1 ? 350 : 382;
-  const durationY = titleLines.length > 1 ? 186 : 150;
+  const titleGroupY = titleLines.length > 1 ? 332 : 382;
+  const durationBadge =
+    titleLines.length === 1
+      ? `<g transform="translate(0 150)">
+      <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="${SURFACE}" stroke="${BORDER}"/>
+      <circle cx="31" cy="-5" r="8" fill="${BRAND_MINT}"/>
+      <text x="54" y="4" font-family="${FONT_FAMILY}" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
+    </g>`
+      : "";
   const avatarContent = profileImageDataUrl
     ? `<image x="${AVATAR_CX - AVATAR_SIZE / 2}" y="${AVATAR_CY - AVATAR_SIZE / 2}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
     : `<circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
@@ -238,11 +290,7 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
       weight: 800,
       fill: FG,
     })}
-    <g transform="translate(0 ${durationY})">
-      <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="${SURFACE}" stroke="${BORDER}"/>
-      <circle cx="31" cy="-5" r="8" fill="${BRAND_MINT}"/>
-      <text x="54" y="4" font-family="${FONT_FAMILY}" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
-    </g>
+    ${durationBadge}
   </g>
 </svg>`;
 }
@@ -269,18 +317,23 @@ function bookingOgResvgOptions(
   };
 }
 
-export function renderBookingOgImage(
+async function loadResvg(): Promise<typeof import("@resvg/resvg-js")> {
+  return import(/* @vite-ignore */ "@resvg/resvg-js");
+}
+
+export async function renderBookingOgImage(
   input: BookingOgImageInput,
   options: BookingOgRenderOptions = {},
-): RenderedImage {
+): Promise<RenderedImage> {
+  const { Resvg } = await loadResvg();
   return new Resvg(renderBookingOgImageSvg(input), {
     ...bookingOgResvgOptions(options),
   }).render();
 }
 
-export function renderBookingOgImagePng(
+export async function renderBookingOgImagePng(
   input: BookingOgImageInput,
   options: BookingOgRenderOptions = {},
-): Uint8Array {
-  return renderBookingOgImage(input, options).asPng();
+): Promise<Uint8Array> {
+  return (await renderBookingOgImage(input, options)).asPng();
 }

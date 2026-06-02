@@ -74,7 +74,11 @@ export {
 
 // Client
 export {
+  addContextToAgentChat,
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
   sendToAgentChat,
+  setContextToAgentChat,
   isEmbedMcpChatBridgeActive,
   useAgentChatGenerating,
   useDevMode,
@@ -95,6 +99,8 @@ export {
   AgentNativeEmbedded,
   useProductionAgent,
   ProductionAgentPanel,
+  type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatMessage,
   type AgentNativeMcpAppHostMessageType,
   type McpAppDisplayMode,

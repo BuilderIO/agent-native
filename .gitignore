@@ -6,6 +6,7 @@ docs/superpowers
 .DS_Store
 
 /*.png
+tmp/
 
 # Playwright MCP logs
 .playwright-mcp/

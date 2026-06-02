@@ -2,7 +2,11 @@
 
 // Client
 export {
+  addContextToAgentChat,
+  appendAgentChatContextToMessage,
+  formatAgentChatContextItemsForPrompt,
   sendToAgentChat,
+  setContextToAgentChat,
   isEmbedMcpChatBridgeActive,
   useAgentChatGenerating,
   useDevMode,
@@ -20,6 +24,8 @@ export {
   useSession,
   cn,
   ApiKeySettings,
+  type AgentChatContextItem,
+  type AgentChatContextMessage,
   type AgentChatMessage,
   type AgentNativeMcpAppHostMessageType,
   type McpAppDisplayMode,

@@ -337,7 +337,7 @@ export function App() {
         );
         return;
       }
-      // Relay submitChat from the iframe; the agent chat rejects
+      // Relay chat bridge events from the iframe; the agent chat rejects
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.
@@ -345,7 +345,10 @@ export function App() {
         setIsPresentationMode(event.data.data?.active === true);
         return;
       }
-      if (event.data.type === "agentNative.submitChat") {
+      if (
+        event.data.type === "agentNative.submitChat" ||
+        event.data.type === "agentNative.setChatContext"
+      ) {
         const host = window.location.hostname || "localhost";
         const gatewayOrigin = (() => {
           const gatewayUrl = getTemplateGatewayUrl();

@@ -34,7 +34,13 @@ import {
 } from "./workspace-core.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 import {
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
@@ -426,14 +432,30 @@ const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CON
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
     [...new Set(immutableAssetPaths)].sort(),
   )});
-const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
-    AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+const AGENT_NATIVE_SOCIAL_IMAGE_PATH = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  )};
+const AGENT_NATIVE_SOCIAL_IMAGE_ALT = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  )};
+const AGENT_NATIVE_SOCIAL_IMAGE_TYPE = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  )};
+const AGENT_NATIVE_SOCIAL_IMAGE_WIDTH = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  )};
+const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = ${JSON.stringify(
+    AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   )};
 const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i;
 const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;
 
-function injectDefaultSocialImageMeta(html) {
+function defaultSocialImageUrl(request, basePath) {
+  return new URL(prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath), request.url).toString();
+}
+
+function injectDefaultSocialImageMeta(html, imageUrl) {
   const headCloseIdx = html.indexOf("</head>");
   if (headCloseIdx === -1) return html;
 
@@ -442,13 +464,19 @@ function injectDefaultSocialImageMeta(html) {
   const tags = [];
 
   if (!hasAnySocialImage) {
-    tags.push('<meta property="og:image" content="' + AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE + '">');
+    tags.push('<meta property="og:image" content="' + imageUrl + '">');
+    tags.push('<meta property="og:image:secure_url" content="' + imageUrl + '">');
+    tags.push('<meta property="og:image:type" content="' + AGENT_NATIVE_SOCIAL_IMAGE_TYPE + '">');
+    tags.push('<meta property="og:image:width" content="' + AGENT_NATIVE_SOCIAL_IMAGE_WIDTH + '">');
+    tags.push('<meta property="og:image:height" content="' + AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT + '">');
+    tags.push('<meta property="og:image:alt" content="' + AGENT_NATIVE_SOCIAL_IMAGE_ALT + '">');
   }
   if (!TWITTER_CARD_META_RE.test(html)) {
     tags.push('<meta name="twitter:card" content="summary_large_image">');
   }
   if (!hasAnySocialImage) {
-    tags.push('<meta name="twitter:image" content="' + AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE + '">');
+    tags.push('<meta name="twitter:image" content="' + imageUrl + '">');
+    tags.push('<meta name="twitter:image:alt" content="' + AGENT_NATIVE_SOCIAL_IMAGE_ALT + '">');
   }
 
   if (tags.length === 0) return html;
@@ -530,7 +558,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname) {
+async function rewriteMountedResponse(response, basePath, pathname, request) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
@@ -554,7 +582,10 @@ async function rewriteMountedResponse(response, basePath, pathname) {
   headers.delete("content-length");
   return new Response(
     injectHeadScript(
-      injectDefaultSocialImageMeta(prefixMountedHtml(html, basePath)),
+      injectDefaultSocialImageMeta(
+        prefixMountedHtml(html, basePath),
+        defaultSocialImageUrl(request, basePath),
+      ),
       sentryClientConfigScript,
     ),
     {
@@ -661,10 +692,11 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
-        p
+        p,
+        getRequest
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
   }));
 
   _handler = app.fetch.bind(app);

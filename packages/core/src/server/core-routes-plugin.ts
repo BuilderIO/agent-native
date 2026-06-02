@@ -789,6 +789,15 @@ export function createCoreRoutesPlugin(
         }),
       );
 
+      {
+        const { createAgentNativeOgImageHandler } =
+          await import("./social-og-image.js");
+        getH3App(nitroApp).use(
+          `${P}/og-image.png`,
+          createAgentNativeOgImageHandler(),
+        );
+      }
+
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
       // Dev-mode DB admin (Supabase-Studio-like). Mounted unconditionally; every

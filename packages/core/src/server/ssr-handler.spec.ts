@@ -5,7 +5,7 @@ import {
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "./ssr-handler.js";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
+import { AGENT_NATIVE_SOCIAL_IMAGE_PATH } from "../shared/social-meta.js";
 import { getRequestUserEmail } from "./request-context.js";
 
 const mocks = vi.hoisted(() => {
@@ -260,10 +260,10 @@ describe("createH3SSRHandler", () => {
     const html = await response.text();
 
     expect(html).toContain(
-      `<meta property="og:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+      `<meta property="og:image" content="http://example.test${AGENT_NATIVE_SOCIAL_IMAGE_PATH}">`,
     );
     expect(html).toContain(
-      `<meta name="twitter:image" content="${AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE}">`,
+      `<meta name="twitter:image" content="http://example.test${AGENT_NATIVE_SOCIAL_IMAGE_PATH}">`,
     );
     expect(html).toContain(
       '<meta name="twitter:card" content="summary_large_image">',
@@ -285,7 +285,7 @@ describe("createH3SSRHandler", () => {
     const html = await response.text();
 
     expect(html).toContain("https://example.test/custom.png");
-    expect(html).not.toContain(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
+    expect(html).not.toContain(AGENT_NATIVE_SOCIAL_IMAGE_PATH);
     expect(html).toContain(
       '<meta name="twitter:card" content="summary_large_image">',
     );
