@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useActionQuery, useSendToAgentChat } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ import {
   IconWorld,
   IconCopy,
   IconCheck,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import Markdown from "@/components/Markdown";
 import { cn } from "@/lib/utils";
@@ -59,7 +60,8 @@ interface Source {
 }
 
 function sourceIcon(type: Source["type"]) {
-  if (type === "github") return <IconBrandGithub className="h-3.5 w-3.5 shrink-0" />;
+  if (type === "github")
+    return <IconBrandGithub className="h-3.5 w-3.5 shrink-0" />;
   if (type === "dbt") return <IconDatabase className="h-3.5 w-3.5 shrink-0" />;
   return <IconWorld className="h-3.5 w-3.5 shrink-0" />;
 }
@@ -69,7 +71,8 @@ function SourceCard({ source, index }: { source: Source; index: number }) {
     <div
       className={cn(
         "group flex flex-col gap-1.5 rounded-lg border bg-card p-3 text-sm transition-colors",
-        source.url && "hover:border-primary/30 hover:bg-accent/30 cursor-pointer",
+        source.url &&
+          "hover:border-primary/30 hover:bg-accent/30 cursor-pointer",
       )}
     >
       <div className="flex items-start gap-2">
@@ -85,7 +88,9 @@ function SourceCard({ source, index }: { source: Source; index: number }) {
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-          <span className="text-muted-foreground/60">{sourceIcon(source.type)}</span>
+          <span className="text-muted-foreground/60">
+            {sourceIcon(source.type)}
+          </span>
           {source.url && (
             <IconExternalLink className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
           )}
@@ -111,7 +116,13 @@ function SourceCard({ source, index }: { source: Source; index: number }) {
 
 const DASHBOARD_RE = /dashboard|workbook|chart|visualization|sigma/i;
 
-function StatusLabel({ status, question }: { status: string; question?: string }) {
+function StatusLabel({
+  status,
+  question,
+}: {
+  status: string;
+  question?: string;
+}) {
   if (status === "searching")
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
@@ -121,7 +132,9 @@ function StatusLabel({ status, question }: { status: string; question?: string }
     );
   if (status === "generating") {
     const label =
-      question && DASHBOARD_RE.test(question) ? "Searching Sigma…" : "Consulting dbt MCP…";
+      question && DASHBOARD_RE.test(question)
+        ? "Searching dashboards…"
+        : "Looking up in dbt…";
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
         <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
@@ -147,12 +160,25 @@ const BACKGROUND_TIMEOUT_MS = 30_000;
 const AGENT_TIMEOUT_MS = 90_000;
 
 export default function AnswerPage({ id }: Props) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const agentTriggeredRef = useRef(false);
   const sidebarTriggeredRef = useRef(false);
   const generatingStartRef = useRef<number | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const { send } = useSendToAgentChat();
+
+  function openInChat() {
+    const q = session?.question ?? "";
+    const ref = session?.id
+      ? `KQ-${session.id.replace(/-/g, "").slice(0, 6).toUpperCase()}`
+      : "";
+    send({
+      message: `Based on ${ref} — ${q} — let's dig deeper`,
+      submit: false,
+    });
+    navigate("/");
+  }
 
   const { data: session, isLoading } = useActionQuery(
     "get-session",
@@ -162,10 +188,15 @@ export default function AnswerPage({ id }: Props) {
 
   const sessionNotFound = (session as any)?.notFound === true;
   const isDone =
-    sessionNotFound || session?.status === "done" || session?.status === "error";
+    sessionNotFound ||
+    session?.status === "done" ||
+    session?.status === "error";
 
   useEffect(() => {
-    if (session?.status === "generating" && generatingStartRef.current === null) {
+    if (
+      session?.status === "generating" &&
+      generatingStartRef.current === null
+    ) {
       generatingStartRef.current = Date.now();
     }
     if (isDone) generatingStartRef.current = null;
@@ -179,7 +210,12 @@ export default function AnswerPage({ id }: Props) {
         ? Date.now() - generatingStartRef.current
         : 0;
 
-      if (elapsed > BACKGROUND_TIMEOUT_MS && !sidebarTriggeredRef.current && session && !isDone) {
+      if (
+        elapsed > BACKGROUND_TIMEOUT_MS &&
+        !sidebarTriggeredRef.current &&
+        session &&
+        !isDone
+      ) {
         sidebarTriggeredRef.current = true;
         send({
           message: session.question,
@@ -249,13 +285,20 @@ export default function AnswerPage({ id }: Props) {
           </span>
           <div className="shrink-0">
             {!isDone && (
-              <StatusLabel status={session?.status ?? "searching"} question={question} />
+              <StatusLabel
+                status={session?.status ?? "searching"}
+                question={question}
+              />
             )}
             {isDone && session?.status === "done" && (
-              <Badge variant="secondary" className="text-xs">answered</Badge>
+              <Badge variant="secondary" className="text-xs">
+                answered
+              </Badge>
             )}
             {isDone && session?.status === "error" && (
-              <Badge variant="destructive" className="text-xs">error</Badge>
+              <Badge variant="destructive" className="text-xs">
+                error
+              </Badge>
             )}
           </div>
         </div>
@@ -264,25 +307,28 @@ export default function AnswerPage({ id }: Props) {
       {/* Body */}
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-col lg:flex-row gap-10">
-
           {/* ── Answer column ── */}
           <div className="flex-1 min-w-0 flex flex-col gap-6">
             <div className="flex items-start justify-between gap-4">
-              <h1 className="text-2xl font-semibold leading-snug">{question}</h1>
+              <h1 className="text-2xl font-semibold leading-snug">
+                {question}
+              </h1>
               {session?.id && <CopyRefId id={session.id} />}
             </div>
 
             {/* Answer */}
             <div
               className={cn(
-                "prose prose-sm max-w-none dark:prose-invert",
+                "prose prose-sm max-w-none dark:prose-invert border-l-2 border-muted pl-4",
                 session?.status === "error" && "text-destructive",
               )}
             >
               {sessionNotFound ? (
                 <p className="text-muted-foreground">
                   This session is no longer available.{" "}
-                  <Link to="/knowledge" className="underline">Ask a new question →</Link>
+                  <Link to="/knowledge" className="underline">
+                    Ask a new question →
+                  </Link>
                 </p>
               ) : isLoading || (!session?.answer && !isDone) ? (
                 <div className="flex flex-col gap-3 mt-1">
@@ -298,6 +344,22 @@ export default function AnswerPage({ id }: Props) {
                 <Markdown content={session.answer} />
               ) : null}
             </div>
+
+            {/* Use in chat bridge */}
+            {isDone && session?.status === "done" && session?.answer && (
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={openInChat}
+                >
+                  <IconMessageCircle className="h-3.5 w-3.5" />
+                  Use in chat
+                  <IconArrowLeft className="h-3 w-3 rotate-180" />
+                </Button>
+              </div>
+            )}
 
             {/* Error state */}
             {isDone && session?.status === "error" && (
@@ -318,9 +380,15 @@ export default function AnswerPage({ id }: Props) {
               <div className="flex items-start gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 <IconAlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
                 <span className="flex-1">
-                  The agent is taking longer than expected. Check the chat sidebar or retry.
+                  The agent is taking longer than expected. Check the chat
+                  sidebar or retry.
                 </span>
-                <Button variant="outline" size="sm" className="h-7 shrink-0" onClick={retriggerAgent}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0"
+                  onClick={retriggerAgent}
+                >
                   <IconRefresh className="h-3.5 w-3.5 mr-1" />
                   Retry
                 </Button>
@@ -341,7 +409,11 @@ export default function AnswerPage({ id }: Props) {
                 </>
               ) : (
                 sources.map((s, i) => (
-                  <SourceCard key={`${s.url ?? s.title}-${i}`} source={s} index={i} />
+                  <SourceCard
+                    key={`${s.url ?? s.title}-${i}`}
+                    source={s}
+                    index={i}
+                  />
                 ))
               )}
             </div>

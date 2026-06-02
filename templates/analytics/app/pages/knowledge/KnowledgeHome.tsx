@@ -1,17 +1,19 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconSearch,
   IconClock,
-  IconMessageCircle,
+  IconBook2,
   IconArrowRight,
   IconLoader2,
+  IconTable,
+  IconChartBar,
+  IconLayoutDashboard,
 } from "@tabler/icons-react";
 
 /** First 6 chars of the UUID used as a short human-readable reference, e.g. KQ-d8e0cb */
@@ -21,11 +23,38 @@ function refId(id: string) {
 import { cn } from "@/lib/utils";
 import { Link } from "react-router";
 
-const SUGGESTED_QUESTIONS = [
-  "What fields does dim_contracts have?",
-  "How is ARR calculated in our dbt models?",
-  "What does the fct_subscriptions model contain?",
-  "Where is churned MRR tracked?",
+const CATEGORIES: {
+  label: string;
+  icon: React.ReactNode;
+  questions: string[];
+}[] = [
+  {
+    label: "Models & Fields",
+    icon: <IconTable className="h-3.5 w-3.5" />,
+    questions: [
+      "What fields does dim_contracts have?",
+      "What does fct_subscriptions contain?",
+      "What tables track churned revenue?",
+    ],
+  },
+  {
+    label: "Metrics",
+    icon: <IconChartBar className="h-3.5 w-3.5" />,
+    questions: [
+      "How is ARR calculated in our dbt models?",
+      "How is churned MRR defined?",
+      "Where is expansion revenue tracked?",
+    ],
+  },
+  {
+    label: "Dashboards",
+    icon: <IconLayoutDashboard className="h-3.5 w-3.5" />,
+    questions: [
+      "Is there a dashboard for case study opt-ins?",
+      "What does the Revenue Dashboard show?",
+      "Which dashboards track pipeline health?",
+    ],
+  },
 ];
 
 function statusLabel(status: string) {
@@ -46,7 +75,8 @@ export default function KnowledgeHome() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [question, setQuestion] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: sessionsData, isLoading: sessionsLoading } = useActionQuery(
     "list-sessions",
@@ -70,18 +100,11 @@ export default function KnowledgeHome() {
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
       e.preventDefault();
       handleSubmit(question);
     }
-  }
-
-  function autoResize(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setQuestion(e.target.value);
-    const el = e.target;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }
 
   const sessions = sessionsData?.sessions ?? [];
@@ -91,66 +114,92 @@ export default function KnowledgeHome() {
       {/* Header */}
       <div className="flex flex-col items-center gap-3 text-center max-w-xl">
         <div className="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 text-primary">
-          <IconMessageCircle className="h-6 w-6" />
+          <IconBook2 className="h-6 w-6" />
         </div>
         <h1 className="text-3xl font-semibold tracking-tight">
-          Knowledge Assistant
+          Data Reference
         </h1>
         <p className="text-muted-foreground text-sm">
-          Ask anything about your dbt models, SQL tables, or data definitions.
-          Answers are sourced from dbt MCP and GitHub.
+          Look up data models, metrics definitions, and dashboards — answers are
+          saved and citable.
         </p>
       </div>
 
-      {/* Question input */}
-      <div className="w-full max-w-2xl flex flex-col gap-3">
-        <div className="relative flex flex-col rounded-xl border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring">
-          <Textarea
-            ref={textareaRef}
+      {/* Search input */}
+      <div className="w-full max-w-2xl flex flex-col gap-4">
+        <div className="relative flex items-center rounded-xl border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring">
+          <IconSearch className="absolute left-3.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
             value={question}
-            onChange={autoResize}
+            onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about a model, metric, or table…"
-            className="resize-none border-0 shadow-none focus-visible:ring-0 min-h-[56px] py-4 pr-14 text-base bg-transparent"
-            rows={1}
+            placeholder="Search models, metrics, or dashboards…"
+            className="flex-1 bg-transparent py-3.5 pl-10 pr-14 text-sm outline-none placeholder:text-muted-foreground"
+            disabled={isPending}
           />
           <Button
             size="icon"
-            className="absolute right-3 bottom-3"
+            className="absolute right-2 h-7 w-7"
             disabled={!question.trim() || isPending}
             onClick={() => handleSubmit(question)}
           >
             {isPending ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
-              <IconArrowRight className="h-4 w-4" />
+              <IconArrowRight className="h-3.5 w-3.5" />
             )}
           </Button>
         </div>
 
-        {/* Suggested questions */}
+        {/* Category chips */}
         <div className="flex flex-wrap gap-2">
-          {SUGGESTED_QUESTIONS.map((q) => (
+          {CATEGORIES.map((cat, i) => (
             <button
-              key={q}
+              key={cat.label}
               type="button"
-              onClick={() => handleSubmit(q)}
+              onClick={() => setActiveCategory(activeCategory === i ? null : i)}
               className={cn(
-                "rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                activeCategory === i
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 isPending && "pointer-events-none opacity-50",
               )}
             >
-              {q}
+              {cat.icon}
+              {cat.label}
             </button>
           ))}
         </div>
+
+        {/* Expanded category questions */}
+        {activeCategory !== null && (
+          <div className="flex flex-col gap-1.5 rounded-xl border bg-card p-3">
+            {CATEGORIES[activeCategory].questions.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => handleSubmit(q)}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
+                  isPending && "pointer-events-none opacity-50",
+                )}
+              >
+                <IconArrowRight className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Recent questions */}
+      {/* Recent lookups */}
       <div className="w-full max-w-2xl flex flex-col gap-3">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <IconClock className="h-4 w-4" />
-          Recent questions
+          Recent lookups
         </div>
 
         {sessionsLoading && (
@@ -163,7 +212,7 @@ export default function KnowledgeHome() {
 
         {!sessionsLoading && sessions.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No questions yet. Ask something above to get started.
+            No lookups yet. Search above to get started.
           </p>
         )}
 
@@ -177,7 +226,9 @@ export default function KnowledgeHome() {
               <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
                 <span className="truncate block">{s.question}</span>
-                <span className="text-[11px] font-mono text-muted-foreground/60">{refId(s.id)}</span>
+                <span className="text-[11px] font-mono text-muted-foreground/60">
+                  {refId(s.id)}
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-3">

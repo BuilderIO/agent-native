@@ -80,11 +80,12 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen
-          emptyStateText="Ask me anything about your data"
+          emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
           suggestions={[
-            "Build a dashboard for our pipeline",
-            "Why did signups drop last week?",
-            "Compare this week's revenue to last",
+            "What's driving ARR growth this quarter?",
+            "Show me churn trends over the last 6 months",
+            "Analyze the HubSpot Sales dashboard for anomalies",
+            "Compare MRR between enterprise and SMB",
           ]}
           scope={analyticsScope}
         >
