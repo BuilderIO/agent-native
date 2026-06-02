@@ -693,20 +693,6 @@ export default function MeetingDetailRoute() {
             </span>
           </span>
         )}
-        {meeting.recordingId && (
-          <NavLink
-            to={`/r/${meeting.recordingId}`}
-            className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
-          >
-            <IconVideo className="h-3.5 w-3.5" />
-            Open transcript source
-            {recordingDuration && (
-              <span className="tabular-nums text-muted-foreground/80">
-                · {recordingDuration}
-              </span>
-            )}
-          </NavLink>
-        )}
         {meeting.joinUrl && !meeting.actualEnd && (
           <a
             href={meeting.joinUrl}
