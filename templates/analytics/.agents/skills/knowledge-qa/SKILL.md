@@ -85,30 +85,31 @@ There are two distinct dashboard sources — always check both when a question i
 
 ---
 
-## Known Sigma Workbooks — Check These Directly When Search Fails
+## Using the Sigma Workbooks Catalog
 
-Sigma search is keyword-based and may miss workbooks whose names don't match the query terms. Use the registry below to determine which known workbook to `describe` directly.
+Every Knowledge session includes a **"Sigma Workbooks Catalog"** source listing the organization's Sigma workbooks by name and ID. Use it to identify the right workbook when keyword search alone doesn't find it.
 
-| Business domain / topic | Sigma Workbook to check |
-|---|---|
-| Case study opt-ins, case study status, customer references | **Enterprise Contract Terms and Details** |
-| Contract details, contract value, contract dates | **Enterprise Contract Terms and Details** |
-| Enterprise accounts, enterprise tier data | **Enterprise Contract Terms and Details** |
-| CSM assignments, customer success managers | **Enterprise Contract Terms and Details** |
-| Opt-in flags, permission flags, customer consent | **Enterprise Contract Terms and Details** |
+**The problem with keyword search:** Sigma MCP `search` matches on keywords in workbook/element names and descriptions. If a user asks about "case study opt-ins" but the relevant workbook is called "Enterprise Accounts - Contract Terms and Usage", the search won't return it.
 
-**When to use this registry:**
-1. Run `mcp__sigma__search` first with the question's keywords.
-2. If search returns no match (or no match that looks relevant), check whether the topic maps to a known workbook in the table above.
-3. If it does: use `mcp__sigma__search` with the **workbook name** (e.g. `"Enterprise Contract Terms and Details"`) to locate it, then call `mcp__sigma__describe` on the result to inspect its sheets and columns.
-4. Surface the relevant sheet/tab name and column names in your answer so the user knows exactly where the data lives.
+**The solution — two-step lookup:**
+1. Scan the **Sigma Workbooks Catalog** source (already in your context) for workbooks whose name suggests they contain the relevant business domain.
+2. Use `mcp__sigma__search` with the **workbook name** to locate it, then `mcp__sigma__describe` to inspect its pages and columns.
 
-**Example:** The question "Is there a dashboard for case study opt-ins?" should trigger:
-- Sigma search for "case study" → likely no direct hit
-- Lookup in registry → "Enterprise Contract Terms and Details" is the known workbook
-- Sigma search for "Enterprise Contract Terms" → find the workbook ID
-- `describe` the workbook → identify the sheet/tab that tracks opt-in status
-- Answer: "Yes — the **Enterprise Contract Terms and Details** Sigma workbook has a [Sheet Name] tab that tracks case study opt-in status."
+**How to read the catalog:**
+- Every entry is `- Workbook Name (id: <workbookId>)`
+- Match workbook names to the business topic — e.g.:
+  - "Enterprise Accounts - Contract Terms and Usage" → contracts, opt-ins, CSM, enterprise tier
+  - "CSM Book of Business Tracker" → CSM assignments, book of business, renewals
+  - "Revenue Funnel Actuals" → revenue, MRR, ARR, pipeline
+  - "Product KPIs" → product metrics, activation, retention
+  - "Customer Activity Dashboard" → customer usage, activity
+
+**Example for "Is there a dashboard for case study opt-ins?":**
+1. `mcp__sigma__search "case study opt-in"` → no direct match
+2. Scan the Sigma Workbooks Catalog → "Enterprise Accounts - Contract Terms and Usage" covers enterprise/contract data
+3. `mcp__sigma__search "Enterprise Accounts - Contract Terms"` → find the workbook
+4. `mcp__sigma__describe` → inspect pages, find the relevant tab
+5. Answer: "Yes — **Enterprise Accounts - Contract Terms and Usage** has a [Page Name] tab that tracks case study opt-in status."
 
 ---
 

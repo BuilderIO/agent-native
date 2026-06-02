@@ -127,6 +127,89 @@ async function fetchDashboardCatalog(): Promise<Source[]> {
   }
 }
 
+// --- Sigma workbook catalog (fetched from Sigma REST API, cached in memory) ---
+
+interface SigmaWorkbookEntry {
+  name: string;
+  workbookId: string;
+  description?: string;
+}
+
+let sigmaCache: { source: Source; fetchedAt: number } | null = null;
+const SIGMA_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function getSigmaToken(): Promise<string> {
+  const clientId = process.env.SIGMA_CLIENT_ID;
+  const clientSecret = process.env.SIGMA_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Sigma credentials not set");
+
+  const res = await fetch("https://aws-api.sigmacomputing.com/v2/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+  if (!res.ok) throw new Error(`Sigma token error: ${res.status}`);
+  const { access_token } = (await res.json()) as { access_token: string };
+  return access_token;
+}
+
+async function fetchSigmaWorkbookCatalog(): Promise<Source[]> {
+  if (sigmaCache && Date.now() - sigmaCache.fetchedAt < SIGMA_CACHE_TTL_MS) {
+    return [sigmaCache.source];
+  }
+
+  try {
+    const token = await getSigmaToken();
+    const workbooks: SigmaWorkbookEntry[] = [];
+    let nextPage: string | undefined;
+
+    do {
+      const url = new URL("https://aws-api.sigmacomputing.com/v2/workbooks");
+      url.searchParams.set("limit", "100");
+      if (nextPage) url.searchParams.set("page", nextPage);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) break;
+
+      const data = (await res.json()) as {
+        entries: SigmaWorkbookEntry[];
+        nextPage?: string;
+      };
+      workbooks.push(...data.entries);
+      nextPage = data.nextPage;
+    } while (nextPage && workbooks.length < 500);
+
+    if (workbooks.length === 0) return [];
+
+    const list = workbooks
+      .map((w) => {
+        const desc = w.description ? ` — ${w.description}` : "";
+        return `- ${w.name} (id: ${w.workbookId})${desc}`;
+      })
+      .join("\n");
+
+    const source: Source = {
+      type: "other" as const,
+      title: "Sigma Workbooks Catalog",
+      excerpt:
+        `The organization has ${workbooks.length} Sigma workbooks. ` +
+        `Use Sigma MCP (begin_session → search by workbook name → describe) to inspect pages and columns for the most relevant one.\n\n` +
+        list,
+    };
+
+    sigmaCache = { source, fetchedAt: Date.now() };
+    return [source];
+  } catch {
+    return [];
+  }
+}
+
 export default defineAction({
   description:
     "Search internal sources for a question and create a Knowledge Q&A session.",
@@ -144,23 +227,13 @@ export default defineAction({
       .insert(schema.askSessions)
       .values({ id, question, status: "searching", userEmail });
 
-    const sigmaKnownWorkbooks: Source = {
-      type: "other" as const,
-      title: "Known Sigma Workbooks Registry",
-      excerpt: [
-        "The following Sigma workbooks are known resources. Search Sigma by workbook name to locate them, then describe to inspect sheets/columns.",
-        "",
-        "- Enterprise Contract Terms and Details",
-        "  Covers: contract details, enterprise tier, case study opt-in status, CSM assignments, opt-in/consent flags, customer references",
-      ].join("\n"),
-    };
-
-    const [ghSources, dashboardSources] = await Promise.all([
+    const [ghSources, dashboardSources, sigmaSources] = await Promise.all([
       searchGitHub(question, process.env.GITHUB_TOKEN),
       fetchDashboardCatalog(),
+      fetchSigmaWorkbookCatalog(),
     ]);
 
-    const allSources = [...dashboardSources, sigmaKnownWorkbooks, ...ghSources];
+    const allSources = [...dashboardSources, ...sigmaSources, ...ghSources];
 
     await db
       .update(schema.askSessions)
