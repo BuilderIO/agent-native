@@ -44,9 +44,33 @@ export default defineAction({
           )
           .optional(),
         formula: z.string().optional(),
+        relation: z
+          .object({
+            databaseId: z.string().nullable().optional(),
+          })
+          .optional(),
+        rollup: z
+          .object({
+            relationPropertyId: z.string().nullable().optional(),
+            targetPropertyId: z.string().nullable().optional(),
+            aggregation: z
+              .enum([
+                "count",
+                "count_values",
+                "count_unique",
+                "sum",
+                "average",
+                "min",
+                "max",
+              ])
+              .optional(),
+          })
+          .optional(),
       })
       .optional()
-      .describe("Select/status/multi-select options or formula expression"),
+      .describe(
+        "Select/status/multi-select options, formula expression, relation target, or rollup config",
+      ),
   }),
   run: async (args) => {
     const access = await assertAccess("document", args.documentId, "editor");

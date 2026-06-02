@@ -19,6 +19,7 @@ import {
   personItems,
   personLabel,
   placeLabel,
+  relationItems,
   removePropertyOption,
   renamePropertyOption,
   updatePropertyOptionColor,
@@ -48,6 +49,8 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("files")).toEqual(["files_media"]);
     expect(filterDocumentPropertyTypes("calculation")).toEqual(["formula"]);
     expect(filterDocumentPropertyTypes("formula")).toEqual(["formula"]);
+    expect(filterDocumentPropertyTypes("database")).toEqual(["relation"]);
+    expect(filterDocumentPropertyTypes("aggregate")).toEqual(["rollup"]);
     expect(filterDocumentPropertyTypes("multi select")).toEqual([
       "multi_select",
     ]);
@@ -58,9 +61,19 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("")).toContain("person");
     expect(filterDocumentPropertyTypes("")).toContain("place");
     expect(filterDocumentPropertyTypes("")).toContain("files_media");
+    expect(filterDocumentPropertyTypes("")).toContain("relation");
+    expect(filterDocumentPropertyTypes("")).toContain("rollup");
     expect(filterDocumentPropertyTypes("")).toContain("formula");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_time");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_by");
+  });
+});
+
+describe("document relation property display", () => {
+  it("normalizes relation values for row links", () => {
+    expect(relationItems(["doc-a", "", "doc-b"])).toEqual(["doc-a", "doc-b"]);
+    expect(relationItems("doc-a")).toEqual(["doc-a"]);
+    expect(relationItems(null)).toEqual([]);
   });
 });
 

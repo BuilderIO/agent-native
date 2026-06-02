@@ -1,9 +1,11 @@
-import { and, asc, eq, type InferSelectModel } from "drizzle-orm";
+import { and, asc, eq, inArray, type InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   defaultPropertyOptions,
   evaluatePropertyFormula,
+  formulaValueText,
   isComputedPropertyType,
+  isEmptyPropertyValue,
   normalizePropertyValue,
   normalizePropertyVisibility,
   parsePropertyOptions,
@@ -22,6 +24,7 @@ import type {
   ContentDatabaseViewConfig,
   ContentDatabaseColumnCalculation,
   ContentDatabaseRowDensity,
+  DocumentProperty,
 } from "../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
@@ -432,7 +435,7 @@ export async function listPropertiesForDatabase(
       .map((property) => [property.definition.name, property.value]),
   );
 
-  return properties.map((property) =>
+  const evaluatedProperties = properties.map((property) =>
     property.definition.type === "formula"
       ? {
           ...property,
@@ -442,6 +445,117 @@ export async function listPropertiesForDatabase(
           ),
         }
       : property,
+  );
+
+  const nextProperties = [];
+  for (const property of evaluatedProperties) {
+    if (property.definition.type === "rollup") {
+      nextProperties.push({
+        ...property,
+        value: await evaluatePropertyRollup(property, evaluatedProperties),
+      });
+    } else {
+      nextProperties.push(property);
+    }
+  }
+
+  return nextProperties;
+}
+
+async function evaluatePropertyRollup(
+  property: DocumentProperty,
+  properties: DocumentProperty[],
+): Promise<DocumentPropertyValue> {
+  const config = property.definition.options.rollup;
+  const relationPropertyId = config?.relationPropertyId ?? null;
+  const targetPropertyId = config?.targetPropertyId ?? null;
+  const aggregation = config?.aggregation ?? "count";
+  const relationProperty = relationPropertyId
+    ? properties.find(
+        (candidate) => candidate.definition.id === relationPropertyId,
+      )
+    : null;
+  const linkedDocumentIds = relationValueIds(relationProperty?.value);
+
+  if (aggregation === "count") return linkedDocumentIds.length;
+  if (linkedDocumentIds.length === 0) return null;
+
+  const targetProperty = targetPropertyId
+    ? properties.find(
+        (candidate) => candidate.definition.id === targetPropertyId,
+      )
+    : null;
+  if (!targetProperty) return null;
+
+  const values = await propertyValuesForLinkedDocuments(
+    linkedDocumentIds,
+    targetProperty,
+  );
+  const filledValues = values.filter((value) => !isEmptyPropertyValue(value));
+
+  if (aggregation === "count_values") return filledValues.length;
+  if (aggregation === "count_unique") {
+    return new Set(filledValues.map((value) => formulaValueText(value))).size;
+  }
+
+  const numbers = filledValues
+    .map((value) => Number(formulaValueText(value)))
+    .filter((value) => Number.isFinite(value));
+  if (numbers.length === 0) return null;
+  if (aggregation === "sum") {
+    return numbers.reduce((total, value) => total + value, 0);
+  }
+  if (aggregation === "average") {
+    return numbers.reduce((total, value) => total + value, 0) / numbers.length;
+  }
+  if (aggregation === "min") return Math.min(...numbers);
+  if (aggregation === "max") return Math.max(...numbers);
+  return null;
+}
+
+function relationValueIds(value: DocumentPropertyValue | undefined) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+async function propertyValuesForLinkedDocuments(
+  documentIds: string[],
+  property: DocumentProperty,
+) {
+  const db = getDb();
+  const docs = await db
+    .select()
+    .from(schema.documents)
+    .where(inArray(schema.documents.id, documentIds));
+  const docById = new Map(docs.map((doc) => [doc.id, doc]));
+
+  if (isComputedPropertyType(property.definition.type)) {
+    return documentIds.map((documentId) => {
+      const doc = docById.get(documentId);
+      return doc ? computedPropertyValue(property.definition.type, doc) : null;
+    });
+  }
+
+  const storedValues = await db
+    .select()
+    .from(schema.documentPropertyValues)
+    .where(
+      and(
+        inArray(schema.documentPropertyValues.documentId, documentIds),
+        eq(schema.documentPropertyValues.propertyId, property.definition.id),
+      ),
+    );
+  const valueByDocumentId = new Map(
+    storedValues.map((value) => [
+      value.documentId,
+      parsePropertyValue(value.valueJson),
+    ]),
+  );
+  return documentIds.map(
+    (documentId) => valueByDocumentId.get(documentId) ?? null,
   );
 }
 

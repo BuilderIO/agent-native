@@ -12,10 +12,12 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
   "url",
   "email",
   "phone",
+  "relation",
 ] as const;
 
 export const COMPUTED_DOCUMENT_PROPERTY_TYPES = [
   "formula",
+  "rollup",
   "id",
   "created_time",
   "created_by",
@@ -65,6 +67,21 @@ export interface DocumentPropertyOption {
 export interface DocumentPropertyOptions {
   options?: DocumentPropertyOption[];
   formula?: string;
+  relation?: {
+    databaseId?: string | null;
+  };
+  rollup?: {
+    relationPropertyId?: string | null;
+    targetPropertyId?: string | null;
+    aggregation?:
+      | "count"
+      | "count_values"
+      | "count_unique"
+      | "sum"
+      | "average"
+      | "min"
+      | "max";
+  };
 }
 
 export interface DocumentPropertyDateValue {
@@ -98,7 +115,9 @@ export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
   url: "URL",
   email: "Email",
   phone: "Phone",
+  relation: "Relation",
   formula: "Formula",
+  rollup: "Rollup",
   id: "ID",
   created_time: "Created time",
   created_by: "Created by",
@@ -144,6 +163,20 @@ export function defaultPropertyOptions(
     return { formula: "" };
   }
 
+  if (type === "relation") {
+    return { relation: { databaseId: null } };
+  }
+
+  if (type === "rollup") {
+    return {
+      rollup: {
+        relationPropertyId: null,
+        targetPropertyId: null,
+        aggregation: "count",
+      },
+    };
+  }
+
   return {};
 }
 
@@ -158,10 +191,48 @@ export function parsePropertyOptions(
       ...parsed,
       options: Array.isArray(parsed.options) ? parsed.options : undefined,
       formula: typeof parsed.formula === "string" ? parsed.formula : undefined,
+      relation:
+        parsed.relation && typeof parsed.relation === "object"
+          ? {
+              databaseId:
+                typeof parsed.relation.databaseId === "string"
+                  ? parsed.relation.databaseId
+                  : null,
+            }
+          : undefined,
+      rollup:
+        parsed.rollup && typeof parsed.rollup === "object"
+          ? {
+              relationPropertyId:
+                typeof parsed.rollup.relationPropertyId === "string"
+                  ? parsed.rollup.relationPropertyId
+                  : null,
+              targetPropertyId:
+                typeof parsed.rollup.targetPropertyId === "string"
+                  ? parsed.rollup.targetPropertyId
+                  : null,
+              aggregation: normalizeRollupAggregation(
+                parsed.rollup.aggregation,
+              ),
+            }
+          : undefined,
     };
   } catch {
     return {};
   }
+}
+
+export function normalizeRollupAggregation(
+  value: unknown,
+): NonNullable<DocumentPropertyOptions["rollup"]>["aggregation"] {
+  return value === "count_values" ||
+    value === "count_unique" ||
+    value === "sum" ||
+    value === "average" ||
+    value === "min" ||
+    value === "max"
+    ? value
+    : "count";
 }
 
 export function serializePropertyOptions(
@@ -319,6 +390,7 @@ export function normalizePropertyValue(
     case "multi_select":
     case "files_media":
     case "person":
+    case "relation":
       return Array.isArray(value)
         ? value
             .filter((item): item is string => typeof item === "string")

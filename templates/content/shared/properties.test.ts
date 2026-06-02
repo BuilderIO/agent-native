@@ -43,6 +43,10 @@ describe("document properties", () => {
       "a",
       "b",
     ]);
+    expect(normalizePropertyValue("relation", ["doc-a", 2, "doc-b"])).toEqual([
+      "doc-a",
+      "doc-b",
+    ]);
     expect(normalizePropertyValue("date", "")).toBeNull();
     expect(normalizePropertyValue("date", "2026-05-28")).toEqual({
       start: "2026-05-28",
@@ -120,6 +124,25 @@ describe("document properties", () => {
     expect(
       parsePropertyOptions(serializePropertyOptions({ formula: "{MSV} * 2" })),
     ).toEqual({ formula: "{MSV} * 2" });
+    expect(
+      parsePropertyOptions(
+        serializePropertyOptions({
+          relation: { databaseId: "database" },
+          rollup: {
+            relationPropertyId: "relation",
+            targetPropertyId: "number",
+            aggregation: "sum",
+          },
+        }),
+      ),
+    ).toEqual({
+      relation: { databaseId: "database" },
+      rollup: {
+        relationPropertyId: "relation",
+        targetPropertyId: "number",
+        aggregation: "sum",
+      },
+    });
     expect(parsePropertyValue(serializePropertyValue(["done"]))).toEqual([
       "done",
     ]);

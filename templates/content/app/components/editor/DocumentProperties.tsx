@@ -31,6 +31,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { emailToName, useSession } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,7 +89,11 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyVisibility,
 } from "@shared/properties";
-import type { DocumentProperty } from "@shared/api";
+import type {
+  ContentDatabaseResponse,
+  DocumentListResponse,
+  DocumentProperty,
+} from "@shared/api";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 interface DocumentPropertiesProps {
@@ -101,6 +106,7 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   text: IconAlignLeft,
   number: IconHash,
   formula: IconNumber123,
+  rollup: IconNumber123,
   select: IconCircleChevronDown,
   multi_select: IconList,
   status: IconCircleDotted,
@@ -112,6 +118,7 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   url: IconLink,
   email: IconAt,
   phone: IconPhone,
+  relation: IconLink,
   id: IconNumber,
   created_time: IconClockFilled,
   created_by: IconUserCircle,
@@ -149,6 +156,8 @@ const PROPERTY_TYPE_SEARCH_ALIASES: Partial<
   place: ["location", "address", "where"],
   files_media: ["file", "files", "media", "attachment", "attachments"],
   formula: ["calculate", "calculation", "computed", "equation"],
+  relation: ["relationship", "linked", "link", "database"],
+  rollup: ["aggregate", "aggregation", "sum", "count", "relation"],
 };
 
 function slugify(value: string) {
@@ -282,6 +291,21 @@ export function displayValue(property: DocumentProperty) {
         {items.map((item) => (
           <FilesMediaPill key={item} value={item} />
         ))}
+      </span>
+    );
+  }
+
+  if (type === "relation") {
+    const items = relationItems(value);
+    if (items.length === 0) {
+      return <span className="text-muted-foreground/70">Empty</span>;
+    }
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+        <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">
+          {items.length} page{items.length === 1 ? "" : "s"}
+        </span>
       </span>
     );
   }
@@ -430,6 +454,14 @@ export function filesMediaKind(value: string) {
   if (/\.(mp3|wav|m4a|aac|ogg)$/.test(label)) return "Audio";
   if (/^https?:\/\//i.test(value.trim())) return "Link";
   return "File";
+}
+
+export function relationItems(value: DocumentProperty["value"]) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && !!item)
+    : typeof value === "string" && value.trim()
+      ? [value.trim()]
+      : [];
 }
 
 function FilesMediaPill({ value }: { value: string }) {
@@ -771,6 +803,11 @@ export function PropertyManagementPopover({
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
+  const documentsQuery = useActionQuery<DocumentListResponse>(
+    "list-documents",
+    {},
+  );
+  const propertiesQuery = useDocumentProperties(documentId);
   const [open, setOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [name, setName] = useState(property.definition.name);
@@ -784,6 +821,20 @@ export function PropertyManagementPopover({
     property.definition.type === "select" ||
     property.definition.type === "status" ||
     property.definition.type === "multi_select";
+  const databaseOptions = (documentsQuery.data?.documents ?? [])
+    .filter((document) => !!document.database)
+    .map((document) => document.database!)
+    .filter((database) => database.id !== undefined);
+  const databaseNameById = new Map(
+    databaseOptions.map((database) => [database.id, database.title]),
+  );
+  const databaseProperties = propertiesQuery.data?.properties ?? [];
+  const relationProperties = databaseProperties.filter(
+    (candidate) => candidate.definition.type === "relation",
+  );
+  const rollupTargetProperties = databaseProperties.filter(
+    (candidate) => candidate.definition.type !== "rollup",
+  );
 
   function resetDraft() {
     setName(property.definition.name);
@@ -845,6 +896,39 @@ export function PropertyManagementPopover({
     const nextFormula = nextValue.trim();
     if (nextFormula === (property.definition.options.formula ?? "")) return;
     await configureProperty({ options: { formula: nextFormula } });
+  }
+
+  async function updateRelationDatabase(databaseId: string | null) {
+    await configureProperty({
+      options: {
+        ...property.definition.options,
+        relation: { databaseId },
+      },
+    });
+  }
+
+  async function updateRollupConfig(
+    nextRollup: NonNullable<DocumentPropertyOptions["rollup"]>,
+  ) {
+    await configureProperty({
+      options: {
+        ...property.definition.options,
+        rollup: {
+          relationPropertyId:
+            nextRollup.relationPropertyId ??
+            property.definition.options.rollup?.relationPropertyId ??
+            null,
+          targetPropertyId:
+            nextRollup.targetPropertyId ??
+            property.definition.options.rollup?.targetPropertyId ??
+            null,
+          aggregation:
+            nextRollup.aggregation ??
+            property.definition.options.rollup?.aggregation ??
+            "count",
+        },
+      },
+    });
   }
 
   async function duplicateProperty() {
@@ -1059,6 +1143,151 @@ export function PropertyManagementPopover({
                 Save formula
               </Button>
             </form>
+          ) : null}
+
+          {property.definition.type === "relation" ? (
+            <div className="grid gap-2 px-2 py-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Related database
+              </div>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconLink className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1 truncate">
+                    {databaseNameById.get(
+                      property.definition.options.relation?.databaseId ??
+                        property.definition.databaseId ??
+                        "",
+                    ) ?? "This database"}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-72 w-64 overflow-auto">
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void updateRelationDatabase(null);
+                    }}
+                  >
+                    This database
+                  </DropdownMenuItem>
+                  {databaseOptions.map((database) => (
+                    <DropdownMenuItem
+                      key={database.id}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void updateRelationDatabase(database.id);
+                      }}
+                    >
+                      <span className="truncate">{database.title}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </div>
+          ) : null}
+
+          {property.definition.type === "rollup" ? (
+            <div className="grid gap-2 px-2 py-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Rollup
+              </div>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconLink className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">Relation</span>
+                  <span className="max-w-28 truncate text-muted-foreground">
+                    {relationProperties.find(
+                      (candidate) =>
+                        candidate.definition.id ===
+                        property.definition.options.rollup?.relationPropertyId,
+                    )?.definition.name ?? "Choose"}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
+                  {relationProperties.length === 0 ? (
+                    <DropdownMenuItem disabled>
+                      No relation properties
+                    </DropdownMenuItem>
+                  ) : (
+                    relationProperties.map((candidate) => (
+                      <DropdownMenuItem
+                        key={candidate.definition.id}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void updateRollupConfig({
+                            relationPropertyId: candidate.definition.id,
+                          });
+                        }}
+                      >
+                        {candidate.definition.name}
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconHash className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">Property</span>
+                  <span className="max-w-28 truncate text-muted-foreground">
+                    {rollupTargetProperties.find(
+                      (candidate) =>
+                        candidate.definition.id ===
+                        property.definition.options.rollup?.targetPropertyId,
+                    )?.definition.name ?? "Choose"}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
+                  {rollupTargetProperties.map((candidate) => (
+                    <DropdownMenuItem
+                      key={candidate.definition.id}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void updateRollupConfig({
+                          targetPropertyId: candidate.definition.id,
+                        });
+                      }}
+                    >
+                      {candidate.definition.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconNumber123 className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">Calculate</span>
+                  <span className="text-muted-foreground">
+                    {property.definition.options.rollup?.aggregation ?? "count"}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  {[
+                    "count",
+                    "count_values",
+                    "count_unique",
+                    "sum",
+                    "average",
+                    "min",
+                    "max",
+                  ].map((aggregation) => (
+                    <DropdownMenuItem
+                      key={aggregation}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void updateRollupConfig({
+                          aggregation: aggregation as NonNullable<
+                            DocumentPropertyOptions["rollup"]
+                          >["aggregation"],
+                        });
+                      }}
+                    >
+                      {aggregation.replace(/_/g, " ")}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </div>
           ) : null}
 
           {typeNeedsOptions ? (
@@ -1346,6 +1575,16 @@ function PropertyValueEditor({
     );
   }
 
+  if (type === "relation") {
+    return (
+      <RelationValueEditor
+        property={property}
+        documentId={documentId}
+        onDone={onDone}
+      />
+    );
+  }
+
   if (type === "files_media") {
     return (
       <FilesMediaValueEditor
@@ -1362,6 +1601,136 @@ function PropertyValueEditor({
       documentId={documentId}
       onDone={onDone}
     />
+  );
+}
+
+function RelationValueEditor({
+  property,
+  documentId,
+  onDone,
+}: {
+  property: DocumentProperty;
+  documentId: string;
+  onDone: () => void;
+}) {
+  const mutation = useSetDocumentProperty(documentId);
+  const [selectedIds, setSelectedIds] = useState(() =>
+    relationItems(property.value),
+  );
+  const [query, setQuery] = useState("");
+  const targetDatabaseId =
+    property.definition.options.relation?.databaseId ??
+    property.definition.databaseId ??
+    null;
+  const databaseQuery = useActionQuery<ContentDatabaseResponse>(
+    "get-content-database",
+    targetDatabaseId ? { databaseId: targetDatabaseId } : undefined,
+    { enabled: !!targetDatabaseId, retry: false },
+  );
+  const items = databaseQuery.data?.items ?? [];
+  const filteredItems = items.filter((item) =>
+    (item.document.title || "Untitled")
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
+
+  function toggle(documentId: string) {
+    setSelectedIds((current) =>
+      current.includes(documentId)
+        ? current.filter((id) => id !== documentId)
+        : [...current, documentId],
+    );
+  }
+
+  async function save(nextIds = selectedIds) {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: nextIds.length > 0 ? nextIds : null,
+    });
+    onDone();
+  }
+
+  async function clear() {
+    await mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: null,
+    });
+    onDone();
+  }
+
+  return (
+    <div className="grid gap-2">
+      <Input
+        aria-label={`Search ${property.definition.name} relations`}
+        value={query}
+        placeholder="Search pages"
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <div className="max-h-56 overflow-auto rounded-md border">
+        {databaseQuery.isLoading ? (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+            Loading pages...
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+            No pages
+          </div>
+        ) : (
+          filteredItems.map((item) => {
+            const selected = selectedIds.includes(item.document.id);
+            return (
+              <button
+                type="button"
+                key={item.id}
+                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => toggle(item.document.id)}
+              >
+                <span
+                  className={cn(
+                    "flex size-4 items-center justify-center rounded border",
+                    selected
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-muted-foreground/40",
+                  )}
+                >
+                  {selected ? <IconCheck className="size-3" /> : null}
+                </span>
+                <span className="truncate">
+                  {item.document.title || "Untitled"}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {selectedIds.length} selected
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={mutation.isPending}
+        >
+          Clear
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={mutation.isPending || !targetDatabaseId}
+          onClick={() => void save()}
+        >
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }
 
