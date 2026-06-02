@@ -9,7 +9,7 @@ import https from "https";
 import { extractAppFromState } from "./src/oauth-state.js";
 
 // Custom logger that suppresses proxy ECONNREFUSED noise during startup.
-// When dev:all starts, template backends aren't ready yet — the frame polls
+// When eager repo dev starts, template backends aren't ready yet — the frame polls
 // and gets ECONNREFUSED until they come up. These are harmless (the frontend
 // retries), but flood the terminal with hundreds of identical lines.
 const logger = createLogger();

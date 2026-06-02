@@ -40,7 +40,7 @@ export interface DbExecConfig {
  *
  * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
  * then falls back to `DATABASE_URL`. This allows multiple apps to run in the
- * same process group (e.g. `dev:all` or builder.io) with separate databases.
+ * same process group (e.g. eager repo dev or builder.io) with separate databases.
  *
  * Set `APP_NAME=mail` in the child process env and
  * `MAIL_DATABASE_URL=postgres://...` in the shared env.

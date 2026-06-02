@@ -280,7 +280,7 @@ export interface AuthOptions {
  *
  * Browsers scope cookies by host (NOT host+port — RFC 6265), so two apps
  * running on different localhost ports share one cookie jar. When multiple
- * templates run side-by-side (`dev:all`, the desktop app, multi-template
+ * templates run side-by-side (eager repo dev, the desktop app, multi-template
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *

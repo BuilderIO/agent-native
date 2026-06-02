@@ -49,7 +49,7 @@ export interface TemplateMeta {
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
-  /** Core app — included in dev:all, desktop, and mobile by default */
+  /** Core app — included in eager repo dev, desktop, and mobile by default */
   core?: boolean;
 }
 
@@ -343,7 +343,7 @@ export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
 }
 
-/** Return core templates — the default set for dev:all, desktop, and mobile. */
+/** Return core templates — the default set for eager repo dev, desktop, and mobile. */
 export function coreTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => t.core);
 }

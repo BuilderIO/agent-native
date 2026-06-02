@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Run all template dev servers, core TypeScript watch, and docs concurrently.
+ * Eagerly run template dev servers, core TypeScript watch, and docs
+ * concurrently. For normal focused framework development, prefer `pnpm dev`
+ * so templates start lazily on first visit.
  * Ports are read from shared-app-config so they stay stable across
  * template additions/removals and match what the desktop app expects.
  */
@@ -64,13 +66,13 @@ if (appsFilter && appsFilter.length > 0) {
   const unknown = appsFilter.filter((a) => !known.has(a));
   if (unknown.length > 0) {
     console.warn(
-      `\x1b[33m[dev-all]\x1b[0m Warning: unknown apps in --apps: ${unknown.join(", ")}`,
+      `\x1b[33m[dev-eager]\x1b[0m Warning: unknown apps in --apps: ${unknown.join(", ")}`,
     );
   }
   templates = allTemplates.filter((t) => appsFilter.includes(t));
   if (templates.length === 0) {
     console.error(
-      `\x1b[31m[dev-all]\x1b[0m No templates matched --apps; nothing to start`,
+      `\x1b[31m[dev-eager]\x1b[0m No templates matched --apps; nothing to start`,
     );
     process.exit(1);
   }
@@ -90,7 +92,7 @@ const templatePorts = templates.map((name) => {
   if (port) return { name, port };
   const fallback = nextFallback++;
   console.warn(
-    `\x1b[33m[dev-all]\x1b[0m Warning: "${name}" not in shared-app-config, using fallback port ${fallback}`,
+    `\x1b[33m[dev-eager]\x1b[0m Warning: "${name}" not in shared-app-config, using fallback port ${fallback}`,
   );
   return { name, port: fallback };
 });
@@ -119,14 +121,17 @@ if (killPortProcesses()) {
   // Wait for processes to die, then verify
   execSync("sleep 1");
   killPortProcesses(); // Second pass for stragglers
-  console.log(`\x1b[33m[dev-all]\x1b[0m Killed stale processes`);
+  console.log(`\x1b[33m[dev-eager]\x1b[0m Killed stale processes`);
 }
 
 console.log(
-  `\x1b[36m[dev-all]\x1b[0m Found templates: ${templates.join(", ")}`,
+  `\x1b[36m[dev-eager]\x1b[0m Starting eager mode. For lower memory usage, use \`pnpm dev\` (lazy gateway).`,
+);
+console.log(
+  `\x1b[36m[dev-eager]\x1b[0m Found templates: ${templates.join(", ")}`,
 );
 if (!skipDocs) {
-  console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
+  console.log(`\x1b[36m[dev-eager]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
 }
 
 // Prebuild core once before templates boot. Templates import from
@@ -134,7 +139,7 @@ if (!skipDocs) {
 // template SSR-imports it, named exports come back undefined (e.g.
 // "createAgentChatPlugin is not a function"). Building first guarantees a
 // complete dist; tsc --watch then takes over for incremental rebuilds.
-console.log(`\x1b[36m[dev-all]\x1b[0m Prebuilding @agent-native/core...`);
+console.log(`\x1b[36m[dev-eager]\x1b[0m Prebuilding @agent-native/core...`);
 execSync("pnpm --filter @agent-native/core build", { stdio: "inherit" });
 
 const names: string[] = [];
@@ -147,7 +152,7 @@ const commands: string[] = [];
 const STAGGER_DELAY_S = 0.25;
 
 templatePorts.forEach(({ name, port }, i) => {
-  console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${port}`);
+  console.log(`\x1b[36m[dev-eager]\x1b[0m ${name}: http://localhost:${port}`);
 
   const delay = i * STAGGER_DELAY_S;
   const prefix = delay > 0 ? `sleep ${delay} && ` : "";
@@ -180,7 +185,7 @@ commands.push(
 if (!skipFrame) {
   names.push("frame");
   commands.push("pnpm --filter @agent-native/frame dev");
-  console.log(`\x1b[36m[dev-all]\x1b[0m frame: http://localhost:3334`);
+  console.log(`\x1b[36m[dev-eager]\x1b[0m frame: http://localhost:3334`);
 }
 
 // Docs site

@@ -220,7 +220,8 @@ function DisconnectBuilderButton() {
       }
       if (!res.ok) {
         throw new Error(
-          body.error || `Failed (${res.status}). Is dev:all up to date?`,
+          body.error ||
+            `Failed (${res.status}). Is your dev server up to date?`,
         );
       }
       if (body.ok !== true) {
