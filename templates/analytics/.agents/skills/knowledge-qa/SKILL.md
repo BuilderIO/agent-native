@@ -21,6 +21,9 @@ The user asked a question in the Knowledge Assistant. The app has already:
 
 ## Tool Priority by Question Type
 
+> **Universal rule: Always check Sigma MCP as a secondary source for every question.**
+> Business data often exists in Sigma workbooks (dashboards, sheets) that is not in dbt models. A customer list, a contract field, an opt-in flag — these may live in a Sigma sheet long before they appear in a dbt model. Always run a Sigma search after your primary source, and surface relevant workbooks/sheets even if the question doesn't mention "dashboard".
+
 ### 1. Dashboard / workbook / chart / visualization questions
 
 > "What does the Revenue Dashboard show?", "Where is ARR tracked in Sigma?", "Which dashboards use fct_orders?"
@@ -45,7 +48,7 @@ The user asked a question in the Knowledge Assistant. The app has already:
 1. Get model description and columns for the named model
 2. Check metric definitions if it's a business metric
 
-**Follow-up: GitHub sources** — already in context as `sources[]`, cite them as `[1][2]`
+**Secondary: Sigma MCP** — search for workbooks that surface this metric or model's data. A Sigma sheet may expose fields, filters, or business context that dbt alone doesn't capture. Include any relevant Sigma workbooks in your answer.
 
 ---
 
@@ -58,14 +61,16 @@ The user asked a question in the Knowledge Assistant. The app has already:
 1. Get model freshness / last run info
 2. Get upstream or downstream dependencies
 
+**Secondary: Sigma MCP** — search for workbooks that depend on or visualize this model.
+
 ---
 
 ### 4. Broad / exploratory questions
 
-> "What tables track churn?", "How is expansion revenue defined?"
+> "What tables track churn?", "Is there a way to see which customers opted in to case studies?", "How is expansion revenue defined?"
 
 **Primary: dbt MCP** to search for relevant models, then GitHub sources already in context.
-**If results are sparse:** also search Sigma for related workbooks.
+**Secondary: Sigma MCP** — search with the key business terms from the question (e.g. "case study", "opt-in", "contract", "churn"). Sigma workbooks often surface business data that has no corresponding dbt model yet. Cite any relevant workbooks/sheets you find.
 
 ---
 
