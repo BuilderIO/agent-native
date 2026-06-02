@@ -15,9 +15,7 @@ function positionCaseSql(
   fallbackColumn: unknown,
   orderedIds: string[],
 ) {
-  const cases = orderedIds.map(
-    (id, index) => sql`WHEN ${id} THEN ${index}`,
-  );
+  const cases = orderedIds.map((id, index) => sql`WHEN ${id} THEN ${index}`);
   return sql<number>`CASE ${idColumn} ${sql.join(cases, sql` `)} ELSE ${fallbackColumn} END`;
 }
 
