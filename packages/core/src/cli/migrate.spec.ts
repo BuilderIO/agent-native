@@ -209,10 +209,6 @@ describe("parseMigrateArgs", () => {
     expect(result.dossierRoot).toBe(dossierRoot);
     expect(result.files).toEqual(
       expect.arrayContaining([
-        ".agents/skills/migration/SKILL.md",
-        ".agents/skills/migration-source-nextjs/SKILL.md",
-        ".agents/skills/migration-source-aem/SKILL.md",
-        ".agents/skills/migration-target-builder/SKILL.md",
         "AGENTS.md",
         "MIGRATION_PLAYBOOK.md",
         "01-assessment.md",
@@ -375,6 +371,8 @@ describe("parseMigrateArgs", () => {
     expect(output).toContain("No /migrate sessions found.");
     expect(output).toContain("agent-native code /migrate <source>");
     expect(output).toContain("agent-native migrate status --last");
-    expect(output).toContain("Add --app-surface only");
+    expect(output).toContain(
+      "legacy --app-surface detail app has been removed",
+    );
   });
 });

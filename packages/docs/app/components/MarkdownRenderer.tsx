@@ -15,6 +15,11 @@ interface Props {
   markdown: string;
 }
 
+interface HighlightedMarkdownHtml {
+  sourceHtml: string;
+  html: string;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -241,9 +246,19 @@ export function renderMarkdownToHtml(markdown: string): string {
   return marked(markdown, { renderer, async: false }) as string;
 }
 
+export function resolveRenderedMarkdownHtml(
+  baseHtml: string,
+  highlightedHtml: HighlightedMarkdownHtml | null,
+) {
+  return highlightedHtml?.sourceHtml === baseHtml
+    ? highlightedHtml.html
+    : baseHtml;
+}
+
 export default function MarkdownRenderer({ markdown }: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
-  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+  const [highlightedHtml, setHighlightedHtml] =
+    useState<HighlightedMarkdownHtml | null>(null);
 
   // Convert markdown to HTML
   const baseHtml = useMemo(() => {
@@ -278,7 +293,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
       }
 
       if (matches.length === 0) {
-        if (!cancelled) setHighlightedHtml(html);
+        if (!cancelled) setHighlightedHtml({ sourceHtml: html, html });
         return;
       }
 
@@ -318,7 +333,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
           result.slice(h.index + h.full.length);
       }
 
-      if (!cancelled) setHighlightedHtml(result);
+      if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
     highlightCodeBlocks(baseHtml);
@@ -353,7 +368,9 @@ export default function MarkdownRenderer({ markdown }: Props) {
     <div
       ref={articleRef}
       className="docs-content"
-      dangerouslySetInnerHTML={{ __html: highlightedHtml || baseHtml }}
+      dangerouslySetInnerHTML={{
+        __html: resolveRenderedMarkdownHtml(baseHtml, highlightedHtml),
+      }}
     />
   );
 }

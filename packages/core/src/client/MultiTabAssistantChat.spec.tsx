@@ -208,3 +208,108 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("MultiTabAssistantChat agent-team tabs", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      {
+        id: "thread-1",
+        title: "Main thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+      {
+        id: "thread-child",
+        title: "Research child",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/runs/list?goalId=agent-team")) {
+          return Response.json({
+            runs: [
+              {
+                title: "Research child",
+                status: "running",
+                sourceRecord: {
+                  type: "agent-team-task",
+                  threadId: "thread-child",
+                  parentThreadId: "thread-1",
+                  name: "Research",
+                },
+                metadata: {},
+              },
+            ],
+          });
+        }
+        return Response.json({ value: null });
+      }),
+    );
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:agent-team-test",
+      JSON.stringify(["thread-1"]),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("hydrates running sub-agent tasks into child tabs", async () => {
+    let tabs: Array<{
+      id: string;
+      parentThreadId?: string;
+      status: string;
+      subAgentName?: string;
+    }> = [];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="agent-team-test"
+          renderHeader={(props) => {
+            tabs = props.tabs;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs).toContainEqual(
+      expect.objectContaining({
+        id: "thread-child",
+        parentThreadId: "thread-1",
+        status: "running",
+        subAgentName: "Research",
+      }),
+    );
+  });
+});

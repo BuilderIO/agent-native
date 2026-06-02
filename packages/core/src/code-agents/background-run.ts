@@ -23,6 +23,8 @@ export interface BackgroundAgentRunSourceRecord {
   type: "code-agent-run" | "agent-team-task";
   id: string;
   threadId?: string;
+  parentThreadId?: string;
+  name?: string;
 }
 
 export interface BackgroundAgentRun {

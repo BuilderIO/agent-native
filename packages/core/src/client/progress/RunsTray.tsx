@@ -38,7 +38,7 @@ interface RunsTrayProps {
   /** Compact icon for app headers, or a labeled pill for the agent panel. */
   triggerVariant?: RunsTrayTriggerVariant;
   /** Called when a run can open a related agent chat thread. */
-  onOpenThread?: (threadId: string) => void;
+  onOpenThread?: (threadId: string, run: AgentRunDto) => void;
   align?: "start" | "center" | "end";
   className?: string;
 }
@@ -281,7 +281,7 @@ function RunRow({
 }: {
   run: AgentRunDto;
   onDismiss: (runId: string) => void;
-  onOpenThread?: (threadId: string) => void;
+  onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
@@ -329,7 +329,7 @@ function RunRow({
             <button
               type="button"
               className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              onClick={() => onOpenThread(threadId)}
+              onClick={() => onOpenThread(threadId, run)}
             >
               Open
               <IconExternalLink size={12} aria-hidden />

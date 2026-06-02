@@ -1330,6 +1330,15 @@ const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
     core: true,
   },
   {
+    name: "contracts",
+    label: "Contracts",
+    hint: "Review assumptions, feedback, and proof for coding-agent work",
+    icon: "Contract",
+    color: "#4F46E5",
+    colorRgb: "79 70 229",
+    core: false,
+  },
+  {
     name: "design",
     label: "Design",
     hint: "Create and edit visual designs with agent assistance",

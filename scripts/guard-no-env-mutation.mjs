@@ -17,8 +17,8 @@
  * any *other* request that reads `process.env.AGENT_USER_EMAIL` while the
  * handler is mid-flight sees the wrong identity. The "restore" line never
  * helps: a second request races between the set and the restore. The most
- * recent example was `templates/calls/server/routes/api/webhooks/zoom.post.ts`
- * doing exactly that to thread the host's email through legacy CLI scripts.
+ * recent example was a webhook route doing exactly that to thread a host's
+ * email through legacy CLI scripts.
  *
  * The framework already has the right primitive — `runWithRequestContext`
  * (AsyncLocalStorage) — which IS per-request safe. Production code must

@@ -51,6 +51,7 @@ import {
   PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import {
   Tooltip,
   TooltipContent,
@@ -999,6 +1000,7 @@ graph TD
       </DropdownMenu>
 
       <NotificationsBell />
+      <RunsTray pollMs={1500} />
       <AgentToggleButton />
     </div>
   );

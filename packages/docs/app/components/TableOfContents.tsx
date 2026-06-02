@@ -21,6 +21,25 @@ function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
   return window;
 }
 
+export function getActiveTocId(
+  ids: string[],
+  getElementById: (
+    id: string,
+  ) => Pick<HTMLElement, "getBoundingClientRect"> | null,
+  offset = 120,
+) {
+  let active = ids[0] ?? "";
+  for (const id of ids) {
+    const el = getElementById(id);
+    if (el && el.getBoundingClientRect().top <= offset) {
+      active = id;
+    } else if (el) {
+      break;
+    }
+  }
+  return active;
+}
+
 export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState<string>("");
   const [headingLevels, setHeadingLevels] = useState<Record<string, number>>(
@@ -41,34 +60,46 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
 
   useEffect(() => {
     const ids = items.map((item) => item.id);
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      setActiveId("");
+      return;
+    }
 
     const OFFSET = 120;
+    const MAX_BIND_ATTEMPTS = 5;
+    let scrollTarget: HTMLElement | Window | null = null;
+    let raf = 0;
+    let retryTimer = 0;
+    let bindAttempts = 0;
 
-    const getActiveId = () => {
-      let active = ids[0] ?? "";
-      for (const id of ids) {
-        const el = document.getElementById(id);
-        if (el && el.getBoundingClientRect().top <= OFFSET) {
-          active = id;
-        } else if (el) {
-          break;
-        }
-      }
-      return active;
-    };
-
-    const firstEl = document.getElementById(ids[0]);
-    const scrollTarget = findScrollParent(firstEl);
-
-    setActiveId(getActiveId());
+    const getActiveId = () =>
+      getActiveTocId(ids, (id) => document.getElementById(id), OFFSET);
 
     const onScroll = () => {
       const next = getActiveId();
       setActiveId((prev) => (prev === next ? prev : next));
     };
-    scrollTarget.addEventListener("scroll", onScroll, { passive: true });
-    return () => scrollTarget.removeEventListener("scroll", onScroll);
+
+    const bindScrollTarget = () => {
+      const firstEl = document.getElementById(ids[0]);
+      if (!firstEl && bindAttempts < MAX_BIND_ATTEMPTS) {
+        bindAttempts += 1;
+        retryTimer = window.setTimeout(bindScrollTarget, 50);
+        return;
+      }
+
+      scrollTarget = findScrollParent(firstEl);
+      setActiveId(getActiveId());
+      scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    };
+
+    raf = window.requestAnimationFrame(bindScrollTarget);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(retryTimer);
+      scrollTarget?.removeEventListener("scroll", onScroll);
+    };
   }, [items]);
 
   return (

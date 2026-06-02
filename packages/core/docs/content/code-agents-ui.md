@@ -1,6 +1,6 @@
 ---
 title: "Agent-Native Code UI"
-description: "Build and customize Agent-Native Code surfaces with the shared UI package, Desktop host bridge, CLI run store, and hidden code template."
+description: "Build and customize Agent-Native Code surfaces with the shared UI package, Desktop host bridge, and CLI run store."
 ---
 
 # Agent-Native Code UI
@@ -68,26 +68,19 @@ Desktop uses the shared UI but keeps privileged capabilities in Electron:
 
 That separation matters. The UI can be reused by templates, but native process control should stay in Desktop or CLI.
 
-## Browser Template
+## Browser Host
 
-The hidden `code` template is a starting point for building your own Agent-Native Code UI:
+The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template code
+npx @agent-native/core@latest create my-code-ui --template starter
 cd my-code-ui
+pnpm add @agent-native/code-agents-ui
 pnpm install
 pnpm dev
 ```
 
-Inside the framework repo, run it directly with:
-
-```bash
-cd templates/code
-pnpm install
-pnpm dev
-```
-
-The template wraps the local run store through normal actions:
+Your host can wrap the local run store through normal actions:
 
 - `list-code-agent-runs`
 - `list-code-agent-packs`

@@ -101,28 +101,6 @@ assertFilesExist("clips", [
   "share.$shareId.tsx",
 ]);
 
-assertFilesExist("calls", [
-  "_index.tsx",
-  "_app.tsx",
-  "_app.library._index.tsx",
-  "_app.library.folder.$folderId.tsx",
-  "_app.spaces.$spaceId.tsx",
-  "_app.views.$viewId.tsx",
-  "_app.calls.$callId.tsx",
-  "_app.calls.$callId.edit.tsx",
-  "_app.snippets.$snippetId.tsx",
-  "_app.extensions.tsx",
-  "_app.extensions._index.tsx",
-  "_app.extensions.$id.tsx",
-  "_app.extensions.$id.$slug.tsx",
-  "_app.upload.tsx",
-  "embed.$callId.tsx",
-  "embed-snippet.$snippetId.tsx",
-  "invite.$token.tsx",
-  "share.$callId.tsx",
-  "share-snippet.$snippetId.tsx",
-]);
-
 assertFilesExist("design", [
   "_index.tsx",
   "design.$id.tsx",
@@ -148,40 +126,9 @@ assertMatches(
   "clips / must keep a client loader redirect for SPA navigations",
 );
 assertMatches(
-  "templates/calls/app/routes/_index.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\(request\)\)/,
-  "calls / must keep a server loader redirect to /library",
-);
-assertMatches(
-  "templates/calls/app/routes/_index.tsx",
-  /export function clientLoader[\s\S]*redirect\(buildTarget\(request\)\)/,
-  "calls / must keep a client loader redirect for SPA navigations",
-);
-assertMatches(
   "templates/slides/app/routes/share.$token.tsx",
   /export async function loader[\s\S]*\/api\/share\/\$\{params\.token\}/,
   "slides share route must SSR-load the shared deck JSON",
-);
-
-assertContains(
-  "templates/calls/app/components/library/library-sidebar.tsx",
-  "to={`/spaces/${s.id}`}",
-  "calls sidebar should link spaces through a real /spaces/:spaceId route",
-);
-assertContains(
-  "templates/calls/app/components/library/library-sidebar.tsx",
-  "to={`/views/${v.id}`}",
-  "calls sidebar should link saved views through a real /views/:viewId route",
-);
-assertContains(
-  "templates/calls/app/hooks/use-navigation-state.ts",
-  'path.startsWith("/spaces/")',
-  "calls navigation state must recognize /spaces/:spaceId",
-);
-assertContains(
-  "templates/calls/app/hooks/use-navigation-state.ts",
-  'path.startsWith("/views/")',
-  "calls navigation state must recognize /views/:viewId",
 );
 
 assertPublicPaths("templates/slides/server/plugins/auth.ts", [
@@ -198,18 +145,6 @@ assertPublicPaths("templates/clips/server/plugins/auth.ts", [
   "/api/media",
   "/api/video",
 ]);
-assertPublicPaths("templates/calls/server/plugins/auth.ts", [
-  "/share",
-  "/share-snippet",
-  "/embed",
-  "/embed-snippet",
-  "/api/public-call",
-  "/api/public-snippet",
-  "/api/call-media",
-  "/api/call-thumbnail",
-  "/api/snippet-media",
-]);
-
 const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
   scripts?: Record<string, string>;
 };

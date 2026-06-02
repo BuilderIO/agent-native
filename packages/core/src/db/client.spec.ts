@@ -113,7 +113,7 @@ describe("attachNeonPoolErrorLogger", () => {
     vi.resetModules();
   });
 
-  it("attaches one error listener and logs pool errors without throwing", async () => {
+  it("wires pool error + per-client error listeners once and logs without throwing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const on = vi.fn();
     const pool = { on };
@@ -122,15 +122,51 @@ describe("attachNeonPoolErrorLogger", () => {
     attachNeonPoolErrorLogger(pool, "db/neon-auth");
     attachNeonPoolErrorLogger(pool, "db/neon-auth");
 
-    expect(on).toHaveBeenCalledTimes(1);
+    // Deduped per pool: a pool-level "error" listener + a "connect" listener,
+    // wired exactly once despite the second attach call.
+    expect(on).toHaveBeenCalledTimes(2);
     expect(on).toHaveBeenCalledWith("error", expect.any(Function));
+    expect(on).toHaveBeenCalledWith("connect", expect.any(Function));
 
-    const listener = on.mock.calls[0]![1] as (err: unknown) => void;
-    expect(() => listener(new Error("connection dropped"))).not.toThrow();
+    const poolListener = on.mock.calls.find((c) => c[0] === "error")![1] as (
+      err: unknown,
+    ) => void;
+    expect(() => poolListener(new Error("connection dropped"))).not.toThrow();
     expect(warn).toHaveBeenCalledWith(
       "[db/neon-auth] pool error (will reconnect on next query):",
       "connection dropped",
     );
+  });
+
+  it("keeps a dropped client's 'error' event from crashing the process", async () => {
+    // Reproduces the highest-volume production crash: a checked-out neon client
+    // whose socket drops emits 'error'; with no listener Node turns that into an
+    // uncaught exception. An EventEmitter with no 'error' listener throws
+    // synchronously on emit — so this test fails (throws) without the fix.
+    const { EventEmitter } = await import("node:events");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { attachNeonPoolErrorLogger } = await import("./client.js");
+
+    const pool = new EventEmitter();
+    // Pools may exceed the default 10-listener warning under load; mirror prod.
+    pool.setMaxListeners(0);
+    attachNeonPoolErrorLogger(pool, "db/neon");
+
+    // Control: a client the pool never announced has no listener and WOULD crash.
+    const orphan = new EventEmitter();
+    expect(() => orphan.emit("error", new Error("socket closed"))).toThrow();
+
+    // A client announced via 'connect' gets a persistent 'error' listener, so a
+    // mid-flight socket drop degrades to a logged warning instead of a crash.
+    const client = new EventEmitter();
+    pool.emit("connect", client);
+    expect(client.listenerCount("error")).toBeGreaterThan(0);
+    expect(() =>
+      client.emit(
+        "error",
+        new Error("terminating connection due to administrator command"),
+      ),
+    ).not.toThrow();
   });
 });
 

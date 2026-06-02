@@ -6,6 +6,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Mail: "mail",
   CalendarDays: "calendar",
   FileText: "file-text",
+  Contract: "edit-3",
   BarChart2: "bar-chart-2",
   GalleryHorizontal: "layout",
   Video: "video",

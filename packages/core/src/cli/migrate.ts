@@ -11,7 +11,6 @@ import {
   writeCodeAgentRunRecord,
   type CodeAgentRunRecord,
 } from "./code-agent-runs.js";
-import { createApp } from "./create.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,7 +249,7 @@ export async function runMigrate(argv: string[]): Promise<void> {
   }
 
   if (opts.appSurface) {
-    await scaffoldOrResumeWorkbench(opts);
+    await scaffoldOrResumeWorkbench();
     return;
   }
 
@@ -371,52 +370,17 @@ function migrationCliErrorMessage(error: unknown): string {
   return String(error);
 }
 
-async function scaffoldOrResumeWorkbench(
-  opts: MigrateCliOptions,
-): Promise<void> {
-  const cwd = process.cwd();
-  const source = resolveSourceSpec(opts, cwd);
-  if (!source) {
-    console.error(migrateUsage());
-    process.exit(1);
-  }
-
-  const appName = opts.appName ?? DEFAULT_APP_NAME;
-  const target = opts.target ?? DEFAULT_TARGET;
-  const outputRoot = path.resolve(cwd, opts.output ?? DEFAULT_OUTPUT);
-  const planInputs = await readMigrationPlanInputs(opts, cwd);
-  const appDirBefore = resolveScaffoldedAppDir(cwd, appName);
-  const existing = fs.existsSync(appDirBefore);
-
-  if (!existing) {
-    await createApp(appName, { template: "migration" });
-  }
-
-  const appDir = resolveScaffoldedAppDir(cwd, appName);
-  fs.mkdirSync(path.join(appDir, "data"), { recursive: true });
-  fs.writeFileSync(
-    path.join(appDir, "data", "migration-source.json"),
-    `${JSON.stringify(
-      {
-        schemaVersion: 2,
-        name: defaultRunName(source),
-        source: sourceSeedPayload(source),
-        sourceKind: source.kind,
-        sourceRoot: source.sourceRoot ?? "",
-        sourceUrl: source.kind === "url" ? source.value : undefined,
-        sourceDescription: source.description,
-        outputRoot,
-        target,
-        planOnly: Boolean(opts.planOnly),
-        planInputs,
-        createdAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    )}\n`,
+async function scaffoldOrResumeWorkbench(): Promise<void> {
+  console.error(
+    [
+      "",
+      "The legacy migration app surface has been removed.",
+      "Use `agent-native code /migrate <source>` for the supported migration workflow.",
+      "Use `--emit [dir]` when you want a portable dossier for another coding agent.",
+      "",
+    ].join("\n"),
   );
-
-  console.log(renderWorkbenchReady({ appDir, existing, outputRoot, source }));
+  process.exit(1);
 }
 
 async function createMigrationCodeAgentSession(
@@ -755,7 +719,7 @@ function renderCodeAgentMigrationSession(
     "",
     "Default surface:",
     "  Migration stays in Agent-Native Code. No hidden app/template was scaffolded.",
-    "  Use --app-surface only when you explicitly want the legacy migration detail app.",
+    "  The legacy --app-surface detail app has been removed.",
   ].join("\n");
 }
 
@@ -789,7 +753,7 @@ function renderCodeAgentMigrationStatus(runs: CodeAgentRunRecord[]): string {
     "",
     "Shortcuts:",
     "  agent-native migrate status --last shows the same Agent-Native Code sessions.",
-    "  Add --app-surface only to inspect the legacy hidden migration app.",
+    "  The legacy --app-surface detail app has been removed.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -829,7 +793,7 @@ function renderCodeAgentMigrationUi(run: CodeAgentRunRecord): string {
     `  Run: ${run.id}`,
     "",
     "Open Agent-Native Desktop and choose Agent-Native Code from the left sidebar.",
-    "The migration detail app is no longer scaffolded by default; it is only an optional legacy surface.",
+    "The legacy migration detail app is no longer scaffolded.",
   ].join("\n");
 }
 
@@ -873,7 +837,7 @@ function migrateUsage(): string {
     '  npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reporting dashboards" --emit',
     "",
     "Default:",
-    "  Migration is an Agent-Native Code slash command. The hidden migration app is not scaffolded unless --app-surface is passed.",
+    "  Migration is an Agent-Native Code slash command. The legacy hidden migration app has been removed.",
     "",
     "Options:",
     "  --source, --path <path>       Local source path",
@@ -882,10 +846,10 @@ function migrateUsage(): string {
     "  --emit [dir]                 Emit an own-agent dossier without recording a session",
     "  --out <path>                 Generated output path for the migration session",
     "  --plan-file <path>           Custom migration profile JSON or notes",
-    "  --app-surface, --workbench   Scaffold the legacy hidden migration detail app",
-    "  --name <name>                Legacy app-surface name (default: migration)",
+    "  --app-surface, --workbench   Removed legacy detail-app flag; prints migration guidance",
+    "  --name <name>                Legacy app-surface name (ignored for supported flows)",
     "  --target <name>              Migration target (default: agent-native)",
-    "  --plan-only                  Legacy app-surface plan-only seed",
+    "  --plan-only                  Legacy app-surface plan-only seed (ignored for supported flows)",
   ].join("\n");
 }
 

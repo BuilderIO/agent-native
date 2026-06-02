@@ -97,6 +97,8 @@ const RUN_QUEUE_HEARTBEAT_MS = 5_000;
 export interface AgentTask {
   taskId: string;
   threadId: string;
+  parentThreadId?: string;
+  name?: string;
   description: string;
   status: "running" | "completed" | "errored";
   preview: string;
@@ -387,6 +389,22 @@ async function loadTaskByThread(threadId: string): Promise<AgentTask | null> {
   return loadTask(ref.taskId as string);
 }
 
+function applyDispatchMetadataToTask(
+  task: AgentTask,
+  dispatch: Awaited<ReturnType<typeof getAgentTeamRunDispatchState>> | null,
+): AgentTask {
+  if (!dispatch) return task;
+  const parentThreadId = dispatch.payload.parentThreadId?.trim();
+  const name = dispatch.payload.name?.trim();
+  if (parentThreadId && !task.parentThreadId) {
+    task.parentThreadId = parentThreadId;
+  }
+  if (name && !task.name) {
+    task.name = name;
+  }
+  return task;
+}
+
 async function completeReconciledTask(
   task: AgentTask,
   ownerEmail: string | null,
@@ -473,14 +491,15 @@ async function reconcileTaskWithRun(
   task: AgentTask,
   event?: any,
 ): Promise<AgentTask> {
-  if (task.status !== "running") return task;
-
   let dispatch: Awaited<ReturnType<typeof getAgentTeamRunDispatchState>> = null;
   try {
     dispatch = await getAgentTeamRunDispatchState(task.taskId);
   } catch {
     dispatch = null;
   }
+  applyDispatchMetadataToTask(task, dispatch);
+
+  if (task.status !== "running") return task;
 
   if (dispatch) {
     const ownerEmail = dispatch.ownerEmail ?? getRequestUserEmail() ?? null;
@@ -619,6 +638,8 @@ function taskProgressMetadata(task: AgentTask): Record<string, unknown> {
     summary: task.summary,
     currentStep: task.currentStep,
     surfaceUrl: `agent-native://threads/${encodeURIComponent(task.threadId)}`,
+    ...(task.parentThreadId ? { parentThreadId: task.parentThreadId } : {}),
+    ...(task.name ? { name: task.name } : {}),
   };
 }
 
@@ -744,6 +765,8 @@ export function toAgentTaskBackgroundRun(
       type: "agent-team-task",
       id: task.taskId,
       threadId: task.threadId,
+      ...(task.parentThreadId ? { parentThreadId: task.parentThreadId } : {}),
+      ...(task.name ? { name: task.name } : {}),
     },
     title: task.description,
     subtitle:
@@ -758,6 +781,9 @@ export function toAgentTaskBackgroundRun(
     details: [
       { label: "Task", value: task.taskId },
       { label: "Thread", value: task.threadId },
+      ...(task.parentThreadId
+        ? [{ label: "Parent", value: task.parentThreadId }]
+        : []),
     ],
     surfaceUrl: `agent-native://threads/${task.threadId}`,
     metadata: {
@@ -770,6 +796,8 @@ export function toAgentTaskBackgroundRun(
       latestText: latestTaskText(task),
       completedAt: task.completedAt,
       error: task.error,
+      ...(task.parentThreadId ? { parentThreadId: task.parentThreadId } : {}),
+      ...(task.name ? { name: task.name } : {}),
     },
   };
 }
@@ -967,6 +995,8 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const task: AgentTask = {
     taskId,
     threadId: thread.id,
+    ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
+    ...(opts.name ? { name: opts.name } : {}),
     description: opts.description,
     status: "running",
     preview: "",
@@ -1011,8 +1041,8 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     description: opts.description,
     instructions: opts.instructions,
     model: opts.model,
-    parentThreadId: opts.parentThreadId,
-    name: opts.name,
+    ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
+    ...(opts.name ? { name: opts.name } : {}),
     // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
   };

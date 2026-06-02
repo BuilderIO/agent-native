@@ -142,7 +142,7 @@ You can click through the Dispatch UI after signing in. To use the chat composer
 
 ## Customize it {#customize}
 
-Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the issues agent" and it'll edit the routing config, add the webhook handler, and wire it up.
+Dispatch is a full template like any other — see [Templates](/docs/cloneable-saas). Ask the agent to "add a new integration for Datadog" or "route Slack DMs from channel X to the analytics agent" and it'll edit the routing config, add the webhook handler, and wire it up.
 
 For workspace-specific management screens, add local React Router pages and
 register them in `app/dispatch-extensions.tsx`. The generated workspace owns

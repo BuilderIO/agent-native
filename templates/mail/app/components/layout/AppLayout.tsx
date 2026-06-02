@@ -78,6 +78,11 @@ import {
 } from "@/lib/inbox-tabs";
 
 const BARE_ROUTES = new Set(["/email"]);
+
+type SnoozeTarget = {
+  emailId: string;
+  accountEmail?: string;
+};
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 
 function AccountAvatar({
@@ -188,12 +193,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  // When the user swipes a row to snooze, we need to snooze that specific
-  // email — not whatever is currently focused in navigation state. This
-  // override wins over `targetEmail` while a swipe-triggered modal is open.
+  // When the user requests snooze from the list, we need to snooze the live
+  // focused/selected rows — not whatever is currently in navigation state.
+  // This override wins over `targetEmail` while the modal is open.
   const [snoozeOverride, setSnoozeOverride] = useState<{
-    id: string;
-    accountEmail?: string;
+    targets: SnoozeTarget[];
   } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -615,10 +619,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      return currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      if (focused) return focused;
     }
     // Fall back to the first email in the list — if it's auto-focused in the
-    // UI but the navigation state hasn't synced yet, shortcuts should still work.
+    // UI, or the synced id points at a row that has since disappeared, shortcuts
+    // should still work.
     return currentViewEmails[0] ?? undefined;
   }, [threadId, focusedListId, currentViewEmails]);
 
@@ -759,6 +765,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 
   const handleSnooze = useCallback(() => {
+    const listSnoozeEvent = new CustomEvent("email:shortcut-snooze", {
+      cancelable: true,
+    });
+    window.dispatchEvent(listSnoozeEvent);
+    if (listSnoozeEvent.defaultPrevented) return;
+
     if (!targetEmail) {
       toast.error("No email selected.");
       return;
@@ -767,19 +779,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setSnoozeOpen(true);
   }, [targetEmail]);
 
-  // Swipe-to-snooze: EmailList dispatches this when a row is swiped right.
-  // We capture the email id here so the modal snoozes the swiped row even
-  // if the user hasn't opened it (and navigation state still points
-  // elsewhere).
+  // List snooze requests carry the current focused/selected rows. Swipe
+  // requests still carry one target; keyboard and command-palette requests may
+  // carry many.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (
-        e as CustomEvent<{ emailId: string; accountEmail?: string }>
+        e as CustomEvent<{
+          emailId?: string;
+          accountEmail?: string;
+          targets?: SnoozeTarget[];
+        }>
       ).detail;
-      if (!detail?.emailId) return;
+      const targets =
+        detail?.targets?.filter((target) => target.emailId) ??
+        (detail?.emailId
+          ? [{ emailId: detail.emailId, accountEmail: detail.accountEmail }]
+          : []);
+      if (targets.length === 0) return;
       setSnoozeOverride({
-        id: detail.emailId,
-        accountEmail: detail.accountEmail,
+        targets,
       });
       setSnoozeOpen(true);
     };
@@ -1667,8 +1686,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       />
       <SnoozeModal
         open={snoozeOpen}
-        emailId={snoozeOverride?.id ?? targetEmail?.id ?? null}
-        accountEmail={snoozeOverride?.accountEmail ?? targetEmail?.accountEmail}
+        emailId={snoozeOverride?.targets[0]?.emailId ?? targetEmail?.id ?? null}
+        accountEmail={
+          snoozeOverride?.targets[0]?.accountEmail ?? targetEmail?.accountEmail
+        }
+        targets={
+          snoozeOverride?.targets ??
+          (targetEmail
+            ? [
+                {
+                  emailId: targetEmail.id,
+                  accountEmail: targetEmail.accountEmail,
+                },
+              ]
+            : undefined)
+        }
         onClose={() => {
           setSnoozeOpen(false);
           setSnoozeOverride(null);

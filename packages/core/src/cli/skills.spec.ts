@@ -108,6 +108,52 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("accepts contracts aliases for the built-in Contracts skill", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    const commands: { cmd: string; args: string[] }[] = [];
+
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "assumption-review",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        {
+          baseDir: root,
+          runCommand: async (cmd, args) => {
+            commands.push({ cmd, args });
+            return 0;
+          },
+        },
+      );
+
+      expect(result.id).toBe("contracts");
+      expect(result.skillNames).toEqual(["contracts"]);
+      expect(commands[0].args).toEqual(
+        expect.arrayContaining(["--skill", "contracts", "-a", "codex", "-y"]),
+      );
+      expect(result.mcpUrl).toBe(
+        "https://contracts.agent-native.com/_agent-native/mcp",
+      );
+      expect(
+        fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
+      ).toContain(
+        'url = "https://contracts.agent-native.com/_agent-native/mcp"',
+      );
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
   it("installs built-in Assets instructions and MCP config", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];

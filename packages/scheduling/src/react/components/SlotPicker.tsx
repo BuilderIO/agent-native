@@ -3,8 +3,8 @@
  * available slots grouped by date. Consumers style the buttons via their
  * own Tailwind class layer.
  *
- * This is the "headless" spec: if you want a fully styled picker, look at
- * `templates/scheduling/app/components/booker/SlotPicker.tsx`.
+ * This is the "headless" spec: consumers can wrap it with their app's design
+ * system for a fully styled picker.
  */
 import type { Slot } from "../../shared/index.js";
 import { TZDate } from "@date-fns/tz";

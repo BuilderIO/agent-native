@@ -42,16 +42,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Answers schedule questions and resolves conflicts instantly",
     ],
   },
-  calls: {
-    appName: "Agent-Native Calls",
-    tagline:
-      "Your AI agent transcribes, summarizes, and surfaces key moments from every conversation.",
-    features: [
-      "Automatic recaps, action items, and next steps after every call",
-      "Smart trackers that detect competitor mentions, objections, and custom topics",
-      "Shareable snippets for the exact moment that matters",
-    ],
-  },
   clips: {
     appName: "Agent-Native Clips",
     tagline:
@@ -60,16 +50,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "One-click screen recording with automatic titles, summaries, and chapters",
       "Calendar-synced meeting notes with live transcripts and action items",
       "One searchable library across recordings, meetings, and dictations",
-    ],
-  },
-  code: {
-    appName: "Agent-Native Code",
-    tagline:
-      "A customizable local Agent-Native Code UI for long-running coding sessions, slash commands, and migration goals.",
-    features: [
-      "Start and resume local coding sessions",
-      "Use the same transcript store as the CLI and Desktop",
-      "Customize the UI while reusing the agent-native run harness",
     ],
   },
   content: {
@@ -133,46 +113,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     runLocalCommand:
       "npx @agent-native/core create my-mail-app --template mail",
   },
-  "meeting-notes": {
-    appName: "Agent-Native Meeting Notes",
-    tagline:
-      "Your AI agent transcribes, enhances, and organizes your meeting notes while you focus on the conversation.",
-    features: [
-      "AI-enhanced meeting notes that merge raw notes with transcripts",
-      "Smart contact and company tracking from meeting attendees",
-      "Reusable templates for consistent note formatting",
-    ],
-  },
-  migration: {
-    appName: "Migration Workbench",
-    tagline:
-      "Move existing apps to agent-native with assessment, human approval, and deterministic verification.",
-    features: [
-      "Inventory routes, components, behavior, and content before touching output",
-      "Approve plans before generated writes begin",
-      "Verify output with structured migration reports",
-    ],
-  },
-  recruiting: {
-    appName: "Agent-Native Recruiting",
-    tagline:
-      "Your AI agent screens candidates, manages pipelines, and keeps your hiring on track.",
-    features: [
-      "AI resume analysis and candidate comparison",
-      "Pipeline management with automated stage progression",
-      "Scorecard tracking and overdue feedback alerts",
-    ],
-  },
-  scheduling: {
-    appName: "Agent-Native Scheduling",
-    tagline:
-      "Your AI agent manages availability, books meetings, and handles rescheduling alongside you.",
-    features: [
-      "Automatic round-robin and team scheduling across hosts",
-      "Smart availability management with conflict detection",
-      "Autonomous rescheduling, reminders, and follow-ups",
-    ],
-  },
   slides: {
     appName: "Agent-Native Slides",
     tagline:
@@ -203,22 +143,11 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Camera moves, interactive elements, and effects the agent wires for you",
     ],
   },
-  voice: {
-    appName: "Agent-Native Voice",
-    tagline:
-      "Speak to type anywhere with context-aware formatting, snippets, and custom vocabulary.",
-    features: [
-      "Push-to-talk or hands-free dictation with Whisper transcription",
-      "Context-aware style presets for formal, casual, and excited tones",
-      "Text expansion snippets and custom dictionary for tricky words",
-    ],
-  },
 };
 
 const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
   "blank-app": "starter",
-  "migration-goal-surface": "migration",
   asset: "assets",
   image: "assets",
   images: "assets",

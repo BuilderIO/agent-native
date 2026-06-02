@@ -1931,11 +1931,12 @@ function createTeamTools(deps: {
             threadId: task.threadId,
             runId: task.runId,
             status: task.status,
+            parentThreadId: task.parentThreadId,
             state: "launched_pending_completion",
             message:
               "Sub-agent launched and is still running. Use status or read-result later; do not describe this task as completed from the spawn response alone.",
             description: task.description,
-            name: selectedName,
+            name: task.name ?? selectedName,
           });
         }
 
@@ -1948,8 +1949,10 @@ function createTeamTools(deps: {
           return JSON.stringify({
             taskId: task.taskId,
             threadId: task.threadId,
+            parentThreadId: task.parentThreadId,
             status: task.status,
             description: task.description,
+            name: task.name,
             preview: task.preview,
             currentStep: task.currentStep,
             summary: task.summary,
@@ -1966,12 +1969,19 @@ function createTeamTools(deps: {
           if (task.status === "running") {
             return JSON.stringify({
               status: "running",
+              taskId: task.taskId,
+              threadId: task.threadId,
+              parentThreadId: task.parentThreadId,
+              name: task.name,
               preview: task.preview,
               message: "Task is still running. Check back later.",
             });
           }
           return JSON.stringify({
             taskId: task.taskId,
+            threadId: task.threadId,
+            parentThreadId: task.parentThreadId,
+            name: task.name,
             status: task.status,
             summary: task.summary,
             preview: task.preview,
@@ -1998,6 +2008,8 @@ function createTeamTools(deps: {
             tasks.map((t) => ({
               taskId: t.taskId,
               threadId: t.threadId,
+              parentThreadId: t.parentThreadId,
+              name: t.name,
               description: t.description,
               status: t.status,
               currentStep: t.currentStep,

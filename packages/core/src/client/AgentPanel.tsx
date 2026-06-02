@@ -64,6 +64,7 @@ import {
 } from "@tabler/icons-react";
 import { FeedbackButton } from "./FeedbackButton.js";
 import { RunsTray } from "./progress/RunsTray.js";
+import type { AgentRun } from "../progress/types.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
@@ -563,8 +564,31 @@ function AgentPanelInner({
     startTransition(() => setMode(m));
   }, []);
   const openRunThread = useCallback(
-    (threadId: string) => {
+    (threadId: string, run?: AgentRun) => {
       switchMode("chat");
+      const metadata = run?.metadata ?? {};
+      const parentThreadId =
+        typeof metadata.parentThreadId === "string"
+          ? metadata.parentThreadId.trim()
+          : "";
+      const isAgentTeam =
+        metadata.kind === "agent-team" || metadata.source === "agent-teams";
+      if (isAgentTeam && parentThreadId && parentThreadId !== threadId) {
+        window.dispatchEvent(
+          new CustomEvent("agent-task-open", {
+            detail: {
+              threadId,
+              parentThreadId,
+              description:
+                typeof metadata.description === "string"
+                  ? metadata.description
+                  : run?.title || "",
+              name: typeof metadata.name === "string" ? metadata.name : "",
+            },
+          }),
+        );
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
           detail: { threadId },

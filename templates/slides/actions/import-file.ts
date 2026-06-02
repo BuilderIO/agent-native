@@ -139,8 +139,11 @@ export default defineAction({
         format: "docx",
         title,
         sectionCount: doc.sections.length,
+        text: doc.text,
         sections: doc.sections.map((s) => ({
           heading: s.heading,
+          content: s.content,
+          text: stripTags(s.content),
           contentPreview: stripTags(s.content).slice(0, 500),
         })),
         textLength: doc.text.length,
@@ -158,13 +161,14 @@ export default defineAction({
       const textPages = pages.filter((p) => p.text.trim());
       const title = titleFromPath(absPath);
 
+      if (textPages.length === 0) {
+        throw new Error(
+          "No importable text found in this PDF. Scanned PDFs need OCR first.",
+        );
+      }
+
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        if (textPages.length === 0) {
-          throw new Error(
-            "No importable text found in this PDF. Scanned PDFs need OCR first.",
-          );
-        }
         const sections = textPages.map((p) => ({
           heading: `Page ${p.num}`,
           content: p.text,
@@ -191,8 +195,10 @@ export default defineAction({
         format: "pdf",
         title: `Imported PDF (${pages.length} pages)`,
         pageCount: pages.length,
-        pages: pages.map((p) => ({
+        textPageCount: textPages.length,
+        pages: textPages.map((p) => ({
           pageNum: p.num,
+          text: p.text,
           textPreview: p.text.slice(0, 500),
           textLength: p.text.length,
         })),

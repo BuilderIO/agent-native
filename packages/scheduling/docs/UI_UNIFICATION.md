@@ -1,8 +1,8 @@
 # UI Unification — booking-link / event-type editor
 
 As of 0.1.x the `@agent-native/scheduling` package ships a small set of
-shared React components the `calendar` and `scheduling` templates both
-consume so the two apps keep visual parity without duplicating logic.
+shared React components for calendar and scheduling surfaces so apps can
+keep visual parity without duplicating logic.
 
 Exported from `@agent-native/scheduling/react/components`:
 
@@ -49,7 +49,7 @@ depends on it).
 | `EditableBookingUrl` in BookingLinksPage | `SlugEditor` in the package                                           |
 | `CustomFieldsEditor` in BookingLinksPage | `CustomFieldsEditor` in the package                                   |
 
-| Old home (scheduling template)             | New home                                                                    |
+| Old home (removed scheduling app)          | New home                                                                    |
 | ------------------------------------------ | --------------------------------------------------------------------------- |
 | `DurationsEditor` in event-type editor     | `DurationPicker` in the package                                             |
 | `LocationEditor` + `AppsGrid` (two places) | `ConferencingSelector` in the package (Apps tab removed — it was redundant) |
@@ -58,15 +58,14 @@ depends on it).
 ## Zoom became real OAuth
 
 Previously the calendar template's Zoom option asked the user to paste a
-personal meeting URL. The scheduling template had no OAuth-based Zoom at
+personal meeting URL. The removed scheduling app had no OAuth-based Zoom at
 all (only the `zoom_video` "app install" placeholder).
 
 Both now use real Zoom OAuth via the provider's new optional
 `startOAuth` / `completeOAuth` methods on `VideoProvider`. Consumers:
 
-- **Scheduling template** — calls the package's `connect-video` action
-  for `zoom_video`, callback lands at
-  `/_agent-native/oauth/zoom/callback.get.ts`, tokens stored via
+- **Custom scheduling surfaces** — can call the package's `connect-video`
+  action for `zoom_video`, route callbacks to their app, and store tokens via
   `completeVideoOAuth()`.
 - **Calendar template** — ships a lightweight `server/lib/zoom.ts` that
   uses the package's `createZoomProvider` but stores tokens directly in
