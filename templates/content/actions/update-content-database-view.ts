@@ -32,6 +32,26 @@ const filterSchema = z.object({
   value: z.string(),
 });
 
+const columnCalculationSchema = z.enum([
+  "count_all",
+  "count_values",
+  "count_empty",
+  "count_unique",
+  "percent_filled",
+  "percent_empty",
+  "count_checked",
+  "count_unchecked",
+  "percent_checked",
+  "percent_unchecked",
+  "sum",
+  "average",
+  "median",
+  "min",
+  "max",
+  "range",
+  "date_range",
+]);
+
 const viewSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -40,12 +60,19 @@ const viewSchema = z.object({
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),
+  filterMode: z.enum(["and", "or"]).default("and"),
   columnWidths: z.record(z.string(), z.number()).default({}),
   groupByPropertyId: z.string().nullable().optional(),
   datePropertyId: z.string().nullable().optional(),
   endDatePropertyId: z.string().nullable().optional(),
   hiddenPropertyIds: z.array(z.string()).default([]),
   propertyOrderIds: z.array(z.string()).default([]),
+  collapsedGroupIds: z.array(z.string()).default([]),
+  hideEmptyGroups: z.boolean().default(false),
+  calculations: z.record(z.string(), columnCalculationSchema).default({}),
+  wrapCells: z.boolean().default(false),
+  rowDensity: z.enum(["compact", "default", "comfortable"]).default("default"),
+  openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
 });
 
 export default defineAction({

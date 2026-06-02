@@ -1,13 +1,24 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function positionCaseSql(
+  idColumn: unknown,
+  fallbackColumn: unknown,
+  orderedIds: string[],
+) {
+  const cases = orderedIds.map(
+    (id, index) => sql`WHEN ${id} THEN ${index}`,
+  );
+  return sql<number>`CASE ${idColumn} ${sql.join(cases, sql` `)} ELSE ${fallbackColumn} END`;
 }
 
 export default defineAction({
@@ -61,18 +72,45 @@ export default defineAction({
     const [moved] = nextItems.splice(currentIndex, 1);
     nextItems.splice(nextIndex, 0, moved);
     const now = new Date().toISOString();
+    const itemIds = nextItems.map((item) => item.id);
+    const documentIds = nextItems.map((item) => item.documentId);
 
-    for (const [index, item] of nextItems.entries()) {
-      await db
+    await db.transaction(async (tx) => {
+      await tx
         .update(schema.contentDatabaseItems)
-        .set({ position: index, updatedAt: now })
-        .where(eq(schema.contentDatabaseItems.id, item.id));
+        .set({
+          position: positionCaseSql(
+            schema.contentDatabaseItems.id,
+            schema.contentDatabaseItems.position,
+            itemIds,
+          ),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, row.item.databaseId),
+            inArray(schema.contentDatabaseItems.id, itemIds),
+          ),
+        );
 
-      await db
+      await tx
         .update(schema.documents)
-        .set({ position: index, updatedAt: now })
-        .where(eq(schema.documents.id, item.documentId));
-    }
+        .set({
+          position: positionCaseSql(
+            schema.documents.id,
+            schema.documents.position,
+            documentIds,
+          ),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, row.database.ownerEmail),
+            eq(schema.documents.parentId, row.database.documentId),
+            inArray(schema.documents.id, documentIds),
+          ),
+        );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

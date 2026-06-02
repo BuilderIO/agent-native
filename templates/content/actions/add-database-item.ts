@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -53,32 +54,57 @@ export default defineAction({
       .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
 
     const documentId = nanoid();
-    await db.insert(schema.documents).values({
-      id: documentId,
-      ownerEmail: database.ownerEmail,
-      orgId: database.orgId,
-      parentId: database.documentId,
-      title: title?.trim() ?? "",
-      content: "",
-      icon: null,
-      position: (maxDocPos?.max ?? -1) + 1,
-      isFavorite: 0,
-      hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-      visibility: databaseDocument.visibility ?? "private",
-      createdAt: now,
-      updatedAt: now,
-    });
-
     const itemId = nanoid();
-    await db.insert(schema.contentDatabaseItems).values({
-      id: itemId,
-      ownerEmail: database.ownerEmail,
-      orgId: database.orgId,
-      databaseId,
-      documentId,
-      position: (maxItemPos?.max ?? -1) + 1,
-      createdAt: now,
-      updatedAt: now,
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.documents).values({
+        id: documentId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        parentId: database.documentId,
+        title: title?.trim() ?? "",
+        content: "",
+        icon: null,
+        position: (maxDocPos?.max ?? -1) + 1,
+        isFavorite: 0,
+        hideFromSearch: databaseDocument.hideFromSearch ?? 0,
+        visibility: databaseDocument.visibility ?? "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx.insert(schema.contentDatabaseItems).values({
+        id: itemId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        databaseId,
+        documentId,
+        position: (maxItemPos?.max ?? -1) + 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const inheritedShares = await tx
+        .select({
+          principalType: schema.documentShares.principalType,
+          principalId: schema.documentShares.principalId,
+          role: schema.documentShares.role,
+        })
+        .from(schema.documentShares)
+        .where(eq(schema.documentShares.resourceId, database.documentId));
+
+      if (inheritedShares.length > 0) {
+        await tx.insert(schema.documentShares).values(
+          inheritedShares.map((share) => ({
+            id: nanoid(),
+            resourceId: documentId,
+            principalType: share.principalType,
+            principalId: share.principalId,
+            role: share.role,
+            createdBy: getRequestUserEmail() ?? database.ownerEmail,
+            createdAt: now,
+          })),
+        );
+      }
     });
 
     const initialValues = Object.entries(propertyValues ?? {});
