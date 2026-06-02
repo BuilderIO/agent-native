@@ -172,7 +172,8 @@ export async function claimAgentTeamRun(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
-  const stuckCutoff = now - (options.stuckAfterMs ?? RUN_DISPATCH_STUCK_AFTER_MS);
+  const stuckCutoff =
+    now - (options.stuckAfterMs ?? RUN_DISPATCH_STUCK_AFTER_MS);
   const result = await client.execute({
     sql: `UPDATE agent_team_run_queue
             SET status = 'running', attempts = attempts + 1, updated_at = ?
@@ -238,6 +239,24 @@ export async function completeAgentTeamRun(
     sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,
     args: [status, Date.now(), taskId],
   });
+}
+
+/** Task ids of an owner's in-flight (queued/running) sub-agent runs. Used by
+ * the RunsTray data path to self-heal dropped dispatches and dead runs. */
+export async function listActiveAgentTeamTaskIdsForOwner(
+  owner: string,
+  limit = 50,
+): Promise<string[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT task_id FROM agent_team_run_queue
+            WHERE owner_email = ? AND status IN ('queued', 'running')
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+    args: [owner, limit],
+  });
+  return rows.map((r: any) => String(r.task_id));
 }
 
 export async function getAgentTeamRunDispatchState(

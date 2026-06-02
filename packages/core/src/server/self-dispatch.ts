@@ -73,7 +73,8 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
   }
 
   const proto = readHeader(event, "x-forwarded-proto") || "http";
-  const host = readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const host =
+    readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 
@@ -107,7 +108,9 @@ export async function fireInternalDispatch(
 ): Promise<void> {
   const baseUrl = options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event);
   const url = `${baseUrl}${options.path}`;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {

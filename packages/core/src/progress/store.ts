@@ -264,11 +264,40 @@ export async function cancelStaleRunsForOwner(
 const _lastStaleSweep = new Map<string, number>();
 const STALE_SWEEP_INTERVAL_MS = 30_000;
 
+/**
+ * Optional hook run (throttled) before each owner's run list is read. Lets a
+ * producer of progress rows reconcile its own backing state first — e.g. Agent
+ * Teams re-fires dropped sub-agent dispatches and marks dead runs failed so the
+ * tray shows precise status instead of waiting on the generic stale sweep.
+ * Registered by the agent-chat plugin to avoid a layering cycle (this generic
+ * store must not import feature modules).
+ */
+export type ProgressPreListHook = (owner: string) => Promise<void> | void;
+let _preListHook: ProgressPreListHook | undefined;
+export function setProgressPreListHook(
+  hook: ProgressPreListHook | undefined,
+): void {
+  _preListHook = hook;
+}
+const _lastPreListHook = new Map<string, number>();
+const PRE_LIST_HOOK_INTERVAL_MS = 8_000;
+
 export async function listRuns(
   owner: string,
   options: ListRunsOptions = {},
 ): Promise<AgentRun[]> {
   await ensureTable();
+  if (_preListHook) {
+    const lastHook = _lastPreListHook.get(owner) ?? 0;
+    if (Date.now() - lastHook > PRE_LIST_HOOK_INTERVAL_MS) {
+      _lastPreListHook.set(owner, Date.now());
+      try {
+        await _preListHook(owner);
+      } catch {
+        // best-effort — never let reconciliation break the list read
+      }
+    }
+  }
   const lastSweep = _lastStaleSweep.get(owner) ?? 0;
   if (Date.now() - lastSweep > STALE_SWEEP_INTERVAL_MS) {
     _lastStaleSweep.set(owner, Date.now());

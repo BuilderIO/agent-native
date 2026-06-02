@@ -124,7 +124,9 @@ import { readBody } from "./h3-helpers.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   processAgentTeamRun,
+  reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
+import { setProgressPreListHook } from "../progress/store.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -4981,6 +4983,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           };
         }),
       );
+
+      // Self-heal the RunsTray: when the tray lists this owner's runs, first
+      // reconcile their in-flight sub-agent runs (re-fire dropped dispatches,
+      // mark dead runs failed) so the tray reflects precise status without
+      // waiting on the orchestrator chat to poll. Registered here to keep the
+      // generic progress store free of feature-module imports.
+      setProgressPreListHook(reconcileAgentTeamRunsForOwner);
 
       // ─── Agent Teams: durable sub-agent run processor ─────────────────
       // Self-fire target for `spawnTask`. Executes one chunk of a queued

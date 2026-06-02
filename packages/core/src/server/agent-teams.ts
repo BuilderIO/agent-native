@@ -22,7 +22,6 @@ import type {
 } from "../agent/production-agent.js";
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
-import { createAnthropicEngine } from "../agent/engine/anthropic-engine.js";
 import { createThread } from "../chat-threads/store.js";
 import {
   abortRun,
@@ -55,6 +54,7 @@ import {
   bumpAgentTeamContinuation,
   completeAgentTeamRun,
   getAgentTeamRunDispatchState,
+  listActiveAgentTeamTaskIdsForOwner,
   MAX_AGENT_TEAM_CONTINUATIONS,
   RUN_DISPATCH_STUCK_AFTER_MS,
   RUN_PROCESSING_STUCK_AFTER_MS,
@@ -535,6 +535,31 @@ async function reconcileTaskWithRun(task: AgentTask): Promise<AgentTask> {
     ownerEmail,
     "Sub-agent run is no longer active and did not produce a result.",
   );
+}
+
+/**
+ * Reconcile all of an owner's in-flight sub-agent runs. Wired into the RunsTray
+ * data path (`/_agent-native/runs`) so the tray self-heals: dropped dispatches
+ * are re-fired and dead runs are marked failed promptly, even when the
+ * orchestrator chat never polls `status`/`read-result`.
+ */
+export async function reconcileAgentTeamRunsForOwner(
+  owner: string,
+): Promise<void> {
+  let taskIds: string[];
+  try {
+    taskIds = await listActiveAgentTeamTaskIdsForOwner(owner);
+  } catch {
+    return;
+  }
+  for (const taskId of taskIds) {
+    try {
+      const task = await loadTask(taskId);
+      if (task) await reconcileTaskWithRun(task);
+    } catch {
+      // best-effort per task — one bad row shouldn't block the rest
+    }
+  }
 }
 
 function generateTaskId(): string {
