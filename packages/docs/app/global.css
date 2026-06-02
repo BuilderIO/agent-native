@@ -408,6 +408,10 @@ h4 {
 }
 
 /* Sidebar nav */
+.docs-sidebar-nav {
+  overflow-anchor: none;
+}
+
 .docs-sidebar-section + .docs-sidebar-section {
   margin-top: 6px;
 }
@@ -460,6 +464,49 @@ h4 {
 
 .docs-sidebar-chevron.is-open {
   transform: rotate(90deg);
+}
+
+.docs-sidebar-section-items-clip {
+  display: flow-root;
+  height: auto;
+  overflow: hidden;
+  overflow: clip;
+  opacity: 1;
+  clip-path: inset(0);
+  interpolate-size: allow-keywords;
+  transition:
+    height 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    clip-path 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.docs-sidebar-section-items-clip[data-state="closed"] {
+  height: 0;
+  opacity: 0;
+  clip-path: inset(0 0 100% 0);
+  pointer-events: none;
+}
+
+@supports not (interpolate-size: allow-keywords) {
+  .docs-sidebar-section-items-clip {
+    height: auto;
+    max-height: 32rem;
+    transition:
+      max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 160ms ease,
+      clip-path 220ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .docs-sidebar-section-items-clip[data-state="closed"] {
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-sidebar-section-items-clip,
+  .docs-sidebar-chevron {
+    transition: none;
+  }
 }
 
 .docs-sidebar-section-items {
