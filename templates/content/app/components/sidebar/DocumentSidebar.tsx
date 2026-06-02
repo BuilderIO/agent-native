@@ -121,9 +121,9 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  // Track which nodes have been explicitly collapsed by the user.
-  // All nodes default to expanded; only collapsed IDs are tracked.
-  const collapsedIds = useRef(new Set<string>());
+  // Track user-expanded nodes only; active ancestors are derived below so they
+  // do not stay open after navigation unless the user explicitly expanded them.
+  const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const sensors = useSensors(
@@ -173,19 +173,33 @@ export function DocumentSidebar({
     [documents],
   );
 
-  // Build expanded set: all document IDs except those explicitly collapsed
-  const expandedIds = new Set(
-    documents.map((d) => d.id).filter((id) => !collapsedIds.current.has(id)),
-  );
-
-  const handleToggleExpanded = useCallback((id: string) => {
-    if (collapsedIds.current.has(id)) {
-      collapsedIds.current.delete(id);
-    } else {
-      collapsedIds.current.add(id);
+  const activeAncestorIds = useMemo(() => {
+    const ids = new Set<string>();
+    let parentId = activeDocumentId
+      ? (parentByDocumentId.get(activeDocumentId) ?? null)
+      : null;
+    while (parentId && !ids.has(parentId)) {
+      ids.add(parentId);
+      parentId = parentByDocumentId.get(parentId) ?? null;
     }
-    forceUpdate((n) => n + 1);
-  }, []);
+    return ids;
+  }, [activeDocumentId, parentByDocumentId]);
+
+  const expandedIds = new Set(expandedIdsRef.current);
+  for (const id of activeAncestorIds) expandedIds.add(id);
+
+  const handleToggleExpanded = useCallback(
+    (id: string) => {
+      if (activeAncestorIds.has(id)) return;
+      if (expandedIdsRef.current.has(id)) {
+        expandedIdsRef.current.delete(id);
+      } else {
+        expandedIdsRef.current.add(id);
+      }
+      forceUpdate((n) => n + 1);
+    },
+    [activeAncestorIds],
+  );
 
   const navigateToDocument = useCallback(
     (id: string) => {

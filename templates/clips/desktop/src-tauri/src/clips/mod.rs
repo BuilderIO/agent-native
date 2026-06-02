@@ -69,8 +69,7 @@ enum TextInsertionStrategy {
 /// matter what CSS `overflow` says.
 ///
 /// 80 physical px ≈ 40 logical px on retina — enough for the ~28px pill plus
-/// an 8px gap from the circle, with a small cushion so the pill's drop-shadow
-/// doesn't clip at the window bottom.
+/// an 8px gap from the circle, with a small cushion at the window bottom.
 const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
 
 fn overlay_scale_factor(app: &AppHandle) -> f64 {
@@ -417,7 +416,8 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
 }
 
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// matching Loom's left-rail placement. Draggable, always on top.
+/// with hover-revealed restart/cancel controls matching Loom's left-rail
+/// placement. Draggable, always on top.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
@@ -425,18 +425,20 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
     let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
     let gutter = overlay_shadow_gutter_physical(&app);
-    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
-    // visible pill keeps its original footprint, while the native window is
-    // expanded by a transparent gutter so the CSS shadow is not chopped at
-    // the rectangular WebView edge.
-    let content_w: u32 = 110;
-    let content_h: u32 = 260;
+    // CSS is authored in logical px, while this command sizes the native
+    // window in physical px. Keep the visible toolbar large enough for the
+    // fixed 30px circular controls on high-DPI displays.
+    let content_w: u32 = (72.0 * scale).round() as u32;
+    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
     let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    // Flush-left with a small margin; vertically centered on the screen.
+    let h: u32 = collapsed_content_h + gutter * 2;
+    // Flush-left with a small margin; vertically center the collapsed pill.
+    // The React toolbar temporarily resizes this window while hover/focus
+    // reveals extra controls so transparent pixels don't block clicks.
     let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - content_h as i32) / 2 - gutter as i32;
+    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
@@ -456,8 +458,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         // IMPORTANT: native window shadow MUST stay off — macOS draws it
         // based on the rectangular window bounds, not the rounded React
         // content, so it shows up as a hard-edged black rectangle around
-        // the rounded pill. CSS box-shadow on `.toolbar-v` provides the
-        // soft drop shadow instead, shaped to the visible content.
+        // the rounded pill.
         .shadow(false)
         .visible(false)
         .focused(false);
@@ -881,7 +882,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let scale = overlay_scale_factor(&app);
     // Wider + taller than the pill alone so the live transcript chip
     // can stack above it. Height accommodates: bottom-anchored 32px pill
-    // + 6px gap + ~28px transcript chip + drop-shadow margin.
+    // + 6px gap + ~28px transcript chip + transparent window margin.
     let content_w: u32 = (420.0 * scale).round() as u32;
     let content_h: u32 = (120.0 * scale).round() as u32;
     let bottom_margin: i32 = (14.0 * scale).round() as i32;

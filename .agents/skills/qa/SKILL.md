@@ -5,6 +5,8 @@ description: >-
   apps end-to-end, finding and fixing bugs, or running a QA sweep. Invoke as
   /qa with optional --apps and --focus args.
 user-invocable: true
+metadata:
+  internal: true
 ---
 
 # QA Testing
@@ -88,7 +90,8 @@ For each app, read these files to understand what to test:
 
 1. `templates/<app>/app/routes/` or `templates/<app>/app/routes.ts` — discover all pages
 2. `templates/<app>/CLAUDE.md` — features, API routes, data model
-3. `templates/<app>/server/routes/api/` — API endpoints
+3. `templates/<app>/actions/` — domain operations the UI and agent share
+4. `templates/<app>/server/routes/api/` — route-only endpoints such as uploads, streaming, webhooks, and OAuth callbacks
 
 Combine with any `--focus` guidance to produce a test plan. The test plan is a numbered list of user-facing flows to verify. Example:
 

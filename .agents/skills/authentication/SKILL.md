@@ -4,6 +4,8 @@ description: >-
   How auth works in agent-native apps. Use when wiring login/signup,
   configuring auth modes, setting up organizations, protecting routes, or
   debugging session issues.
+metadata:
+  internal: true
 ---
 
 # Authentication
@@ -88,7 +90,10 @@ Apps can connect to Builder via the `cli-auth` flow and persist shared browser c
 
 ## Protecting Custom Routes
 
-Actions are auto-protected. For custom `/api/` routes:
+Actions are auto-protected. Do not create custom `/api/` routes for normal
+CRUD, data queries, or action-backed operations; use `defineAction` and the
+auto-mounted action endpoint instead. If a route-only concern forces a custom
+route:
 
 ```ts
 import { getSession } from "@agent-native/core/server";

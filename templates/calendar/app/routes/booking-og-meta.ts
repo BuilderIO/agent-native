@@ -54,8 +54,20 @@ export function bookingOgMeta({
     ...(image
       ? [
           { property: "og:image", content: image },
+          { property: "og:image:secure_url", content: image },
+          { property: "og:image:type", content: "image/png" },
+          { property: "og:image:width", content: "1200" },
+          { property: "og:image:height", content: "630" },
+          {
+            property: "og:image:alt",
+            content: "Agent-Native Calendar booking link",
+          },
           { name: "twitter:card", content: "summary_large_image" },
           { name: "twitter:image", content: image },
+          {
+            name: "twitter:image:alt",
+            content: "Agent-Native Calendar booking link",
+          },
         ]
       : []),
   ];

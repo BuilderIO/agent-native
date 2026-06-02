@@ -18,16 +18,20 @@ description: >
 
 - **File**: `server/lib/gong.ts`
 - **Action**: `gong-calls`
+- **Bundled deep-dive action**: `account-deep-dive` for HubSpot + Gong account
+  or deal investigations.
 
 ### Exported Functions
 
-| Function                    | Description                               |
-| --------------------------- | ----------------------------------------- |
-| `getCalls(filters?)`        | List calls (cursor-paginated)             |
-| `getCall(callId)`           | Get single call detail                    |
-| `getCallTranscript(callId)` | Get call transcript                       |
-| `getUsers()`                | List Gong users                           |
-| `searchCalls(query, days)`  | List + client-side filter by company name |
+| Function                    | Description                                              |
+| --------------------------- | -------------------------------------------------------- |
+| `getCalls(filters?)`        | List calls (cursor-paginated)                            |
+| `getCall(callId)`           | Get single call detail                                   |
+| `getCallTranscript(callId)` | Get call transcript                                      |
+| `getUsers()`                | List Gong users                                          |
+| `searchCalls(query, days)`  | List + filter by title and external party name/email/domain |
+| `getCallDetail(callId)`     | Get parties plus Gong brief/key points/outline            |
+| `getEnrichedTranscript(id)` | Transcript mapped to Gong parties and external speakers    |
 
 ### UI API Routes
 
@@ -42,11 +46,17 @@ directly from the agent.
 ## Script Usage
 
 ```bash
-# Recent calls with a customer
-pnpm action gong-calls --company="Example Inc" --days=30
+# Recent calls with a customer, including call-content evidence
+pnpm action gong-calls --company="Example Inc" --days=180 --includeTranscripts=true --transcriptLimit=5
 
-# Get call transcript
+# HubSpot + Gong account/deal deep dive
+pnpm action account-deep-dive --query="Example Inc" --days=180 --gongLimit=10 --transcriptLimit=5
+
+# Get compact transcript text
 pnpm action gong-calls --transcript=<callId>
+
+# Get the raw transcript payload only for debugging/export
+pnpm action gong-calls --transcript=<callId> --rawTranscript=true
 
 # List Gong users
 pnpm action gong-calls --users
@@ -59,6 +69,8 @@ pnpm action gong-calls --users
   - `POST /v2/calls` — **uploading/creating** calls (NOT listing). Using this for listing returns 400 errors about missing fields.
   - `POST /v2/calls/extensive` — detailed call data with party info
   - `POST /v2/calls/transcript` — get transcripts
-- **Search pattern**: List calls via `GET /v2/calls?fromDateTime=...`, then filter client-side by company name matching against call title. No server-side company name search.
-- **Transcripts**: Have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
+- **Search pattern**: List calls via `GET /v2/calls?fromDateTime=...`, then filter client-side by company name, domain, person, or email against title and external parties. The search path batches `/v2/calls/extensive` for party matching when the lightweight list response is missing parties. No server-side company name search.
+- **Transcripts**: `gong-calls --transcript=<callId>` returns compact extracted text by default. Set `rawTranscript=true` only for debugging/export; do not pass raw transcript payloads into `save-analysis`.
+- Raw Gong transcript payloads have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
+- For deal/customer deep dives, call `account-deep-dive` first when HubSpot context matters. For Gong-only follow-up, set `includeTranscripts=true`; call metadata alone is not enough for objections, risks, sentiment, or next-step claims.
 - Region/hostname is configurable with `GONG_API_BASE`; omit it for the global endpoint.

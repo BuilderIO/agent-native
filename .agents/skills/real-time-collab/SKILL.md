@@ -4,6 +4,8 @@ description: >-
   Multi-user collaborative editing with Yjs CRDT and live cursors. Use when
   adding real-time collaborative editing to a template, debugging sync issues,
   or understanding how the agent and humans edit documents simultaneously.
+metadata:
+  internal: true
 ---
 
 # Real-Time Collaboration

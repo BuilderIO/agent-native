@@ -4,6 +4,8 @@ description: >-
   Agent observability, evals, feedback, and experiments. Use when adding
   observability dashboards, configuring trace capture, setting up evals,
   creating A/B experiments, or collecting user feedback on agent responses.
+metadata:
+  internal: true
 ---
 
 # Agent Observability

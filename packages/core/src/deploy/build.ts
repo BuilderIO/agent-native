@@ -36,6 +36,12 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "../shared/social-meta.js";
 import {
+  DEFAULT_SSR_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  DEFAULT_SPECULATION_RULES_PATH,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
+import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -44,8 +50,6 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 
 function normalizeConfiguredAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
@@ -191,7 +195,7 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.name}`;
     actionRegistrations.push(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
-    const params = ${a.method === "get" ? "Object.fromEntries(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
+    const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const result = await ${varName}.run(params);
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
@@ -299,6 +303,25 @@ function stripAppBasePath(pathname) {
   return pathname;
 }
 
+function parseActionSearchParams(searchParams) {
+  const params = {};
+  for (const [rawKey, value] of searchParams.entries()) {
+    const isArrayKey = rawKey.endsWith("[]");
+    // The core client serializes arrays as key[]=value so one-item arrays
+    // survive GET action parsing in generated worker deployments.
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    const current = params[key];
+    if (current === undefined) {
+      params[key] = isArrayKey ? [value] : value;
+    } else if (Array.isArray(current)) {
+      current.push(value);
+    } else {
+      params[key] = [current, value];
+    }
+  }
+  return params;
+}
+
 function isApiPath(pathname) {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
@@ -396,12 +419,13 @@ function injectHeadScript(html, script) {
 }
 
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
+const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
+const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
     [...new Set(immutableAssetPaths)].sort(),
   )});
-const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
-const BETTER_AUTH_SESSION_COOKIE_RE = /\\.session_(?:token|data)$/;
 const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE = ${JSON.stringify(
     AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   )};
@@ -431,63 +455,60 @@ function injectDefaultSocialImageMeta(html) {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-function requestHasAuthenticatedCookie(cookieHeader) {
-  if (!cookieHeader) return false;
-  return cookieHeader
-    .split(";")
-    .map((cookie) => (cookie.trim().split("=", 1)[0] || "").trim())
-    .filter(Boolean)
-    .some(isAuthenticatedCookieName);
-}
-
-function isAuthenticatedCookieName(name) {
-  if (ANONYMOUS_SESSION_COOKIE_NAMES.has(name)) return false;
-  const bareName = name.replace(/^__(?:Secure|Host)-/, "");
-  return (
-    bareName === "an_embed_session" ||
-    bareName === "an_session" ||
-    bareName === "an_session_workspace" ||
-    bareName.startsWith("an_session_") ||
-    BETTER_AUTH_SESSION_COOKIE_RE.test(bareName)
-  );
-}
-
-function requestHasAuthSignal(request) {
-  const headers = request.headers;
-  const url = new URL(request.url);
-  return Boolean(
-    headers.get("authorization") ||
-    requestHasAuthenticatedCookie(headers.get("cookie")) ||
-    url.searchParams.has("__an_embed_token") ||
-    url.searchParams.has("_session")
-  );
-}
-
-function shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
+function shouldUseDefaultSsrCacheHeader(headers, status, pathname) {
   if (status < 200 || status >= 400) return false;
-  if (hasAuthSignal) return false;
 
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) {
-    return !headers.has("cache-control");
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
   }
 
   if (!pathname.endsWith(".data")) return false;
   if (!contentType.includes("text/x-script")) return false;
 
   // React Router marks loader .data responses no-cache by default. Agent-Native
-  // default. For public loader responses, replace that default with the same
-  // short-fresh/long-SWR policy as HTML so route prefetch warms the CDN. Keep
-  // explicit route cache policies and any authenticated request untouched.
-  const cacheControl = headers.get("cache-control");
-  return !cacheControl || cacheControl.trim().toLowerCase() === "no-cache";
+  // SSR is public app shell, even for browsers carrying auth-looking cookies;
+  // user/org-specific data is loaded client-side through actions/API routes
+  // after hydration. Keep .data on the same SWR policy as HTML so normal route
+  // data fetches fill CDN cache instead of bypassing it and slamming origin.
+  // Do not re-add a blanket auth-signal bypass here; logged-in browsers still
+  // need CDN-cached public route data. Worker SSR does not populate
+  // getRequestUserEmail()/accessFilter() context for private loaders, and
+  // Node/H3 has an auth-context access guard for older loaders that still do.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
 }
 
-function applyDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal) {
-  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname, hasAuthSignal)) return;
+function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  if (!shouldUseDefaultSsrCacheHeader(headers, status, pathname)) return;
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+  headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
+  // Netlify function responses are dynamic by default and can otherwise show
+  // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
+  // Netlify-specific header so SSR HTML/.data are served from the shared
+  // durable CDN cache instead of stampeding origin under logged-in browsers.
+  headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
 }
 
+function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
+  if (status < 200 || status >= 400) return;
+  if (headers.has("speculation-rules")) return;
+
+  const contentType = (headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/html")) return;
+
+  // Cloudflare Speed Brain injects Speculation-Rules when origin omits this
+  // header. Those browser prefetches carry Sec-Purpose: prefetch and
+  // Cloudflare can return 503 before the request reaches origin. Publish an
+  // explicit no-op ruleset by default; apps can still provide their own header.
+  headers.set("speculation-rules", '"' + prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath) + '"');
+}
 function isImmutableAssetRequest(request) {
   const pathname = stripAppBasePath(new URL(request.url).pathname);
   return IMMUTABLE_ASSET_PATHS.has(pathname);
@@ -501,6 +522,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -508,10 +530,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, hasAuthSignal) {
+async function rewriteMountedResponse(response, basePath, pathname) {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, hasAuthSignal);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
@@ -628,7 +651,6 @@ ${actionRegistrations.join("\n")}
       return new Response(null, { status: 404 });
     }
     const request = requestWithPathname(event.req, p);
-    const hasAuthSignal = requestHasAuthSignal(request);
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
       const response = await rrHandler(getRequest);
@@ -639,11 +661,10 @@ ${actionRegistrations.join("\n")}
           headers: response.headers,
         }),
         basePath,
-        p,
-        hasAuthSignal,
+        p
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, hasAuthSignal);
+    return rewriteMountedResponse(await rrHandler(request), basePath, p);
   }));
 
   _handler = app.fetch.bind(app);
@@ -1151,14 +1172,41 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-function copyDir(src: string, dest: string) {
+export function copyDir(
+  src: string,
+  dest: string,
+  ancestorRealPaths = new Set<string>(),
+) {
+  const realSrc = fs.realpathSync(src);
+  if (ancestorRealPaths.has(realSrc)) return;
+  const nextAncestorRealPaths = new Set(ancestorRealPaths);
+  nextAncestorRealPaths.add(realSrc);
+
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+    if (entry.isSymbolicLink()) {
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(srcPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.warn(
+            `[deploy] Skipping broken symlink while copying ${srcPath}`,
+          );
+          continue;
+        }
+        throw error;
+      }
+      if (stat.isDirectory()) {
+        copyDir(srcPath, destPath, nextAncestorRealPaths);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    } else if (entry.isDirectory()) {
+      copyDir(srcPath, destPath, nextAncestorRealPaths);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -1176,6 +1224,34 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "linux-x64-musl",
   "win32-x64-msvc",
 ];
+const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
+const FFMPEG_STATIC_BINARY_NAMES =
+  process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
+const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
+const SERVERLESS_FFMPEG_STATIC_ARCHES = new Set<NodeJS.Architecture>([
+  "arm64",
+  "x64",
+]);
+type ServerlessFfmpegStaticArch = "arm64" | "x64";
+
+function serverlessFfmpegStaticTargetArchFromEnv(): ServerlessFfmpegStaticArch | null {
+  const value = process.env.AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH;
+  if (value === "arm64" || value === "x64") return value;
+  return null;
+}
+
+export function shouldBundleFfmpegStaticForServerless(
+  hostPlatform: NodeJS.Platform = process.platform,
+  hostArch: NodeJS.Architecture = process.arch,
+  targetArch: ServerlessFfmpegStaticArch | null = serverlessFfmpegStaticTargetArchFromEnv(),
+): boolean {
+  return (
+    hostPlatform === SERVERLESS_FFMPEG_STATIC_PLATFORM &&
+    targetArch !== null &&
+    hostArch === targetArch &&
+    SERVERLESS_FFMPEG_STATIC_ARCHES.has(targetArch)
+  );
+}
 
 function nodeModulesAncestors(startDir: string): string[] {
   const dirs: string[] = [];
@@ -1216,6 +1292,68 @@ function findInstalledLibsqlNativePackage(
   return null;
 }
 
+function hasFfmpegStaticBinary(packageDir: string): boolean {
+  return FFMPEG_STATIC_BINARY_NAMES.some((binaryName) =>
+    fs.existsSync(path.join(packageDir, binaryName)),
+  );
+}
+
+function hasInstalledFfmpegStaticPackage(nodeModulesRoots: string[]): boolean {
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, FFMPEG_STATIC_PACKAGE_NAME);
+    if (fs.existsSync(path.join(direct, "package.json"))) return true;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    const pnpmPrefix = `${FFMPEG_STATIC_PACKAGE_NAME}@`;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        FFMPEG_STATIC_PACKAGE_NAME,
+      );
+      if (fs.existsSync(path.join(nested, "package.json"))) return true;
+    }
+  }
+  return false;
+}
+
+export function findInstalledFfmpegStaticPackage(
+  nodeModulesRoots: string[],
+): string | null {
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, FFMPEG_STATIC_PACKAGE_NAME);
+    if (
+      fs.existsSync(path.join(direct, "package.json")) &&
+      hasFfmpegStaticBinary(direct)
+    ) {
+      return direct;
+    }
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    const pnpmPrefix = `${FFMPEG_STATIC_PACKAGE_NAME}@`;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        FFMPEG_STATIC_PACKAGE_NAME,
+      );
+      if (
+        fs.existsSync(path.join(nested, "package.json")) &&
+        hasFfmpegStaticBinary(nested)
+      ) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
@@ -1235,6 +1373,39 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
       `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
     );
   }
+}
+
+function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
+  if (!serverDir || !fs.existsSync(serverDir)) return;
+  const nodeModulesRoots = nodeModulesAncestors(cwd);
+  if (!shouldBundleFfmpegStaticForServerless()) {
+    if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
+      console.warn(
+        `[deploy] ffmpeg-static installs a ${process.platform}-${process.arch} binary, but the serverless runtime architecture is not known to match it; ` +
+          "set AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH=x64 or arm64 to bundle a matching binary, otherwise server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+      );
+    }
+    return;
+  }
+
+  const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
+  if (!src) {
+    if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
+      console.warn(
+        "[deploy] ffmpeg-static is installed without a downloaded ffmpeg binary; " +
+          "server-side media transcription fallback will require FFMPEG_PATH or a system ffmpeg.",
+      );
+    }
+    return;
+  }
+
+  copyDir(
+    src,
+    path.join(serverDir, "node_modules", FFMPEG_STATIC_PACKAGE_NAME),
+  );
+  console.log(
+    "[deploy] Copied ffmpeg-static into the server bundle for media transcription fallback.",
+  );
 }
 
 /**
@@ -1554,6 +1725,7 @@ export default bundle;
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
+    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

@@ -1,5 +1,91 @@
 # @agent-native/core
 
+## 0.32.12
+
+### Patch Changes
+
+- 9dc6a6f: Tighten generated agent instructions to prefer existing actions over duplicate REST wrappers.
+
+## 0.32.11
+
+### Patch Changes
+
+- 4ee09b9: Copy ffmpeg-static into serverless bundles so Clips media transcription fallback can extract audio in production.
+
+## 0.32.10
+
+### Patch Changes
+
+- 408af9c: Keep the Builder connect popup open by falling back to the signed connect URL already rendered in the UI when the click-time status refresh fails.
+
+## 0.32.9
+
+### Patch Changes
+
+- 221efac: Fix skill installation edge cases and Notion sync refresh behavior.
+
+## 0.32.8
+
+### Patch Changes
+
+- 8a946c6: Use `@theme inline` so scoped CSS variables (e.g. `.dark`, subtree overrides) apply to shadcn/Tailwind color utilities at use time.
+
+## 0.32.7
+
+### Patch Changes
+
+- bacf30d: Expose Builder account plan metadata from the connect flow status.
+
+## 0.32.6
+
+### Patch Changes
+
+- 69a857a: Preserve array values in action GET query parameters across client and server runtimes.
+- 69a857a: Respect `submit: false` in `sendToAgentChat()` so agent chat bridge messages prefill the composer instead of submitting immediately.
+- 69a857a: Normalize bracketed GET action query parameters through Nitro's getQuery fallback so array schemas receive arrays consistently.
+- 69a857a: Persist stale run error diagnostics when reaping interrupted agent runs.
+- 69a857a: Keep the embedded CLI scoped to dev-frame surfaces and route desktop template dev apps through the frame so hot reloads do not refresh terminal state.
+
+## 0.32.5
+
+### Patch Changes
+
+- d56f689: Merge runtime route-warmup config overrides with the build-time config, and tune smooth streaming commit cadence.
+
+## 0.32.4
+
+### Patch Changes
+
+- 826fc96: Keep auth fallback HTML out of shared CDN caches and vary docs markdown/html responses by Accept.
+- 826fc96: Move safe React Router route data and JS warmup into the core client with configurable Vite defaults.
+
+## 0.32.3
+
+### Patch Changes
+
+- 25d6fd6: Add CDN and Netlify durable cache headers to framework SSR and route data responses.
+- 25d6fd6: Smooth streamed assistant text in chat, Agent-Native Code, and the coding CLI.
+
+## 0.32.2
+
+### Patch Changes
+
+- 3d46958: Fix desktop app login failing in dev with a CORS error
+  (`Access-Control-Allow-Credentials is not "true"`).
+
+  The desktop app logs in with `credentials: "include"`. In dev its origin
+  (`http://localhost:1420`) was matched by the embed-frame Vite middleware, which
+  answered the CORS preflight with `Access-Control-Allow-Origin` but no
+  `Access-Control-Allow-Credentials`. The browser then rejected the credentialed
+  login. The middleware now also sends `Access-Control-Allow-Credentials: true`
+  for origins allowed to use credentials, matching how production responds.
+
+## 0.32.1
+
+### Patch Changes
+
+- d987847: Keep SSR HTML and React Router data responses CDN-cacheable across auth-looking requests, and publish a default no-op Speculation-Rules header to prevent Cloudflare Speed Brain prefetch refusals from surfacing as 503s.
+
 ## 0.32.0
 
 ### Minor Changes

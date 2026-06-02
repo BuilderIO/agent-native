@@ -20,9 +20,10 @@
  *
  * Strategy: ride the existing ffmpeg.wasm install (we already lazy-load it
  * for export / GIF / stitch in `ffmpeg-export.ts`). Re-encode video at a
- * resolution-aware target bitrate, copy audio (Opus stays Opus inside WebM,
- * AAC stays AAC inside MP4), bind the whole thing to an AbortController so
- * it can't hang a tab forever, and return a smaller blob.
+ * 720p-ish maximum resolution plus a duration-aware target bitrate, copy audio
+ * (Opus stays Opus inside WebM, AAC stays AAC inside MP4), bind the whole thing
+ * to an AbortController so it can't hang a tab forever, and return a smaller
+ * blob.
  *
  * Out-of-scope here:
  *  - Raising Builder.io's per-file limit (server-side, separate work).
@@ -32,7 +33,7 @@
  *
  * Threshold: skip compression under 24 MB so the small-clip happy path pays no
  * extra cost. The binding constraint is Builder's ~32 MB Cloud Run edge cap
- * (see above), so we target ~22 MB and hard-stop at 30 MB — a blob that clears
+ * (see above), so we target ~18 MB and hard-stop at 30 MB — a blob that clears
  * the client check is then comfortably under both Builder's ~32 MB edge and the
  * server's SQL-staging cap.
  */
@@ -56,10 +57,12 @@ export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 /** Preferred compressed output size. The hard cap above leaves room for
  * encoder variance and audio tracks that were copied rather than re-encoded. */
-const TARGET_COMPRESSED_BYTES = 22 * 1024 * 1024;
+const TARGET_COMPRESSED_BYTES = 18 * 1024 * 1024;
 
 const ASSUMED_AUDIO_BITRATE_BPS = 96_000;
-const MIN_VIDEO_BITRATE_BPS = 450_000;
+const MIN_VIDEO_BITRATE_BPS = 350_000;
+const MAX_COMPRESSED_LONG_SIDE = 1280;
+const MAX_COMPRESSED_SHORT_SIDE = 720;
 
 /** Hard cap on total compression time. ffmpeg.wasm is single-threaded WASM
  * and can wedge on certain inputs; we'd rather give the user a clear error
@@ -115,6 +118,54 @@ export interface CompressOptions {
  * land near TARGET_COMPRESSED_BYTES instead of blasting past the server staging
  * cap.
  */
+function evenDimension(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
+}
+
+/**
+ * Downscale compressed output to roughly 720p. We preserve aspect ratio and
+ * handle portrait/ultrawide captures by bounding both the long and short side.
+ */
+export function pickCompressedDimensions(
+  width?: number,
+  height?: number,
+): { width: number; height: number } | null {
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+
+  const longSide = Math.max(width, height);
+  const shortSide = Math.min(width, height);
+  const scale = Math.min(
+    1,
+    MAX_COMPRESSED_LONG_SIDE / longSide,
+    MAX_COMPRESSED_SHORT_SIDE / shortSide,
+  );
+  if (scale >= 1) return { width, height };
+  return {
+    width: evenDimension(width * scale),
+    height: evenDimension(height * scale),
+  };
+}
+
+function pickScaleArgs(width?: number, height?: number): string[] {
+  const dimensions = pickCompressedDimensions(width, height);
+  if (
+    !dimensions ||
+    (dimensions.width === width && dimensions.height === height)
+  ) {
+    return [];
+  }
+  return ["-vf", `scale=${dimensions.width}:${dimensions.height}`];
+}
+
 export function pickVideoBitrate(
   width?: number,
   height?: number,
@@ -129,18 +180,22 @@ export function pickVideoBitrate(
     return `${mbps.toFixed(1).replace(/\.0$/, "")}M`;
   }
 
-  const longSide = Math.max(width ?? 0, height ?? 0);
+  const dimensions = pickCompressedDimensions(width, height);
+  const targetWidth = dimensions?.width ?? width ?? 0;
+  const targetHeight = dimensions?.height ?? height ?? 0;
+  const longSide = Math.max(targetWidth, targetHeight);
+  const shortSide = Math.min(targetWidth, targetHeight);
   let resolutionCapBps: number;
-  if (longSide >= 1080) {
-    resolutionCapBps = 3_000_000;
-  } else if (longSide >= 720) {
-    resolutionCapBps = 2_000_000;
+  if (longSide >= 1280 || shortSide >= 720) {
+    resolutionCapBps = 1_600_000;
+  } else if (longSide >= 960 || shortSide >= 540) {
+    resolutionCapBps = 1_100_000;
   } else if (longSide > 0) {
-    resolutionCapBps = 1_200_000;
+    resolutionCapBps = 800_000;
   } else {
     // Unknown dimensions — keep enough detail for UI text without assuming a
     // giant 4K recording.
-    resolutionCapBps = 3_000_000;
+    resolutionCapBps = 1_600_000;
   }
 
   let targetBps = resolutionCapBps;
@@ -148,7 +203,7 @@ export function pickVideoBitrate(
     const seconds = durationMs / 1000;
     const totalBudgetBps = (TARGET_COMPRESSED_BYTES * 8) / seconds;
     const videoBudgetBps = totalBudgetBps - ASSUMED_AUDIO_BITRATE_BPS;
-    if (Number.isFinite(videoBudgetBps) && videoBudgetBps > 0) {
+    if (Number.isFinite(videoBudgetBps)) {
       targetBps = Math.min(
         resolutionCapBps,
         Math.max(MIN_VIDEO_BITRATE_BPS, videoBudgetBps),
@@ -178,6 +233,7 @@ function pickEncodeArgs(
     height,
     durationMs,
   );
+  const scaleArgs = pickScaleArgs(width, height);
 
   if (isMp4) {
     return {
@@ -188,6 +244,7 @@ function pickEncodeArgs(
         "libx264",
         "-preset",
         "fast",
+        ...scaleArgs,
         "-b:v",
         bitrate,
         "-maxrate",
@@ -222,6 +279,7 @@ function pickEncodeArgs(
       "realtime",
       "-cpu-used",
       "5",
+      ...scaleArgs,
       "-b:v",
       bitrate,
       "-maxrate",

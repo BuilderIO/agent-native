@@ -79,6 +79,7 @@ export default defineAction({
       ),
     includeLogo: z.coerce.boolean().default(false),
     slotId: z.string().optional(),
+    variantBatchId: z.string().optional(),
     dismissible: z.coerce
       .boolean()
       .default(true)
@@ -269,6 +270,8 @@ export default defineAction({
       prompt: promptForRun,
       referenceCount: references.length,
       includeLogo: args.includeLogo,
+      aspectRatio: resolvedAspectRatio,
+      imageSize: resolvedImageSize,
       category,
       intent: args.intent,
       styleStrength: args.styleStrength,
@@ -355,6 +358,7 @@ export default defineAction({
 
     await upsertVariantSlot({
       runId,
+      batchId: args.variantBatchId ?? null,
       libraryId: args.libraryId,
       collectionId: resolvedCollectionId ?? null,
       presetId: preset?.id ?? null,
@@ -504,6 +508,7 @@ export default defineAction({
       const serialized = serializeAsset(asset);
       await upsertVariantSlot({
         runId,
+        batchId: args.variantBatchId ?? null,
         libraryId: args.libraryId,
         collectionId: resolvedCollectionId ?? null,
         presetId: preset?.id ?? null,
@@ -545,6 +550,7 @@ export default defineAction({
       }
       await upsertVariantSlot({
         runId,
+        batchId: args.variantBatchId ?? null,
         libraryId: args.libraryId,
         collectionId: resolvedCollectionId ?? null,
         presetId: preset?.id ?? null,

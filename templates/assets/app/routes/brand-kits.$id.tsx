@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import {
   type Dispatch,
   type SetStateAction,
@@ -210,9 +210,55 @@ function removeVariantSlotsByScopeFromCache(
   );
 }
 
+function variantSlotTime(slot: any): number {
+  const raw = slot?.createdAt ?? slot?.updatedAt ?? "";
+  const time = Date.parse(String(raw));
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function compareVariantSlotsNewestFirst(left: any, right: any): number {
+  return (
+    variantSlotTime(right) - variantSlotTime(left) ||
+    String(right?.slotId ?? "").localeCompare(String(left?.slotId ?? ""))
+  );
+}
+
+function paletteDraftFromColors(colors: unknown): string {
+  return Array.isArray(colors)
+    ? colors.filter((color) => typeof color === "string").join(", ")
+    : "";
+}
+
+function parsePaletteDraft(value: string): string[] {
+  const seen = new Set<string>();
+  const colors: string[] = [];
+  for (const raw of value.split(/[\s,]+/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const color = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+    if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) continue;
+    const normalized = color.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    colors.push(normalized);
+  }
+  return colors;
+}
+
+function libraryTabFromValue(value: unknown): LibraryTab | null {
+  return value === "references" ||
+    value === "generated" ||
+    value === "runs" ||
+    value === "settings"
+    ? value
+    : null;
+}
+
 export default function LibraryPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const urlTab = libraryTabFromValue(searchParams.get("tab"));
   const libraryId = id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
@@ -239,7 +285,9 @@ export default function LibraryPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
-  const [activeTab, setActiveTab] = useState<LibraryTab>("references");
+  const [activeTab, setActiveTab] = useState<LibraryTab>(
+    () => urlTab ?? "references",
+  );
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -254,8 +302,16 @@ export default function LibraryPage() {
     "all",
   );
   const [search, setSearch] = useState("");
+  const [styleDescriptionDraft, setStyleDescriptionDraft] = useState("");
+  const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
+  const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createFolder = useActionMutation("create-folder");
+
+  useEffect(() => {
+    if (!urlTab) return;
+    setActiveTab((current) => (current === urlTab ? current : urlTab));
+  }, [urlTab]);
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -303,6 +359,8 @@ export default function LibraryPage() {
     if (!normalized) return true;
     return [
       asset.title,
+      assetDisplayTitle(asset),
+      assetLineageLabel(asset),
       asset.description,
       asset.altText,
       asset.prompt,
@@ -311,6 +369,8 @@ export default function LibraryPage() {
       asset.role,
       assetCategoryLabel(asset),
       asset.metadata?.intent,
+      asset.metadata?.description,
+      asset.metadata?.prompt,
       asset.metadata?.originalName,
     ]
       .filter((value): value is string => typeof value === "string")
@@ -326,6 +386,22 @@ export default function LibraryPage() {
   const candidates = generated.filter((asset) => asset.status === "candidate");
   const unfiledCount = assets.filter((asset) => !asset.folderId).length;
   const customInstructions = getLibraryCustomInstructions(library);
+  const libraryStyleDescription = library?.styleBrief?.description ?? "";
+  const libraryPaletteDraft = paletteDraftFromColors(
+    library?.styleBrief?.palette,
+  );
+
+  useEffect(() => {
+    setStyleDescriptionDraft(libraryStyleDescription);
+  }, [library?.id, libraryStyleDescription]);
+
+  useEffect(() => {
+    setCustomInstructionsDraft(customInstructions ?? "");
+  }, [library?.id, customInstructions]);
+
+  useEffect(() => {
+    setPaletteDraft(libraryPaletteDraft);
+  }, [library?.id, libraryPaletteDraft]);
   const pendingVisibleUploads = pendingUploads.filter((upload) => {
     if (mediaFilter !== "all" && upload.mediaType !== mediaFilter) return false;
     if (activeFolderId === "all") return true;
@@ -335,10 +411,12 @@ export default function LibraryPage() {
 
   const pendingVariants =
     variants?.libraryId === libraryId
-      ? (variants.slots ?? []).filter(
-          (slot: any) =>
-            !slot.assetId || !savedCandidateAssetIds.has(slot.assetId),
-        )
+      ? (variants.slots ?? [])
+          .filter(
+            (slot: any) =>
+              !slot.assetId || !savedCandidateAssetIds.has(slot.assetId),
+          )
+          .sort(compareVariantSlotsNewestFirst)
       : [];
 
   function markAssetsOptimisticallyDeleted(ids: string[]) {
@@ -428,7 +506,7 @@ export default function LibraryPage() {
         queryKey: ["app-state", "asset-variants"],
         refetchType: "active",
       });
-      toast.success("Saved candidate.");
+      toast.success("Saved to Generated.");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not save candidate.",
@@ -1022,18 +1100,20 @@ export default function LibraryPage() {
                 libraryId={libraryId}
               />
             </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-              {pendingVariants.map((slot: any) => (
-                <VariantCard
-                  key={slot.slotId}
-                  slot={slot}
-                  libraryId={libraryId}
-                  saving={savingCandidateKeys.has(candidateSaveKey(slot))}
-                  onSave={() => {
-                    void handleSaveCandidate(slot);
-                  }}
-                />
-              ))}
+            <div className="max-h-[420px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {pendingVariants.map((slot: any) => (
+                  <VariantCard
+                    key={slot.slotId}
+                    slot={slot}
+                    libraryId={libraryId}
+                    saving={savingCandidateKeys.has(candidateSaveKey(slot))}
+                    onSave={() => {
+                      void handleSaveCandidate(slot);
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </section>
         )}
@@ -1145,13 +1225,16 @@ export default function LibraryPage() {
               <div className="space-y-4 rounded-lg border border-border p-4">
                 <Label>Style description</Label>
                 <Textarea
-                  defaultValue={library.styleBrief?.description ?? ""}
-                  onBlur={(event) =>
+                  value={styleDescriptionDraft}
+                  onChange={(event) =>
+                    setStyleDescriptionDraft(event.target.value)
+                  }
+                  onBlur={() =>
                     updateLibrary.mutate({
                       id: library.id,
                       styleBrief: {
                         ...library.styleBrief,
-                        description: event.target.value,
+                        description: styleDescriptionDraft,
                       },
                     })
                   }
@@ -1160,11 +1243,14 @@ export default function LibraryPage() {
                 <Separator />
                 <Label>Custom instructions</Label>
                 <Textarea
-                  defaultValue={customInstructions ?? ""}
-                  onBlur={(event) =>
+                  value={customInstructionsDraft}
+                  onChange={(event) =>
+                    setCustomInstructionsDraft(event.target.value)
+                  }
+                  onBlur={() =>
                     updateLibrary.mutate({
                       id: library.id,
-                      customInstructions: event.target.value,
+                      customInstructions: customInstructionsDraft,
                     })
                   }
                   placeholder="Preferences the agent should apply whenever it uses this library."
@@ -1186,6 +1272,23 @@ export default function LibraryPage() {
                         ),
                       )}
                     </div>
+                    <Input
+                      value={paletteDraft}
+                      onChange={(event) => setPaletteDraft(event.target.value)}
+                      onBlur={() => {
+                        const palette = parsePaletteDraft(paletteDraft);
+                        setPaletteDraft(palette.join(", "));
+                        updateLibrary.mutate({
+                          id: library.id,
+                          styleBrief: {
+                            ...library.styleBrief,
+                            palette,
+                          },
+                        });
+                      }}
+                      placeholder="#111827, #f8fafc, #2563eb"
+                      className="mt-3 h-9 max-w-md text-xs"
+                    />
                   </div>
                   <Button variant="outline" onClick={analyzeBrand}>
                     {library.settings?.brandAnalysis?.analyzedAt
@@ -1331,7 +1434,7 @@ function RunCard({
             <IconRefresh className="h-4 w-4" />
             {mediaType === "video" && run.status !== "completed"
               ? "Refresh"
-              : "Rerun latest"}
+              : "Rerun this"}
           </Button>
         </div>
       </div>
@@ -1650,6 +1753,7 @@ function GeneratePopover({
             </SelectContent>
           </Select>
           <Textarea
+            autoGrow
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={
@@ -1657,7 +1761,7 @@ function GeneratePopover({
                 ? "Eight-second product reveal with slow camera push-in"
                 : "Blog hero for an article about cold-start latency"
             }
-            className="min-h-28"
+            className="min-h-28 max-h-48 resize-none overflow-y-auto"
           />
           <div className="grid grid-cols-2 gap-3">
             {mediaType === "image" ? (

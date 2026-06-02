@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "RSVP to a Google Calendar event as accepted, declined, or tentative. Use this when the user asks to accept, decline, or maybe a meeting invitation.",
+    "RSVP to a Google Calendar event as accepted, declined, or tentative, optionally with a response note. Use this when the user asks to accept, decline, or maybe a meeting invitation.",
   schema: z.object({
     id: z
       .string()
@@ -23,6 +23,13 @@ export default defineAction({
     status: z
       .enum(["accepted", "declined", "tentative"])
       .describe("The RSVP response to set"),
+    note: z
+      .string()
+      .max(1000)
+      .optional()
+      .describe(
+        "Optional RSVP note/comment to show with your response. Pass an empty string to clear it.",
+      ),
     scope: z
       .enum(["single", "all", "thisAndFollowing"])
       .optional()
@@ -52,6 +59,7 @@ export default defineAction({
       args.status,
       accountEmail,
       args.scope,
+      args.note?.trim() ?? args.note,
       args.sendUpdates,
     );
 
@@ -60,6 +68,7 @@ export default defineAction({
       id: `google-${googleEventId}`,
       accountEmail,
       status: args.status,
+      note: args.note?.trim() ?? args.note,
       scope: args.scope,
     };
   },

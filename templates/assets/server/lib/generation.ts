@@ -729,6 +729,8 @@ export function compilePrompt(input: {
   prompt: string;
   referenceCount: number;
   includeLogo: boolean;
+  aspectRatio?: AspectRatio;
+  imageSize?: ImageSize;
   category?: ImageCategory;
   intent?: GenerationIntent;
   styleStrength?: StyleStrength;
@@ -748,6 +750,10 @@ export function compilePrompt(input: {
     input.category === "diagram"
       ? "\nDiagram mode: use clear hierarchy, precise labels only when requested, consistent line weights, and enough whitespace for readability."
       : "";
+  const frameInstruction =
+    input.aspectRatio || input.imageSize
+      ? `\nOutput frame: ${[input.aspectRatio, input.imageSize].filter(Boolean).join(", ")}. Honor this requested canvas/frame size and composition; do not choose a different crop unless the user explicitly asks for it.`
+      : "";
   const customInstructions = input.customInstructions?.trim()
     ? `\nLibrary custom instructions:\n${input.customInstructions.trim()}\n`
     : "";
@@ -757,7 +763,7 @@ export function compilePrompt(input: {
       : intent === "restyle"
         ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
         : input.referenceCount > 0
-          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, and prior candidates define continuity.`
+          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source references must not override the library style brief or custom instructions.`
           : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
 
   if (intent === "edit") {
@@ -783,7 +789,7 @@ ${style.subjectMatter ? `\nSubject matter: ${style.subjectMatter}.` : ""}
 ${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
-${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}
+${style.typographyPolicy ? `\nTypography policy: ${style.typographyPolicy}.` : ""}${frameInstruction}
 ${doNot}${logoInstruction}${diagramInstruction}${customInstructions}
 
 Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.

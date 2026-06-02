@@ -4,6 +4,8 @@ description: >-
   How to create new skills for an agent-native app. Use when adding a new
   skill, documenting a pattern the agent should follow, or creating reusable
   guidance for the agent.
+metadata:
+  internal: true
 ---
 
 # Create a Skill

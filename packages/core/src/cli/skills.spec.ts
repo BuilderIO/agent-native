@@ -26,8 +26,18 @@ describe("agent-native skills", () => {
       command: "add",
       target: "assets",
       client: "codex",
+      clientExplicit: false,
       instructions: true,
       mcp: true,
+    });
+  });
+
+  it("tracks when --client is explicit", () => {
+    expect(
+      parseSkillsArgs(["add", "assets", "--client", "claude-code"]),
+    ).toMatchObject({
+      client: "claude-code",
+      clientExplicit: true,
     });
   });
 
@@ -139,6 +149,120 @@ describe("agent-native skills", () => {
       JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"))
         .mcpServers["agent-native-assets"].url,
     ).toBe("https://assets.agent-native.com/_agent-native/mcp");
+  });
+
+  it("prompts for target clients in interactive installs when --client is omitted", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    const stdout: string[] = [];
+    const commands: { cmd: string; args: string[]; stdio?: string }[] = [];
+    const promptClients = vi.fn(async () => [
+      "codex" as const,
+      "claude-code" as const,
+    ]);
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await runSkills(["add", "assets"], {
+        baseDir: root,
+        isInteractive: () => true,
+        promptClients,
+        runCommand: async (cmd, args, options) => {
+          commands.push({ cmd, args, stdio: options?.stdio });
+          return 0;
+        },
+      });
+
+      expect(promptClients).toHaveBeenCalledTimes(1);
+      expect(commands[0]).toMatchObject({ cmd: "npx", stdio: "silent" });
+      expect(commands[0].args).toEqual(
+        expect.arrayContaining(["-a", "codex", "-a", "claude-code"]),
+      );
+      expect(
+        fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
+      ).toContain("agent-native-assets");
+      expect(
+        JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf-8"))
+          .mcpServers["agent-native-assets"].url,
+      ).toBe("https://assets.agent-native.com/_agent-native/mcp");
+      expect(stdout.join("")).toContain("MCP config: codex, claude-code.");
+      expect(stdout.join("")).toContain("rerun with --client <client>");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("skips the client prompt when --client is explicit", async () => {
+    const root = tmpDir();
+    const promptClients = vi.fn(async () => ["codex" as const]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(
+      ["add", "assets", "--client", "claude-code", "--scope", "project"],
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        promptClients,
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(promptClients).not.toHaveBeenCalled();
+  });
+
+  it("prompts for skills when interactive add has no target", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    const commands: { args: string[] }[] = [];
+    const promptSkills = vi.fn(async () => ["assets", "design-exploration"]);
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      await runSkills(["add"], {
+        baseDir: root,
+        isInteractive: () => true,
+        promptClients: async () => ["codex"],
+        promptSkills,
+        runCommand: async (_cmd, args) => {
+          commands.push({ args });
+          return 0;
+        },
+      });
+
+      expect(promptSkills).toHaveBeenCalledTimes(1);
+      expect(commands).toHaveLength(2);
+      expect(commands[0].args).toEqual(
+        expect.arrayContaining(["--skill", "assets"]),
+      );
+      expect(commands[1].args).toEqual(
+        expect.arrayContaining(["--skill", "design-exploration"]),
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
   });
 
   it("supports dry-run without writing local agent config", async () => {
@@ -377,7 +501,7 @@ describe("agent-native skills", () => {
       expect(result.id).toBe("assets");
       expect(commands[0]).toMatchObject({
         cmd: "npx",
-        stdio: "stderr",
+        stdio: "silent",
       });
       expect(commands[0].args).toEqual(expect.arrayContaining(["-g"]));
       expect(commands[0].args).toEqual(

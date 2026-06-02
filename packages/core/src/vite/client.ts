@@ -21,6 +21,10 @@ import {
   mcpEmbedStaticAssetRouteRules,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  normalizeAgentNativeRouteWarmupConfig,
+  type AgentNativeRouteWarmupConfigInput,
+} from "../shared/route-warmup-config.js";
 
 import { fileURLToPath } from "url";
 
@@ -459,6 +463,18 @@ export interface ClientConfigOptions {
   fsDeny?: string[];
   /** Additional Vite optimizeDeps configuration */
   optimizeDeps?: NonNullable<UserConfig["optimizeDeps"]>;
+  /** Additional Vite define constants. */
+  define?: UserConfig["define"];
+  /**
+   * Framework route warmup behavior mounted by AgentSidebar.
+   *
+   * React Router's native prefetch warms both `.data` and JS, but its `.data`
+   * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
+   * on those requests, which some production CDNs reject for dynamic `.data`
+   * URLs before our SWR cache headers can help. Agent-Native therefore uses
+   * ordinary fetches for `.data` and `modulepreload` for route JS by default.
+   */
+  routeWarmup?: AgentNativeRouteWarmupConfigInput;
   /**
    * Whether to auto-inject the Tailwind v4 Vite plugin (`@tailwindcss/vite`).
    * Defaults to true — set to `false` if a template wants to manage Tailwind
@@ -1268,6 +1284,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     logLevel: options.logLevel ?? (isWorkspaceChild ? "warn" : undefined),
     envDir,
     base,
+    define: {
+      ...(options.define ?? {}),
+      // Framework route warmup controls how SSR `.data` routes are fetched:
+      // ordinary fetches keep them CDN-cacheable, while native prefetch headers
+      // can be refused before the CDN/origin sees the request. Keep this value
+      // authoritative even if app config provides its own `define` entries.
+      __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
+        normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
+      ),
+    },
     server: {
       host: "::",
       port: options.port ?? 8080,

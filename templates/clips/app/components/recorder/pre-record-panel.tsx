@@ -6,6 +6,7 @@ import {
   IconDeviceDesktop,
   IconDeviceScreen,
   IconMicrophone,
+  IconPlayerRecord,
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
@@ -24,11 +25,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   NO_CAMERA_DEVICE_ID,
@@ -90,22 +86,22 @@ const MODE_OPTIONS: Array<{
   sub: string;
 }> = [
   {
-    value: "screen",
-    label: "Screen",
-    icon: IconDeviceScreen,
-    sub: "Record your screen",
+    value: "screen+camera",
+    label: "Screen + camera",
+    icon: IconVideo,
+    sub: "Show your face while sharing",
   },
   {
-    value: "screen+camera",
-    label: "Screen + cam",
-    icon: IconVideo,
-    sub: "Screen with webcam bubble",
+    value: "screen",
+    label: "Screen only",
+    icon: IconDeviceScreen,
+    sub: "Narrate without camera",
   },
   {
     value: "camera",
-    label: "Camera",
+    label: "Camera only",
     icon: IconCamera,
-    sub: "Just your webcam",
+    sub: "Talk directly to camera",
   },
 ];
 
@@ -253,6 +249,10 @@ export function PreRecordPanel({
         ?.label ?? "Window"
     );
   }, [displaySurface]);
+  const selectedMode = useMemo(
+    () => MODE_OPTIONS.find((option) => option.value === mode),
+    [mode],
+  );
 
   const deviceSummary = useMemo(() => {
     const parts = [audioEnabled ? selectedMicLabel : "No audio"];
@@ -372,47 +372,80 @@ export function PreRecordPanel({
   }, [audioEnabled, cameraTest.status, micTest.status, needsCamera]);
 
   return (
-    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
-      <div className="space-y-4 p-6">
-        <div>
-          <h2 className="text-lg font-semibold">New recording</h2>
-          <p className="text-sm text-muted-foreground">
-            Choose a mode. The browser picker opens after Start.
-          </p>
+    <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+      <div className="border-b border-border p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600">
+            <IconPlayerRecord className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold">Record a clip</h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {selectedMode?.label ?? "Screen + camera"} is selected. Choose the
+              exact tab, window, or screen after you start.
+            </p>
+          </div>
         </div>
+      </div>
 
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+      <div className="space-y-3 p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Capture mode
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {selectedMode?.sub}
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
           {MODE_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             const active = opt.value === mode;
             return (
-              <Tooltip key={opt.value}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode(opt.value);
-                      if (
-                        opt.value === "camera" &&
-                        cameraId === NO_CAMERA_DEVICE_ID
-                      ) {
-                        setCameraId("default");
-                      }
-                    }}
-                    className={cn(
-                      "flex h-11 min-w-0 items-center justify-center rounded-lg px-2 transition-colors",
-                      active
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                    )}
-                    aria-label={`${opt.label}: ${opt.sub}`}
-                    aria-pressed={active}
-                  >
-                    <Icon className="h-5 w-5 shrink-0" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{opt.label}</TooltipContent>
-              </Tooltip>
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setMode(opt.value);
+                  if (
+                    opt.value === "camera" &&
+                    cameraId === NO_CAMERA_DEVICE_ID
+                  ) {
+                    setCameraId("default");
+                  }
+                }}
+                className={cn(
+                  "flex min-h-24 min-w-0 flex-col rounded-xl border p-3 text-left transition-colors",
+                  active
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : "border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted/45",
+                )}
+                aria-pressed={active}
+              >
+                <span
+                  className={cn(
+                    "mb-3 flex h-9 w-9 items-center justify-center rounded-full",
+                    active
+                      ? "bg-primary-foreground/15 text-primary-foreground"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="text-sm font-medium leading-tight">
+                  {opt.label}
+                </span>
+                <span
+                  className={cn(
+                    "mt-1 text-[11px] leading-snug",
+                    active
+                      ? "text-primary-foreground/70"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {opt.sub}
+                </span>
+              </button>
             );
           })}
         </div>
@@ -656,10 +689,11 @@ export function PreRecordPanel({
               })
             }
             className={cn(
-              "h-11 bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary",
+              "h-12 gap-2 bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600",
               onCancel ? "flex-1" : "w-full",
             )}
           >
+            <IconPlayerRecord className="h-4 w-4" />
             Start recording
           </Button>
         </div>

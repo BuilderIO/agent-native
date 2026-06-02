@@ -25,7 +25,7 @@ import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -36,16 +36,15 @@ import { VideoNode } from "./extensions/VideoNode";
 import { AudioNode } from "./extensions/AudioNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
-  notionEditorExtensions,
+  type NotionPageLink,
 } from "./extensions/NotionExtensions";
+import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import { DragHandle } from "./extensions/DragHandle";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { toast } from "sonner";
-import {
-  parseNfmForEditor,
-  serializeEditorToNfm,
-} from "@shared/notion-markdown";
+import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   isReconcileLeadClient,
   AGENT_CLIENT_ID,
@@ -467,32 +466,40 @@ const NotionToggleBodyPlaceholder = Extension.create({
  * Runs at lower priority than ListItem/TaskItem (which bind Tab to sinkListItem),
  * so list sinking still works and we only kick in for non-list blocks.
  */
-const NotionBlockIndent = Extension.create({
-  name: "notionBlockIndent",
-  priority: 50,
-  addKeyboardShortcuts() {
-    const inHandled = (editor: any) =>
-      editor.isActive("listItem") ||
-      editor.isActive("taskItem") ||
-      editor.isActive("tableCell") ||
-      editor.isActive("tableHeader") ||
-      editor.isActive("codeBlock");
-
+const CustomTable = BaseTable.extend({
+  addAttributes() {
     return {
-      Tab: ({ editor }) => {
-        if (inHandled(editor)) return false;
-        return editor.chain().focus().wrapIn("blockquote").run();
+      ...this.parent?.(),
+      // Notion table structure attributes — preserved so the NFM converter can
+      // round-trip header rows/columns, full-width tables, and column colors.
+      headerRow: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-row") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerRow ? { "data-header-row": "true" } : {},
       },
-      "Shift-Tab": ({ editor }) => {
-        if (inHandled(editor)) return false;
-        if (!editor.isActive("blockquote")) return false;
-        return editor.chain().focus().lift("blockquote").run();
+      headerColumn: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-header-column") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.headerColumn ? { "data-header-column": "true" } : {},
+      },
+      fitPageWidth: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-fit-page-width") === "true",
+        renderHTML: (attributes: Record<string, any>) =>
+          attributes.fitPageWidth ? { "data-fit-page-width": "true" } : {},
+      },
+      colMeta: {
+        default: null,
+        parseHTML: () => null,
+        renderHTML: () => ({}),
       },
     };
   },
-});
-
-const CustomTable = BaseTable.extend({
   addStorage() {
     return {
       markdown: {
@@ -717,7 +724,11 @@ interface VisualEditorProps {
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  notionPageLinks?: NotionPageLink[];
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
+
+export type { NotionPageLink };
 
 export function shouldSeedCollaborativeContent({
   content,
@@ -803,6 +814,8 @@ interface VisualEditorExtensionOptions {
   user?: { name: string; color: string; email?: string } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onJoinTitle?: (text: string) => void;
+  resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
+  onOpenNotionPageLink?: (documentId: string) => void;
 }
 
 function hasAncestorType(
@@ -1124,6 +1137,8 @@ export function createVisualEditorExtensions({
   user,
   onImageComment,
   onJoinTitle,
+  resolveNotionPageLink,
+  onOpenNotionPageLink,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return [
     StarterKit.configure({
@@ -1180,14 +1195,17 @@ export function createVisualEditorExtensions({
     NotionTableHeader,
     TableCell,
     NormalizeTableHeaders,
-    ...notionEditorExtensions,
+    ...createNotionEditorExtensions({
+      resolvePageLink: resolveNotionPageLink,
+      onOpenPageLink: onOpenNotionPageLink,
+    }),
+    ...notionFidelityExtensions,
     DragHandle,
     TypographyReplacements,
     NotionMarkdownShortcuts,
     MarkdownPasteDetection,
     SelectAllDocument,
     JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
-    NotionBlockIndent,
     Markdown.configure({
       html: true,
       transformPastedText: true,
@@ -1218,11 +1236,24 @@ export function VisualEditor({
   editable = true,
   onComment,
   onJoinTitle,
+  notionPageLinks = [],
+  onOpenNotionPageLink,
 }: VisualEditorProps) {
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const isSettingContent = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const notionPageLinksRef = useRef(notionPageLinks);
+  notionPageLinksRef.current = notionPageLinks;
+  const resolveNotionPageLink = useCallback((notionPageId: string) => {
+    const normalized = notionPageId.replace(/-/g, "").toLowerCase();
+    return (
+      notionPageLinksRef.current.find(
+        (link) =>
+          link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
+      ) ?? null
+    );
+  }, []);
   const prevDocIdRef = useRef(documentId);
   // Track the last content the editor emitted via onChange, so we can
   // distinguish external SQL changes (agent/Notion/peer) from our own saves.
@@ -1311,6 +1342,8 @@ export function VisualEditor({
         user,
         onImageComment: onComment,
         onJoinTitle,
+        resolveNotionPageLink,
+        onOpenNotionPageLink,
       }),
     [
       documentId,
@@ -1321,6 +1354,8 @@ export function VisualEditor({
       user?.color,
       onComment,
       onJoinTitle,
+      resolveNotionPageLink,
+      onOpenNotionPageLink,
     ],
   );
 
@@ -1332,7 +1367,7 @@ export function VisualEditor({
     // prop AND the Y.Doc, firing an initial (non-remote) update that could
     // autosave a stale value over newer SQL. Only seed `content` when there is
     // no ydoc (tests / non-collaborative embedders).
-    content: ydoc ? undefined : parseNfmForEditor(content),
+    content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
         class: "notion-editor",
@@ -1446,8 +1481,7 @@ export function VisualEditor({
       if (transaction && isChangeOrigin(transaction)) return;
       lastTypedAtRef.current = Date.now();
       try {
-        const md = (editor.storage as any).markdown.getMarkdown();
-        const normalized = serializeEditorToNfm(md);
+        const normalized = docToNfm(editor.getJSON() as any);
         // Don't save empty content when Collaboration hasn't seeded yet —
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
@@ -1477,9 +1511,7 @@ export function VisualEditor({
     // brand-new doc at once don't both seed and duplicate the content.
     if (!isLeadClient) return;
     const fragment = ydoc.getXmlFragment("default");
-    const currentMd = serializeEditorToNfm(
-      (editor.storage as any).markdown.getMarkdown(),
-    );
+    const currentMd = docToNfm(editor.getJSON() as any);
     if (
       shouldSeedCollaborativeContent({
         content,
@@ -1488,7 +1520,7 @@ export function VisualEditor({
       })
     ) {
       isSettingContent.current = true;
-      editor.commands.setContent(parseNfmForEditor(content));
+      editor.commands.setContent(nfmToDoc(content));
       isSettingContent.current = false;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
     }
@@ -1518,11 +1550,9 @@ export function VisualEditor({
 
     const run = (deferred = false) => {
       if (cancelled || !editor || editor.isDestroyed) return;
-      const nextEditorContent = parseNfmForEditor(content);
-      const currentMd = serializeEditorToNfm(
-        (editor.storage as any).markdown.getMarkdown(),
-      );
-      const normalizedNext = serializeEditorToNfm(nextEditorContent);
+      const nextEditorContent = nfmToDoc(content);
+      const currentMd = docToNfm(editor.getJSON() as any);
+      const normalizedNext = canonicalizeNfm(content);
 
       // Already in sync, or our own echo: advance the applied watermark so a
       // later write is correctly recognized as newer, then stop. (After a peer's

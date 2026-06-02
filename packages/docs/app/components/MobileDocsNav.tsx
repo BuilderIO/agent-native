@@ -89,7 +89,7 @@ export default function MobileDocsNav() {
                     return (
                       <li key={item.to}>
                         <Link
-                          prefetch="render"
+                          data-an-prefetch="render"
                           to={item.to}
                           className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
                           onClick={() => setOpen(false)}

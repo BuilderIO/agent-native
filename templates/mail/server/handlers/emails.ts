@@ -11,8 +11,11 @@ import {
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import {
+  decodeCommonHtmlEntities,
+  escapeHtml,
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
+  renderInlineMarkdown,
 } from "@shared/markdown.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
@@ -1853,39 +1856,10 @@ function buildRawEmail(opts: {
     .replace(/=+$/, "");
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function applyInlineMarkdown(text: string): string {
-  return text
-    .replace(
-      /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_match, alt, url) =>
-        `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;" />`,
-    )
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_match, label, url) =>
-        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
-    )
-    .replace(
-      /(?<!["(>])(https?:\/\/[^\s<]+)/g,
-      (url) =>
-        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
-    )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
 function markdownToHtml(markdown: string): string {
-  const normalized = normalizeMarkdownHardBreaks(markdown).trim();
+  const normalized = decodeCommonHtmlEntities(
+    normalizeMarkdownHardBreaks(markdown),
+  ).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
@@ -1899,7 +1873,7 @@ function markdownToHtml(markdown: string): string {
       const heading = block.match(/^(#{1,3})\s+(.+)$/);
       if (heading) {
         const level = heading[1].length;
-        return `<h${level}>${applyInlineMarkdown(escapeHtml(heading[2]))}</h${level}>`;
+        return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
       }
 
       if (/^(\-|\*|\+)\s+/m.test(block)) {
@@ -1908,7 +1882,7 @@ function markdownToHtml(markdown: string): string {
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
-          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
           .join("");
         return `<ul>${items}</ul>`;
       }
@@ -1919,12 +1893,12 @@ function markdownToHtml(markdown: string): string {
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => line.replace(/^\d+\.\s+/, ""))
-          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
           .join("");
         return `<ol>${items}</ol>`;
       }
 
-      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+      return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -1932,7 +1906,7 @@ function markdownToHtml(markdown: string): string {
 }
 
 function markdownToPlainText(markdown: string): string {
-  return normalizeMarkdownHardBreaks(markdown)
+  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")

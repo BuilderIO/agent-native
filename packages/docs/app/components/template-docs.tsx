@@ -28,7 +28,7 @@ export function TemplateDocsLink({
 }) {
   return (
     <Link
-      prefetch="render"
+      data-an-prefetch="render"
       to={getTemplateDocsPath(template)}
       onClick={() =>
         trackEvent("click view docs", {

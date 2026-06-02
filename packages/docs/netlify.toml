@@ -14,20 +14,8 @@
   AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
   VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 
-# SSR pages: keep browsers fresh, let the CDN serve stale while revalidating.
-[[headers]]
-  for = "/*"
-  [headers.values]
-    Cache-Control = "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600"
-
-# Static assets: immutable long cache
-[[headers]]
-  for = "/assets/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-# Agent-native API routes: no caching
-[[headers]]
-  for = "/_agent-native/*"
-  [headers.values]
-    Cache-Control = "no-cache, no-store"
+# Cache headers intentionally live in @agent-native/core instead of this
+# Netlify config. The framework emits SSR HTML/.data SWR headers from the
+# shared server handler and immutable hashed asset headers during build, so
+# docs and templates do not need provider-specific [[headers]] blocks to stay
+# fast or protect private client-side routes.

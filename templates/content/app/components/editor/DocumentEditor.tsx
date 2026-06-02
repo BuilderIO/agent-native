@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -11,7 +12,11 @@ import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { EmojiPicker } from "./EmojiPicker";
-import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
+import {
+  useDocument,
+  useDocuments,
+  useUpdateDocument,
+} from "@/hooks/use-documents";
 import { useDocumentSyncStatus } from "@/hooks/use-notion";
 import {
   useCollaborativeDoc,
@@ -33,6 +38,7 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconLock } from "@tabler/icons-react";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import type { NotionPageLink } from "./VisualEditor";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -131,6 +137,8 @@ interface DocumentEditorBodyProps {
 function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { data: documents = [] } = useDocuments();
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const canEdit = document.canEdit ?? true;
@@ -160,6 +168,28 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
+  const notionPageLinks = useMemo<NotionPageLink[]>(
+    () =>
+      documents.flatMap((doc) =>
+        doc.notionPageId
+          ? [
+              {
+                notionPageId: doc.notionPageId,
+                documentId: doc.id,
+                title: doc.title || "Untitled",
+                icon: doc.icon,
+              },
+            ]
+          : [],
+      ),
+    [documents],
+  );
+  const handleOpenNotionPageLink = useCallback(
+    (linkedDocumentId: string) => {
+      navigate(`/page/${linkedDocumentId}`, { flushSync: true });
+    },
+    [navigate],
+  );
 
   // An external write is authoritative (agent edit, Notion pull, or a peer's
   // edit mirrored to SQL) when the server `updatedAt` is newer than the last
@@ -624,6 +654,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
               editable={canEdit}
               onComment={canEdit ? handleComment : undefined}
               onJoinTitle={joinFirstBodyBlockToTitle}
+              notionPageLinks={notionPageLinks}
+              onOpenNotionPageLink={handleOpenNotionPageLink}
             />
           </div>
         </div>

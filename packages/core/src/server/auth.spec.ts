@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+const LOGIN_HTML_CACHE_CONTROL =
+  "private, no-store, max-age=0, must-revalidate";
 
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -436,8 +436,14 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
+      expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
+        "no-store",
+      );
+      expect(
+        (result as Response).headers.get("Netlify-CDN-Cache-Control"),
+      ).toBe("no-store");
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -521,7 +527,7 @@ describe("server/auth", () => {
       expect(adminResult).toBeInstanceOf(Response);
       expect((adminResult as Response).status).toBe(200);
       expect((adminResult as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
 
       const adminDataResult = await guard(
@@ -572,7 +578,7 @@ describe("server/auth", () => {
       expect(privateResult).toBeInstanceOf(Response);
       expect((privateResult as Response).status).toBe(200);
       expect((privateResult as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
     });
 
@@ -765,6 +771,29 @@ describe("server/auth", () => {
       }
     });
 
+    it("lets the MCP protocol endpoint bypass auth with or without trailing slash", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of ["/_agent-native/mcp", "/_agent-native/mcp/"]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      const managementResult = await guard(
+        createMockEvent({ path: "/_agent-native/mcp/status" }),
+      );
+      expect(managementResult).not.toBeUndefined();
+    });
+
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -834,7 +863,7 @@ describe("server/auth", () => {
       }
     });
 
-    it("serves cacheable first-party branded auth when the default guard handles a built-in host", async () => {
+    it("serves uncached first-party branded auth when the default guard handles a built-in host", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -871,7 +900,7 @@ describe("server/auth", () => {
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        LOGIN_HTML_CACHE_CONTROL,
       );
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",

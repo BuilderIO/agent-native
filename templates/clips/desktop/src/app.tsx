@@ -2002,8 +2002,8 @@ export function App() {
     });
   }
 
-  async function startRecording() {
-    if (recorder) return;
+  async function startRecording(options?: { ignoreActiveRecorder?: boolean }) {
+    if (recorder && !options?.ignoreActiveRecorder) return;
     setRecError(null);
     setLocalRecordingNotice(null);
     console.log("[clips-popover] startRecording clicked", {
@@ -2326,6 +2326,30 @@ export function App() {
         }
       }),
     );
+    track(
+      listen("clips:recorder-restart", async () => {
+        try {
+          await recorder.cancel();
+        } finally {
+          if (!cancelled) {
+            (
+              window as unknown as { clipsForceAlive?: boolean }
+            ).clipsForceAlive = false;
+            bubbleStreamTransferredToRecorder.current = false;
+            bubbleStreamRef.current = null;
+            recordingFlowGateRef.current = false;
+            setRecorder(null);
+            setRecordingFlowActive(false);
+            invoke("set_recording_state", { active: false }).catch(() => {});
+            // Starting a new browser capture must come from a fresh click in
+            // this webview. The toolbar click arrives here through async Tauri
+            // IPC, so reopen the popover and let the next Start click provide
+            // the required user activation.
+            invoke("show_popover").catch(() => {});
+          }
+        }
+      }),
+    );
     return () => {
       cancelled = true;
       unlisteners.forEach((u) => {
@@ -2516,7 +2540,12 @@ export function App() {
         onOpenPermission={openMacosPrivacySettings}
       />
 
-      <button className="primary start" onClick={startRecording}>
+      <button
+        className="primary start"
+        onClick={() => {
+          void startRecording();
+        }}
+      >
         {localRecordingMode === "off"
           ? "Start recording"
           : "Start local recording"}

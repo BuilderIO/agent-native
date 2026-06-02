@@ -5,6 +5,8 @@ description: >-
   user gives feedback, shares preferences, corrects a mistake, or when you
   discover something worth remembering for future conversations.
 user-invocable: false
+metadata:
+  internal: true
 ---
 
 # Capture Learnings
