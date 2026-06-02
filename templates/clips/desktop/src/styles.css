@@ -3865,6 +3865,106 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(255, 255, 255, 0.5);
 }
 
+/* Whisper model status row in Settings */
+
+.whisper-status {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+.whisper-status-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.whisper-status-ready {
+  color: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-status-ready {
+    color: #4ade80;
+  }
+}
+
+.whisper-status-disabled,
+.whisper-status-missing {
+  color: #b45309;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-status-disabled,
+  .whisper-status-missing {
+    color: #fbbf24;
+  }
+}
+
+.whisper-status-path {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--fg-subtle);
+  word-break: break-all;
+}
+
+.whisper-status-downloading {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.whisper-progress-bar {
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.whisper-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #16a34a;
+  transition: width 300ms ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-progress-fill {
+    background: #4ade80;
+  }
+}
+
+.whisper-progress-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-download-btn {
+  flex-shrink: 0;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 8px;
+  transition: background 120ms;
+}
+
+.whisper-download-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* ---- */
+
 .pill-error {
   margin: 0 10px 6px;
   padding: 6px 10px;

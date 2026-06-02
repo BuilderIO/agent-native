@@ -37,7 +37,9 @@ import { FeedbackButton } from "./components/FeedbackButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
 import { useFeatureConfig, type LocalRecordingMode } from "./shared/config";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
+  IconCircleCheck,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
@@ -3950,6 +3952,18 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
+  const whisperModelEnabled =
+    featureConfig?.whisperModelEnabled !== false;
+  type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
+  interface WhisperModelStatus {
+    state: WhisperModelState;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  }
+  const [whisperStatus, setWhisperStatus] =
+    useState<WhisperModelStatus | null>(null);
+
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -3976,6 +3990,20 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
+  }
+
+  function triggerWhisperDownload() {
+    invoke("whisper_model_download").catch(() => {});
+  }
+
+  function setWhisperModelEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, whisperModelEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+    if (enabled) triggerWhisperDownload();
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -4107,6 +4135,29 @@ function Setup({
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Load model status on mount and keep it current via events.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      invoke<WhisperModelStatus>("whisper_model_status")
+        .then((s) => { if (!cancelled) setWhisperStatus(s); })
+        .catch(() => {});
+    };
+    refresh();
+    const unlistens: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => { if (cancelled) { try { u(); } catch { /* ignore */ } return; } unlistens.push(u); }).catch(() => {});
+    };
+    track(listen("whisper:model-progress", () => refresh()));
+    track(listen("whisper:model-ready", () => refresh()));
+    track(listen("whisper:model-error", () => refresh()));
+    track(listen("whisper:model-enabled-changed", () => refresh()));
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => { try { u(); } catch { /* ignore */ } });
+    };
   }, []);
 
   useEffect(() => {
@@ -4507,6 +4558,25 @@ function Setup({
           <div className="setup-section">
             <div className="setup-toggle-row">
               <SettingLabel
+                label="Whisper model"
+                hint="Local AI model for offline meeting transcription. Captures both your mic and other speakers — no API key required."
+              />
+              <Switch
+                on={whisperModelEnabled}
+                onChange={setWhisperModelEnabled}
+                label="Enable Whisper model"
+              />
+            </div>
+            <WhisperModelStatusRow
+              status={whisperStatus}
+              enabled={whisperModelEnabled}
+              onDownload={triggerWhisperDownload}
+            />
+          </div>
+
+          <div className="setup-section">
+            <div className="setup-toggle-row">
+              <SettingLabel
                 label="Meeting widget"
                 hint="Show the on-screen meeting widget near calendar start times, even when macOS notifications are hidden."
               />
@@ -4814,6 +4884,77 @@ function SettingLabel({
         <TooltipContent>{hint}</TooltipContent>
       </Tooltip>
     </label>
+  );
+}
+
+function WhisperModelStatusRow({
+  status,
+  enabled,
+  onDownload,
+}: {
+  status: {
+    state: string;
+    path: string;
+    downloadedMb: number;
+    totalMb: number;
+  } | null;
+  enabled: boolean;
+  onDownload: () => void;
+}) {
+  if (!enabled) {
+    return (
+      <div className="whisper-status whisper-status-disabled">
+        <IconAlertTriangle size={13} className="whisper-status-icon" />
+        <span>
+          Without the Whisper model, only your microphone is transcribed —
+          other speakers are not captured.
+        </span>
+      </div>
+    );
+  }
+  if (!status) return null;
+
+  if (status.state === "ready") {
+    return (
+      <div className="whisper-status whisper-status-ready">
+        <IconCircleCheck size={13} className="whisper-status-icon" />
+        <span>
+          Ready · {status.totalMb} MB
+          <span className="whisper-status-path">{status.path}</span>
+        </span>
+      </div>
+    );
+  }
+
+  if (status.state === "downloading") {
+    const pct = status.totalMb > 0
+      ? Math.round((status.downloadedMb / status.totalMb) * 100)
+      : 0;
+    return (
+      <div className="whisper-status whisper-status-downloading">
+        <span className="whisper-progress-label">
+          Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
+        </span>
+        <div className="whisper-progress-bar">
+          <div className="whisper-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  // "missing" state
+  return (
+    <div className="whisper-status whisper-status-missing">
+      <IconAlertTriangle size={13} className="whisper-status-icon" />
+      <span>Model not downloaded.</span>
+      <button
+        type="button"
+        className="whisper-download-btn"
+        onClick={onDownload}
+      >
+        Download now
+      </button>
+    </div>
   );
 }
 
