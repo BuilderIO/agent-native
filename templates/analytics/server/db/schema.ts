@@ -119,6 +119,8 @@ export const askSessions = table("ask_sessions", {
   // "searching" | "generating" | "done" | "error"
   status: text("status").notNull().default("searching"),
   createdAt: text("created_at").notNull().default(now()),
+  userEmail: text("user_email"),
+  updatedAt: text("updated_at"),
 });
 
 /**

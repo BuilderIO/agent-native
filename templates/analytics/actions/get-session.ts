@@ -22,6 +22,7 @@ export default defineAction({
       status: row.status,
       sources: JSON.parse(row.sourcesJson),
       createdAt: row.createdAt,
+      updatedAt: row.updatedAt ?? null,
     };
   },
 });

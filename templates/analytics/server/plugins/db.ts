@@ -202,6 +202,18 @@ export default runMigrations(
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`,
     },
+    {
+      version: 26,
+      sql: `ALTER TABLE ask_sessions ADD COLUMN user_email TEXT`,
+    },
+    {
+      version: 27,
+      sql: `ALTER TABLE ask_sessions ADD COLUMN updated_at TEXT`,
+    },
+    {
+      version: 28,
+      sql: `CREATE INDEX IF NOT EXISTS ask_sessions_user_idx ON ask_sessions (user_email, created_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

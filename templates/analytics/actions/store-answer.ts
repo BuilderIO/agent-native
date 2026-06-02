@@ -28,12 +28,14 @@ export default defineAction({
       .where(eq(schema.askSessions.id, sessionId));
     const existing = JSON.parse(rows[0]?.sourcesJson ?? "[]");
     const merged = [...existing, ...(additionalSources ?? [])];
+    const now = new Date().toISOString();
     await db
       .update(schema.askSessions)
       .set({
         answer,
         sourcesJson: JSON.stringify(merged),
         status: status ?? "done",
+        updatedAt: now,
       })
       .where(eq(schema.askSessions.id, sessionId));
     return { ok: true };

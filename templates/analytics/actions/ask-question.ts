@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -14,7 +15,6 @@ const SourceSchema = z.object({
 export type Source = z.infer<typeof SourceSchema>;
 
 function buildSearchQuery(question: string): string {
-  // Preserve snake_case model names like dim_contracts, fct_orders
   const modelNames: string[] = question.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [];
   if (modelNames.length > 0) {
     return modelNames.sort((a, b) => b.length - a.length)[0];
@@ -94,11 +94,14 @@ async function fetchDashboardCatalog(): Promise<Source[]> {
   try {
     const db = getDb();
     const queryPromise = db
-      .select({ id: schema.dashboards.id, title: schema.dashboards.title, kind: schema.dashboards.kind })
+      .select({
+        id: schema.dashboards.id,
+        title: schema.dashboards.title,
+        kind: schema.dashboards.kind,
+      })
       .from(schema.dashboards)
       .where(isNull(schema.dashboards.archivedAt));
 
-    // 3s timeout so a slow DB never blocks the whole action
     const rows = await Promise.race([
       queryPromise,
       new Promise<never>((_, reject) =>
@@ -135,10 +138,11 @@ export default defineAction({
   run: async ({ question, followUpSessionId }) => {
     const db = getDb();
     const id = crypto.randomUUID();
+    const userEmail = getRequestUserEmail() ?? null;
 
     await db
       .insert(schema.askSessions)
-      .values({ id, question, status: "searching" });
+      .values({ id, question, status: "searching", userEmail });
 
     const [ghSources, dashboardSources] = await Promise.all([
       searchGitHub(question, process.env.GITHUB_TOKEN),

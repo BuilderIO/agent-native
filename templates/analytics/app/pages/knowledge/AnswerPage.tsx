@@ -313,7 +313,23 @@ export default function AnswerPage({ id }: Props) {
               <h1 className="text-2xl font-semibold leading-snug">
                 {question}
               </h1>
-              {session?.id && <CopyRefId id={session.id} />}
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {session?.id && <CopyRefId id={session.id} />}
+                {session?.updatedAt && session.status === "done" && (
+                  <span className="text-[11px] text-muted-foreground/50">
+                    answered{" "}
+                    {new Date(session.updatedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year:
+                        new Date(session.updatedAt).getFullYear() !==
+                        new Date().getFullYear()
+                          ? "numeric"
+                          : undefined,
+                    })}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Answer */}
@@ -345,9 +361,9 @@ export default function AnswerPage({ id }: Props) {
               ) : null}
             </div>
 
-            {/* Use in chat bridge */}
+            {/* Use in chat bridge + re-ask */}
             {isDone && session?.status === "done" && session?.answer && (
-              <div className="pt-2">
+              <div className="pt-2 flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -357,6 +373,15 @@ export default function AnswerPage({ id }: Props) {
                   <IconMessageCircle className="h-3.5 w-3.5" />
                   Use in chat
                   <IconArrowLeft className="h-3 w-3 rotate-180" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-muted-foreground"
+                  onClick={retriggerAgent}
+                >
+                  <IconRefresh className="h-3.5 w-3.5" />
+                  Refresh answer
                 </Button>
               </div>
             )}
