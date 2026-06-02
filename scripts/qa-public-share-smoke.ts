@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-type AppName = "calls" | "clips" | "forms" | "slides";
+type AppName = "clips" | "forms" | "slides";
 
 interface RunningApp {
   app: AppName;
@@ -22,7 +22,6 @@ interface RunningApp {
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-public-share-qa-"));
 const ports: Record<AppName, number> = {
-  calls: 9311,
   clips: 9312,
   forms: 9313,
   slides: 9314,
@@ -171,152 +170,6 @@ async function withApp(
   } finally {
     await stopApp(running);
   }
-}
-
-async function smokeCalls({ baseUrl, dbPath }: RunningApp): Promise<void> {
-  const callBlob = Buffer.from("call-media-bytes").toString("base64");
-  sqlite(
-    dbPath,
-    `
-CREATE TABLE IF NOT EXISTS application_state (
-  session_id TEXT NOT NULL,
-  key TEXT NOT NULL,
-  value TEXT NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (session_id, key)
-);
-
-INSERT INTO workspaces (id, name, slug, owner_email, visibility)
-VALUES ('qa-workspace-calls', 'QA Workspace', 'qa-workspace-calls', 'qa+calls@example.test', 'private');
-
-INSERT INTO calls (
-  id, workspace_id, title, description, duration_ms, media_url, media_kind,
-  media_format, width, height, status, password, share_includes_summary,
-  share_includes_transcript, owner_email, visibility
-) VALUES (
-  'qa-call-public', 'qa-workspace-calls', 'QA Passworded Call',
-  'Public share call seeded by qa-public-share-smoke.', 61000,
-  '/api/call-media/qa-call-public', 'video', 'mp4', 1280, 720, 'ready',
-  'call-secret', 1, 1, 'qa+calls@example.test', 'public'
-);
-
-INSERT INTO call_summaries (
-  call_id, recap, key_points_json, next_steps_json, topics_json,
-  questions_json, action_items_json, sentiment, generated_at
-) VALUES (
-  'qa-call-public', 'Recap for a locally seeded public call.',
-  '["Budget confirmed"]', '["Send follow-up"]', '["Pricing"]', '[]', '[]',
-  'positive', datetime('now')
-);
-
-INSERT INTO call_transcripts (
-  call_id, owner_email, language, provider, segments_json, full_text, status
-) VALUES (
-  'qa-call-public', 'qa+calls@example.test', 'en', 'deepgram',
-  '[{"id":"seg-1","speaker":"Speaker 1","startMs":0,"endMs":2500,"text":"Hello from local QA."}]',
-  'Hello from local QA.', 'ready'
-);
-
-INSERT INTO call_participants (
-  id, call_id, speaker_label, display_name, email, color, talk_ms, talk_pct
-) VALUES (
-  'qa-call-participant', 'qa-call-public', 'Speaker 1', 'QA Speaker',
-  'qa+speaker@example.test', '#111111', 2500, 100
-);
-
-INSERT INTO snippets (
-  id, call_id, workspace_id, title, description, start_ms, end_ms, password,
-  owner_email, visibility
-) VALUES (
-  'qa-snippet-public', 'qa-call-public', 'qa-workspace-calls',
-  'QA Passworded Snippet', 'Public snippet seeded by qa-public-share-smoke.',
-  1000, 4000, 'snippet-secret', 'qa+calls@example.test', 'public'
-);
-
-INSERT INTO application_state (session_id, key, value, updated_at)
-VALUES (
-  'local',
-  'call-blob-qa-call-public',
-  '${JSON.stringify({ data: callBlob, mimeType: "video/mp4" }).replaceAll("'", "''")}',
-  strftime('%s','now') * 1000
-);
-`,
-  );
-
-  const lockedCall = await fetchJson(
-    `${baseUrl}/api/public-call?callId=qa-call-public`,
-  );
-  assert.equal(lockedCall.status, 401);
-  assert.equal((lockedCall.data as any).passwordRequired, true);
-
-  const call = await fetchJson(
-    `${baseUrl}/api/public-call?callId=qa-call-public&p=call-secret`,
-  );
-  assert.equal(call.status, 200);
-  assert.equal((call.data as any).call.title, "QA Passworded Call");
-  assert.equal((call.data as any).call.hasPassword, true);
-  assert.match((call.data as any).call.mediaUrl, /p=call-secret/);
-  assert.equal(
-    (call.data as any).summary.recap,
-    "Recap for a locally seeded public call.",
-  );
-  assert.equal((call.data as any).transcript.status, "ready");
-  assert.equal((call.data as any).participants.length, 1);
-  assert.equal("password" in (call.data as any).call, false);
-
-  const callPage = await fetchText(`${baseUrl}/share/qa-call-public`);
-  assert.equal(callPage.status, 200);
-
-  const lockedMedia = await fetchJson(
-    `${baseUrl}/api/call-media/qa-call-public`,
-  );
-  assert.equal(lockedMedia.status, 404);
-
-  const media = await fetchBytes(
-    `${baseUrl}/api/call-media/qa-call-public?p=call-secret`,
-    { headers: { Range: "bytes=0-3" } },
-  );
-  assert.equal(media.status, 206);
-  assert.equal(media.headers.get("content-type"), "video/mp4");
-  assert.equal(media.headers.get("content-range"), "bytes 0-3/16");
-  assert.equal(Buffer.from(media.bytes).toString("utf8"), "call");
-
-  const thumbnail = await fetchText(
-    `${baseUrl}/api/call-thumbnail/qa-call-public`,
-  );
-  assert.equal(thumbnail.status, 200);
-  assert.match(thumbnail.text, /<svg/);
-
-  const lockedSnippet = await fetchJson(
-    `${baseUrl}/api/public-snippet?snippetId=qa-snippet-public`,
-  );
-  assert.equal(lockedSnippet.status, 401);
-  assert.equal((lockedSnippet.data as any).passwordRequired, true);
-
-  const snippet = await fetchJson(
-    `${baseUrl}/api/public-snippet?snippetId=qa-snippet-public&p=snippet-secret`,
-  );
-  assert.equal(snippet.status, 200);
-  assert.equal((snippet.data as any).snippet.title, "QA Passworded Snippet");
-  assert.match((snippet.data as any).call.mediaUrl, /#t=1\.000,4\.000$/);
-
-  const snippetMedia = await fetch(
-    `${baseUrl}/api/snippet-media/qa-snippet-public?p=snippet-secret`,
-    {
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  assert.equal(snippetMedia.status, 302);
-  assert.match(
-    snippetMedia.headers.get("location") ?? "",
-    /\/api\/call-media\/qa-call-public\?p=call-secret#t=1\.000,4\.000$/,
-  );
-
-  const snippetPage = await fetchText(
-    `${baseUrl}/share-snippet/qa-snippet-public`,
-  );
-  assert.equal(snippetPage.status, 200);
 }
 
 async function smokeClips({ baseUrl, dbPath }: RunningApp): Promise<void> {
@@ -512,7 +365,6 @@ VALUES (
 }
 
 const checks: Array<[AppName, (running: RunningApp) => Promise<void>]> = [
-  ["calls", smokeCalls],
   ["clips", smokeClips],
   ["forms", smokeForms],
   ["slides", smokeSlides],

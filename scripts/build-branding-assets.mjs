@@ -88,7 +88,6 @@ const TEMPLATE_DIRS = [
   "packages/core/src/templates/default",
   "templates/analytics",
   "templates/calendar",
-  "templates/calls",
   "templates/clips",
   "templates/content",
   "templates/design",
@@ -122,14 +121,7 @@ for (const t of TEMPLATE_DIRS) {
   console.log(`✔ ${t}/public/{favicon,icon-180,icon-192,icon-512}.svg`);
 }
 
-// 2) Calls template historically uses logo.svg as its favicon — overwrite too
-const CALLS_LOGO = join(ROOT, "templates/calls/public/logo.svg");
-if (existsSync(CALLS_LOGO)) {
-  writeSizedSvg(CALLS_LOGO, 1024);
-  console.log("✔ templates/calls/public/logo.svg");
-}
-
-// 3) Docs site
+// 2) Docs site
 const DOCS_PUBLIC = join(ROOT, "packages/docs/public");
 if (existsSync(DOCS_PUBLIC)) {
   writeSizedSvg(join(DOCS_PUBLIC, "favicon.svg"), 1024);
@@ -156,7 +148,7 @@ if (existsSync(DOCS_PUBLIC)) {
   );
 }
 
-// 4) Electron desktop app icon — Liquid Glass on macOS Tahoe via .icon → Assets.car,
+// 3) Electron desktop app icon — Liquid Glass on macOS Tahoe via .icon → Assets.car,
 // plus a flat .icns fallback for older macOS. Do not export the fallback PNGs
 // through Icon Composer: it bakes a thick white rim/shadow into the .icns.
 const DESKTOP_BUILD = join(ROOT, "packages/desktop-app/build");

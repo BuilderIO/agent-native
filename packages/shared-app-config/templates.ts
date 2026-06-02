@@ -142,18 +142,6 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
-    name: "calls",
-    label: "Calls",
-    hint: "Agent-native Gong — record, transcribe, and analyze sales calls",
-    icon: "Phone",
-    color: "#111111",
-    colorRgb: "17 17 17",
-    devPort: 8095,
-    prodUrl: "https://calls.agent-native.com",
-    defaultMode: "prod",
-    hidden: true,
-  },
-  {
     name: "meeting-notes",
     label: "Meeting Notes",
     hint: "AI meeting notes — transcribe, enhance, and share meeting notes",
