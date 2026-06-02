@@ -812,7 +812,7 @@ function HomeGeneratePanel({
                   mediaType={mediaType}
                   onMediaTypeChange={handleMediaTypeChange}
                   selectValue={selectValue}
-                  selectedLibraryLabel={selectedLibrary?.title ?? "Generic"}
+                  selectedLibraryLabel={selectedLibrary?.title ?? "Standard"}
                   libraries={sortedLibraries}
                   onLibraryChange={handleLibraryChange}
                   aspectRatio={aspectRatio}
