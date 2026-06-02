@@ -34,13 +34,17 @@ function nativeSegmentsJson(fullText: string): string {
 // Real transcript segments supplied by a caller that already has accurate
 // timestamps (e.g. the desktop Whisper engine). When present these are stored
 // verbatim instead of synthesizing timings from the text.
-const segmentSchema = z.object({
-  startMs: z.number(),
-  endMs: z.number(),
-  text: z.string(),
-  // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
-  source: z.enum(["mic", "system"]).optional(),
-});
+const segmentSchema = z
+  .object({
+    startMs: z.number().nonnegative(),
+    endMs: z.number().nonnegative(),
+    text: z.string(),
+    // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
+    source: z.enum(["mic", "system"]).optional(),
+  })
+  .refine((s) => s.startMs <= s.endMs, {
+    message: "startMs must be <= endMs",
+  });
 
 export default defineAction({
   description:

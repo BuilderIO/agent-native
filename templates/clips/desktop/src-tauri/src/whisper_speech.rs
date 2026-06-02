@@ -328,6 +328,10 @@ mod macos {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] create_state failed: {e}", stream.source);
+                let _ = stream.app.emit(
+                    "pill:error",
+                    serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),
+                );
                 return;
             }
         };
@@ -481,21 +485,32 @@ mod macos {
             let _ = app.emit("pill:error", serde_json::json!({ "error": e }));
             e
         })?;
+        // Preflight: verify a WhisperState can be created before opening any
+        // captures. Fails fast with a visible error instead of a silent worker
+        // that exits immediately after launch.
+        ctx.create_state().map_err(|e| {
+            let msg = format!("whisper state init failed: {e}");
+            let _ = app.emit("pill:error", serde_json::json!({ "error": msg }));
+            msg
+        })?;
 
-        // Resolve the whisper language. A custom model (CLIPS_WHISPER_MODEL)
-        // may be multilingual, so if no locale was supplied we let whisper
-        // auto-detect (`None`); otherwise force the locale's primary subtag
-        // (e.g. "en-US" -> "en"). The bundled ggml-base.en is English-only and
-        // ignores this, but it keeps custom multilingual models honest.
-        let lang: Option<String> = match language.as_deref() {
-            Some(l) if !l.trim().is_empty() => Some(
-                l.split(['-', '_'])
-                    .next()
-                    .unwrap_or("en")
-                    .to_ascii_lowercase(),
-            ),
-            _ if custom_model_override() => None,
-            _ => Some("en".to_string()),
+        // Custom/multilingual models always get auto-detect regardless of the
+        // supplied locale — forcing "en" onto a multilingual model when the
+        // meeting is in another language produces poor transcripts. The bundled
+        // ggml-base.en ignores the language field entirely, so forcing "en" is
+        // only useful for it (and harmless for other en-only models).
+        let lang: Option<String> = if custom_model_override() {
+            None
+        } else {
+            match language.as_deref() {
+                Some(l) if !l.trim().is_empty() => Some(
+                    l.split(['-', '_'])
+                        .next()
+                        .unwrap_or("en")
+                        .to_ascii_lowercase(),
+                ),
+                _ => Some("en".to_string()),
+            }
         };
 
         // Mic stream + capture. The real hardware rate is read back from the
