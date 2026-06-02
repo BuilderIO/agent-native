@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
   listAppSecretsForScope,
@@ -93,6 +94,44 @@ function now() {
 
 function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
+}
+
+function workspaceBaseOrigins(): Set<string> {
+  const out = new Set<string>();
+  for (const value of [
+    process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
+    process.env.URL,
+    process.env.DEPLOY_URL,
+    process.env.BETTER_AUTH_URL,
+  ]) {
+    if (!value) continue;
+    try {
+      out.add(new URL(value).origin);
+    } catch {
+      // Ignore malformed deploy metadata.
+    }
+  }
+  return out;
+}
+
+export function isTrustedEnvVarSyncAgentUrl(agentUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(agentUrl);
+  } catch {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost")
+  ) {
+    return true;
+  }
+  return workspaceBaseOrigins().has(parsed.origin);
 }
 
 function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
@@ -759,25 +798,37 @@ export async function syncGrantsToApp(
   // still read process.env directly. Production/shared-DB apps intentionally
   // reject env writes; the encrypted app_secrets sync above is the canonical
   // path for request-scoped credentials.
-  try {
-    const res = await fetch(`${agent.url}/_agent-native/env-vars`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vars }),
-    });
-
-    if (res.ok) {
-      const result = await res.json();
-      envVarSync = { status: "synced", keys: result.saved || [] };
-    } else {
-      const err = await res.text().catch(() => "Unknown error");
-      envVarSync = { status: "skipped", reason: err };
-    }
-  } catch (err) {
+  if (!isTrustedEnvVarSyncAgentUrl(agent.url)) {
     envVarSync = {
-      status: "failed",
-      reason: err instanceof Error ? err.message : String(err),
+      status: "skipped",
+      reason: "env-var sync is limited to localhost or workspace-owned apps",
     };
+  } else {
+    try {
+      const res = await ssrfSafeFetch(
+        `${agent.url}/_agent-native/env-vars`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vars }),
+          signal: AbortSignal.timeout(10_000),
+        },
+        { maxRedirects: 3 },
+      );
+
+      if (res.ok) {
+        const result = await res.json();
+        envVarSync = { status: "synced", keys: result.saved || [] };
+      } else {
+        const err = await res.text().catch(() => "Unknown error");
+        envVarSync = { status: "skipped", reason: err };
+      }
+    } catch (err) {
+      envVarSync = {
+        status: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   const syncedKeys = credentialStoreSync.keys;
@@ -1041,9 +1092,13 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
 
   for (const agent of agents) {
     try {
-      const res = await fetch(`${agent.url}/_agent-native/env-status`, {
-        signal: AbortSignal.timeout(3000),
-      });
+      const res = await ssrfSafeFetch(
+        `${agent.url}/_agent-native/env-status`,
+        {
+          signal: AbortSignal.timeout(3000),
+        },
+        { maxRedirects: 3 },
+      );
       if (!res.ok) {
         results.push({
           appId: agent.id,

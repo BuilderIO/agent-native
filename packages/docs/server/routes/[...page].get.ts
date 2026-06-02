@@ -1,6 +1,6 @@
 import {
   createH3SSRHandler,
-  DEFAULT_SSR_CACHE_CONTROL,
+  DEFAULT_SSR_CACHE_HEADERS,
 } from "@agent-native/core/server/ssr-handler";
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import fs from "fs";
@@ -25,7 +25,7 @@ export default async function docsPageHandler(event: H3Event) {
   const agentWebAsset = readAgentWebAssetForRequest(event);
   if (agentWebAsset) {
     setHeader(event, "content-type", agentWebAsset.contentType);
-    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+    setDefaultSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     return agentWebAsset.content;
   }
@@ -42,7 +42,10 @@ export default async function docsPageHandler(event: H3Event) {
     )) {
       setHeader(event, name, value);
     }
-    setHeader(event, "cache-control", DEFAULT_SSR_CACHE_CONTROL);
+    setDefaultSsrCacheHeaders(event);
+    // These page URLs can return either HTML or markdown based on Accept.
+    // Keep the variants isolated in browser/CDN caches.
+    setHeader(event, "vary", "Accept");
     return markdown.content;
   }
 
@@ -50,7 +53,44 @@ export default async function docsPageHandler(event: H3Event) {
     throw createError({ statusCode: 404, statusMessage: "Markdown not found" });
   }
 
-  return ssrHandler(event);
+  const response = await ssrHandler(event);
+  return responseWithVaryAccept(response);
+}
+
+function setDefaultSsrCacheHeaders(event: H3Event) {
+  // Keep docs-only public text/markdown assets on the same framework SSR cache
+  // policy as HTML and React Router .data. Do not move these back to
+  // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
+  // provider and template gets the same short-fresh/long-SWR behavior.
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    setHeader(event, name, value);
+  }
+}
+
+function responseWithVaryAccept(response: Response): Response {
+  const headers = new Headers(response.headers);
+  appendVary(headers, "Accept");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function appendVary(headers: Headers, value: string) {
+  const existing = headers.get("vary");
+  if (!existing) {
+    headers.set("vary", value);
+    return;
+  }
+
+  const lowerValue = value.toLowerCase();
+  const alreadyPresent = existing
+    .split(",")
+    .some((part) => part.trim().toLowerCase() === lowerValue);
+  if (!alreadyPresent) {
+    headers.set("vary", `${existing}, ${value}`);
+  }
 }
 
 function readAgentWebAssetForRequest(

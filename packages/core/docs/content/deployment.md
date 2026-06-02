@@ -11,7 +11,7 @@ Agent-native apps use [Nitro](https://nitro.build) under the hood, which means y
 
 Every deployed app needs a persistent SQL database. In local development, agent-native falls back to a SQLite file at `data/app.db`; that is convenient on your machine, but it is not durable in containers, previews, or serverless environments where the filesystem can be reset.
 
-Set `DATABASE_URL` in your deploy provider before promoting an app to production. Agent-native uses Drizzle for schema and queries, so the data layer is portable across Drizzle-compatible SQL backends. The built-in adapters auto-detect Postgres URLs, libSQL/Turso URLs, SQLite file URLs, and Cloudflare D1 bindings. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available. Turso is one option, not a requirement.
+Set `DATABASE_URL` in your deploy provider before promoting an app to production. Agent-native uses Drizzle for schema and queries, so the data layer is portable across Drizzle-compatible SQL backends and the framework auto-detects the dialect from the URL. See [Database](/docs/database#production) for the adapter list and dialect details.
 
 Use `DATABASE_AUTH_TOKEN` only when your database provider requires a separate token, such as Turso/libSQL. For workspaces, all apps inherit the root `DATABASE_URL` by default; set `<APP_NAME>_DATABASE_URL` when one app should use a different database.
 
@@ -208,13 +208,13 @@ export default defineConfig({
 
 ### Build / Runtime {#env-runtime}
 
-| Variable              | Description                                                                                                                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                | Server port (Node.js only)                                                                                                                                                                         |
-| `NITRO_PRESET`        | Override build preset at build time                                                                                                                                                                |
-| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone.                                                                               |
-| `DATABASE_URL`        | Persistent SQL connection string. Required in production; common options include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, and Builder.io-managed environments when available. |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                                                                                      |
+| Variable              | Description                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                | Server port (Node.js only)                                                                                                           |
+| `NITRO_PRESET`        | Override build preset at build time                                                                                                  |
+| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone.                 |
+| `DATABASE_URL`        | Persistent SQL connection string. Required in production. See [Database](/docs/database#production) for adapter and dialect details. |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL.                                                        |
 
 ### Required in Production {#env-required-prod}
 
@@ -252,9 +252,6 @@ Inbound webhook handlers refuse forged requests when their signing secret is mis
 | `WHATSAPP_APP_SECRET`           | WhatsApp Business integration is enabled.                                                                      |
 | `WHATSAPP_VERIFY_TOKEN`         | WhatsApp webhook verification handshake (set in your Meta app dashboard too).                                  |
 | `SLACK_SIGNING_SECRET`          | Slack integration is enabled. Verifies Slack request signatures.                                               |
-| `RECALL_WEBHOOK_SECRET`         | Calls / Recall.ai integration is enabled.                                                                      |
-| `DEEPGRAM_WEBHOOK_SECRET`       | Calls / Deepgram transcription webhook is enabled.                                                             |
-| `ZOOM_WEBHOOK_SECRET`           | Calls / Zoom integration is enabled.                                                                           |
 | `GOOGLE_DOCS_PUSH_AUDIENCE`     | Google Docs Pub/Sub push integration is enabled. Set to the public URL of your push endpoint.                  |
 | `GOOGLE_DOCS_PUSH_SIGNER_EMAIL` | Google Docs Pub/Sub push integration is enabled. Set to the Pub/Sub service account email.                     |
 | `GMAIL_WATCH_TOPIC`             | Gmail Pub/Sub push (mail template). Optional — disables push if unset and falls back to history-delta polling. |
@@ -267,14 +264,14 @@ For local development of any of these integrations, set `AGENT_NATIVE_ALLOW_UNVE
 
 Defaults are strict; these flags relax behavior. Don't set them unless you specifically want the relaxed path.
 
-| Variable                                 | Effect                                                                                                                                                                                                                                                                                                           |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_DEBUG_ERRORS`              | `=1` to include stack traces in 500 JSON responses. Useful on previews; do **not** set in real prod (was previously gated by `NODE_ENV !== "production"`, which leaked stacks on misconfigured deploys).                                                                                                         |
-| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` | `=1` to accept webhooks without their signing secret (local dev only). Defaults to fail-closed in production.                                                                                                                                                                                                    |
-| `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`   | `=1` to let `${keys.NAME}` resolution in tools/automations fall through user-scope → workspace-scope. Default off (user-scope only) — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' calls. Turn on only if your org genuinely shares workspace-wide keys. |
-| `AGENT_NATIVE_MCP_HUB_MULTI_ORG`         | `=1` to allow `AGENT_NATIVE_MCP_HUB_TOKEN` to serve multiple orgs from a single hub deployment. Default refuses to serve when more than one org exists in a hub deploy. Only relevant if you operate the workspace MCP hub.                                                                                      |
-| `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES`      | `=1` to let runtime code mutate `process.env` from the env-var write API. Off by default — required to be explicitly enabled outside dev SQLite.                                                                                                                                                                 |
-| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. Local dev/test skips by default; hosted deploys should use this only for QA — see Auth section above.                                                                                                                                                      |
+| Variable                                 | Effect                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_DEBUG_ERRORS`              | `=1` to include stack traces in 500 JSON responses. Useful on previews; do **not** set in real prod (was previously gated by `NODE_ENV !== "production"`, which leaked stacks on misconfigured deploys).                                                                                                            |
+| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` | `=1` to accept webhooks without their signing secret (local dev only). Defaults to fail-closed in production.                                                                                                                                                                                                       |
+| `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`   | `=1` to let `${keys.NAME}` resolution in tools/automations fall through user-scope → workspace-scope. Default off (user-scope only) — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' requests. Turn on only if your org genuinely shares workspace-wide keys. |
+| `AGENT_NATIVE_MCP_HUB_MULTI_ORG`         | `=1` to allow `AGENT_NATIVE_MCP_HUB_TOKEN` to serve multiple orgs from a single hub deployment. Default refuses to serve when more than one org exists in a hub deploy. Only relevant if you operate the workspace MCP hub.                                                                                         |
+| `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES`      | `=1` to let runtime code mutate `process.env` from the env-var write API. Off by default — required to be explicitly enabled outside dev SQLite.                                                                                                                                                                    |
+| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. Local dev/test skips by default; hosted deploys should use this only for QA — see Auth section above.                                                                                                                                                         |
 
 ### Workspace .env Inheritance {#env-inheritance}
 

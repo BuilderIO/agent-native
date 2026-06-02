@@ -39,6 +39,8 @@ export interface McpAppModelContextUpdate {
 export interface McpAppHostChatMessage {
   message: string;
   context?: string;
+  content?: McpAppModelContextContentPart[];
+  structuredContent?: unknown;
 }
 
 export interface McpAppHostCapabilities {
@@ -97,6 +99,11 @@ let snapshot: McpAppHostContextSnapshot = {
   capabilities: null,
   version: null,
 };
+const EMPTY_HOST_CONTEXT_SNAPSHOT: McpAppHostContextSnapshot = {
+  context: null,
+  capabilities: null,
+  version: null,
+};
 const listeners = new Set<() => void>();
 const pending = new Map<string, PendingRequest>();
 const jsonRpcPending = new Map<string, PendingJsonRpcRequest>();
@@ -134,6 +141,15 @@ function isMcpAppBridgeEnabled(): boolean {
   );
 }
 
+function isClaudeMcpContentHost(): boolean {
+  if (!isBrowserWindow()) return false;
+  try {
+    return /(^|\.)claudemcpcontent\.com$/i.test(window.location.hostname || "");
+  } catch {
+    return false;
+  }
+}
+
 function hasWrapperBridge(): boolean {
   if (!isBrowserWindow()) return false;
   const params = new URLSearchParams(window.location.search || "");
@@ -146,12 +162,22 @@ function hasWrapperBridge(): boolean {
   if (params.get("nested") === "1" || params.get("frame") === "iframe") {
     return true;
   }
+  if (isClaudeMcpContentHost()) return false;
   return Boolean(getFrameOrigin());
 }
 
 function isTrustedParentMessage(event: MessageEvent): boolean {
   if (!isInChildFrame()) return false;
-  return event.source === window.parent;
+  if (event.source !== window.parent) return false;
+  // Defense in depth: once the parent's real origin is known (captured from the
+  // browser-stamped event.origin during the frameOrigin handshake, so it can't
+  // be spoofed), also require inbound messages to come from that origin. When
+  // it isn't known yet (null) or is opaque ("null"), fall back to source-only.
+  const expectedOrigin = getFrameOrigin();
+  if (expectedOrigin && expectedOrigin !== "null") {
+    return event.origin === expectedOrigin;
+  }
+  return true;
 }
 
 function requestId(): string {
@@ -318,6 +344,41 @@ function postHostRequest(
   });
 }
 
+function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
+  ensureListener();
+  const id = requestId();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pending.delete(id);
+      resolve(false);
+    }, REQUEST_TIMEOUT_MS);
+    pending.set(id, { resolve, timeout });
+
+    try {
+      window.parent.postMessage(
+        {
+          type: "agentNative.submitChat",
+          data: {
+            requestId: id,
+            message: chat.message,
+            context: chat.context?.trim() || "",
+            submit: true,
+            ...(chat.content?.length ? { content: chat.content } : {}),
+            ...(chat.structuredContent !== undefined
+              ? { structuredContent: chat.structuredContent }
+              : {}),
+          },
+        },
+        "*",
+      );
+    } catch {
+      pending.delete(id);
+      clearTimeout(timeout);
+      resolve(false);
+    }
+  });
+}
+
 interface OpenAiAppBridge {
   widgetState?: unknown;
   displayMode?: unknown;
@@ -408,7 +469,14 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       updateSnapshotFromInitialize(result);
       postJsonRpcNotification("ui/notifications/initialized", {});
       return true;
-    })().catch(() => false);
+    })().catch(() => {
+      // Reset so the next call retries the handshake. Otherwise one timed-out
+      // ui/initialize (e.g. host briefly unresponsive) leaves a permanently
+      // resolved `Promise<false>` cached here, and every later bridge call
+      // fails until full page reload.
+      directMcpAppInit = null;
+      return false as boolean;
+    });
   }
 
   return directMcpAppInit;
@@ -480,18 +548,24 @@ async function postDirectHostRequest(
 export function sendMcpAppHostMessage(
   chat: McpAppHostChatMessage,
 ): Promise<boolean> | false {
-  if (
-    !chat.message.trim() ||
-    !isInChildFrame() ||
-    !isMcpAppBridgeEnabled() ||
-    hasWrapperBridge()
-  ) {
+  if (!chat.message.trim() || !isInChildFrame() || !isMcpAppBridgeEnabled()) {
     return false;
   }
+
+  if (hasWrapperBridge()) return postWrapperHostChat(chat);
 
   return (async () => {
     const openAiBridge = readOpenAiBridge();
     const context = chat.context?.trim() || null;
+    const content = chat.content?.length
+      ? chat.content
+      : [{ type: "text", text: chat.message }];
+    const contextContent = context
+      ? [
+          { type: "text", text: context },
+          ...content.filter((part) => part && part.type !== "text"),
+        ]
+      : content.filter((part) => part && part.type !== "text");
     if (
       openAiBridge &&
       typeof openAiBridge.sendFollowUpMessage === "function"
@@ -501,6 +575,12 @@ export function sendMcpAppHostMessage(
         openAiBridge.setWidgetState({
           ...objectValue(openAiBridge.widgetState),
           agentNativeChatContext: context,
+          agentNativeModelContext: {
+            content: contextContent,
+            ...(chat.structuredContent !== undefined
+              ? { structuredContent: chat.structuredContent }
+              : {}),
+          },
         });
       }
       await openAiBridge.sendFollowUpMessage({
@@ -513,7 +593,10 @@ export function sendMcpAppHostMessage(
     await waitForDirectMcpAppInitialized();
     try {
       await postJsonRpcRequest("ui/update-model-context", {
-        content: context ? [{ type: "text", text: context }] : [],
+        content: contextContent,
+        ...(chat.structuredContent !== undefined
+          ? { structuredContent: chat.structuredContent }
+          : {}),
       });
     } catch {
       // Best effort: a host without model-context support should still receive
@@ -521,7 +604,7 @@ export function sendMcpAppHostMessage(
     }
     await postJsonRpcRequest("ui/message", {
       role: "user",
-      content: { type: "text", text: chat.message },
+      content,
     });
     return true;
   })().catch(() => false);
@@ -544,7 +627,7 @@ export function useMcpAppHostContext(): McpAppHostContextSnapshot {
       };
     },
     () => snapshot,
-    () => ({ context: null, capabilities: null, version: null }),
+    () => EMPTY_HOST_CONTEXT_SNAPSHOT,
   );
 }
 

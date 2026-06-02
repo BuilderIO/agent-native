@@ -1,58 +1,47 @@
 # Documents — Agent Guide
 
-You are the AI assistant for this Notion-like document editor. You can create, read, update, search, and organize documents. All data lives in SQL (SQLite, Postgres, Turso, etc. via `DATABASE_URL`).
+Documents is an agent-native editor for docs, comments, media blocks, sharing,
+and Notion-connected content. The agent edits documents through actions and
+application state shared with the UI.
 
-This is an **agent-native** app built with `@agent-native/core`.
+Detailed document editing, Notion, storage, and UI rules live in
+`.agents/skills/`.
 
-**Core philosophy:** The agent and UI have full parity. Everything the user can see, the agent can see via `view-screen`. Everything the user can do, the agent can do via actions. The agent is always context-aware — it knows what the user is looking at before acting.
+## Core Rules
 
-**Context is automatic** — the current screen state (navigation, open document, document tree) is included with every message as a `<current-screen>` block. You don't need to call `view-screen` before every action. Use `view-screen` only when you need a refreshed snapshot mid-conversation. If `<current-screen>` already includes the open document and tree, do not call `get-document`, `list-documents`, or `view-screen` just to re-read the same context; answer or edit from the context you already have unless the user asks for a different document or explicitly needs a fresh read.
-
-## Resources
-
-Resources are SQL-backed persistent files for notes, learnings, and context.
-
-**At the start of a new thread, read these resources once if they are not already present in chat history (both personal and shared scopes):**
-
-1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences. Read both `--scope personal` and `--scope shared`.
-2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
-
-**Update the `LEARNINGS.md` resource when you learn something important.**
-
-In chat, use the `resources` tool (`action: list`, `read`, `write`, or `delete`) rather than repeatedly calling legacy `resource-*` names. Do not re-read `AGENTS.md` or `LEARNINGS.md` during continuation/retry turns if their contents are already in the conversation.
-
-| Action      | Args                                                               | Purpose                 |
-| ----------- | ------------------------------------------------------------------ | ----------------------- |
-| `resources` | `action=read path=<path> [scope=personal\|shared]`                 | Read a resource         |
-| `resources` | `action=write path=<path> content=<text> [scope=personal\|shared]` | Write/update a resource |
-| `resources` | `action=list [prefix=<path>] [scope=personal\|shared\|all]`        | List resources          |
-| `resources` | `action=delete path=<path> [scope=personal\|shared]`               | Delete a resource       |
-
-## Skills
-
-Read the skill files in `.agents/skills/` for detailed patterns:
-
-- **document-editing** — How to create, read, update, delete documents via scripts
-- **notion-integration** — How Notion sync works: linking, pulling, pushing
-- **storing-data** — Settings and config in SQL via settings API
-- **delegate-to-agent** — UI never calls LLMs directly
-- **actions** — Complex operations as `pnpm action <name>`
-- **real-time-sync** — Real-time UI sync via SSE (DB change events)
-- **frontend-design** — Build distinctive, production-grade UI
-
-For code editing and development guidance, read `DEVELOPING.md`.
+- Use actions for documents, blocks, comments, media, sharing, navigation, and
+  Notion integration. Do not mutate document rows directly unless a skill says to
+  and access checks are preserved.
+- Notion workspace access is per-user OAuth only. Never read `NOTION_API_KEY`
+  from `process.env`, never save a user-entered Notion token through
+  `/_agent-native/env-vars`, and require editor access for routes that pull or
+  push Notion content.
+- Preserve user-authored content. Prefer targeted edits over wholesale rewrites
+  unless requested.
+- For cross-app or Slack artifact requests, create/update the document artifact
+  through the app action path so it remains visible and shareable.
+- Use `view-screen` when the active document, selected block, comment, or Notion
+  context is unclear.
+- Use framework sharing actions for document visibility and grants.
+- Keep public/exported content server-renderable where relevant.
 
 ## Application State
 
-Ephemeral UI state is stored in the SQL `application_state` table. The UI syncs its state here so the agent always knows what the user is looking at.
+- `navigation` exposes document, selected block, comment, media, and Notion view
+  context.
+- `navigate` moves the UI to documents, comments, media, and settings surfaces.
+- Use actions for full document content and comment context.
 
-| State Key        | Purpose                             | Direction                  |
-| ---------------- | ----------------------------------- | -------------------------- |
-| `navigation`     | Current view and open document ID   | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot)         | Agent -> UI (auto-deleted) |
-| `refresh-signal` | Trigger UI to refetch document list | Agent -> UI                |
+## Skills
 
-### Navigation state (read what the user sees)
+Read the relevant skill before deeper work:
+
+- `document-editing` for structured document updates.
+- `notion-integration` for connected Notion workflows.
+- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
+  and `shadcn-ui` for framework work.
+
+## Navigation State
 
 ```json
 {
@@ -91,22 +80,35 @@ cd templates/content && pnpm action <name> [args]
 
 ### Document Operations
 
-| Action                         | Args                                                                                     | Purpose                                                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `list-documents`               | `[--format json]`                                                                        | List document metadata/tree; no full bodies                                                                 |
-| `search-documents`             | `--query <text> [--format json]`                                                         | Search by title/content and return snippets                                                                 |
-| `get-document`                 | `--id <id> [--format json]`                                                              | Get a single document with content                                                                          |
-| `pull-document`                | `--id <id> [--format markdown\|text]`                                                    | Collab-aware "ingest the final" read                                                                        |
-| `export-document`              | `--id <id> [--format pdf\|markdown\|html]`                                               | Export a page; PDF returns print-ready HTML for Save as PDF, Markdown/HTML return downloadable file content |
-| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                       | Create a new document                                                                                       |
-| `edit-document`                | `--id <id> --find <text> --replace <text>`                                               | Surgical text edit (preferred for modifications)                                                            |
-| `edit-document`                | `--id <id> --edits <json>`                                                               | Batch surgical text edits                                                                                   |
-| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                               | Full rewrite of document fields                                                                             |
-| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                 | Hide/show an org-accessible document in Organization/search while keeping link access                       |
-| `move-document`                | `--id <id> [--parentId] [--position]`                                                    | Move or reorder a document in the page tree                                                                 |
-| `delete-document`              | `--id <id>`                                                                              | Delete with recursive children                                                                              |
-| `set-image-alt-text`           | `--documentId <id> --imageUrl <url> --altText <text> [--imageOccurrence <n>]`            | Set generated or edited alt text for a specific image                                                       |
-| `transcribe-media`             | `--documentId <id> --mediaUrl <url> --mediaType audio\|video [--placeholderText <text>]` | Transcribe audio/video media into the Transcript toggle beneath the block                                   |
+| Action                         | Args                                                                                                                         | Purpose                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list-documents`               | `[--format json]`                                                                                                            | List document metadata/tree; no full bodies                                           |
+| `navigate`                     | `--path <path>` or `--documentId <id>` or `--databaseId <id>`                                                                | Open a route, document page, or database page in the UI                               |
+| `search-documents`             | `--query <text> [--format json]`                                                                                             | Search by title/content and return snippets                                           |
+| `get-document`                 | `--id <id> [--format json]`                                                                                                  | Get a single document with content                                                    |
+| `pull-document`                | `--id <id> [--format markdown\|text]`                                                                                        | Collab-aware "ingest the final" read                                                  |
+| `create-document`              | `--title <text> [--content] [--parentId] [--icon]`                                                                           | Create a new document                                                                 |
+| `edit-document`                | `--id <id> --find <text> --replace <text>`                                                                                   | Surgical text edit (preferred for modifications)                                      |
+| `edit-document`                | `--id <id> --edits <json>`                                                                                                   | Batch surgical text edits                                                             |
+| `update-document`              | `--id <id> [--title] [--content] [--icon]`                                                                                   | Full rewrite of document fields                                                       |
+| `create-content-database`      | `[--documentId <id>] [--parentId <id>] [--title <text>]`                                                                     | Create a database page or convert an existing page into a database                    |
+| `get-content-database`         | `--databaseId <id>` or `--documentId <id>`                                                                                   | Get a database table with property schema and item pages                              |
+| `add-database-item`            | `--databaseId <id> [--title <text>] [--propertyValues <json>]`                                                               | Add a page row to a database, optionally seeding property values                      |
+| `duplicate-database-item`      | `--itemId <id>` or `--documentId <id> [--title <text>]`                                                                      | Duplicate a database row page and its stored property values                          |
+| `move-database-item`           | `--itemId <id>` or `--documentId <id> --position <number>`                                                                   | Move a database row page to a new zero-based table position                           |
+| `update-content-database-view` | `--databaseId <id> --viewConfig <json>`                                                                                      | Persist database views, sorts, filters, hidden properties, and view settings          |
+| `list-document-properties`     | `--documentId <id> [--format json]`                                                                                          | List Notion-style property definitions and values for a document                      |
+| `configure-document-property`  | `--documentId <id> [--id <propertyId>] --name <name> --type <type> [--visibility always_show\|hide_when_empty\|always_hide]` | Create or update a property definition                                                |
+| `duplicate-document-property`  | `--documentId <id> --propertyId <propertyId>`                                                                                | Duplicate a property definition and its stored values                                 |
+| `delete-document-property`     | `--documentId <id> --propertyId <propertyId>`                                                                                | Delete a property definition and its stored values                                    |
+| `set-document-property`        | `--documentId <id> --propertyId <propertyId> --value <json>`                                                                 | Set a document property value                                                         |
+| `set-document-discoverability` | `--id <id> --hideFromSearch true\|false [--includeChildren true\|false]`                                                     | Hide/show an org-accessible document in Organization/search while keeping link access |
+| `move-document`                | `--id <id> [--parentId] [--position]`                                                                                        | Move or reorder a document in the page tree                                           |
+| `delete-document`              | `--id <id>`                                                                                                                  | Delete with recursive children                                                        |
+
+Database views follow Notion-style tab labels. When creating or duplicating
+views in `viewConfig`, use unique default names (`Table 2`, `SEO copy 2`, etc.)
+instead of appending several tabs with the same label.
 
 **`pull-document` is the collab-aware "ingest the final" read** — prefer it over
 `get-document` for external ingest (another app, an external coding agent over
@@ -125,25 +127,16 @@ returns `{ id, title, content, format, deepLink }`, and surfaces an
 "Open document" deep link for external agents. Use `--format text` for a
 plain-text strip of the markdown.
 
-**`export-document` is the page export action.** The UI exposes it from the
-page toolbar export menu. Use `--format pdf` when the user wants a PDF; the
-action returns a print-ready HTML document and the UI opens the print dialog so
-the user can choose Save as PDF. Use `--format markdown` for an exact `.md`
-export that includes the page title as the first H1, or `--format html` for a
-standalone readable HTML file. Word/Google Docs exports are not native in this
-template; use Markdown or HTML unless the user explicitly asks for a heavier
-conversion/integration workflow.
-
 ### Notion Integration
 
-| Action                  | Args                                    | Purpose                                                                                               |
-| ----------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `connect-notion-status` |                                         | Check Notion connection                                                                               |
-| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                                                                               |
-| `list-notion-links`     |                                         | List linked documents                                                                                 |
-| `pull-notion-page`      | `--documentId <id>`                     | Explicitly pull current Notion content into the local document, overwriting the local title/body/icon |
-| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                                                                                |
-| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional)                                                             |
+| Action                  | Args                                    | Purpose                                   |
+| ----------------------- | --------------------------------------- | ----------------------------------------- |
+| `connect-notion-status` |                                         | Check Notion connection                   |
+| `link-notion-page`      | `--documentId <id> --notionPageId <id>` | Link doc to Notion page                   |
+| `list-notion-links`     |                                         | List linked documents                     |
+| `pull-notion-page`      | `--documentId <id>`                     | Pull content from Notion                  |
+| `push-notion-page`      | `--documentId <id>`                     | Push content to Notion                    |
+| `sync-notion-comments`  | `--documentId <id>`                     | Sync comments with Notion (bidirectional) |
 
 ### Comments
 
@@ -152,7 +145,7 @@ conversion/integration workflow.
 | `list-comments` | `--documentId <id>`                                            | List all comment threads |
 | `add-comment`   | `--documentId <id> --content <text> [--threadId] [--parentId]` | Add a comment or reply   |
 
-### Media Blocks
+### Image Blocks
 
 Documents support image blocks as markdown images: `![alt text](https://...)`.
 The UI uploads local image files through the framework
@@ -160,64 +153,8 @@ The UI uploads local image files through the framework
 storage path. If image upload fails because storage is not configured, tell the
 user to connect Builder.io in Settings -> File uploads. Agents can add images
 that already have a hosted URL by using `edit-document` or `update-document` to
-insert markdown image syntax. Agents can update image alt text by editing the
-text inside the markdown brackets. Uploaded or dropped images should not infer
-alt text from the file name; leave alt text empty until the user writes it. The
-UI exposes hover controls for commenting on an image, editing alt text in place
-from the image's bottom-right ALT badge, generating alt text through the
-in-place sparkle button, copying or downloading the image, replacing it through
-the Upload/Assets/Link picker, resizing it with side handles, expanding it into
-a lightbox preview with 100%/150% zoom controls, and removing it. The Assets tab
-embeds the Assets app picker at `VITE_AGENT_NATIVE_ASSETS_PICKER_URL` when set,
-or `https://assets.agent-native.com/picker` by default, and applies the
-picker's `chooseImage` URL directly to the image block. The alt text generator
-delegates to the agent chat; generate concise, factual accessibility copy from
-the attached image, use the supplied markdown article excerpt around the image
-only for context, then call `set-image-alt-text` with the document id,
-image URL, final alt text, and `imageOccurrence` when supplied so the document
-is updated through the action surface even when the same URL appears more than
-once. After the action succeeds, confirm briefly without repeating the alt text
-unless the user explicitly asks to see it. Resized images
-serialize as HTML `<img>` tags with a `width` attribute so the size persists in
-markdown. The slash-command Image block may be empty (`![]()`) until the user
-chooses Upload or Link. Do not embed base64 image data in document content.
-
-Documents also support video blocks as HTML video tags:
-`<video src="https://..." controls></video>`. The UI uploads local video files
-through the same file-upload endpoint and slash-command Video blocks may be
-empty until the user chooses Upload or Link. Agents can add videos with hosted
-URLs by inserting HTML video syntax; do not embed base64 video data in document
-content. Video blocks expose the same core hover controls as images: comment,
-expand into a lightbox player, download, replace through the Upload/Link picker,
-copy the video URL, transcribe into a Transcript toggle beneath the block,
-resize with side handles, and delete. Resized videos serialize with a `width`
-attribute so the size persists in markdown. Videos do not use image alt text;
-add descriptive surrounding copy, captions, or transcript content when
-accessibility context is needed.
-
-Documents also support audio blocks as HTML audio tags:
-`<audio src="https://..." controls></audio>`. The UI uploads local audio files
-through the same file-upload endpoint and slash-command Audio blocks may be
-empty until the user chooses Upload or Link. Agents can add hosted audio by
-inserting HTML audio syntax; do not embed base64 audio data in document content.
-Audio blocks expose hover controls for comment, expand into a player, download,
-replace through the Upload/Link picker, copy the audio URL, transcribe into a
-Transcript toggle beneath the block, resize with side handles, and delete.
-Resized audio serializes with a `width` attribute so the size persists in
-markdown. Audio does not use image alt text; add descriptive surrounding copy,
-captions, or transcript content when accessibility context is needed.
-
-`transcribe-media` is the Content-local media transcription action. The UI's
-Transcribe menu item optimistically inserts an open Transcript toggle directly
-beneath the audio/video block, then delegates to the agent chat. The agent
-should call `transcribe-media` with the document id, media URL, media type, and
-the provided placeholder text so the action can replace only that placeholder.
-The action performs the narrow speech-to-text media pipeline (Builder.io
-transcription first, Groq fallback when configured) and extracts audio from
-video server-side with ffmpeg. Do not paste transcripts manually when this
-action can do the update, do not quote the transcript back into chat after the
-action succeeds, and do not skip it just because another transcript toggle
-already exists elsewhere in the document.
+insert markdown image syntax. Do not embed base64 image data in document
+content.
 
 ### Sharing
 
@@ -252,7 +189,7 @@ Public documents are reachable at `/p/<id>` once visibility is `public`. Anyone 
 | "Show me the document list"    | `list-documents`                                                               |
 | "Open document X"              | `navigate --documentId=<id>`                                                   |
 | "Go to the list view"          | `navigate --path=/`                                                            |
-| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...` (Notion wins)     |
+| "Pull from Notion"             | `view-screen` to get ID, `pull-notion-page --documentId ...`                   |
 | "Push to Notion"               | `view-screen` to get ID, `push-notion-page --documentId ...`                   |
 
 After any create, update, or delete operation, the scripts automatically trigger a UI refresh.
@@ -283,13 +220,162 @@ Documents form a tree via `parent_id`. Content is stored as markdown.
 
 Related tables (`document_versions`, `document_comments`, `document_sync_links`) also carry `owner_email` so a workspace can be upgraded cleanly from local mode to a real account without losing document history, comments, or Notion links.
 
+Databases are document-backed page-level objects. A normal document has no
+properties by default. A row in a database is also a document, linked through
+`content_database_items`; when that row document opens, it shows the database's
+properties. The database page itself renders as a table and owns the schema in
+`document_property_definitions.database_id`. Database row documents and their
+descendants stay contained by the database and are omitted from the ordinary
+sidebar page tree; users open them from the database view or an explicit link.
+When a row document is open, the editor shows a small parent-database breadcrumb
+above the title so the user can return to the containing database without
+relying on the sidebar. The `view-screen` document tree follows the same rule:
+database row pages are omitted from the ordinary tree and counted separately as
+contained database items. When a database row is open in the side preview,
+navigation state includes `databasePreviewDocumentId`, and `view-screen` returns
+that row as `databasePreview` with its content and properties. Database
+navigation state also includes the active view type, search query, sort count,
+the saved database view list, active sort/filter definitions, filter match
+mode, saved column calculations, table cell wrapping state, table row density,
+collapsed group IDs, calendar or timeline date property IDs/names, the visible
+date range for calendar/timeline views, empty-group visibility state, visible
+row count, and total row count so agents can tell whether the user is looking
+at the full database or a constrained slice. It also includes a capped
+`databaseVisibleItems` summary
+with row item IDs, document IDs, titles, positions, and visible property value
+summaries for the visible rows, so agents can refer to the same rows and cells
+the user can currently scan; for calendar and timeline views this summary is
+limited to rows in the current visible date window plus rows shown in the
+"No date" section. When footer calculations are active, navigation
+state also includes `databaseCalculationResults` with the visible result text
+for each calculated column. When table rows are selected, navigation state also
+includes `databaseSelectedItemCount` and `databaseSelectedItems`, and
+`view-screen.databaseCurrentView` mirrors that selected row summary.
+`view-screen` exposes the same slice as `databaseCurrentView` alongside the full
+database payload. Its row property summaries should mirror the active database
+view's property order, hidden-property list, and empty-property visibility
+rules. It also marks database page entries in
+`documentTree.items[].database`, matching the sidebar's database icon fallback
+so agents can distinguish database pages from ordinary pages.
+Database views render the row page's custom icon anywhere a row title appears,
+falling back to the default page icon when the row has no icon. The database
+side preview exposes the same icon picker affordance as a normal page, so users
+can set or remove a row page icon without leaving the database. The preview is
+an overlay-free, non-modal side peek so the database context stays visible while
+the row page is open. Background database interactions should not dismiss it;
+use the explicit close control to close the preview. Keep it narrow enough on
+desktop that the underlying database still reads as the active context. In table
+views, clicking a row title opens that side preview; inline title editing lives
+behind the hover pencil affordance.
+
+Document properties are SQL-backed, Notion-style structured metadata rather
+than YAML embedded in the markdown body. Database property definitions support
+`text`, `number`, `select`, `multi_select`, `status`, `date`, `person`,
+`place`, `files_media` (`Files & media`), `checkbox`, `url`, `email`,
+`phone`, plus computed `formula`, `id`, `created_time`, `created_by`, and
+`last_edited_time`, `last_edited_by`, plus property visibility (`always_show`,
+`hide_when_empty`, `always_hide`). The value table stores per-row-document JSON
+values. Formula properties store their expression in property options and support
+`{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
+Database views support multiple named table, list, gallery, board, calendar, and timeline views saved in
+`content_databases.view_config_json`. Each view has its own stacked sorts,
+type-aware filters with an all/any match mode, per-view hidden property IDs,
+column widths, and (for table, list, gallery, and board views) grouping property
+or (for calendar/timeline views) date property: text-like fields can use contains/exact/empty
+filters, numbers support comparisons, dates support before/after, and
+checkboxes support checked/unchecked. Users can reorder stacked sort and filter
+conditions from the database toolbar menus, and sort priority follows the same
+top-to-bottom order shown in the menu. New rows created from a filtered UI view
+inherit simple editable equality and checkbox filters as initial property
+values, resolving option labels back to stable option IDs for select, status,
+and multi-select filters, so a row created under "Status is Published" remains
+visible instead of immediately disappearing. Agents can mirror that behavior by passing
+`--propertyValues '{"propertyId":"value"}'` to `add-database-item`. Filter
+controls are type-aware: option properties choose from their configured options,
+option value editors can search existing options or create a new option from
+the typed query, and property settings can rename option labels or change option
+colors while preserving stable option IDs. Option-backed filter value pickers
+are searchable, can create a new option from the typed query, and can be
+cleared without removing the whole filter row. Date properties use date inputs,
+and number properties use numeric inputs.
+Column header menus can add or clear column sorts, add or replace
+type-aware quick filters (including checked/unchecked for checkbox fields),
+clear filters for that column, hide property
+columns in the current view without changing other views, and resize column
+widths. Column headers show compact sort/filter indicators when that column
+has active view constraints. Table rows can be selected with row checkboxes, and
+the table shows a compact selected-row bar with clear, duplicate, confirmed
+delete, and bulk property set actions for editable non-computed fields. Empty table cells stay visually blank while remaining clickable
+for editing, and checkbox table cells render as compact checkbox glyphs instead
+of "Checked"/"Unchecked" text; clicking a checkbox cell toggles it directly via
+`set-document-property`, matching Notion's quieter table surface. Table views
+can toggle wrapped cells and row density per view for longer text-heavy tables
+or more compact scanning. Table, list, and gallery views can group rows by
+status, select, multi-select, or checkbox properties; creating a page inside a
+group seeds the grouped property so the new page stays in that group. Grouped
+table, list, and gallery sections can be collapsed individually or all at once
+per view, and views can hide empty groups to reduce option-backed clutter. Active search, sort, and filter
+constraints show as removable chips below the toolbar with a clear-all control,
+and every database view shows a Notion-style page count footer that switches to
+"count of total" when search or filters reduce the result set. Table views can also save per-column footer
+calculations such as count values, count empty, percent empty, sum, average,
+count all rows, count unique values, percent filled, checkbox checked/unchecked
+summaries, percent checked/unchecked, min/max/median/range numbers, and
+earliest/latest/date-range dates in the active view config. Empty constrained views show a clear
+search/filter recovery action in the view body. The database Properties menu can
+search fields and show or hide all fields for the current view, and it includes
+a New property control for adding fields without returning to the table header.
+The New property picker supports searching property types by label or machine
+name. In unconstrained table views, row drag handles can reorder database item
+pages through `move-database-item`; clear search, sort, and filters before
+manual reordering. Creating a database row returns the created item IDs and
+opens the new row page in the side preview. Duplicating a database row returns
+the duplicate item IDs and opens the copied row in the side preview so users can
+continue editing the new page immediately, including from table, list, and
+gallery row action menus. Board, calendar, and timeline cards expose the same
+row action menu without showing table-only manual reorder actions. Deleting the
+currently previewed row from any row action menu or from the side preview header
+advances to the next row, falls back to the previous row, or closes the preview
+when no rows remain. List views render the same row pages as a compact page list
+with visible property metadata. Gallery views
+render row pages as cards with a preview area and visible property metadata.
+Calendar views render row pages on a month grid using a `date`, `created_time`,
+or `last_edited_time` property; when the selected date property is editable,
+creating a page from a day sets that page's date property to the day. Calendar
+and timeline views keep rows without the selected date value reachable in a
+compact "No date" section instead of treating them as missing search results.
+If a calendar or timeline view has not saved a date property yet, the UI and
+`view-screen` both use the same first available date-like property fallback.
+Timeline views render the same date-backed row pages in a horizontally
+scrollable six-week range, using a per-view start date property and optional
+end date property so cards can span multiple days.
+The active view menu can rename, duplicate, delete, or switch an existing
+view's layout between table, list, gallery, calendar, timeline, and board while
+preserving its sorts, filters, hidden properties, and layout-specific settings.
+Board views group
+pages by status, select, multi-select, or checkbox
+properties, and board columns can be collapsed per view using the same
+`collapsedGroupIds` state as grouped table/list/gallery sections, including
+collapse-all and expand-all group commands. Board views also honor the per-view
+empty-group visibility setting. Changing the group-by property clears stale
+collapsed group IDs for that view. Board card
+metadata follows the same active-view hidden-property and empty-property
+visibility rules as table/list/gallery metadata. Dragging a board card between
+columns updates that row page's grouping property through
+`set-document-property`. When a board is grouped by status, select, or
+multi-select, users can add a new board group from the board itself; this
+appends a new option to the grouped property definition.
+Use
+`create-content-database`, `get-content-database`,
+`add-database-item`, `duplicate-database-item`, `move-database-item`,
+`update-content-database-view`, `list-document-properties`,
+`configure-document-property`, `set-document-property`,
+`duplicate-document-property`, and `delete-document-property`; do not edit
+property rows or view config via raw SQL when an action can do it.
+
 ## UI Components
 
 **Always use shadcn/ui components** from `app/components/ui/` for all standard UI patterns (dialogs, popovers, dropdowns, tooltips, buttons, etc). Never build custom modals or dropdowns with absolute/fixed positioning — use the shadcn primitives instead.
-
-### Inline Tables
-
-Inline editor tables are intentionally Notion-like: newly inserted tables have no header row, every cell has the same visual treatment, and row/column controls live on edge/selection overlays rather than persistent plus/minus toolbars. The right-edge and bottom-edge handles append on click and resize row/column count on drag; the thin selected row/column markers open row and column menus.
 
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 

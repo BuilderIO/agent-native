@@ -17,7 +17,11 @@ async function ensureTable(): Promise<void> {
           PRIMARY KEY (platform, external_thread_id)
         )
       `);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }

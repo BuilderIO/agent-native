@@ -10,8 +10,10 @@ description: >
 ## Connection
 
 - **Base URL**: `https://api.hubapi.com`
-- **Auth**: `Authorization: Bearer $HUBSPOT_ACCESS_TOKEN`
-- **Env vars**: `HUBSPOT_ACCESS_TOKEN`
+- **Auth**: `Authorization: Bearer $HUBSPOT_PRIVATE_APP_TOKEN` or legacy
+  `HUBSPOT_ACCESS_TOKEN`
+- **Env vars**: `HUBSPOT_PRIVATE_APP_TOKEN` preferred,
+  `HUBSPOT_ACCESS_TOKEN` legacy
 - **Caching**: 10-minute in-memory cache, max 120 entries
 
 ## Server Lib
@@ -33,11 +35,11 @@ description: >
 ## Script Usage
 
 ```bash
-# List deals
-pnpm action hubspot-deals --fields=dealname,amount,stageLabel
+# Search deals for a named account/deal
+pnpm action hubspot-deals --query="Example Corp" --limit=10 --properties=dealname,amount,dealstage
 
-# Search for a specific customer
-pnpm action hubspot-deals --grep="Example Corp" --fields=dealname,amount,stageLabel
+# List deals
+pnpm action hubspot-deals --properties=dealname,amount,dealstage
 
 # Find custom fields before requesting them
 pnpm action hubspot-deal-properties --search=nbm
@@ -46,6 +48,7 @@ pnpm action hubspot-deal-properties --search=nbm
 ## Key Patterns & Gotchas
 
 - `getAllDeals` paginates using `limit=100` and HubSpot `after` token (up to 100 pages)
+- `hubspot-deals --query="Customer"` uses HubSpot search and should be the first path for named account/deal deep dives. Avoid pulling every deal first.
 - `hubspot-deals` returns normalized `stage_name`, `pipeline_name`, `owner_name`, `is_closed_won`, and `is_deal_closed` fields under `deal.properties`
 - For AE QBR or NBM deck work, HubSpot is the source of truth. Request `nbm_meeting_booked_date`, `nbm_meeting_complete_date`, and `hs_manual_forecast_category` through `hubspot-deals`; do not use warehouse SQL as the first path unless HubSpot is unavailable and the user approves the fallback
 - Optional deal properties are filtered against HubSpot property metadata before fetching, so deployments without a custom field do not fail the whole action

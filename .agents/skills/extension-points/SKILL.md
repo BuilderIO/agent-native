@@ -6,6 +6,8 @@ description: >-
   custom widget to an app surface (e.g. "add a sticky-note widget to my mail
   contact sidebar"), when wiring an ExtensionSlot in a template, or when
   marking an extension as installable into a slot.
+metadata:
+  internal: true
 ---
 
 # Extension Points

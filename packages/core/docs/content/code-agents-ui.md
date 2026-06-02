@@ -1,6 +1,6 @@
 ---
 title: "Agent-Native Code UI"
-description: "Build and customize Agent-Native Code surfaces with the shared UI package, Desktop host bridge, CLI run store, and hidden code template."
+description: "Build and customize Agent-Native Code surfaces with the shared UI package, Desktop host bridge, and CLI run store."
 ---
 
 # Agent-Native Code UI
@@ -68,26 +68,19 @@ Desktop uses the shared UI but keeps privileged capabilities in Electron:
 
 That separation matters. The UI can be reused by templates, but native process control should stay in Desktop or CLI.
 
-## Browser Template
+## Browser Host
 
-The hidden `code` template is a starting point for building your own Agent-Native Code UI:
+The old hidden `code` template has been removed. To build a browser-hosted Code surface, create a normal app and mount the shared UI package with a host implementation:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template code
+npx @agent-native/core@latest create my-code-ui --template starter
 cd my-code-ui
+pnpm add @agent-native/code-agents-ui
 pnpm install
 pnpm dev
 ```
 
-Inside the framework repo, run it directly with:
-
-```bash
-cd templates/code
-pnpm install
-pnpm dev
-```
-
-The template wraps the local run store through normal actions:
+Your host can wrap the local run store through normal actions:
 
 - `list-code-agent-runs`
 - `list-code-agent-packs`
@@ -140,7 +133,20 @@ agent-native code ui
 
 `resume` appends context and continues a run, `status` reports the latest run
 state, `stop` asks the active controller to halt work, and `ui` opens the local
-Code surface. These are run controls, not a separate implementation path.
+Code surface. These are run controls, not a separate implementation path. If a
+high-risk command pauses for approval, `approve --last` runs that one pending
+command and then points you back to resume the session.
+
+Run modes make editing policy explicit per session:
+
+| Mode          | CLI flag | Behavior                                                                                                 |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| **Plan mode** | `--plan` | Inspect, plan, and explain without writing files or running mutations.                                   |
+| **Auto mode** | `--auto` | Edit files, run checks, and pause only for genuinely destructive file, git, publish, or data operations. |
+
+Auto mode is the default for local Agent-Native Code sessions. Use Plan mode for
+assessment, architecture, review, or any task where you want a proposal before
+edits.
 
 For cross-surface lists, dashboards, or monitoring panes, prefer the shared
 background-run exports from `@agent-native/core/code-agents` over reading Code
@@ -271,10 +277,10 @@ commands and skills are discovered from `.agents/commands/*.md` and
 `.agents/skills/*/SKILL.md`; the UI should render those packs and insert prompts
 through the shared composer.
 
-## Background Agent Harness
+## Background Agent Run-Manager
 
-Background coding-agent work should reuse the same harness as the rest of
-Agent-Native:
+Background coding-agent work should reuse the same run-manager foundation as the
+rest of Agent-Native:
 
 - Use the Code run store/executor for local Code sessions.
 - Use the shared background-run adapter/foundation when a surface needs to list,
@@ -285,8 +291,8 @@ Agent-Native:
   background sub-agent from a normal app chat.
 
 Do not add a parallel background-agent runner just because a new surface needs a
-different layout. Build a host adapter or UI slot on top of the shared harness
-instead.
+different layout. Build a host adapter or UI slot on top of the shared
+run-manager foundation instead.
 
 Regression rule for new prompt or background surfaces: Code, Brain, and the
 standard sidebar must keep using `PromptComposer` through the shared composer

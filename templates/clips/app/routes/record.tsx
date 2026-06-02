@@ -487,22 +487,27 @@ function PreRecordPanelSkeleton() {
 
 function DesktopRecorderCallout() {
   return (
-    <aside className="w-full p-1">
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-foreground">
-          Get the desktop app
+    <aside className="w-full rounded-2xl border border-border bg-card p-4 shadow-lg">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <IconDeviceDesktop className="h-4 w-4" />
         </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Menu-bar launch and global shortcuts make repeat recordings smoother.
-        </p>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">
+            Better in the desktop app
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Menu-bar launch, global shortcuts, auto-updates, and smoother repeat
+            recordings.
+          </p>
+        </div>
       </div>
       <Button
         asChild
-        variant="outline"
         size="sm"
-        className="mt-3 w-full bg-background/70"
+        className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
       >
-        <Link to="/download">Download</Link>
+        <Link to="/download">Download desktop app</Link>
       </Button>
     </aside>
   );
@@ -846,6 +851,11 @@ export default function RecordRoute() {
             showRecordingErrorToast(err.message);
             setError(err.message);
             setUiState("error");
+          },
+          // Non-fatal device drops (camera unplugged, mic disconnected) — the
+          // recording keeps going; just let the user know what happened.
+          onWarning: (message) => {
+            toast.warning(message);
           },
           onState: (state) => {
             // Mirror the engine's compression pass into the UI so the
@@ -1813,7 +1823,7 @@ export default function RecordRoute() {
                 )}
               </div>
               {!isDesktopApp && (
-                <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+15rem)] xl:top-0 xl:mt-0 xl:w-72">
+                <div className="mx-auto mt-4 w-full max-w-lg xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                   <DesktopRecorderCallout />
                 </div>
               )}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   IconChevronRight,
+  IconDatabase,
   IconFileText,
   IconPlus,
   IconStar,
@@ -49,6 +50,28 @@ interface DocumentTreeItemProps {
   onCreateChild: (parentId: string) => void;
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
+}
+
+export function getDocumentSidebarIconKind(
+  document: Pick<DocumentTreeNode, "icon" | "database">,
+) {
+  if (document.icon?.trim()) return "custom";
+  if (document.database) return "database";
+  return "page";
+}
+
+export function DocumentSidebarIcon({
+  document,
+}: {
+  document: Pick<DocumentTreeNode, "icon" | "database">;
+}) {
+  const iconKind = getDocumentSidebarIconKind(document);
+
+  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "database") {
+    return <IconDatabase size={14} className="text-muted-foreground" />;
+  }
+  return <IconFileText size={14} className="text-muted-foreground" />;
 }
 
 export function DocumentTreeItem({
@@ -116,21 +139,30 @@ export function DocumentTreeItem({
           width: rowWidth === undefined ? undefined : `${rowWidth}px`,
         }}
         onClick={() => onSelect(node.id)}
+        aria-expanded={hasChildren ? expanded : undefined}
       >
         <span className="relative flex-shrink-0 w-5 h-5">
           <span
             className={cn(
               "absolute inset-0 flex items-center justify-center text-center",
               hasChildren && "group-hover:opacity-0",
+              hasChildren && (expanded || isActive) && "opacity-0",
             )}
           >
-            {node.icon || (
-              <IconFileText size={14} className="text-muted-foreground" />
-            )}
+            <DocumentSidebarIcon document={node} />
           </span>
           {hasChildren && (
             <button
-              className="absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+              type="button"
+              aria-label={
+                expanded
+                  ? `Collapse ${node.title || "Untitled"}`
+                  : `Expand ${node.title || "Untitled"}`
+              }
+              className={cn(
+                "absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
+                (expanded || isActive) && "opacity-100 pointer-events-auto",
+              )}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();

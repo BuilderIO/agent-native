@@ -25,7 +25,7 @@ main                         ← production
 
 **Naming conventions:**
 
-- **Single-app changes:** `feat/<app>-<description>` or `fix/<app>-<description>` — e.g. `feat/mail-thread-search`, `fix/recruiting-resume-parse`
+- **Single-app changes:** `feat/<app>-<description>` or `fix/<app>-<description>` — e.g. `feat/mail-thread-search`, `fix/calendar-recurrence-parse`
 - **Framework changes:** `feat/core-<description>` or `fix/core-<description>` — e.g. `feat/core-polling-v2`
 - **Dispatch changes:** `feat/dispatch-<description>` — e.g. `feat/dispatch-vault-policies`
 - **Cross-app changes:** if a framework change requires template updates, do both in one branch so they ship atomically
@@ -69,9 +69,9 @@ templates/mail/                    @your-org/mail-team
 templates/analytics/               @your-org/analytics-team
 templates/calendar/                @your-org/calendar-team
 templates/content/                 @your-org/content-team
-templates/recruiting/              @your-org/recruiting-team
+templates/design/                  @your-org/design-team
 templates/forms/                   @your-org/forms-team
-templates/issues/                  @your-org/issues-team
+templates/clips/                   @your-org/clips-team
 templates/slides/                  @your-org/slides-team
 templates/videos/                  @your-org/videos-team
 
@@ -119,9 +119,9 @@ app:calendar:
   - changed-files:
       - any-glob-to-any-file: templates/calendar/**
 
-app:recruiting:
+app:design:
   - changed-files:
-      - any-glob-to-any-file: templates/recruiting/**
+      - any-glob-to-any-file: templates/design/**
 
 dispatch:
   - changed-files:
@@ -260,7 +260,7 @@ For a new workspace, after running `agent-native create`:
 - [ ] Register reusable workspace connections for shared provider accounts, then
       grant apps such as Brain, Analytics, Mail, or Dispatch only when they need
       that account
-- [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page: `context/company.md`, `context/brand.md`, `context/messaging.md`, `instructions/guardrails.md`, and `skills/company-voice/SKILL.md`
+- [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page. See [Workspace](/docs/workspace#global-resources) for the full resource-model table and the recommended starter pack.
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications
 - [ ] Connect Slack or Telegram for workspace messaging

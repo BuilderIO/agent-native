@@ -5,6 +5,7 @@ const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
+const unsubscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
@@ -16,6 +17,7 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("../event-bus/index.js", () => ({
   subscribe: subscribeMock,
+  unsubscribe: unsubscribeMock,
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -76,6 +78,7 @@ Respond to the event.`,
     ]);
     resourcePutMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-1" });
+    subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
     runAgentLoopMock.mockResolvedValue(undefined);
   });
 

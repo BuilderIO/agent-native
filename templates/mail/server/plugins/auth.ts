@@ -50,5 +50,5 @@ export default createAuthPlugin({
   // GMAIL_PUSH_AUDIENCE is configured.
   // Cloud Scheduler POSTs to /api/gmail/watch/renew every 6h for watch
   // lifecycle; same OIDC-verification pattern.
-  publicPaths: ["/api/gmail/push", "/api/gmail/watch/renew"],
+  publicPaths: ["/api/gmail/push", "/api/gmail/watch/renew", "/api/tracking"],
 });

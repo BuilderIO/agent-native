@@ -1,5 +1,5 @@
 ---
-title: "Forms Template"
+title: "Forms"
 description: "Agent-native form builder — create, edit, publish, and route form submissions through natural language plus a visual editor."
 ---
 
@@ -28,7 +28,7 @@ When you open the app, you see your forms, the current editor, and a live previe
 - **Route submissions.** Send submission payloads to webhooks, Slack, Discord, or Google Sheets using the built-in integrations.
 - **Publish public forms.** Share a public form URL and show a thank-you message after submission.
 
-## Start Here
+## Getting started
 
 1. **Create a form from a prompt.** Ask for the form you want, including the
    audience and what should happen after submission.
@@ -39,7 +39,7 @@ When you open the app, you see your forms, the current editor, and a live previe
 4. **Connect destinations.** Route new submissions to Slack, Discord, Google
    Sheets, webhooks, or your own extension point.
 
-## Useful Prompts
+## Useful prompts
 
 - "Create a beta signup form with role, team size, and priority use case."
 - "Add a required NPS question and a free-text follow-up."
@@ -53,7 +53,7 @@ The useful part of an agent-native form builder is that setup and iteration happ
 
 See [What is agent-native?](/docs/what-is-agent-native) for the broader framework model.
 
-## For Developers
+## For developers
 
 ### Scaffolding
 
@@ -69,7 +69,7 @@ pnpm dlx @agent-native/core create my-platform
 
 Pick Forms and any other templates you want during the workspace setup.
 
-### Customize It
+### Customizing it
 
 Ask the agent for shipped behavior first:
 
@@ -81,7 +81,7 @@ Ask the agent for shipped behavior first:
 
 If you need new capabilities such as file uploads, signatures, or custom field widgets, treat them as template extensions: add the SQL shape, actions, UI editor controls, public renderer support, and agent instructions together. See [Creating Templates](/docs/creating-templates) for the current build pattern.
 
-## What's Next
+## What's next
 
 - [**Templates**](/docs/cloneable-saas) — the clone-and-own model
 - [**Actions**](/docs/actions) — the action system powering the builder

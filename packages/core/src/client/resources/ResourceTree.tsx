@@ -128,7 +128,7 @@ function McpStatusDot({ server }: { server: McpServer }) {
     return (
       <StatusDot
         className="rounded-full bg-green-500"
-        tooltip={`Connected — ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`}
+        tooltip={`Connected: ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`}
       />
     );
   }

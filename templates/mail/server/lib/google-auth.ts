@@ -14,16 +14,16 @@ import {
   peopleGetProfile,
 } from "./google-api.js";
 import {
-  getOAuthTokens,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
   listOAuthAccountsByOwner,
-  hasOAuthTokens,
+  setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { decodeCommonHtmlEntities } from "@shared/markdown.js";
+import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -406,7 +406,12 @@ export async function getConnectedAccounts(
 
 export interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    displayName?: string;
+    expiresAt?: string;
+    photoUrl?: string;
+  }>;
 }
 
 /**
@@ -424,6 +429,7 @@ export async function getAuthStatus(
 
   const accounts: Array<{
     email: string;
+    displayName?: string;
     expiresAt?: string;
     photoUrl?: string;
   }> = [];
@@ -432,13 +438,29 @@ export async function getAuthStatus(
     if (!tokens) continue;
     const email = account.accountId;
     let photoUrl: string | undefined;
+    const accountDisplayName = (account as { displayName?: string | null })
+      .displayName;
+    let displayName =
+      accountDisplayName ?? getAccountDisplayName(account.accountId);
     try {
       const accessToken = await getValidAccessToken(email, tokens);
+      const identity = await resolveGoogleSenderIdentity({
+        accessToken,
+        email,
+        cachedName: displayName,
+        onResolvedDisplayName: (name) => {
+          displayName = name;
+          setAccountDisplayName(email, name);
+          void setOAuthDisplayName("google", email, name).catch(() => {});
+        },
+      });
+      displayName = identity.displayName;
       const profile = await peopleGetProfile(accessToken, "photos");
       photoUrl = profile.photos?.[0]?.url ?? undefined;
     } catch {}
     accounts.push({
       email,
+      ...(displayName ? { displayName } : {}),
       expiresAt: tokens.expiry_date
         ? new Date(tokens.expiry_date).toISOString()
         : undefined,

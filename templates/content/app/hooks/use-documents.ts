@@ -5,7 +5,6 @@ import type {
   DocumentCreateRequest,
   DocumentUpdateRequest,
   DocumentMoveRequest,
-  DocumentListResponse,
   DocumentTreeNode,
 } from "@shared/api";
 
@@ -122,4 +121,41 @@ export function buildDocumentTree(
   sortChildren(roots);
 
   return roots;
+}
+
+export function filterDocumentTreeDocuments(
+  documents: Document[] | undefined | null,
+): Document[] {
+  if (!Array.isArray(documents)) return [];
+
+  const byId = new Map(documents.map((doc) => [doc.id, doc]));
+  const hiddenIds = new Set<string>();
+
+  function isDatabaseContainedDocument(doc: Document) {
+    if (doc.databaseMembership) {
+      hiddenIds.add(doc.id);
+      return true;
+    }
+    if (hiddenIds.has(doc.id)) return true;
+
+    const seen = new Set([doc.id]);
+    let parentId = doc.parentId;
+
+    while (parentId && byId.has(parentId)) {
+      if (seen.has(parentId)) return false;
+      seen.add(parentId);
+
+      const parent = byId.get(parentId)!;
+      if (parent.databaseMembership || hiddenIds.has(parent.id)) {
+        hiddenIds.add(doc.id);
+        return true;
+      }
+
+      parentId = parent.parentId;
+    }
+
+    return false;
+  }
+
+  return documents.filter((doc) => !isDatabaseContainedDocument(doc));
 }

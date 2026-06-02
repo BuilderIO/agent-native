@@ -44,6 +44,7 @@ const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
@@ -93,10 +94,11 @@ Options:
   -h, --help                Show this help message
 
 Examples:
+  pnpm dev
+  pnpm dev -- --apps dispatch,mail,calendar
   pnpm dev:lazy
-  pnpm dev:lazy -- --apps dispatch,mail,calendar
   pnpm dev:electron:lazy
-  pnpm dev:lazy:desktop`);
+  pnpm dev:desktop`);
 }
 
 if (hasFlag("--help") || hasFlag("-h")) {
@@ -232,6 +234,11 @@ const proxyResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
     DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
 );
+const proxyNonHtmlResponseTimeoutMs = Number(
+  process.env.WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS ??
+    process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
+    DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
+);
 let gatewayUrl = `http://${gatewayHost}:${requestedGatewayPort}`;
 const envDefaultApp = process.env.DEV_DEFAULT_APP;
 const defaultApp =
@@ -241,6 +248,7 @@ const defaultApp =
       ? "dispatch"
       : apps[0].id;
 const backgroundProcesses: ChildProcess[] = [];
+const proxySocketsWithErrorSink = new WeakSet<net.Socket>();
 let shuttingDown = false;
 let gatewayServer: http.Server | undefined;
 
@@ -362,7 +370,7 @@ function stripAnsi(value: string): string {
 }
 
 // Stable per-name prefix coloring so [tray]/[core]/[dispatch] are easy to scan
-// the same way concurrently colors prefixes in dev:all. Codes are SGR foreground
+// the same way concurrently colors prefixes in eager mode. Codes are SGR foreground
 // values; the palette skips black/white/red to avoid low contrast and "looks
 // like an error" false signals.
 const PREFIX_PALETTE = [33, 34, 35, 36, 32, 95, 94, 96, 92, 93];
@@ -918,6 +926,9 @@ function proxyHttp(
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
+    const responseTimeoutMs = wantsHtml(req)
+      ? proxyResponseTimeoutMs
+      : proxyNonHtmlResponseTimeoutMs;
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -935,9 +946,20 @@ function proxyHttp(
         clearTimeout(responseTimer);
         app.ready = true;
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+        proxyRes.once("error", () => {
+          if (!res.destroyed) res.destroy();
+        });
         proxyRes.pipe(res);
       },
     );
+    proxyReq.once("socket", (socket) => {
+      if (proxySocketsWithErrorSink.has(socket)) return;
+      proxySocketsWithErrorSink.add(socket);
+      socket.on("error", () => {});
+    });
+    res.once("error", () => {
+      proxyReq.destroy();
+    });
     responseTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -954,9 +976,9 @@ function proxyHttp(
       }
       res.writeHead(504, { "content-type": "text/plain" });
       res.end(
-        `Template "${app.id}" did not return response headers within ${formatProxyReadyTimeout(proxyResponseTimeoutMs)}.`,
+        `Template "${app.id}" did not return response headers within ${formatProxyReadyTimeout(responseTimeoutMs)}.`,
       );
-    }, proxyResponseTimeoutMs);
+    }, responseTimeoutMs);
     responseTimer.unref();
 
     proxyReq.on("error", (err) => {

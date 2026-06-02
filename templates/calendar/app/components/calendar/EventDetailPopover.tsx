@@ -143,7 +143,7 @@ function extractMeetingLink(event: CalendarEvent): {
     }
   }
 
-  // IconCheck hangoutLink
+  // Fall back to the legacy hangoutLink (Google Meet)
   if (event.hangoutLink) {
     return { url: event.hangoutLink, type: "meet" };
   }
@@ -384,25 +384,40 @@ export function EventDetailPopover({
   const locationRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
 
-  // Sync editing state when event changes
+  // Sync editing state when the event changes (incl. live agent/other-user
+  // edits picked up by polling). Skip the field the user is actively editing so
+  // an incoming update never yanks text out from under in-progress typing —
+  // that field re-adopts the authoritative value once the user finishes (which
+  // closes the inline editor and flips `editingField` away).
   useEffect(() => {
-    setEditDescription(event.description || "");
-    setEditLocation(event.location || "");
-    setEditDate(toDateInputValue(event.start));
-    setEditEndDate(
-      event.allDay
-        ? toAllDayEndDateInputValue(event.end)
-        : toDateInputValue(event.end),
-    );
-    setEditStartTime(toTimeInputValue(event.start));
-    setEditEndTime(toTimeInputValue(event.end));
-    setEditTimezone(event.startTimeZone || getLocalTimezone());
-    const reminderState = remindersToDraftState(event);
-    setEditReminderMode(reminderState.mode);
-    setEditReminders(reminderState.reminders);
-    setEditAttachments(attachmentsToDrafts(event.attachments));
-    setEditTimeScope("single");
+    if (editingField !== "description")
+      setEditDescription(event.description || "");
+    if (editingField !== "location") setEditLocation(event.location || "");
+    if (editingField !== "time") {
+      setEditDate(toDateInputValue(event.start));
+      setEditEndDate(
+        event.allDay
+          ? toAllDayEndDateInputValue(event.end)
+          : toDateInputValue(event.end),
+      );
+      setEditStartTime(toTimeInputValue(event.start));
+      setEditEndTime(toTimeInputValue(event.end));
+      setEditTimezone(event.startTimeZone || getLocalTimezone());
+      setEditTimeScope("single");
+    }
+    if (editingField !== "reminders") {
+      const reminderState = remindersToDraftState(event);
+      setEditReminderMode(reminderState.mode);
+      setEditReminders(reminderState.reminders);
+    }
+    if (editingField !== "attachments") {
+      setEditAttachments(attachmentsToDrafts(event.attachments));
+    }
     setFindTimeOpen(false);
+    // `editingField` is intentionally omitted: re-running this effect when the
+    // user merely opens an inline editor would re-seed the other fields and is
+    // unnecessary — we only want to resync when the underlying event changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     event.id,
     event.description,
@@ -462,11 +477,11 @@ export function EventDetailPopover({
   // Save a field update
   const saveField = useCallback(
     (updates: EventUpdatePatch) => {
-      if (!event.id) return;
+      if (!event.id) return false;
       if (isDraft) {
         const { scope: _scope, ...draftUpdates } = updates;
         onDraftUpdate?.(event.id, draftUpdates);
-        return;
+        return true;
       }
       void (async () => {
         const { scope: _scope, ...notificationUpdates } = updates;
@@ -483,6 +498,7 @@ export function EventDetailPopover({
           ...guestNotification,
         });
       })();
+      return true;
     },
     [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent],
   );
@@ -519,18 +535,22 @@ export function EventDetailPopover({
   );
 
   const handleSaveReminders = useCallback(() => {
-    saveField(buildReminderPayload(editReminderMode, editReminders));
+    const saved = saveField(
+      buildReminderPayload(editReminderMode, editReminders),
+    );
     setEditingField(null);
+    return saved;
   }, [editReminderMode, editReminders, saveField]);
 
   const handleSaveAttachments = useCallback(() => {
     const result = validateAttachmentDrafts(editAttachments);
     if (result.error) {
       toast.error(result.error);
-      return;
+      return false;
     }
-    saveField({ attachments: result.attachments });
+    const saved = saveField({ attachments: result.attachments });
     setEditingField(null);
+    return saved;
   }, [editAttachments, saveField]);
 
   const handleColorChange = useCallback(
@@ -661,10 +681,12 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();
+    let saved = false;
     if (trimmed !== (event.description || "").trim()) {
-      saveField({ description: trimmed });
+      saved = saveField({ description: trimmed });
     }
     setEditingField(null);
+    return saved;
   }, [editDescription, event.description, saveField]);
 
   const handleSaveLocation = useCallback(() => {
@@ -674,8 +696,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     if (locationContainsMeetingLink && !trimmed) {
       setEditLocation(event.location || "");
       setEditingField(null);
-      return;
+      return false;
     }
+    let saved = false;
     if (trimmed !== (event.location || "").trim()) {
       const updates: Partial<CalendarEvent> = { location: trimmed };
       if (
@@ -691,9 +714,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           ? `${event.description.trim()}\n\n${label}: ${meetingLink.url}`
           : `${label}: ${meetingLink.url}`;
       }
-      saveField(updates);
+      saved = saveField(updates);
     }
     setEditingField(null);
+    return saved;
   }, [editLocation, event.description, event.location, meetingLink, saveField]);
 
   const handleSaveTime = useCallback(() => {
@@ -715,10 +739,11 @@ Write a short, useful meeting description. If I ask you to apply it, update this
           endTime: editEndTime,
         }),
       );
-      return;
+      return false;
     }
+    let saved = false;
     if (newStart !== event.start || newEnd !== event.end) {
-      saveField({
+      saved = saveField({
         start: newStart,
         end: newEnd,
         allDay: event.allDay,
@@ -729,6 +754,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     }
     setEditTimeScope("single");
     setEditingField(null);
+    return saved;
   }, [
     editDate,
     editEndDate,
@@ -830,19 +856,21 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleSaveMeetingLink = useCallback(() => {
     const url = editMeetingLink.trim();
+    let saved = false;
     if (url) {
       // Save meeting link as location if no location exists, otherwise as description addendum
       if (!event.location) {
-        saveField({ location: url });
+        saved = saveField({ location: url });
         setEditLocation(url);
       } else {
         const desc = event.description ? `${event.description}\n\n${url}` : url;
-        saveField({ description: desc });
+        saved = saveField({ description: desc });
         setEditDescription(desc);
       }
     }
     setEditMeetingLink("");
     setEditingField(null);
+    return saved;
   }, [editMeetingLink, event.location, event.description, saveField]);
 
   // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
@@ -921,28 +949,39 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     (newOpen: boolean) => {
       if (!newOpen && open) {
         const trimmedTitle = editingTitle.trim();
+        let savedPendingChange = false;
         // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle && trimmedTitle !== "(No title)") {
             onTitleSave?.(event.id, trimmedTitle);
             isNewEventRef.current = false;
+            savedPendingChange = true;
           }
           setIsEditingTitle(false);
         }
+        // Save any pending field edits before deciding whether an untouched
+        // new draft should be discarded.
+        if (editingField === "description") {
+          savedPendingChange = handleSaveDescription() || savedPendingChange;
+        } else if (editingField === "location") {
+          savedPendingChange = handleSaveLocation() || savedPendingChange;
+        } else if (editingField === "time") {
+          savedPendingChange = handleSaveTime() || savedPendingChange;
+        } else if (editingField === "meetingLink") {
+          savedPendingChange = handleSaveMeetingLink() || savedPendingChange;
+        } else if (editingField === "reminders") {
+          savedPendingChange = handleSaveReminders() || savedPendingChange;
+        } else if (editingField === "attachments") {
+          savedPendingChange = handleSaveAttachments() || savedPendingChange;
+        }
         if (
           isNewEventRef.current &&
+          !savedPendingChange &&
           (!trimmedTitle || trimmedTitle === "(No title)") &&
           onDismissNew
         ) {
           onDismissNew(event.id);
         }
-        // Save any pending field edits
-        if (editingField === "description") handleSaveDescription();
-        else if (editingField === "location") handleSaveLocation();
-        else if (editingField === "time") handleSaveTime();
-        else if (editingField === "meetingLink") handleSaveMeetingLink();
-        else if (editingField === "reminders") handleSaveReminders();
-        else if (editingField === "attachments") handleSaveAttachments();
 
         setEditingField(null);
         isNewEventRef.current = false;

@@ -265,7 +265,6 @@ export async function getDashboard(
   id: string,
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
-  const db = getDb() as any;
   // 1) SQL first, with access check.
   const access = await resolveAccess("dashboard", id, {
     userEmail: ctx.email,

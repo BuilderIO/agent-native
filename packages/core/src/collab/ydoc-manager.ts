@@ -31,6 +31,11 @@ interface CacheEntry {
 
 const _cache = new Map<string, CacheEntry>();
 const _writeLocks = new Map<string, Promise<void>>();
+// Coalesces concurrent cache-miss loads for the same docId. Without this, two
+// simultaneous getDoc() callers both miss the cache, both build a Y.Doc and
+// apply stored state, and the second _cache.set silently orphans the first
+// doc (a memory leak that grows with concurrent read traffic).
+const _loadLocks = new Map<string, Promise<Y.Doc>>();
 
 function evictIfNeeded(): void {
   if (_cache.size <= MAX_CACHE) return;
@@ -114,15 +119,35 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
     return cached.doc;
   }
 
-  const doc = new Y.Doc();
-  const stored = await loadYDocState(docId);
-  if (stored && stored.length > 0) {
-    Y.applyUpdate(doc, stored);
-  }
+  const inFlight = _loadLocks.get(docId);
+  if (inFlight) return inFlight;
 
-  evictIfNeeded();
-  _cache.set(docId, { doc, lastAccess: Date.now() });
-  return doc;
+  const load = (async () => {
+    // Re-check the cache: a concurrent writer (or loader) may have populated it
+    // between our miss above and acquiring this load slot.
+    const reCached = _cache.get(docId);
+    if (reCached) {
+      reCached.lastAccess = Date.now();
+      return reCached.doc;
+    }
+
+    const doc = new Y.Doc();
+    const stored = await loadYDocState(docId);
+    if (stored && stored.length > 0) {
+      Y.applyUpdate(doc, stored);
+    }
+
+    evictIfNeeded();
+    _cache.set(docId, { doc, lastAccess: Date.now() });
+    return doc;
+  })();
+
+  _loadLocks.set(docId, load);
+  try {
+    return await load;
+  } finally {
+    _loadLocks.delete(docId);
+  }
 }
 
 /**
@@ -294,7 +319,12 @@ export async function applyJson(
 
     if (update.length === 0) return;
 
-    await persistMergedState(docId, doc, () => JSON.stringify(newJson));
+    // Snapshot the doc's actual post-merge state, not the caller-supplied
+    // `newJson` — persistMergedState may re-apply newer DB state to resolve
+    // concurrent writes, so `newJson` can be stale. Matches applyPatchOps.
+    await persistMergedState(docId, doc, () =>
+      JSON.stringify(yDocToJson(doc, fieldName)),
+    );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
   });

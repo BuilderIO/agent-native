@@ -63,6 +63,25 @@ Resources have three runtime scopes:
 
 The in-app Workspace panel shows all three scopes. Personal and shared/organization resources are editable there. Workspace-scope resources are read-only in app panels and edited centrally from Dispatch, so every app sees the same canonical files without a sync step.
 
+### Global resources and canonical paths {#global-resources}
+
+Workspace-scope resources are managed from Dispatch's **Resources** page and inherited by apps at runtime — no copy or sync step. Dispatch supports two grant scopes:
+
+- **All apps** — global resources every app in the workspace inherits. Most company, brand, persona, positioning, messaging, and guardrail context should be **All apps**.
+- **Selected apps** — resources granted to specific apps for app-specific context or tools. Use these sparingly.
+
+The path determines how the agent uses a resource. These canonical paths apply across all three scopes (workspace, organization/app, personal):
+
+| Runtime resource        | Path                                    | How agents use it                               |
+| ----------------------- | --------------------------------------- | ----------------------------------------------- |
+| Guardrail instructions  | `AGENTS.md` or `instructions/<slug>.md` | Loaded every turn in every app that receives it |
+| Global skills           | `skills/<slug>/SKILL.md`                | Listed as workspace skills and read on demand   |
+| Brand/company resources | `context/<slug>.md`                     | Indexed every turn, read when relevant          |
+| Custom agent profiles   | `agents/<slug>.md`                      | Available as reusable local agent profiles      |
+| Shared HTTP MCP servers | `mcp-servers/<slug>.json`               | Loaded into granted apps' MCP tool registry     |
+
+This is the right home for core personas, positioning, messaging, company facts, brand guidelines, support policies, shared skills, or shared HTTP MCP tools that many apps should benefit from.
+
 ## Workspace Panel {#workspace-panel}
 
 The agent panel includes a **Workspace** tab alongside Chat and CLI. This panel lets users browse workspace resources, create/edit/delete personal or organization resources, and view inherited workspace defaults. It displays a tree view of all resources organized by folder path.
@@ -120,7 +139,7 @@ Change how the agent behaves, in 60 seconds.
 
 ## How the Agent Uses Resources {#how-the-agent-uses-resources}
 
-The agent has built-in tools for managing resources: `resource-list`, `resource-read`, `resource-effective`, `resource-write`, and `resource-delete`. These are available in both dev and production modes.
+The agent has built-in tools for managing resources: `resource-list`, `resource-read`, `resource-effective`, `resource-write`, and `resource-delete`. These are available in both Code mode and App mode.
 
 At the start of every conversation, the agent automatically reads:
 
@@ -318,8 +337,8 @@ When the agent encounters a task that matches a skill, it reads the skill file a
 
 There are two ways to add skills:
 
-1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill/SKILL.md`. This works in both dev and production.
-2. **Via code (dev only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in dev mode.
+1. **Via Workspace tab** — Create a new resource with a path like `skills/my-skill/SKILL.md`. This works in both Code mode and App mode.
+2. **Via code (Code mode only)** — Add a Markdown file to `.agents/skills/` in your project. These are available when the app runs in Code mode.
 
 ## Custom Agents {#custom-agents}
 
@@ -416,8 +435,8 @@ When you send a message:
 
 What shows up depends on the mode:
 
-- **Dev mode** — Codebase files, workspace resources, custom agents, and connected agents
-- **Production mode** — Workspace resources, custom agents, and connected agents
+- **Code mode** — Codebase files, workspace resources, custom agents, and connected agents
+- **App mode** — Workspace resources, custom agents, and connected agents
 
 ## / Slash Commands {#slash-commands}
 
@@ -425,16 +444,16 @@ Type `/` at the start of a line to invoke a skill. A dropdown shows available sk
 
 What shows up depends on the mode:
 
-- **Dev mode** — Skills from `.agents/skills/` (codebase) and skills from resources
-- **Production mode** — Skills from resources only
+- **Code mode** — Skills from `.agents/skills/` (codebase) and skills from resources
+- **App mode** — Skills from resources only
 
 If no skills are configured, the dropdown shows a hint with a link to these docs.
 
-## Dev vs Production Mode {#dev-vs-prod}
+## Code vs App Mode {#dev-vs-prod}
 
 The resource system works identically in both modes. The difference is what additional sources are available for `@` tagging and `/` commands:
 
-| Feature            | Dev Mode                                                                | Production                                             |
+| Feature            | Code Mode                                                               | App Mode                                               |
 | ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
 | @ tagging          | Codebase files + workspace resources + custom agents + connected agents | Workspace resources + custom agents + connected agents |
 | / slash commands   | .agents/skills/ + resource skills                                       | Resource skills only                                   |

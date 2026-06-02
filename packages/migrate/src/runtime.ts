@@ -27,6 +27,7 @@ import type {
   ProjectIR,
   SourceAdapter,
   Verifier,
+  VerifierResult,
 } from "./types.js";
 
 export interface CreateMigrationRunOptions {
@@ -198,7 +199,7 @@ export async function verifyMigration(
   context: MigrationContext,
   verifiers: Verifier[],
 ): Promise<MigrationReport> {
-  const verifierResults = [];
+  const verifierResults: VerifierResult[] = [];
   for (const verifier of verifiers) {
     verifierResults.push(await verifier.run(context));
   }

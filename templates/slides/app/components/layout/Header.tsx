@@ -1,4 +1,4 @@
-import { useLocation, useParams } from "react-router";
+import { useLocation } from "react-router";
 import { useDecks } from "@/context/DeckContext";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { AgentToggleButton } from "@agent-native/core/client";

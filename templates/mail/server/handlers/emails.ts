@@ -11,8 +11,11 @@ import {
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import {
+  decodeCommonHtmlEntities,
+  escapeHtml,
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
+  renderInlineMarkdown,
 } from "@shared/markdown.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
@@ -74,10 +77,11 @@ import {
   encodeMimeHeaderValue,
   resolveComposeAttachments,
 } from "../lib/outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
 import { normalizeSignature } from "../../shared/signature.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
-import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 
 /**
  * Strip CRLF from any value that flows into an RFC 2822 header line. Without
@@ -448,6 +452,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
+      const connectedEmails = new Set(
+        accountTokens.map((account) => account.email.toLowerCase()),
+      );
       const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
         await listGmailMessages(searchQuery, pageLimit, email, pageTokens, {
@@ -475,7 +482,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       let emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
       );
-      emails = filterInboxScopedThreadMessages(emails, view, label);
+      emails = filterInboxScopedThreadMessages(
+        emails,
+        view,
+        label,
+        connectedEmails,
+      );
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -529,6 +541,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       ),
       view,
       label,
+      new Set([email.toLowerCase()]),
     );
   } else {
     // Filter by view
@@ -1448,43 +1461,23 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (selectedToken) {
-        // Fetch the sender's display name from Gmail send-as settings,
-        // falling back to Google profile name
-        let fromHeader = selectedEmail;
-        try {
-          const sendAs = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`,
-            selectedToken,
-          );
-          const match = sendAs?.sendAs?.find(
-            (s: any) =>
-              s.sendAsEmail?.toLowerCase() === selectedEmail.toLowerCase(),
-          );
-          if (match?.displayName) {
-            fromHeader = `${match.displayName} <${selectedEmail}>`;
-          }
-        } catch {
-          // Fall back to profile name below
-        }
-        // If sendAs didn't have a display name, try Google profile
-        if (fromHeader === selectedEmail) {
-          try {
-            const profile = await googleFetch(
-              `https://www.googleapis.com/oauth2/v2/userinfo`,
-              selectedToken,
+        const senderIdentity = await resolveGoogleSenderIdentity({
+          accessToken: selectedToken,
+          email: selectedEmail,
+          fallbackName: settings.name,
+          cachedName: getAccountDisplayName(selectedEmail),
+          onResolvedDisplayName: (name) => {
+            setAccountDisplayName(selectedEmail, name);
+            void setOAuthDisplayName("google", selectedEmail, name).catch(
+              () => {},
             );
-            if (profile?.name) {
-              fromHeader = `${profile.name} <${selectedEmail}>`;
-            }
-          } catch {
-            // Fall back to email-only
-          }
-        }
+          },
+        });
 
         const tracking = buildTrackingContext(event, body || "", settings);
 
         const raw = buildOutgoingRawEmail({
-          from: fromHeader,
+          from: senderIdentity.header,
           to: cleanedTo,
           cc: cleanedCc,
           bcc: cleanedBcc,
@@ -1563,6 +1556,10 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           id: sent.id,
           threadId: sent.threadId,
           labelIds: sent.labelIds || ["SENT"],
+          from: {
+            name: senderIdentity.displayName || senderIdentity.email,
+            email: senderIdentity.email,
+          },
         };
       }
     } catch (error: any) {
@@ -1859,39 +1856,10 @@ function buildRawEmail(opts: {
     .replace(/=+$/, "");
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function applyInlineMarkdown(text: string): string {
-  return text
-    .replace(
-      /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_match, alt, url) =>
-        `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;" />`,
-    )
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_match, label, url) =>
-        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
-    )
-    .replace(
-      /(?<!["(>])(https?:\/\/[^\s<]+)/g,
-      (url) =>
-        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
-    )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
 function markdownToHtml(markdown: string): string {
-  const normalized = normalizeMarkdownHardBreaks(markdown).trim();
+  const normalized = decodeCommonHtmlEntities(
+    normalizeMarkdownHardBreaks(markdown),
+  ).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
@@ -1905,7 +1873,7 @@ function markdownToHtml(markdown: string): string {
       const heading = block.match(/^(#{1,3})\s+(.+)$/);
       if (heading) {
         const level = heading[1].length;
-        return `<h${level}>${applyInlineMarkdown(escapeHtml(heading[2]))}</h${level}>`;
+        return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
       }
 
       if (/^(\-|\*|\+)\s+/m.test(block)) {
@@ -1914,7 +1882,7 @@ function markdownToHtml(markdown: string): string {
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
-          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
           .join("");
         return `<ul>${items}</ul>`;
       }
@@ -1925,12 +1893,12 @@ function markdownToHtml(markdown: string): string {
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => line.replace(/^\d+\.\s+/, ""))
-          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
           .join("");
         return `<ol>${items}</ol>`;
       }
 
-      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+      return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -1938,7 +1906,7 @@ function markdownToHtml(markdown: string): string {
 }
 
 function markdownToPlainText(markdown: string): string {
-  return normalizeMarkdownHardBreaks(markdown)
+  return decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown))
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
@@ -1990,10 +1958,6 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
   );
 }
 
-/**
- * Convert a compose body to HTML, properly formatting reply/forward quotes
- * with Gmail-compatible blockquote structure so email clients can clip them.
- */
 /**
  * Build a tracking context for an outgoing message. Returns undefined when
  * both open- and click-tracking are disabled so the caller skips injection
@@ -2585,23 +2549,28 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
     // localhost loopback, or internal cluster services and exfiltrate cloud
     // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
-      if (isBlockedToolUrl(url)) {
-        console.warn(
-          "[unsubscribe] one-click POST blocked: SSRF-protected URL",
-        );
-        // Don't echo the URL — that would let an attacker probe via the
-        // error response to map internal infrastructure.
-        setResponseStatus(event, 400);
-        return { error: "Unsubscribe URL is not allowed" };
-      }
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "List-Unsubscribe=One-Click",
-        });
+        const res = await ssrfSafeFetch(
+          url,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "List-Unsubscribe=One-Click",
+            signal: AbortSignal.timeout(10_000),
+          },
+          { maxRedirects: 3 },
+        );
         return { ok: true, method: "one-click", status: res.status, url };
       } catch (e: any) {
+        if (String(e?.message ?? "").startsWith("SSRF blocked:")) {
+          console.warn(
+            "[unsubscribe] one-click POST blocked: SSRF-protected URL",
+          );
+          // Don't echo the URL — that would let an attacker probe via the
+          // error response to map internal infrastructure.
+          setResponseStatus(event, 400);
+          return { error: "Unsubscribe URL is not allowed" };
+        }
         // One-click failed, fall through to other methods
         console.warn("[unsubscribe] one-click POST failed:", e.message);
       }

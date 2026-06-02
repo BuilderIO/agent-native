@@ -28,6 +28,10 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  collectImmutableAssetPaths,
+  IMMUTABLE_ASSET_CACHE_HEADERS,
+} from "./immutable-assets.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -168,6 +172,7 @@ export async function runWorkspaceDeploy(
 
   if (preset === "netlify") {
     writeNetlifyRedirects(distDir, apps);
+    writeNetlifyHeaders(distDir, apps);
   } else if (preset === "vercel") {
     writeVercelBuildConfig(vercelOutputDir, apps);
   } else {
@@ -483,8 +488,33 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
 }
 
+function writeNetlifyHeaders(distDir: string, apps: string[]): void {
+  const blocks = apps.flatMap((app) => {
+    const staticDir = path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app);
+    return collectImmutableAssetPaths(staticDir).flatMap((assetPath) => [
+      netlifyHeaderBlock(`/${app}${assetPath}`),
+      netlifyHeaderBlock(`/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}${assetPath}`),
+    ]);
+  });
+
+  if (blocks.length === 0) return;
+  fs.writeFileSync(path.join(distDir, "_headers"), blocks.join("\n\n") + "\n");
+}
+
+function netlifyHeaderBlock(pathname: string): string {
+  return [
+    pathname,
+    ...Object.entries(IMMUTABLE_ASSET_CACHE_HEADERS).map(
+      ([name, value]) => `  ${name}: ${value}`,
+    ),
+  ].join("\n");
+}
+
 function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
-  const routes: Array<Record<string, any>> = [{ handle: "filesystem" }];
+  const routes: Array<Record<string, any>> = [
+    ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
+    { handle: "filesystem" },
+  ];
 
   if (apps.includes("dispatch")) {
     routes.push(
@@ -529,6 +559,24 @@ function writeVercelBuildConfig(outputDir: string, apps: string[]): void {
     path.join(outputDir, "config.json"),
     JSON.stringify(config, null, 2) + "\n",
   );
+}
+
+function vercelImmutableAssetHeaderRoutes(
+  outputDir: string,
+  apps: string[],
+): Array<Record<string, any>> {
+  return apps.flatMap((app) => {
+    const staticDir = path.join(outputDir, "static", app);
+    return collectImmutableAssetPaths(staticDir).map((assetPath) => ({
+      src: vercelRouteSrc(`/${app}${assetPath}`),
+      headers: IMMUTABLE_ASSET_CACHE_HEADERS,
+      continue: true,
+    }));
+  });
+}
+
+function vercelRouteSrc(pathname: string): string {
+  return pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function vercelRedirect(src: string, location: string): Record<string, any> {

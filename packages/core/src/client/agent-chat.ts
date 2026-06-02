@@ -7,7 +7,10 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
-import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  getFramePostMessageTargetOrigin,
+  isTrustedFrameMessage,
+} from "./frame.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   isEmbedAuthActive,
@@ -79,7 +82,25 @@ export interface AgentChatMessage {
   background?: boolean;
 }
 
+export interface AgentChatContextItem {
+  /** Stable key used to replace an existing context nugget. */
+  key: string;
+  /** Short label shown in the composer context chip. */
+  title: string;
+  /** Hidden context included with the next submitted prompt. */
+  context: string;
+}
+
+export interface AgentChatContextMessage extends AgentChatContextItem {
+  /**
+   * Whether to open the agent sidebar if it's currently hidden.
+   * Defaults to true so the user can see the staged context.
+   */
+  openSidebar?: boolean;
+}
+
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
+const AGENT_CHAT_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 /**
@@ -109,6 +130,47 @@ export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function normalizeAgentChatContextItem(
+  item: unknown,
+): AgentChatContextItem | null {
+  if (typeof item !== "object" || item === null) return null;
+  const candidate = item as Partial<AgentChatContextItem>;
+  if (
+    typeof candidate.key !== "string" ||
+    typeof candidate.context !== "string" ||
+    typeof candidate.title !== "string"
+  ) {
+    return null;
+  }
+  const key = candidate.key.trim();
+  const context = candidate.context.trim();
+  if (!key || !context) return null;
+  return {
+    key,
+    title: candidate.title.trim() || key,
+    context,
+  };
+}
+
+export function formatAgentChatContextItemsForPrompt(
+  items: readonly AgentChatContextItem[],
+): string {
+  return items
+    .map(normalizeAgentChatContextItem)
+    .filter((item): item is AgentChatContextItem => item !== null)
+    .map((item) => [`## ${item.title}`, item.context].join("\n"))
+    .join("\n\n");
+}
+
+export function appendAgentChatContextToMessage(
+  message: string,
+  context: string,
+): string {
+  const trimmedContext = context.trim();
+  if (!trimmedContext) return message;
+  return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
+}
+
 function isMcpAppChatBridgeEnabled(): boolean {
   if (typeof window === "undefined" || window.parent === window) return false;
   if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
@@ -130,9 +192,6 @@ function dispatchAgentChatRunning(isRunning: boolean): void {
   );
 }
 
-/**
- * Send a message to the agent chat via postMessage.
- */
 /**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
@@ -162,14 +221,22 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     if (directHostMessage) {
       void Promise.resolve(directHostMessage)
         .then((ok) => {
-          if (!ok) window.parent.postMessage(payload, getFrameOrigin() || "*");
+          if (!ok) {
+            window.parent.postMessage(
+              payload,
+              getFramePostMessageTargetOrigin() || "*",
+            );
+          }
         })
         .finally(() => {
           dispatchAgentChatRunning(false);
         });
       return tabId;
     }
-    window.parent.postMessage(payload, getFrameOrigin() || "*");
+    window.parent.postMessage(
+      payload,
+      getFramePostMessageTargetOrigin() || "*",
+    );
     return tabId;
   }
 
@@ -184,7 +251,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       : window;
   const targetOrigin = targetSelf
     ? window.location.origin
-    : getFrameOrigin() || window.location.origin;
+    : getFramePostMessageTargetOrigin() || window.location.origin;
   if (shouldOpenSidebar) {
     window.dispatchEvent(
       new CustomEvent("agent-panel:set-mode", {
@@ -208,3 +275,47 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   }
   return tabId;
 }
+
+/**
+ * Add or replace a keyed context nugget in the active agent chat composer.
+ * The context is not submitted until the user sends the prompt.
+ */
+export function setContextToAgentChat(opts: AgentChatContextMessage): void {
+  const item = normalizeAgentChatContextItem(opts);
+  if (!item || typeof window === "undefined") return;
+
+  const payload = {
+    type: AGENT_CHAT_CONTEXT_MESSAGE_TYPE,
+    data: item,
+  };
+  const shouldOpenSidebar = opts.openSidebar !== false;
+  const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
+  const target = targetSelf
+    ? window
+    : window.parent !== window
+      ? window.parent
+      : window;
+  const targetOrigin = targetSelf
+    ? window.location.origin
+    : getFramePostMessageTargetOrigin() || window.location.origin;
+
+  if (shouldOpenSidebar) {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  } else {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
+
+  const postToTarget = () => target.postMessage(payload, targetOrigin);
+  if (target === window) {
+    setTimeout(postToTarget, 0);
+  } else {
+    postToTarget();
+  }
+}
+
+export const addContextToAgentChat = setContextToAgentChat;

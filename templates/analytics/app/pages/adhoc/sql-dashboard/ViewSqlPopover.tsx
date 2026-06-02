@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useReconciledState } from "@agent-native/core/client";
 import { toast } from "sonner";
 import {
   Popover,
@@ -51,11 +52,22 @@ export function ViewSqlPopover({
   children,
 }: ViewSqlPopoverProps) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(panel.sql);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+
+  // Track whether the user has diverged from the server SQL ("dirty"). While
+  // dirty we hold the draft so we don't clobber in-progress edits; otherwise we
+  // re-adopt `panel.sql` so an agent edit shows up live even with the popover
+  // open. We can't reference `dirty` before `draft` exists, so derive the
+  // active flag from a ref that mirrors the dirty comparison below.
+  const dirtyRef = useRef(false);
+  const [draft, setDraft] = useReconciledState(panel.sql, {
+    active: dirtyRef.current,
+  });
+  const dirty = draft !== panel.sql;
+  dirtyRef.current = dirty;
 
   useEffect(() => {
     if (open) {
@@ -63,9 +75,8 @@ export function ViewSqlPopover({
       setError(null);
       setShowResolved(false);
     }
-  }, [open, panel.sql]);
-
-  const dirty = draft !== panel.sql;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const canEditSql = editable && !!onSaveSql;
   const hasResolvedDifference =
     resolvedSql !== undefined && resolvedSql !== panel.sql;

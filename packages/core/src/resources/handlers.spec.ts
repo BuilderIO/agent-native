@@ -492,7 +492,7 @@ describe("resource handlers", () => {
         _body: { content: "new" },
         context: {},
       };
-      const result = await handleUpdateResource(event);
+      await handleUpdateResource(event);
 
       expect(mockResourcePut).toHaveBeenCalledWith(
         "test@test.com",

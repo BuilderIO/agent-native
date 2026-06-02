@@ -8,6 +8,8 @@ description: >-
   creative, polished UI that avoids generic AI aesthetics.
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
+metadata:
+  internal: true
 ---
 
 # Frontend Design

@@ -80,7 +80,10 @@ export function getPlugins(): string[] {
 /**
  * Dispatch a hook to all registered handlers.
  */
-export function dispatchHook(name: keyof PluginHooks, ...args: any[]): void {
+export function dispatchHook(
+  name: keyof PluginHooks,
+  ...args: unknown[]
+): void {
   const handlers = hookHandlers.get(name);
   if (!handlers) return;
 
@@ -107,9 +110,9 @@ export function dispatchTransformHook<T>(
   let current: T | false = initial;
   for (const handler of handlers) {
     try {
-      const result: any = handler(current);
+      const result = handler(current) as T | false | undefined;
       if (result === false) return false;
-      if (result !== undefined) current = result as T;
+      if (result !== undefined) current = result;
     } catch (err) {
       console.warn(`[pinpoint] Plugin hook ${name} error:`, err);
     }

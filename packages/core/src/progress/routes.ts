@@ -58,6 +58,7 @@ export function createProgressHandler() {
       return listRuns(owner, {
         activeOnly: q.active === "true" || q.active === "1",
         limit: parseLimit(q.limit),
+        event,
       });
     }
 

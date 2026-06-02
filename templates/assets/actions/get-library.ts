@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   requireLibrary,
-  serializeAsset,
+  serializeAssets,
   serializeGenerationRun,
   serializeLibrary,
 } from "./_helpers.js";
@@ -44,7 +44,7 @@ export default defineAction({
       library: serializeLibrary(library),
       collections,
       folders,
-      assets: assets.map(serializeAsset),
+      assets: serializeAssets(assets),
       runs: runs.map(serializeGenerationRun),
     };
   },

@@ -6,7 +6,6 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  IconAlertCircle,
   IconRefresh,
   IconCopy,
   IconCheck,
@@ -28,6 +27,14 @@ import {
 } from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
+
+type WebviewTitleUpdatedEvent = Event & { title?: string };
+type WebviewLoadFailedEvent = Event & {
+  errorCode?: number;
+  errorDescription?: string;
+  isMainFrame?: boolean;
+};
+type WebviewConsoleMessageEvent = Event & { message?: string };
 
 interface AppWebviewProps {
   app: AppDefinition;
@@ -72,17 +79,22 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    if (
-      templateGatewayOverridesDevUrls() ||
-      isDefaultDesktopTemplateDevTarget(appConfig)
-    ) {
-      const gatewayUrl = getDesktopTemplateGatewayAppUrl(appConfig.id);
-      if (gatewayUrl) return gatewayUrl;
+    const template = getTemplate(appConfig.id);
+    if (template) {
+      const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)
+        ? (appConfig.devUrl?.trim() ??
+          (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : ""))
+        : "";
+
+      // First-party templates must load through the frame so the Chat | CLI |
+      // Workspace panel lives outside the hot-reloaded app iframe. Custom
+      // template targets still use the frame as the top-level page; the frame
+      // loads the custom URL inside its app iframe.
+      return getFramedAppUrl(app, customTemplateDevUrl);
     }
-    // User-edited dev URLs still win for custom/non-default dev targets.
+
+    // Non-template dev URLs can still load directly.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
-    // First-party templates without an explicit override go through the frame.
-    if (getTemplate(appConfig.id)) return getAppUrl(app);
     if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
     if (appConfig.url) return appConfig.url;
     return getAppUrl(app);
@@ -100,6 +112,13 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
 
   // Fallback for custom apps with no production URL.
   return getAppUrl(app);
+}
+
+function getFramedAppUrl(app: AppDefinition, devUrl?: string): string {
+  const frameUrl = new URL(getAppUrl(app));
+  const trimmedDevUrl = devUrl?.trim();
+  if (trimmedDevUrl) frameUrl.searchParams.set("devUrl", trimmedDevUrl);
+  return frameUrl.toString();
 }
 
 function rendererEnvValue(name: string): string | undefined {
@@ -344,12 +363,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         emitCurrentTitleSoon();
       };
       const onTitleUpdated = (e: Event) => {
-        const title = String((e as { title?: string }).title ?? "").trim();
+        const title = String(
+          (e as WebviewTitleUpdatedEvent).title ?? "",
+        ).trim();
         emitCurrentTitle(title);
       };
       const onNavigation = () => emitCurrentTitleSoon();
       const onFailed = (e: Event) => {
-        const details = e as any;
+        const details = e as WebviewLoadFailedEvent;
         const errorCode = details.errorCode;
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
@@ -367,7 +388,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setIsLoading(false);
       };
       const onConsoleMessage = (e: Event) => {
-        const message = String((e as any).message || "");
+        const message = String((e as WebviewConsoleMessageEvent).message || "");
         if (message.includes("Outdated Optimize Dep")) {
           recoverOutdatedOptimizeDep();
         }

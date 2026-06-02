@@ -39,7 +39,10 @@ async function ensureRunTables(): Promise<void> {
           started_at ${intType()} NOT NULL,
           completed_at ${intType()},
           heartbeat_at ${intType()},
-          last_progress_at ${intType()}
+          last_progress_at ${intType()},
+          turn_id TEXT,
+          error_code TEXT,
+          error_detail TEXT
         )
       `);
       // Backfill heartbeat_at on older deployments.
@@ -85,6 +88,28 @@ async function ensureRunTables(): Promise<void> {
       } catch {
         // Column already exists — ignore
       }
+      // Backfill turn_id / error_code / error_detail.
+      //   turn_id    = stable identity for one logical assistant turn that may
+      //                span several continuation runs, so the durable record
+      //                can be folded across runs instead of dropped per-run.
+      //   error_code / error_detail = terminal failure classification captured
+      //                at completion so errored/cut-off runs are queryable for
+      //                pattern analysis (see listErroredRuns).
+      for (const col of ["turn_id", "error_code", "error_detail"] as const) {
+        try {
+          if (isPostgres()) {
+            await client.execute(
+              `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} TEXT`,
+            );
+          } else {
+            await client.execute(
+              `ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`,
+            );
+          }
+        } catch {
+          // Column already exists — ignore
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
@@ -93,19 +118,54 @@ async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (run_id, seq)
         )
       `);
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
 
-export async function insertRun(id: string, threadId: string): Promise<void> {
+export async function insertRun(
+  id: string,
+  threadId: string,
+  turnId?: string,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at) VALUES (?, ?, 'running', ?, ?, ?)`,
-    args: [id, threadId, now, now, now],
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id) VALUES (?, ?, 'running', ?, ?, ?, ?)`,
+    args: [id, threadId, now, now, now, turnId ?? id],
   });
+}
+
+/**
+ * Record terminal failure classification for a run so cut-off / errored runs
+ * can be surfaced for pattern analysis (see listErroredRuns). Best-effort —
+ * never throws, since it runs on the completion path that must not fail the run.
+ */
+export async function setRunError(
+  runId: string,
+  errorCode: string | undefined,
+  errorDetail: string | undefined,
+): Promise<void> {
+  if (!errorCode && !errorDetail) return;
+  try {
+    await ensureRunTables();
+    const client = getDbExec();
+    await client.execute({
+      sql: `UPDATE agent_runs SET error_code = ?, error_detail = ? WHERE id = ?`,
+      args: [
+        errorCode ?? null,
+        errorDetail ? errorDetail.slice(0, 2000) : null,
+        runId,
+      ],
+    });
+  } catch {
+    // Diagnostics are best-effort; never let them break completion.
+  }
 }
 
 /** Update the run's liveness heartbeat. Called periodically by run-manager. */
@@ -144,14 +204,24 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
-  const cutoff = Date.now() - maxStaleMs;
+  const completedAt = Date.now();
+  const cutoff = completedAt - maxStaleMs;
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE id = ?
             AND status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), runId, cutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      runId,
+      cutoff,
+    ],
   });
   const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {
@@ -329,12 +399,21 @@ export async function reapAllStaleRuns(): Promise<number> {
             AND COALESCE(heartbeat_at, started_at) < ?`,
     args: [heartbeatCutoff],
   });
+  const completedAt = Date.now();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), heartbeatCutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      heartbeatCutoff,
+    ],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -349,13 +428,20 @@ export async function reapAllStaleRuns(): Promise<number> {
   return rowsAffected ?? 0;
 }
 
-/** Delete completed/errored runs older than the given threshold,
- *  and expire stale "running" rows that haven't had activity
- *  (e.g. worker crashed before updating status). */
-export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
+/** Delete old runs and expire stale "running" rows that haven't had activity
+ *  (e.g. worker crashed before updating status). Completed runs are pruned at
+ *  `olderThanMs`; errored/aborted runs are kept until `erroredOlderThanMs` (a
+ *  longer window, falling back to `olderThanMs`) so their event log survives
+ *  for cut-off pattern analysis via listErroredRuns. */
+export async function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   const cutoff = Date.now() - olderThanMs;
+  const erroredCutoff =
+    Date.now() - Math.max(erroredOlderThanMs ?? 0, olderThanMs);
   // Expire stale running rows on the absolute-age threshold — safety net
   // for runs that never received a heartbeat (very old deployments). The
   // SELECT covers BOTH UPDATE conditions so the terminal-event-append loop
@@ -368,20 +454,39 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
             AND (
               COALESCE(heartbeat_at, started_at) < ?
               OR started_at < ?
-            )`,
+    )`,
     args: [heartbeatCutoff, cutoff],
   });
+  const completedAt = Date.now();
   await client.execute({
-    sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
-    args: [Date.now(), cutoff],
+    sql: `UPDATE agent_runs
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
+          WHERE status = 'running' AND started_at < ?`,
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      cutoff,
+    ],
   });
   // Also expire runs whose heartbeat is stale — producer has died.
   await client.execute({
     sql: `UPDATE agent_runs
-          SET status = 'errored', completed_at = ?
+          SET status = 'errored',
+              completed_at = ?,
+              error_code = ?,
+              error_detail = ?
           WHERE status = 'running'
             AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [Date.now(), heartbeatCutoff],
+    args: [
+      completedAt,
+      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_ERROR_EVENT.details,
+      heartbeatCutoff,
+    ],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -393,16 +498,85 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
       );
     }
   }
-  // Delete events for old non-running runs
+  // Delete events for old terminal runs. Completed runs prune at `cutoff`;
+  // errored/aborted runs are retained until the (longer) `erroredCutoff`.
   await client.execute({
     sql: `DELETE FROM agent_run_events WHERE run_id IN (
-      SELECT id FROM agent_runs WHERE status != 'running' AND completed_at < ?
+      SELECT id FROM agent_runs
+      WHERE (status = 'completed' AND completed_at < ?)
+         OR (status IN ('errored', 'aborted') AND completed_at < ?)
     )`,
-    args: [cutoff],
+    args: [cutoff, erroredCutoff],
   });
   await client.execute({
-    sql: `DELETE FROM agent_runs WHERE status != 'running' AND completed_at < ?`,
-    args: [cutoff],
+    sql: `DELETE FROM agent_runs
+          WHERE (status = 'completed' AND completed_at < ?)
+             OR (status IN ('errored', 'aborted') AND completed_at < ?)`,
+    args: [cutoff, erroredCutoff],
+  });
+}
+
+/**
+ * List recent errored/aborted runs for cut-off pattern analysis. Read-only,
+ * bounded, and ordered newest-first. Surfaced via the list-errored-runs action
+ * so the team can see why chats are failing (terminal error code, duration,
+ * turn linkage) instead of discovering it ad hoc.
+ */
+export async function listErroredRuns(options?: {
+  limit?: number;
+  sinceMs?: number;
+}): Promise<
+  Array<{
+    id: string;
+    threadId: string;
+    turnId: string | null;
+    status: string;
+    errorCode: string | null;
+    errorDetail: string | null;
+    startedAt: number;
+    completedAt: number | null;
+    durationMs: number | null;
+  }>
+> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const limit = Math.min(Math.max(Math.floor(options?.limit ?? 100), 1), 1000);
+  const since =
+    options?.sinceMs && options.sinceMs > 0 ? Date.now() - options.sinceMs : 0;
+  const { rows } = await client.execute({
+    sql: `SELECT id, thread_id, turn_id, status, error_code, error_detail, started_at, completed_at
+          FROM agent_runs
+          WHERE status IN ('errored', 'aborted')
+            AND COALESCE(completed_at, started_at) >= ?
+          ORDER BY COALESCE(completed_at, started_at) DESC
+          LIMIT ${limit}`,
+    args: [since],
+  });
+  return rows.map((r) => {
+    const row = r as {
+      id: string;
+      thread_id: string;
+      turn_id: string | null;
+      status: string;
+      error_code: string | null;
+      error_detail: string | null;
+      started_at: number | string;
+      completed_at: number | string | null;
+    };
+    const startedAt = Number(row.started_at);
+    const completedAt =
+      row.completed_at == null ? null : Number(row.completed_at);
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      turnId: row.turn_id ?? null,
+      status: row.status,
+      errorCode: row.error_code ?? null,
+      errorDetail: row.error_detail ?? null,
+      startedAt,
+      completedAt,
+      durationMs: completedAt == null ? null : completedAt - startedAt,
+    };
   });
 }
 

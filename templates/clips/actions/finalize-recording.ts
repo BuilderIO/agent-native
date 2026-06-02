@@ -14,11 +14,11 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
+  appStateList,
   readAppState,
   writeAppState,
   deleteAppState,
 } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { captureRouteError } from "@agent-native/core/server";
@@ -61,12 +61,11 @@ async function listRecordingChunkKeys(
   ownerEmail: string,
   recordingId: string,
 ): Promise<string[]> {
-  const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ?`,
-    args: [ownerEmail, `recording-chunks-${recordingId}-%`],
-  });
-  return rows.map((row) => String(row.key));
+  const rows = await appStateList(
+    ownerEmail,
+    `recording-chunks-${recordingId}-`,
+  );
+  return rows.map((row) => row.key);
 }
 
 function chunkIndexFromKey(key: string): number {

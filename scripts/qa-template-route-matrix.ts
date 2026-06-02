@@ -60,10 +60,11 @@ assertFilesExist("videos", [
   "c.$compositionId.tsx",
   "components.tsx",
   "design-systems.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "team.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
   "$.tsx",
 ]);
 
@@ -72,12 +73,13 @@ assertFilesExist("slides", [
   "deck.$id.tsx",
   "deck.$id_.present.tsx",
   "design-systems.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "share.$token.tsx",
   "slide.tsx",
   "team.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
 ]);
 
 assertFilesExist("clips", [
@@ -87,9 +89,10 @@ assertFilesExist("clips", [
   "_app.library.folder.$folderId.tsx",
   "_app.spaces.$spaceId.tsx",
   "_app.spaces.$spaceId.folder.$folderId.tsx",
-  "_app.tools.tsx",
-  "_app.tools._index.tsx",
-  "_app.tools.$id.tsx",
+  "_app.extensions.tsx",
+  "_app.extensions._index.tsx",
+  "_app.extensions.$id.tsx",
+  "_app.extensions.$id.$slug.tsx",
   "download.tsx",
   "embed.$shareId.tsx",
   "invite.$token.tsx",
@@ -98,38 +101,18 @@ assertFilesExist("clips", [
   "share.$shareId.tsx",
 ]);
 
-assertFilesExist("calls", [
-  "_index.tsx",
-  "_app.tsx",
-  "_app.library._index.tsx",
-  "_app.library.folder.$folderId.tsx",
-  "_app.spaces.$spaceId.tsx",
-  "_app.views.$viewId.tsx",
-  "_app.calls.$callId.tsx",
-  "_app.calls.$callId.edit.tsx",
-  "_app.snippets.$snippetId.tsx",
-  "_app.tools.tsx",
-  "_app.tools._index.tsx",
-  "_app.tools.$id.tsx",
-  "_app.upload.tsx",
-  "embed.$callId.tsx",
-  "embed-snippet.$snippetId.tsx",
-  "invite.$token.tsx",
-  "share.$callId.tsx",
-  "share-snippet.$snippetId.tsx",
-]);
-
 assertFilesExist("design", [
   "_index.tsx",
   "design.$id.tsx",
   "design-systems.tsx",
   "design-systems_.setup.tsx",
   "examples.tsx",
+  "extensions.tsx",
+  "extensions._index.tsx",
+  "extensions.$id.tsx",
+  "extensions.$id.$slug.tsx",
   "observability.tsx",
   "present.$id.tsx",
-  "tools.tsx",
-  "tools._index.tsx",
-  "tools.$id.tsx",
 ]);
 
 assertMatches(
@@ -143,40 +126,9 @@ assertMatches(
   "clips / must keep a client loader redirect for SPA navigations",
 );
 assertMatches(
-  "templates/calls/app/routes/_index.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\(request\)\)/,
-  "calls / must keep a server loader redirect to /library",
-);
-assertMatches(
-  "templates/calls/app/routes/_index.tsx",
-  /export function clientLoader[\s\S]*redirect\(buildTarget\(request\)\)/,
-  "calls / must keep a client loader redirect for SPA navigations",
-);
-assertMatches(
   "templates/slides/app/routes/share.$token.tsx",
   /export async function loader[\s\S]*\/api\/share\/\$\{params\.token\}/,
   "slides share route must SSR-load the shared deck JSON",
-);
-
-assertContains(
-  "templates/calls/app/components/library/library-sidebar.tsx",
-  "to={`/spaces/${s.id}`}",
-  "calls sidebar should link spaces through a real /spaces/:spaceId route",
-);
-assertContains(
-  "templates/calls/app/components/library/library-sidebar.tsx",
-  "to={`/views/${v.id}`}",
-  "calls sidebar should link saved views through a real /views/:viewId route",
-);
-assertContains(
-  "templates/calls/app/hooks/use-navigation-state.ts",
-  'path.startsWith("/spaces/")',
-  "calls navigation state must recognize /spaces/:spaceId",
-);
-assertContains(
-  "templates/calls/app/hooks/use-navigation-state.ts",
-  'path.startsWith("/views/")',
-  "calls navigation state must recognize /views/:viewId",
 );
 
 assertPublicPaths("templates/slides/server/plugins/auth.ts", [
@@ -193,25 +145,13 @@ assertPublicPaths("templates/clips/server/plugins/auth.ts", [
   "/api/media",
   "/api/video",
 ]);
-assertPublicPaths("templates/calls/server/plugins/auth.ts", [
-  "/share",
-  "/share-snippet",
-  "/embed",
-  "/embed-snippet",
-  "/api/public-call",
-  "/api/public-snippet",
-  "/api/call-media",
-  "/api/call-thumbnail",
-  "/api/snippet-media",
-]);
-
 const videosPackage = JSON.parse(read("templates/videos/package.json")) as {
   scripts?: Record<string, string>;
 };
 assert.equal(
   videosPackage.scripts?.typecheck,
-  "echo 'skipping typecheck (pre-existing errors)'",
-  "videos typecheck skip must stay explicit and intentional until the template is cleaned up",
+  "agent-native typecheck",
+  "videos is now cleaned up and must run the real typecheck (not the skip placeholder)",
 );
 
 console.log("qa-template-route-matrix: clean");

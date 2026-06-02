@@ -54,4 +54,6 @@ export interface ListRunsOptions {
   activeOnly?: boolean;
   /** Max rows. Default 50. */
   limit?: number;
+  /** Optional request event for producers that need to self-dispatch work. */
+  event?: unknown;
 }

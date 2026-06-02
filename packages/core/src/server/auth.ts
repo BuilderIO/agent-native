@@ -15,7 +15,16 @@ import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import { resolveEmbedSessionFromRequest } from "./embed-session.js";
+import {
+  resolveEmbedSessionFromRequest,
+  requestHasEmbedAuthMarker,
+} from "./embed-session.js";
+import {
+  EMBED_TRANSPLANT_HEADER,
+  isMcpEmbedCorsOrigin,
+  MCP_EMBED_CORS_ALLOW_HEADERS,
+  shouldAllowMcpEmbedCredentials,
+} from "../shared/mcp-embed-headers.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -80,9 +89,9 @@ import {
 } from "./desktop-sso.js";
 import {
   isElectron as isElectronRequest,
-  getOrigin,
   getAppBasePath,
   getAppUrl,
+  getOrigin,
   encodeOAuthState,
   decodeOAuthState,
   createOAuthSession,
@@ -95,6 +104,13 @@ import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import { captureAuthError } from "./sentry.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -132,7 +148,7 @@ export interface AuthSession {
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
-  /** Active organization ID (from Better Auth organization plugin) */
+  /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
   orgRole?: string;
@@ -264,7 +280,7 @@ export interface AuthOptions {
  *
  * Browsers scope cookies by host (NOT host+port — RFC 6265), so two apps
  * running on different localhost ports share one cookie jar. When multiple
- * templates run side-by-side (`dev:all`, the desktop app, multi-template
+ * templates run side-by-side (eager repo dev, the desktop app, multi-template
  * deploys on a shared domain), they would otherwise stomp on each other's
  * `an_session` cookie and ping-pong each other into a logged-out state.
  *
@@ -528,7 +544,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const url = event.node?.req?.url ?? event.path ?? "/";
   const queryStart = url.indexOf("?");
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-  return config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  const loginHtml =
+    config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
 }
 
 /**
@@ -865,6 +883,7 @@ function getOnboardingHtmlOptions(
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
+    requestOrigin: event ? getOrigin(event) : undefined,
   };
 }
 
@@ -1117,14 +1136,31 @@ function applyCorsHeaders(event: H3Event): {
   // rather than "unauthenticated").
   const origin = getHeader(event, "origin");
   if (!origin) return { hasOrigin: false, allowed: true };
+  const requestedHeaders = String(
+    getHeader(event, "access-control-request-headers") ?? "",
+  )
+    .toLowerCase()
+    .split(",")
+    .map((header) => header.trim());
+  const mcpEmbedCorsRequest =
+    isMcpEmbedCorsOrigin(origin) &&
+    (requestHasEmbedAuthMarker(event) ||
+      requestedHeaders.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+      requestedHeaders.includes(EMBED_TRANSPLANT_HEADER) ||
+      Boolean(getHeader(event, EMBED_TARGET_HEADER)) ||
+      Boolean(getHeader(event, EMBED_TRANSPLANT_HEADER)) ||
+      Boolean(getHeader(event, "authorization")));
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
     allowLocalhostWhenNoAllowlist: true,
   });
-  if (!allowedOrigin) return { hasOrigin: true, allowed: false };
-  setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+  const responseOrigin = mcpEmbedCorsRequest ? origin : allowedOrigin;
+  if (!responseOrigin) return { hasOrigin: true, allowed: false };
+  setResponseHeader(event, "Access-Control-Allow-Origin", responseOrigin);
   setResponseHeader(event, "Vary", "Origin");
-  setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+  if (!mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin)) {
+    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+  }
   setResponseHeader(
     event,
     "Access-Control-Allow-Methods",
@@ -1133,14 +1169,17 @@ function applyCorsHeaders(event: H3Event): {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "X-Request-Source",
-      "X-Agent-Native-CSRF",
-      EMBED_TARGET_HEADER,
-    ].join(","),
+    mcpEmbedCorsRequest
+      ? MCP_EMBED_CORS_ALLOW_HEADERS
+      : [
+          "Content-Type",
+          "Authorization",
+          "X-Requested-With",
+          "X-Request-Source",
+          "X-Agent-Native-CSRF",
+          "X-User-Timezone",
+          EMBED_TARGET_HEADER,
+        ].join(","),
   );
   return { hasOrigin: true, allowed: true };
 }
@@ -1254,18 +1293,18 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
             BUILDER_STATE_PARAM,
           )
         : null;
-    // The signed `_an_state` only authenticates the popup back to our app
-    // when the redirect chain through Builder dropped the session cookie
-    // (preview hosts, third-party-cookie blockers, etc). It is NOT a
-    // bearer credential that should let *any* request through. We bypass
-    // the auth guard only when no session exists (the legitimate
-    // session-lost popup case) — when a session IS present, the normal
-    // guard runs and the callback handler cross-checks the state owner
-    // against the session.
+    // The signed `_an_state` authenticates this specific Builder callback
+    // flow back to our app. A stale localhost session cookie can otherwise
+    // make the global guard reject the callback before the handler gets to
+    // validate the state and owner. This only bypasses to the callback route;
+    // the callback handler still verifies the signed owner / pending flow.
+    if (verifyBuilderCallbackStateAndGetOwner(state)) return true;
+
+    // The legacy owner cookie is broader and can be stale across shared
+    // browser sessions, so keep it limited to the session-lost popup case.
     const hasSession = getFrameworkSessionCookieValues(event).length > 0;
     if (hasSession) return false;
     return Boolean(
-      verifyBuilderCallbackStateAndGetOwner(state) ||
       verifyBuilderConnectTokenAndGetOwner(
         getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
       ),
@@ -1273,6 +1312,94 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
   }
 
   return false;
+}
+
+const LOGIN_OG_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const LOGIN_TWITTER_CARD_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
+const LOGIN_TWITTER_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
+  const headCloseIdx = loginHtml.indexOf("</head>");
+  if (headCloseIdx === -1) return loginHtml;
+
+  const hasAnySocialImage =
+    LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
+    LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
+  const imageUrl = escapeHtmlAttr(
+    getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+  );
+  const tags: string[] = [];
+
+  if (!hasAnySocialImage) {
+    tags.push(`<meta property="og:image" content="${imageUrl}">`);
+    tags.push(`<meta property="og:image:secure_url" content="${imageUrl}">`);
+    tags.push(
+      `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">`,
+    );
+    tags.push(
+      `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">`,
+    );
+    tags.push(
+      `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">`,
+    );
+    tags.push(
+      `<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+  if (!LOGIN_TWITTER_CARD_META_RE.test(loginHtml)) {
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  if (!hasAnySocialImage) {
+    tags.push(`<meta name="twitter:image" content="${imageUrl}">`);
+    tags.push(
+      `<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+
+  if (tags.length === 0) return loginHtml;
+  return (
+    loginHtml.slice(0, headCloseIdx) +
+    tags.join("") +
+    loginHtml.slice(headCloseIdx)
+  );
+}
+
+function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
+  return new Response(injectLoginSocialImageMeta(loginHtml, event), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // Login HTML is selected by the absence of a session cookie. Never put it
+      // in a shared CDN cache: the same route may redirect authenticated users
+      // or render the app after sign-in.
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      "CDN-Cache-Control": "no-store",
+      "Netlify-CDN-Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
+function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
+  if (!isReadMethod(event)) return false;
+  if (pathname.endsWith(".data")) return false;
+
+  const fetchDest = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document" || fetchDest === "iframe") return true;
+
+  const accept = getHeader(event, "accept")?.toLowerCase();
+  return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
 function createAuthGuardFn(): (
@@ -1349,6 +1476,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
+    // a queued sub-agent in a fresh function invocation; authenticity is
+    // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
+    // so it bypasses cookie/session auth (mirrors the integration processor).
+    if (p === "/_agent-native/agent-teams/_process-run") {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
@@ -1360,10 +1495,10 @@ function createAuthGuardFn(): (
     // authoritative gate — exactly like A2A above. Without this bypass the
     // guard's blanket 401-for-/_agent-native/* below shadows that check, so
     // an external coding agent (Claude Code / Codex / Cowork) connecting via
-    // the stdio proxy or HTTP can never reach it. Exact path only: the MCP
-    // handler returns early for `/_agent-native/mcp/*` management subroutes,
-    // which keep their normal session auth.
-    if (p === "/_agent-native/mcp") {
+    // the stdio proxy or HTTP can never reach it. Exact protocol endpoint only:
+    // tolerate the common trailing slash, but keep
+    // `/_agent-native/mcp/*` management subroutes on normal session auth.
+    if (p === "/_agent-native/mcp" || p === "/_agent-native/mcp/") {
       return;
     }
 
@@ -1461,10 +1596,7 @@ function createAuthGuardFn(): (
           headers: { Location: safeReturn },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Auth entry pages are framework-owned pages, not app routes. When a user
@@ -1478,10 +1610,7 @@ function createAuthGuardFn(): (
           headers: { Location: getAppBasePath() || "/" },
         });
       }
-      return new Response(loginHtml, {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return loginHtmlResponse(loginHtml, event);
     }
 
     // Skip static assets (Vite chunks, fonts, images, etc.)
@@ -1522,6 +1651,11 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
+    if (!isHtmlDocumentRequest(event, p)) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
+
     // Local-dev convenience: on the first page GET of a freshly-scaffolded
     // app, transparently create + sign in `dev@local.test` instead of
     // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
@@ -1532,14 +1666,7 @@ function createAuthGuardFn(): (
       if (autoSession) return autoSession;
     }
 
-    return new Response(loginHtml, {
-      status: 401,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    });
+    return loginHtmlResponse(loginHtml, event);
   };
 }
 
@@ -1753,17 +1880,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  // 1. ACCESS_TOKEN check (programmatic/agent access)
-  const accessTokens = getAccessTokens();
-  if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSession(event);
-    if (cookieSession) return cookieSession;
-  }
-
-  // 2. MCP App embed session. This is a short-lived browser session minted
+  // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
-  // MCP bearer token as a browser cookie.
+  // MCP bearer token as a browser cookie. Resolve it FIRST: the token is
+  // HMAC-verified and carries its own identity + org scope, and is the most
+  // specific intent for an embed request. Checking it before the legacy
+  // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
+  // configured) from shadowing the embed identity.
   const embedSession = await resolveEmbedSessionFromRequest(event);
   if (embedSession) {
     return {
@@ -1771,6 +1895,13 @@ async function resolveSessionUncached(
       token: embedSession.token,
       ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
     };
+  }
+
+  // 2. ACCESS_TOKEN check (programmatic/agent access)
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
+    const cookieSession = await getLegacyCookieSession(event);
+    if (cookieSession) return cookieSession;
   }
 
   // 3. BYOA custom getSession

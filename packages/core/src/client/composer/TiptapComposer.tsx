@@ -12,6 +12,7 @@ import {
   useComposerRuntime,
 } from "@assistant-ui/react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { FileReference } from "./extensions/FileReference.js";
@@ -47,7 +48,7 @@ import type {
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
-import { sendToAgentChat } from "../agent-chat.js";
+import { sendToAgentChat, type AgentChatContextItem } from "../agent-chat.js";
 import { tryDelegateBuildRequestToBuilder } from "../builder-frame.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import {
@@ -72,6 +73,7 @@ import {
 
 export interface TiptapComposerHandle {
   focus(): void;
+  setText(text: string): void;
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
@@ -103,6 +105,18 @@ export function getComposerSubmitIntentForEnterKey(
   if (!event.metaKey && !event.ctrlKey) return "immediate";
 
   return null;
+}
+
+export function insertComposerHardBreakAndScrollIntoView(
+  view: Pick<EditorView, "state" | "dispatch">,
+): boolean {
+  const hardBreak = view.state.schema.nodes.hardBreak;
+  if (!hardBreak) return false;
+
+  view.dispatch(
+    view.state.tr.replaceSelectionWith(hardBreak.create()).scrollIntoView(),
+  );
+  return true;
 }
 
 export function displayableComposerModeMessage(options: {
@@ -377,6 +391,10 @@ interface TiptapComposerProps {
   onConnectProvider?: () => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
+  /** Keyed context nuggets staged for the next submitted prompt. */
+  contextItems?: AgentChatContextItem[];
+  /** Remove a staged context nugget by key. */
+  onRemoveContextItem?: (key: string) => void;
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
    * normal Upload / Skill / Job / Automation / Tool / MCP picker. `"upload-only"`
@@ -942,6 +960,8 @@ export function TiptapComposer({
   providerConnectStatusEnabled,
   onConnectProvider,
   draftScope,
+  contextItems = [],
+  onRemoveContextItem,
   plusMenuMode = "full",
   interceptBuildRequestsForBuilder = false,
 }: TiptapComposerProps) {
@@ -956,6 +976,7 @@ export function TiptapComposer({
     attachmentCount: composerAttachments.length,
     disabled,
   });
+  const hasContextItems = contextItems.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
@@ -1043,6 +1064,11 @@ export function TiptapComposer({
   // Persist draft to localStorage so hot-reloads don't lose the prompt
   const draftKey = getComposerDraftKey(draftScope);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    return () => {
+      clearTimeout(draftTimerRef.current);
+    };
+  }, []);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
   const placeholderRef = useRef(placeholder);
@@ -1251,8 +1277,14 @@ export function TiptapComposer({
           return true;
         }
 
-        // Submit on Enter. Shift+Enter falls through to Tiptap for a newline;
+        // Submit on Enter. Shift+Enter inserts a newline and keeps the
+        // composer scrolled to the caret.
         // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        if (event.key === "Enter" && event.shiftKey) {
+          event.preventDefault();
+          return insertComposerHardBreakAndScrollIntoView(view);
+        }
+
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
@@ -1315,6 +1347,22 @@ export function TiptapComposer({
   useImperativeHandle(focusRef, () => ({
     focus() {
       editor?.commands.focus("end");
+    },
+    setText(text: string) {
+      if (!editor) return;
+      editor.commands.setContent(plainTextToDoc(text));
+      editor.commands.focus("end");
+      const trimmed = editor.state.doc.textContent.trim();
+      setEditorHasText(trimmed.length > 0);
+      composerRuntime.setText(trimmed);
+      onTextChangeRef.current?.(trimmed);
+      try {
+        if (trimmed) {
+          localStorage.setItem(draftKey, editor.getHTML());
+        } else {
+          localStorage.removeItem(draftKey);
+        }
+      } catch {}
     },
   }));
 
@@ -1897,11 +1945,36 @@ export function TiptapComposer({
           />
         </div>
       )}
+      {hasContextItems && (
+        <div
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="context-row"
+          className="agent-composer-context-row flex flex-wrap gap-1.5 px-2.5 pt-2 pb-0"
+        >
+          {contextItems.map((item) => (
+            <span
+              key={item.key}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground"
+            >
+              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">{item.title}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveContextItem?.(item.key)}
+                aria-label={`Remove ${item.title} context`}
+                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
         className={`agent-composer-editor-wrap ${
-          composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
+          composerMode || hasContextItems ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"
         }`}
       >
         <EditorContent

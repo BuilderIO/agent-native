@@ -17,7 +17,7 @@ import { DispatchShell } from "@/components/dispatch-shell";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { resolveCatchAllTarget } from "@/lib/catch-all-target";
+import { resolveServerCatchAllTarget } from "@/lib/catch-all-target";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -68,12 +68,12 @@ function dispatchSelfRedirect(appId: string | undefined): string | null {
   return null;
 }
 
-export function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: LoaderFunctionArgs) {
   const appId = params.appId;
   if (!appId) return null;
   const selfTarget = dispatchSelfRedirect(appId);
   if (selfTarget) throw redirect(selfTarget);
-  const target = resolveCatchAllTarget(appId);
+  const target = await resolveServerCatchAllTarget(appId);
   if (target) throw redirect(target);
   return null;
 }

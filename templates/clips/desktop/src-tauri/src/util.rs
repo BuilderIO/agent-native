@@ -201,6 +201,13 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
             if label.as_str() == "popover" {
                 continue;
             }
+            // The meeting reminder is a notification, not Clips recording
+            // chrome — keep it visible in captures regardless of the debug
+            // toggle so it never gets re-excluded on a config change.
+            if label.as_str() == "meeting-notif" {
+                set_window_capture_excluded(window, false);
+                continue;
+            }
             let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");
             set_window_capture_excluded(window, private_guide || !visible);
         }

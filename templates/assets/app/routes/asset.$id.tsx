@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router";
-import { useState } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   sendToAgentChat,
@@ -8,15 +8,16 @@ import {
 } from "@agent-native/core/client";
 import {
   IconArrowLeft,
+  IconClipboard,
   IconCopy,
   IconDownload,
-  IconMessageCircle,
   IconTrash,
   IconVideo,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { assetMediaUrl } from "@/lib/asset-urls";
 import {
   AlertDialog,
@@ -29,28 +30,57 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function AssetDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data } = useActionQuery("get-asset", { id: id! }) as any;
+  const assetQuery = useActionQuery("get-asset", { id: id! }) as any;
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
-  const createSession = useActionMutation("create-generation-session");
-  const prepareSessionContinuation = useActionMutation(
-    "prepare-generation-session-continuation",
-  );
-  const asset = data;
+  const asset = assetQuery.data;
 
   if (!asset) {
+    if (assetQuery.isLoading || assetQuery.isPending || assetQuery.isFetching) {
+      return (
+        <div className="p-6 text-sm text-muted-foreground">
+          Loading asset...
+        </div>
+      );
+    }
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading asset...</div>
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="max-w-sm space-y-3 text-center">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Asset unavailable
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            This generated image may have been cleared before it was saved, or
+            the link may point to an asset you no longer have access to.
+          </p>
+          <Button asChild variant="outline">
+            <Link to="/library">Back to library</Link>
+          </Button>
+        </div>
+      </div>
     );
   }
 
   const isVideo =
     asset.mediaType === "video" || asset.mimeType?.startsWith("video/");
   const previewUrl = assetMediaUrl(asset.previewUrl);
+  const categoryLabel = assetCategoryLabel(asset);
+  const isStarterAsset =
+    asset.metadata?.isStarterAsset === true ||
+    String(asset.libraryId || "").startsWith("starter:");
+  const libraryBackPath = isStarterAsset
+    ? "/library"
+    : `/brand-kits/${asset.libraryId}`;
+  const libraryBackLabel = isStarterAsset ? "Library" : "Brand Kit";
 
   function refine() {
     sendToAgentChat({
@@ -63,41 +93,36 @@ export default function AssetDetailPage() {
     });
   }
 
-  function createHandoff() {
-    createSession.mutate(
-      {
-        libraryId: asset.libraryId,
-        collectionId: asset.collectionId ?? null,
-        presetId: asset.metadata?.presetId ?? null,
-        title: asset.title || "Image handoff",
-        brief:
-          asset.prompt || asset.description || "Continue refining this asset.",
-        activeAssetId: asset.id,
-        assetIds: [asset.id],
-        runIds: asset.generationRunId ? [asset.generationRunId] : [],
-        feedback: "Needs design refinement.",
-      },
-      {
-        onSuccess: (session: any) => {
-          prepareSessionContinuation.mutate(
-            { id: session.id },
-            {
-              onSuccess: (payload: any) => {
-                sendToAgentChat({
-                  message: payload.message,
-                  context: payload.context,
-                  submit: true,
-                  newTab: true,
-                });
-              },
-            },
-          );
-        },
-        onError: (error: Error) => {
-          toast.error(error.message || "Could not create handoff.");
-        },
-      },
-    );
+  async function copyTextToClipboard(text: string, successMessage: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(successMessage);
+    } catch {
+      toast.error("Could not copy to clipboard.");
+    }
+  }
+
+  function assetUrlForClipboard(url: string | undefined) {
+    if (!url) return "";
+    return new URL(url, window.location.origin).toString();
+  }
+
+  function handoffPrompt() {
+    const previewLine = previewUrl
+      ? `Preview URL: ${assetUrlForClipboard(previewUrl)}`
+      : null;
+    return [
+      `Handoff asset ${asset.id}.`,
+      `Library ID: ${asset.libraryId}`,
+      asset.collectionId ? `Collection ID: ${asset.collectionId}` : null,
+      asset.metadata?.presetId ? `Preset ID: ${asset.metadata.presetId}` : null,
+      asset.generationRunId ? `Run ID: ${asset.generationRunId}` : null,
+      previewLine,
+      `Prompt: ${asset.prompt || asset.description || "Continue refining this asset."}`,
+      "Ask what should change, then refine this active image and show the new preview.",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   return (
@@ -105,9 +130,9 @@ export default function AssetDetailPage() {
       <aside className="overflow-y-auto border-b border-border bg-background p-5 lg:border-b-0 lg:border-r">
         <div className="mb-4">
           <Button variant="ghost" size="sm" asChild className="-ml-2 gap-2">
-            <Link to={`/library/${asset.libraryId}`}>
+            <Link to={libraryBackPath}>
               <IconArrowLeft className="h-4 w-4" />
-              Library
+              {libraryBackLabel}
             </Link>
           </Button>
         </div>
@@ -119,9 +144,7 @@ export default function AssetDetailPage() {
           <Badge variant="secondary">{asset.status}</Badge>
           <Badge variant="outline">{asset.role}</Badge>
           <Badge variant="outline">{isVideo ? "video" : "image"}</Badge>
-          {asset.metadata?.category && (
-            <Badge variant="outline">{asset.metadata.category}</Badge>
-          )}
+          {categoryLabel && <Badge variant="outline">{categoryLabel}</Badge>}
         </div>
         <Separator className="my-5" />
         <div className="space-y-4 text-sm">
@@ -152,79 +175,107 @@ export default function AssetDetailPage() {
           />
         </div>
         <Separator className="my-5" />
-        <div className="grid gap-2">
-          <Button className="gap-2" onClick={refine}>
-            <IconMessageCircle className="h-4 w-4" />
-            {isVideo ? "Make video variation" : "Make variations"}
-          </Button>
-          {!isVideo ? (
-            <Button variant="outline" className="gap-2" onClick={createHandoff}>
-              <IconMessageCircle className="h-4 w-4" />
-              Handoff to designer
+        <div className="grid gap-3">
+          {!isStarterAsset ? (
+            <Button onClick={refine}>
+              {isVideo ? "Make video variation" : "Make variations"}
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() =>
-              exportAsset.mutate(
-                { assetId: asset.id },
-                {
-                  onSuccess: (result: any) => {
-                    window.location.href =
-                      assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+          <div className="flex items-center gap-2">
+            {!isVideo && !isStarterAsset ? (
+              <AssetActionButton
+                label="Handoff"
+                onClick={() =>
+                  void copyTextToClipboard(handoffPrompt(), "Copied prompt")
+                }
+              >
+                <IconClipboard className="h-4 w-4" />
+              </AssetActionButton>
+            ) : null}
+            <AssetActionButton
+              label="Download"
+              disabled={exportAsset.isPending}
+              onClick={() => {
+                if (isStarterAsset) {
+                  const downloadUrl =
+                    assetMediaUrl(asset.downloadUrl) ?? previewUrl;
+                  if (downloadUrl) window.location.href = downloadUrl;
+                  return;
+                }
+                exportAsset.mutate(
+                  { assetId: asset.id },
+                  {
+                    onSuccess: (result: any) => {
+                      window.location.href =
+                        assetMediaUrl(result.downloadUrl) ?? result.downloadUrl;
+                    },
                   },
-                },
-              )
-            }
-          >
-            <IconDownload className="h-4 w-4" />
-            Download
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              if (previewUrl) void navigator.clipboard?.writeText(previewUrl);
-            }}
-          >
-            <IconCopy className="h-4 w-4" />
-            Copy URL
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="gap-2">
-                <IconTrash className="h-4 w-4" />
-                Delete
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete asset?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the asset from the library. Existing exports that
-                  already use this URL may stop rendering.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  onClick={() =>
-                    deleteAsset.mutate(
-                      { id: asset.id },
-                      {
-                        onSuccess: () =>
-                          navigate(`/library/${asset.libraryId}`),
-                      },
-                    )
-                  }
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                );
+              }}
+            >
+              <IconDownload className="h-4 w-4" />
+            </AssetActionButton>
+            <AssetActionButton
+              label="Copy URL"
+              disabled={!previewUrl}
+              onClick={() => {
+                if (previewUrl) {
+                  void copyTextToClipboard(
+                    assetUrlForClipboard(previewUrl),
+                    "Copied URL",
+                  );
+                }
+              }}
+            >
+              <IconCopy className="h-4 w-4" />
+            </AssetActionButton>
+            {!isStarterAsset ? (
+              <AlertDialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete"
+                        className="size-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        disabled={deleteAsset.isPending}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Delete</TooltipContent>
+                </Tooltip>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete asset?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes the asset from the library. Existing exports
+                      that already use this URL may stop rendering.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() =>
+                        deleteAsset.mutate(
+                          { id: asset.id },
+                          {
+                            onSuccess: () =>
+                              navigate(`/brand-kits/${asset.libraryId}`),
+                          },
+                        )
+                      }
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+          </div>
         </div>
       </aside>
       <div className="flex min-h-0 items-center justify-center bg-muted/30 p-6">
@@ -244,6 +295,47 @@ export default function AssetDetailPage() {
       </div>
     </div>
   );
+}
+
+function AssetActionButton({
+  label,
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof Button> & {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={label}
+          className={cn("size-9 shrink-0", className)}
+          {...props}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function assetCategoryLabel(asset: any): string | null {
+  if (
+    asset?.metadata?.intent === "subject" ||
+    asset?.role === "subject_reference"
+  ) {
+    return "content only";
+  }
+  const category = asset?.metadata?.category;
+  if (typeof category !== "string") return null;
+  if (category === "style-only") return "style reference";
+  return category.replace(/-/g, " ");
 }
 
 function AssetImagePreview({

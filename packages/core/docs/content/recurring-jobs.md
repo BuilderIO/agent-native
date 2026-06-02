@@ -57,7 +57,7 @@ Standard 5-field cron (minute, hour, day-of-month, month, day-of-week):
 | `0 17 * * 1-5` | Weekdays at 17:00        |
 | `0 0 1 * *`    | First day of every month |
 
-The framework exports `isValidCron()` and `describeCron()` from `@agent-native/core/jobs` if you want to validate or render cron strings in the UI.
+The framework includes cron utilities (`isValidCron()` and `describeCron()`) for validating and rendering cron strings, used internally by the resource and scheduler layers.
 
 ## Creating a job {#creating}
 
@@ -91,7 +91,7 @@ Summarize overnight emails.`,
 
 ## How the scheduler runs {#how-scheduler-runs}
 
-The scheduler is a framework plugin (`processRecurringJobs()` in `@agent-native/core/jobs`). On each tick it:
+The scheduler is a framework plugin (the internal `processRecurringJobs()` routine). On each tick it:
 
 1. Lists every enabled `jobs/*.md` resource across all owners.
 2. Compares `nextRun` to the current time.
@@ -112,7 +112,7 @@ If the runtime is serverless/edge, trigger the tick from an external cron (Cloud
 Don't confuse recurring jobs with `@agent-native/scheduling`:
 
 - **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in the workspace. Runs on any agent-native app.
-- **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` and `scheduling` templates. See the scheduling template for usage.
+- **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
 
 Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.
 

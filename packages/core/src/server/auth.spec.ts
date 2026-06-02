@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+const LOGIN_HTML_CACHE_CONTROL =
+  "private, no-store, max-age=0, must-revalidate";
+
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -431,7 +434,16 @@ describe("server/auth", () => {
 
       const result = await guard(createMockEvent({ path: "/demo" }));
       expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
+      expect((result as Response).status).toBe(200);
+      expect((result as Response).headers.get("Cache-Control")).toBe(
+        LOGIN_HTML_CACHE_CONTROL,
+      );
+      expect((result as Response).headers.get("CDN-Cache-Control")).toBe(
+        "no-store",
+      );
+      expect(
+        (result as Response).headers.get("Netlify-CDN-Cache-Control"),
+      ).toBe("no-store");
 
       const html = await (result as Response).text();
       expect(html).toContain("Create account");
@@ -513,7 +525,18 @@ describe("server/auth", () => {
         createMockEvent({ path: "/portal/admin/users" }),
       );
       expect(adminResult).toBeInstanceOf(Response);
-      expect((adminResult as Response).status).toBe(401);
+      expect((adminResult as Response).status).toBe(200);
+      expect((adminResult as Response).headers.get("Cache-Control")).toBe(
+        LOGIN_HTML_CACHE_CONTROL,
+      );
+
+      const adminDataResult = await guard(
+        createMockEvent({
+          path: "/portal/admin/users.data",
+          headers: { accept: "text/x-script" },
+        }),
+      );
+      expect(adminDataResult).toEqual({ error: "Unauthorized" });
 
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
@@ -553,7 +576,10 @@ describe("server/auth", () => {
         createMockEvent({ path: "/docs/admin" }),
       );
       expect(privateResult).toBeInstanceOf(Response);
-      expect((privateResult as Response).status).toBe(401);
+      expect((privateResult as Response).status).toBe(200);
+      expect((privateResult as Response).headers.get("Cache-Control")).toBe(
+        LOGIN_HTML_CACHE_CONTROL,
+      );
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -685,6 +711,38 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("lets Builder connect callbacks with signed callback state bypass stale session cookies", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
+      vi.stubEnv("APP_BASE_PATH", "/todays-priorities");
+      const { autoMountAuth } = await import("./auth.js");
+      const { BUILDER_STATE_PARAM, signBuilderCallbackState } =
+        await import("./builder-browser.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = signBuilderCallbackState("jameson@builder.io");
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/todays-priorities/_agent-native/builder/callback",
+            query: { [BUILDER_STATE_PARAM]: state },
+            headers: {
+              cookie: "an_session=stale-localhost-session",
+            },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
     it("lets signed integration processor routes bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -711,6 +769,29 @@ describe("server/auth", () => {
 
         await expect(guard(event)).resolves.toBeUndefined();
       }
+    });
+
+    it("lets the MCP protocol endpoint bypass auth with or without trailing slash", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of ["/_agent-native/mcp", "/_agent-native/mcp/"]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      const managementResult = await guard(
+        createMockEvent({ path: "/_agent-native/mcp/status" }),
+      );
+      expect(managementResult).not.toBeUndefined();
     });
 
     it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
@@ -782,7 +863,7 @@ describe("server/auth", () => {
       }
     });
 
-    it("serves first-party branded auth when the default guard handles a built-in host", async () => {
+    it("serves uncached first-party branded auth when the default guard handles a built-in host", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -817,9 +898,9 @@ describe("server/auth", () => {
       );
 
       expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
+      expect((result as Response).status).toBe(200);
       expect((result as Response).headers.get("Cache-Control")).toBe(
-        "no-store",
+        LOGIN_HTML_CACHE_CONTROL,
       );
       expect((result as Response).headers.get("X-Robots-Tag")).toBe(
         "noindex, nofollow",
@@ -827,6 +908,34 @@ describe("server/auth", () => {
       const html = await (result as Response).text();
       expect(html).toContain("Agent-Native Dispatch");
       expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain("__anRedirectIfAlreadySignedIn");
+    });
+
+    it("keeps React Router data requests protected instead of serving cached login HTML", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/inbox.data",
+        headers: { accept: "text/x-script" },
+      });
+      const result = await guard(event);
+
+      expect(result).toEqual({ error: "Unauthorized" });
+      expect(event.res.status).toBe(401);
     });
 
     it("redirects mounted login and signup pages when a session already exists", async () => {
@@ -921,6 +1030,51 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(403);
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
+
+    it.each([
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",
+    ])(
+      "allows MCP embed transplant preflights from %s before auth",
+      async (origin) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("ACCESS_TOKEN", "my-secret");
+        const { autoMountAuth } = await import("./auth.js");
+
+        const app = createMockApp();
+        await autoMountAuth(app);
+
+        const guard = app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+        expect(guard).toBeTypeOf("function");
+
+        const event = createMockEvent({
+          path: "/_agent-native/embed/start",
+          headers: {
+            origin,
+            "access-control-request-method": "GET",
+            "access-control-request-headers": "x-agent-native-embed-transplant",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+
+        const result = await guard(event);
+
+        expect(result).toBe("");
+        expect(event.res.status).toBe(204);
+        expect(event.res.headers.get("access-control-allow-origin")).toBe(
+          origin,
+        );
+        expect(event.res.headers.get("access-control-allow-headers")).toContain(
+          "X-Agent-Native-Embed-Transplant",
+        );
+        expect(
+          event.res.headers.get("access-control-allow-credentials"),
+        ).toBeNull();
+      },
+    );
 
     it("handles Tauri auth preflights before route-specific auth handlers", async () => {
       vi.stubEnv("NODE_ENV", "production");

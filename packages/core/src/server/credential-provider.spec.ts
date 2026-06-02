@@ -39,10 +39,26 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
   resolveBuilderCredentialSource,
+  resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const BUILDER_OPTIONAL_KEYS = [
+  "BUILDER_IS_ENTERPRISE",
+  "BUILDER_IS_FREE_ACCOUNT",
+  "BUILDER_ORG_KIND",
+  "BUILDER_ORG_NAME",
+  "BUILDER_SUBSCRIPTION",
+  "BUILDER_SUBSCRIPTION_LEVEL",
+  "BUILDER_SUBSCRIPTION_NAME",
+  "BUILDER_USER_ID",
+] as const;
+const BUILDER_ALL_KEYS = [
+  ...BUILDER_OPTIONAL_KEYS,
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+].sort();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,6 +75,14 @@ beforeEach(() => {
   delete process.env.VITE_FUSION_ENV_ORIGIN;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
+  delete process.env.BUILDER_USER_ID;
+  delete process.env.BUILDER_ORG_NAME;
+  delete process.env.BUILDER_ORG_KIND;
+  delete process.env.BUILDER_SUBSCRIPTION;
+  delete process.env.BUILDER_SUBSCRIPTION_LEVEL;
+  delete process.env.BUILDER_SUBSCRIPTION_NAME;
+  delete process.env.BUILDER_IS_ENTERPRISE;
+  delete process.env.BUILDER_IS_FREE_ACCOUNT;
   delete process.env.OPENAI_API_KEY;
   mockReadAppSecret.mockResolvedValue(null);
   mockWriteAppSecret.mockResolvedValue("id");
@@ -111,7 +135,7 @@ describe("resolveCredentialWriteScope", () => {
 describe("writeBuilderCredentials", () => {
   it("writes at user scope without options (legacy callers)", async () => {
     const target = await writeBuilderCredentials("a@b.com", {
-      privateKey: "pk",
+      privateKey: "bpk-test-private",
       publicKey: "pub",
     });
     expect(target).toEqual({ scope: "user", scopeId: "a@b.com" });
@@ -122,7 +146,7 @@ describe("writeBuilderCredentials", () => {
   it("writes at org scope for an owner of an active org", async () => {
     const target = await writeBuilderCredentials(
       "owner@b.com",
-      { privateKey: "pk", publicKey: "pub" },
+      { privateKey: "bpk-test-private", publicKey: "pub" },
       { orgId: "builder_io", role: "owner" },
     );
     expect(target).toEqual({ scope: "org", scopeId: "builder_io" });
@@ -136,32 +160,31 @@ describe("writeBuilderCredentials", () => {
   it("writes at user scope for a plain member of an org", async () => {
     const target = await writeBuilderCredentials(
       "member@b.com",
-      { privateKey: "pk", publicKey: "pub" },
+      { privateKey: "bpk-test-private", publicKey: "pub" },
       { orgId: "builder_io", role: "member" },
     );
     expect(target).toEqual({ scope: "user", scopeId: "member@b.com" });
   });
 
-  it("includes optional fields (userId, orgName, orgKind)", async () => {
+  it("includes optional account metadata fields", async () => {
     await writeBuilderCredentials(
       "owner@b.com",
       {
-        privateKey: "pk",
+        privateKey: "bpk-test-private",
         publicKey: "pub",
         userId: "u1",
         orgName: "Builder.io",
         orgKind: "team",
+        subscription: "vcp:v3:level2",
+        subscriptionLevel: "pro",
+        subscriptionName: "Pro",
+        isEnterprise: true,
+        isFreeAccount: false,
       },
       { orgId: "builder_io", role: "owner" },
     );
     const keys = mockWriteAppSecret.mock.calls.map((c) => c[0].key).sort();
-    expect(keys).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(keys).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("clears stale optional keys at target scope before writing the new connection", async () => {
@@ -169,20 +192,14 @@ describe("writeBuilderCredentials", () => {
     // must not leave the previous connection's metadata in place.
     await writeBuilderCredentials(
       "owner@b.com",
-      { privateKey: "pk2", publicKey: "pub2" },
+      { privateKey: "bpk-second-private", publicKey: "pub2" },
       { orgId: "builder_io", role: "owner" },
     );
     const deleteCalls = mockDeleteAppSecret.mock.calls.map((c) => c[0]);
     const orgDeletes = deleteCalls.filter(
       (c) => c.scope === "org" && c.scopeId === "builder_io",
     );
-    expect(orgDeletes.map((c) => c.key).sort()).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(orgDeletes.map((c) => c.key).sort()).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("clears the writer's user-scope override when writing at org scope so the new connection wins resolution", async () => {
@@ -193,25 +210,19 @@ describe("writeBuilderCredentials", () => {
     // scope before org scope by design.
     await writeBuilderCredentials(
       "owner@b.com",
-      { privateKey: "pk-new", publicKey: "pub-new" },
+      { privateKey: "bpk-new-private", publicKey: "pub-new" },
       { orgId: "builder_io", role: "owner" },
     );
     const userDeletes = mockDeleteAppSecret.mock.calls
       .map((c) => c[0])
       .filter((c) => c.scope === "user" && c.scopeId === "owner@b.com");
-    expect(userDeletes.map((c) => c.key).sort()).toEqual([
-      "BUILDER_ORG_KIND",
-      "BUILDER_ORG_NAME",
-      "BUILDER_PRIVATE_KEY",
-      "BUILDER_PUBLIC_KEY",
-      "BUILDER_USER_ID",
-    ]);
+    expect(userDeletes.map((c) => c.key).sort()).toEqual(BUILDER_ALL_KEYS);
   });
 
   it("does NOT touch the org-scope row when writing at user scope (other org members still need it)", async () => {
     await writeBuilderCredentials(
       "member@b.com",
-      { privateKey: "pk", publicKey: "pub" },
+      { privateKey: "bpk-test-private", publicKey: "pub" },
       { orgId: "builder_io", role: "member" },
     );
     const orgDeletes = mockDeleteAppSecret.mock.calls
@@ -234,7 +245,7 @@ describe("writeBuilderCredentials", () => {
     });
     await writeBuilderCredentials(
       "owner@b.com",
-      { privateKey: "pk", publicKey: "pub" },
+      { privateKey: "bpk-test-private", publicKey: "pub" },
       { orgId: "builder_io", role: "owner" },
     );
     const firstWrite = order.indexOf("write");
@@ -247,12 +258,61 @@ describe("writeBuilderCredentials", () => {
   it("clears the auth-failure marker for the new key pair", async () => {
     await writeBuilderCredentials(
       "owner@b.com",
-      { privateKey: "pk-new", publicKey: "pub-new" },
+      { privateKey: "bpk-new-private", publicKey: "pub-new" },
       { orgId: "builder_io", role: "owner" },
     );
-    const fingerprint = builderCredentialFingerprint("pk-new", "pub-new");
+    const fingerprint = builderCredentialFingerprint(
+      "bpk-new-private",
+      "pub-new",
+    );
     expect(mockDeleteSetting).toHaveBeenCalledWith(
       `builder-auth-failure:${fingerprint}`,
+    );
+  });
+
+  it("rejects non-private-key credentials before clearing existing rows", async () => {
+    await expect(
+      writeBuilderCredentials(
+        "owner@b.com",
+        { privateKey: "btk-personal-access-token", publicKey: "pub" },
+        { orgId: "builder_io", role: "owner" },
+      ),
+    ).rejects.toThrow("expected bpk-");
+
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("rejects blank public keys after trimming before clearing existing rows", async () => {
+    await expect(
+      writeBuilderCredentials(
+        "owner@b.com",
+        { privateKey: "bpk-test-private", publicKey: "   " },
+        { orgId: "builder_io", role: "owner" },
+      ),
+    ).rejects.toThrow("public API key");
+
+    expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("trims the returned Builder keys before storing them", async () => {
+    await writeBuilderCredentials("owner@b.com", {
+      privateKey: "  bpk-trimmed-private  ",
+      publicKey: "  pub-trimmed  ",
+    });
+
+    expect(mockWriteAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        value: "bpk-trimmed-private",
+      }),
+    );
+    expect(mockWriteAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_PUBLIC_KEY",
+        value: "pub-trimmed",
+      }),
     );
   });
 });
@@ -580,8 +640,34 @@ describe("resolveBuilderCredential", () => {
       userId: null,
       orgName: "Builder.io",
       orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
     });
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
+  });
+
+  it("only reports a complete Builder connection when private and public keys resolve together", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key }) =>
+      key === "BUILDER_PRIVATE_KEY"
+        ? { value: "private-only", last4: "only", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveHasCompleteBuilderConnection()).resolves.toBe(false);
+
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) =>
+      scope === "org" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveHasCompleteBuilderConnection()).resolves.toBe(true);
   });
 });
 

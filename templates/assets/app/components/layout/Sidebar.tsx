@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
-  IconPhoto,
-  IconLibraryPhoto,
+  IconLayoutGrid,
+  IconPhotoPlus,
+  IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -10,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
+  DevDatabaseLink,
   FeedbackButton,
   appPath,
   useActionQuery,
@@ -23,8 +25,9 @@ import {
 } from "@/components/ui/tooltip";
 
 const baseNavItems = [
-  { icon: IconPhoto, label: "Create", href: "/" },
-  { icon: IconLibraryPhoto, label: "Libraries", href: "/libraries" },
+  { icon: IconPhotoPlus, label: "Create", href: "/" },
+  { icon: IconLayoutGrid, label: "Library", href: "/library" },
+  { icon: IconPalette, label: "Brand Kits", href: "/brand-kits" },
   { icon: IconSettings, label: "Settings", href: "/settings" },
 ];
 
@@ -119,8 +122,9 @@ export function Sidebar() {
             const isActive =
               item.href === "/"
                 ? location.pathname === "/"
-                : item.href === "/libraries"
-                  ? location.pathname === "/libraries" ||
+                : item.href === "/brand-kits"
+                  ? location.pathname === "/brand-kits" ||
+                    location.pathname.startsWith("/brand-kits/") ||
                     location.pathname.startsWith("/library/") ||
                     location.pathname.startsWith("/image/") ||
                     location.pathname.startsWith("/asset/")
@@ -164,6 +168,7 @@ export function Sidebar() {
             </div>
 
             <div className="border-t border-border px-3 py-2">
+              <DevDatabaseLink />
               <FeedbackButton />
             </div>
           </div>

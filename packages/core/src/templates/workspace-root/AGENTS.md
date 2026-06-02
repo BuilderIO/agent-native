@@ -11,7 +11,9 @@ coding agents can discover the same workspace-wide guidance from the root.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
-  work, and read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
+  work. When selected UI data should become hidden context for the user's next
+  prompt without submitting anything, use `setContextToAgentChat()` with a
+  stable `key`. Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md`
   before building agent-driven UI or "AI" features.
 
 ## Workspace Resources
@@ -101,8 +103,10 @@ coding agents can discover the same workspace-wide guidance from the root.
   `http: { method: "GET" }`, and call them from React with `useActionQuery` /
   `useActionMutation`. Do not add duplicate JSON CRUD routes under `/api/*`
   for the same data unless the route is for uploads, streaming, webhooks,
-  OAuth, or another route-only concern. Action-backed UI is what makes
-  agent-created or agent-edited records appear without a manual refresh.
+  OAuth, or another route-only concern. Do not add routes whose main job is to
+  wrap, proxy, or re-export an action; the action endpoint already exists at
+  `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created
+  or agent-edited records appear without a manual refresh.
 - App database code must be provider-agnostic. Define schemas with
   `@agent-native/core/db/schema` helpers and write app reads/writes with
   Drizzle's query builder and portable `drizzle-orm` operators. Do not import

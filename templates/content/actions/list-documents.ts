@@ -6,11 +6,13 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { parseDatabaseViewConfig } from "./_property-utils.js";
 import {
   accessFilter,
   ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
+import { serializeDatabaseMembership } from "./_database-utils.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -59,7 +61,24 @@ export default defineAction({
       .orderBy(asc(schema.documents.position));
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
+    const notionPageIdByDocumentId = new Map<string, string>();
     if (documents.length > 0) {
+      const notionLinks = await db
+        .select({
+          documentId: schema.documentSyncLinks.documentId,
+          remotePageId: schema.documentSyncLinks.remotePageId,
+        })
+        .from(schema.documentSyncLinks)
+        .where(
+          inArray(
+            schema.documentSyncLinks.documentId,
+            documents.map((d) => d.id),
+          ),
+        );
+      for (const link of notionLinks) {
+        notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
+      }
+
       const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
       if (userEmail) {
         principalClauses.push(
@@ -107,9 +126,53 @@ export default defineAction({
       }
     }
 
+    const databases =
+      documents.length > 0
+        ? await db
+            .select()
+            .from(schema.contentDatabases)
+            .where(
+              inArray(
+                schema.contentDatabases.documentId,
+                documents.map((d) => d.id),
+              ),
+            )
+        : [];
+    const databaseByDocumentId = new Map(
+      databases.map((database) => [database.documentId, database]),
+    );
+    const databaseMemberships =
+      documents.length > 0
+        ? await db
+            .select({
+              item: schema.contentDatabaseItems,
+              database: schema.contentDatabases,
+            })
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.contentDatabases,
+              eq(
+                schema.contentDatabases.id,
+                schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .where(
+              inArray(
+                schema.contentDatabaseItems.documentId,
+                documents.map((d) => d.id),
+              ),
+            )
+        : [];
+    const databaseMembershipByDocumentId = new Map(
+      databaseMemberships.map((row) => [row.item.documentId, row]),
+    );
+
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
+      const database = databaseByDocumentId.get(d.id) ?? null;
+      const databaseMembership =
+        databaseMembershipByDocumentId.get(d.id) ?? null;
 
       if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
         accessRole = shareRole;
@@ -132,7 +195,24 @@ export default defineAction({
         position: d.position,
         isFavorite: parseDocumentFavorite(d.isFavorite),
         hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
+        notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
+        notionPageUrl: notionPageIdByDocumentId.has(d.id)
+          ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
+          : null,
         visibility: d.visibility,
+        database: database
+          ? {
+              id: database.id,
+              documentId: database.documentId,
+              title: database.title,
+              viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
+              createdAt: database.createdAt,
+              updatedAt: database.updatedAt,
+            }
+          : undefined,
+        databaseMembership: databaseMembership
+          ? serializeDatabaseMembership(databaseMembership)
+          : undefined,
         accessRole,
         canEdit: canEditRole(accessRole),
         canManage: canManageRole(accessRole),

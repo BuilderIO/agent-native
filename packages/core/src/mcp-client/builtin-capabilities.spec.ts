@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,
   isBuiltinMcpCapabilityAvailable,
+  listSupportedBuiltinMcpCapabilities,
   normalizeBuiltinMcpCapabilityIds,
   toBuiltinMcpServerConfig,
 } from "./builtin-capabilities.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("built-in MCP capabilities", () => {
   it("pins the browser and computer-use server commands", () => {
@@ -59,5 +65,20 @@ describe("built-in MCP capabilities", () => {
     expect(BUILTIN_MCP_CAPABILITIES.map((capability) => capability.id)).toEqual(
       ["browser-chrome-devtools", "browser-playwright", "computer-use"],
     );
+  });
+
+  it("does not support local stdio built-ins in production runtimes", () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(areBuiltinMcpCapabilitiesSupported()).toBe(false);
+    expect(listSupportedBuiltinMcpCapabilities()).toEqual([]);
+  });
+
+  it("does not support local stdio built-ins on hosted serverless runtimes", () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("VERCEL", "1");
+
+    expect(areBuiltinMcpCapabilitiesSupported()).toBe(false);
+    expect(listSupportedBuiltinMcpCapabilities()).toEqual([]);
   });
 });

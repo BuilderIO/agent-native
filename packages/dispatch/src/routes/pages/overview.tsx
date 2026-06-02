@@ -399,18 +399,18 @@ function StatCard({
   cta?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-5">
+    <div className="min-w-0 rounded-2xl border bg-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <span>{label}</span>
+          <div className="flex items-center gap-1.5 text-sm font-medium leading-snug text-foreground">
+            <span className="min-w-0">{label}</span>
             <HelpTooltip content={help} />
           </div>
           <div className="mt-3 text-3xl font-semibold text-foreground">
             {value}
           </div>
         </div>
-        <div className="rounded-xl border bg-muted/30 p-3 text-muted-foreground">
+        <div className="shrink-0 rounded-xl border bg-muted/30 p-3 text-muted-foreground">
           <Icon size={18} />
         </div>
       </div>
@@ -649,7 +649,7 @@ export default function OverviewRoute() {
           <IconActivity size={16} className="text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">At a glance</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))] gap-4">
           <StatCard
             label="Vault secrets"
             help="Credentials stored in the workspace vault."

@@ -50,6 +50,36 @@ describe("document export", () => {
     expect(exportPayload.content).not.toContain("javascript:");
   });
 
+  it("renders <empty-block/> as <p>&nbsp;</p> in HTML exports", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Spacing",
+      content: "First line\n<empty-block/>\nSecond line",
+      format: "html",
+    });
+
+    expect(exportPayload.content).toContain("<p>First line</p>");
+    expect(exportPayload.content).toContain("<p>&nbsp;</p>");
+    expect(exportPayload.content).toContain("<p>Second line</p>");
+    expect(exportPayload.content).not.toContain("<empty-block");
+    expect(exportPayload.content).not.toContain("&lt;empty-block");
+    expect(exportPayload.content).not.toContain("<br/>");
+  });
+
+  it("renders consecutive empty blocks as separate paragraphs", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Spacing",
+      content: "Top\n<empty-block/>\n<empty-block/>\nBottom",
+      format: "html",
+    });
+
+    expect(exportPayload.content.match(/<p>&nbsp;<\/p>/g)).toHaveLength(2);
+    expect(exportPayload.content).toContain("<p>Top</p>");
+    expect(exportPayload.content).toContain("<p>Bottom</p>");
+    expect(exportPayload.content).not.toContain("<empty-block");
+  });
+
   it("marks PDF exports as print-ready HTML with a PDF filename", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",

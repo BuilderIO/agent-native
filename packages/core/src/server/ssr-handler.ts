@@ -19,15 +19,34 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, type H3Event } from "h3";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 import { BETTER_AUTH_COOKIE_PREFIX, COOKIE_NAME, getSession } from "./auth.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  hasAuthContextAccess,
+  runWithRequestContext,
+  type RequestContext,
+} from "./request-context.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+} from "../shared/social-meta.js";
+import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  DEFAULT_SPECULATION_RULES_PATH,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 
-export const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+export {
+  DEFAULT_SSR_CACHE_HEADERS,
+  DEFAULT_SPECULATION_RULES_HEADER,
+  DEFAULT_SSR_CACHE_CONTROL,
+} from "../shared/cache-control.js";
 const ANONYMOUS_SESSION_COOKIE_NAMES = new Set(["an_docs_session"]);
 const BETTER_AUTH_SESSION_COOKIE_RE = /\.session_(?:token|data)$/;
 
@@ -145,6 +164,57 @@ function injectHeadScript(html: string, script: string | null): string {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
+const OG_IMAGE_META_RE = /<meta\b(?=[^>]*\bproperty=(["'])og:image\1)[^>]*>/i;
+const TWITTER_CARD_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:card\1)[^>]*>/i;
+const TWITTER_IMAGE_META_RE =
+  /<meta\b(?=[^>]*\bname=(["'])twitter:image\1)[^>]*>/i;
+
+function defaultSocialImageUrl(requestUrl: string, basePath: string): string {
+  return new URL(
+    prefixMountedPath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, basePath),
+    requestUrl,
+  ).toString();
+}
+
+function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+
+  const hasAnySocialImage =
+    OG_IMAGE_META_RE.test(html) || TWITTER_IMAGE_META_RE.test(html);
+  const tags: string[] = [];
+
+  if (!hasAnySocialImage) {
+    tags.push(`<meta property="og:image" content="${imageUrl}">`);
+    tags.push(`<meta property="og:image:secure_url" content="${imageUrl}">`);
+    tags.push(
+      `<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">`,
+    );
+    tags.push(
+      `<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">`,
+    );
+    tags.push(
+      `<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">`,
+    );
+    tags.push(
+      `<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+  if (!TWITTER_CARD_META_RE.test(html)) {
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  if (!hasAnySocialImage) {
+    tags.push(`<meta name="twitter:image" content="${imageUrl}">`);
+    tags.push(
+      `<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`,
+    );
+  }
+
+  if (tags.length === 0) return html;
+  return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
+}
+
 function requestHasAuthSignal(event: H3Event): boolean {
   const headers = event.req.headers;
   return Boolean(
@@ -180,14 +250,94 @@ function isAuthenticatedCookieName(name: string): boolean {
   );
 }
 
-function applyDefaultSsrCacheHeader(headers: Headers, status: number) {
-  if (headers.has("cache-control")) return;
+function shouldUseDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+  authContextAccessed: boolean,
+): boolean {
+  if (status < 200 || status >= 400) return false;
+  if (authContextAccessed) {
+    // Do not bypass cache just because a browser carries an auth-looking
+    // cookie: public docs/pages can receive stale workspace cookies and should
+    // still warm the CDN. But if SSR code actually reads user/org context,
+    // that route is rendering private data and must not be public-cached.
+    // Move those reads to client-side actions/API to regain CDN caching.
+    return false;
+  }
+
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/html")) {
+    // SSR HTML is public app shell in this framework; any per-user state is
+    // fetched after hydration. Always enforce the framework SWR default here;
+    // route-level no-cache/private headers on SSR HTML recreate the same
+    // origin stampede this cache policy is meant to prevent.
+    return true;
+  }
+
+  if (!pathname.endsWith(".data")) return false;
+  if (!contentType.includes("text/x-script")) return false;
+
+  // React Router gives loader `.data` responses `cache-control: no-cache` by
+  // default. In Agent-Native, SSR output is intentionally public app shell:
+  // user/org-specific reads happen after hydration through actions and API
+  // routes. Keep `.data` on the same short-fresh/long-SWR policy as HTML so
+  // route data fetches warm the CDN instead of hammering origin.
+  // Do not re-add a blanket cookie/auth-signal bypass here: logged-in browsers
+  // still need CDN-cached public route data. The auth-context leak guard above
+  // is the narrow protection for old SSR loaders that still read user/org data.
+  // Also do not preserve route-level private/no-store for React Router .data:
+  // if a route needs per-user data, it belongs behind a client-side action/API
+  // call rather than in the shared SSR payload.
+  return true;
+}
+
+function applyDefaultSsrCacheHeader(
+  headers: Headers,
+  status: number,
+  pathname: string,
+  authContextAccessed: boolean,
+) {
+  if (
+    !shouldUseDefaultSsrCacheHeader(
+      headers,
+      status,
+      pathname,
+      authContextAccessed,
+    )
+  ) {
+    return;
+  }
+  // Netlify Functions/proxies are not cached by default, and production docs
+  // requests often carry stale auth/doc cookies. Keep all three cache headers:
+  // Cache-Control for browsers, CDN-Cache-Control for generic CDNs, and
+  // Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache actually
+  // serves SSR HTML/.data instead of forwarding every request to origin.
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    headers.set(name, value);
+  }
+}
+
+function applyDefaultSpeculationRulesHeader(
+  headers: Headers,
+  status: number,
+  basePath: string,
+) {
   if (status < 200 || status >= 400) return;
+  if (headers.has("speculation-rules")) return;
 
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/html")) return;
 
-  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
+  // Cloudflare Speed Brain injects its own Speculation-Rules header when the
+  // origin omits one. Those browser prefetches carry `Sec-Purpose: prefetch`,
+  // and Cloudflare refuses cache-ineligible dynamic pages with a 503 before
+  // the request can reach Netlify/origin. We publish an explicit no-op ruleset
+  // by default so Cloudflare does not inject its edge prefetch rules. Preserve
+  // an app-provided Speculation-Rules header above if a template deliberately
+  // owns this behavior.
+  const rulesPath = prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath);
+  headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -211,22 +361,23 @@ function isFrameworkOrAssetPath(pathname: string): boolean {
 async function rewriteMountedResponse(
   response: Response,
   basePath: string,
+  pathname: string,
+  requestUrl: string,
+  requestContext?: RequestContext,
 ): Promise<Response> {
   const sentryClientConfigScript = getSentryClientConfigScript();
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    hasAuthContextAccess(requestContext),
+  );
+  applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//")) {
     headers.set("location", prefixMountedPath(location, basePath));
-  }
-
-  if (!basePath && !sentryClientConfigScript) {
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
   }
 
   const contentType = headers.get("content-type") ?? "";
@@ -242,7 +393,10 @@ async function rewriteMountedResponse(
   headers.delete("content-length");
   return new Response(
     injectHeadScript(
-      prefixMountedHtml(html, basePath),
+      injectDefaultSocialImageMeta(
+        prefixMountedHtml(html, basePath),
+        defaultSocialImageUrl(requestUrl, basePath),
+      ),
       sentryClientConfigScript,
     ),
     {
@@ -302,11 +456,17 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
             headers: response.headers,
           }),
           basePath,
+          p,
+          request.url,
+          ctx,
         );
       }
       return await rewriteMountedResponse(
         await runWithRequestContext(ctx, () => handler(request)),
         basePath,
+        p,
+        request.url,
+        ctx,
       );
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.

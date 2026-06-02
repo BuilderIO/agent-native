@@ -9,11 +9,6 @@ export interface BlogPageSeo {
   estimated_paid_traffic_cost: number;
 }
 
-interface SeoResponse {
-  pages: Record<string, BlogPageSeo>;
-  total: number;
-}
-
 export function useBlogSeoData() {
   return useActionQuery("seo-blog-pages", undefined, {
     staleTime: 30 * 60 * 1000, // 30 min
@@ -28,10 +23,6 @@ export interface RankedKeyword {
   rank_absolute: number;
   url: string;
   etv: number;
-}
-
-interface KeywordsResponse {
-  keywords: RankedKeyword[];
 }
 
 export function useBlogKeywords(slug: string | null) {
@@ -54,11 +45,6 @@ export interface BlogKeywordRanking {
   url: string;
   handle: string;
   etv: number;
-}
-
-interface TopKeywordsResponse {
-  keywords: BlogKeywordRanking[];
-  total: number;
 }
 
 export function useTopBlogKeywords(limit = 500) {
@@ -89,20 +75,10 @@ export interface HubSpotDeal {
   };
 }
 
-interface HubSpotDealsResponse {
-  deals: HubSpotDeal[];
-  stageLabels: Record<string, string>;
-  total: number;
-}
-
 export interface HubSpotPipeline {
   id: string;
   label: string;
   stages: { id: string; label: string; displayOrder: number }[];
-}
-
-interface HubSpotPipelinesResponse {
-  pipelines: HubSpotPipeline[];
 }
 
 export interface HubSpotMetrics {
@@ -393,11 +369,6 @@ export interface ContentCalendarEntry {
   contentPillar: string;
   persona: string;
   properties: Record<string, string>;
-}
-
-interface ContentCalendarResponse {
-  entries: ContentCalendarEntry[];
-  total: number;
 }
 
 export function useContentCalendar() {

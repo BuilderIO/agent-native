@@ -4,6 +4,8 @@ description: >-
   Scheduled tasks the agent runs on a cron schedule. Use when a user asks for
   something recurring ("every morning", "daily", "weekly"), when creating or
   updating jobs, or when debugging the job scheduler.
+metadata:
+  internal: true
 ---
 
 # Recurring Jobs

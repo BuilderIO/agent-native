@@ -427,6 +427,10 @@ function isEmbedRuntimeRequest(event: H3Event): boolean {
     !!pathname &&
     (pathname === "/api" ||
       pathname.startsWith("/api/") ||
+      pathname.startsWith("/@") ||
+      pathname.startsWith("/app/") ||
+      pathname.startsWith("/node_modules/") ||
+      pathname.startsWith("/packages/") ||
       pathname === "/_agent-native" ||
       pathname.startsWith("/_agent-native/"))
   );
@@ -695,14 +699,22 @@ export async function resolveEmbedSessionFromRequest(
       event,
       verified.claims.targetPath,
     );
+    const isRuntimeRequest = isEmbedRuntimeRequest(event);
     const isRuntimeCookieRequest =
-      candidate.source === "cookie" && isEmbedRuntimeRequest(event);
-    if (!matchesTarget && !isRuntimeCookieRequest) {
+      candidate.source === "cookie" && isRuntimeRequest;
+    const isRuntimeQueryRequest =
+      candidate.source === "query" && isRuntimeRequest;
+    if (!matchesTarget && !isRuntimeCookieRequest && !isRuntimeQueryRequest) {
       continue;
     }
     if (candidate.source === "query" && candidate.token) {
-      setEmbedSessionCookie(event, candidate.token);
-      setResponseHeader(event, "Referrer-Policy", "no-referrer");
+      try {
+        setEmbedSessionCookie(event, candidate.token);
+        setResponseHeader(event, "Referrer-Policy", "no-referrer");
+      } catch {
+        // Some tests and edge runtimes expose read-only request shims. The
+        // query token itself is still valid for this request.
+      }
     }
     return {
       email: verified.claims.ownerEmail,
@@ -722,11 +734,18 @@ export function requestHasEmbedAuthMarker(event: H3Event): boolean {
       ? q[EMBED_TOKEN_QUERY_PARAM][0]
       : q[EMBED_TOKEN_QUERY_PARAM];
     const cookieToken = getCookie(event, EMBED_SESSION_COOKIE);
-    for (const token of [queryToken, cookieToken]) {
-      const verified = verifyEmbedSessionToken(token);
+    const candidates = [
+      { token: queryToken, allowRuntime: true },
+      { token: bearerToken(event), allowRuntime: false },
+      { token: cookieToken, allowRuntime: true },
+    ];
+    const runtimeRequest = isEmbedRuntimeRequest(event);
+    for (const candidate of candidates) {
+      const verified = verifyEmbedSessionToken(candidate.token);
       if (
         verified.ok &&
-        requestMatchesEmbedTarget(event, verified.claims.targetPath)
+        (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
+          (candidate.allowRuntime && runtimeRequest))
       ) {
         return true;
       }

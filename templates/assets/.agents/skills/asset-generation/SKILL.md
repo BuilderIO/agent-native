@@ -31,8 +31,13 @@ or generated image/video assets that another app can reference by ID and URL.
 - Use chat-driven `restyle-image` and `edit-image` for preserving subjects,
   applying library style, and making targeted changes. Do not surface separate
   restyle, edit, or quality-tier buttons in host UIs.
-- Use browser/deep-link fallback when the host cannot render MCP Apps inline.
-  Surface the returned picker link instead of inventing a separate UI.
+- Use browser/deep-link fallback when the host cannot render MCP Apps inline
+  (CLIs and code editors like Claude Code and Codex). Surface the returned
+  picker link. When the user opens it, they can either click an asset — the
+  page auto-copies a short handoff summary for them to paste back into chat —
+  or simply tell you which one in words (e.g. "use image A" / "the second
+  one"). Both are first-class; don't insist on the paste-back if they just name
+  the pick.
 
 ## Image Workflows
 
@@ -42,18 +47,22 @@ or generated image/video assets that another app can reference by ID and URL.
    library is editable and reusable like any other library.
 2. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
-3. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
-4. Let the server choose a small deterministic reference set unless the user
+3. Image generation actions are synchronous. After `generate-image` or
+   `generate-image-batch` returns, use its returned `images` / asset fields
+   directly; do not call `get-generation-run`, `refresh-generation-run`, or
+   regenerate just to verify image runs.
+4. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
+5. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
    `assets.metadata.isStyleAnchor`.
-5. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
+6. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
-6. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-7. Use `refine-image` for feedback on an existing asset, `edit-image` for
+7. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+8. Use `refine-image` for feedback on an existing asset, `edit-image` for
    targeted changes, and `restyle-image` with `subjectAssetId` and
    `styleStrength` for subject-preserving brand restyles.
-8. If a designer will take over, call `create-generation-session` or
+9. If a designer will take over, call `create-generation-session` or
    `update-generation-session`, then `prepare-generation-session-continuation`
    when they want a chat preloaded with the session context.
 

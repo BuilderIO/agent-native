@@ -10,3 +10,4 @@ pnpm-lock.yaml
 templates/migration/data
 # Generated file — formatting flips between runs
 packages/docs/app/components/searchIndex.ts
+packages/docs/public/source-index.json

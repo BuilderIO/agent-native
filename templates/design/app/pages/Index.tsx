@@ -706,9 +706,9 @@ function derivePromptTitle(prompt: string): string {
  * still look right) and is then scaled to fill the card via a transform.
  *
  * The size is recomputed via ResizeObserver so the same component works in
- * 1, 2, 3 and 4-column grid layouts. We use a sandboxed iframe with the same
- * settings as DesignCanvas (allow-scripts + allow-same-origin) so Tailwind
- * CDN + Alpine.js can run.
+ * 1, 2, 3 and 4-column grid layouts. We use a sandboxed iframe with only
+ * allow-scripts (no allow-same-origin) so Tailwind/Alpine CDN render without
+ * granting arbitrary design HTML access to the host origin.
  */
 function DesignThumbnail({ html }: { html: string | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -748,7 +748,7 @@ function DesignThumbnail({ html }: { html: string | null }) {
     >
       <iframe
         srcDoc={html}
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}
         aria-hidden

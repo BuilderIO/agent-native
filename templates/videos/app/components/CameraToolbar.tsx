@@ -76,7 +76,6 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
     y: 0,
     values: {},
   });
-  const lockPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const cameraTrack = tracks.find((t) => t.id === "camera");
 
@@ -152,7 +151,11 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
           return {
             ...prop,
             keyframes: [
-              { frame: currentFrame, value: valueStr, easing: "expo.inOut" },
+              {
+                frame: currentFrame,
+                value: valueStr,
+                easing: "expo.inOut" as const,
+              },
             ],
           };
         }
@@ -172,7 +175,11 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
         } else {
           const newKeyframes = [
             ...prop.keyframes,
-            { frame: currentFrame, value: valueStr, easing: "expo.inOut" },
+            {
+              frame: currentFrame,
+              value: valueStr,
+              easing: "expo.inOut" as const,
+            },
           ];
           newKeyframes.sort((a, b) => a.frame - b.frame);
           return { ...prop, keyframes: newKeyframes };

@@ -50,7 +50,7 @@ export function useCursorHistory(
       let clicking = 0;
       for (const kf of clickKeyframes) {
         // Only create pulse if this keyframe marks the START of a click (value = "1")
-        if (kf.value === "1" || kf.value === 1) {
+        if (String(kf.value) === "1") {
           const clickFrame = kf.frame;
           if (checkFrame >= clickFrame && checkFrame < clickFrame + 6) {
             clicking = 1;

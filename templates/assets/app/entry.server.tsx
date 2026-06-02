@@ -46,7 +46,9 @@ export default async function handleRequest(
     }
 
     responseHeaders.set("Content-Type", "text/html");
-    return new Response(wrapWithAnalytics(body), {
+    const analyticsBody =
+      typeof wrapWithAnalytics === "function" ? wrapWithAnalytics(body) : body;
+    return new Response(analyticsBody, {
       headers: responseHeaders,
       status: responseStatusCode,
     });

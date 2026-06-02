@@ -220,7 +220,8 @@ function DisconnectBuilderButton() {
       }
       if (!res.ok) {
         throw new Error(
-          body.error || `Failed (${res.status}). Is dev:all up to date?`,
+          body.error ||
+            `Failed (${res.status}). Is your dev server up to date?`,
         );
       }
       if (body.ok !== true) {
@@ -1930,16 +1931,20 @@ function initialOpenSection(): SettingsSectionId {
   return normalizeSettingsSection(window.location.hash) ?? "llm";
 }
 
-const environmentOptions: SettingsSelectOption[] = [
+// Agent capability modes. The internal values ("production"/"development") are
+// kept for back-compat with the AGENT_MODE wiring; only the visible labels
+// changed to "App mode" / "Code mode" so this control reads as the agent
+// capability it is — not the deployment environment (NODE_ENV).
+const agentModeOptions: SettingsSelectOption[] = [
   {
     value: "production",
-    label: "Production",
+    label: "App mode",
     description:
       "App tools only; code, bash, and files require Builder or a local clone.",
   },
   {
     value: "development",
-    label: "Development",
+    label: "Code mode",
     description: "Full access to code editing, bash, and files.",
   },
 ];
@@ -2146,8 +2151,8 @@ export function SettingsPanel({
     trackingSource: "settings_panel_builder_card",
   });
 
-  // Detect whether the app registered any secrets — controls whether the
-  // "API Keys & Connections" section renders at all.
+  // When opened via a `#secrets:<KEY>` hash, focus that specific secret input
+  // inside the "API Keys & Connections" section.
   const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
     undefined,
   );
@@ -2209,12 +2214,12 @@ export function SettingsPanel({
       className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2"
       style={{ overflowY: "auto" }}
     >
-      {/* Environment toggle + dev app link */}
+      {/* Agent capability mode (App vs Code) + app link */}
       {(showDevToggle || devAppUrl) && (
         <div className="space-y-2 pb-2 border-b border-border mb-2">
           {showDevToggle && (
             <SettingsSelect
-              label="Environment"
+              label="Agent mode"
               labelAdornment={
                 devAppUrl ? (
                   <Tooltip>
@@ -2234,7 +2239,7 @@ export function SettingsPanel({
                 ) : undefined
               }
               value={isDevMode ? "development" : "production"}
-              options={environmentOptions}
+              options={agentModeOptions}
               onValueChange={(next) => {
                 const nextIsDev = next === "development";
                 if (nextIsDev !== isDevMode) onToggleDevMode();

@@ -11,15 +11,16 @@ Agent-native apps are designed to be secure by default. The framework provides a
 
 The framework architecture prevents common vulnerabilities when you use the standard patterns:
 
-| Vulnerability   | Framework Protection                                            |
-| --------------- | --------------------------------------------------------------- |
-| SQL injection   | Parameterized queries in `db-query`/`db-exec` and Drizzle ORM   |
-| XSS             | React auto-escapes JSX; TipTap sanitizes rich text              |
-| Data leaks      | SQL-level scoping via temporary views (`owner_email`, `org_id`) |
-| Auth bypass     | Auth guard auto-protects all `defineAction` endpoints           |
-| Input injection | Zod schema validation in `defineAction`                         |
-| CSRF            | `SameSite=lax` + `httpOnly` cookies                             |
-| Secret exposure | `.env` files gitignored; OAuth tokens in dedicated store        |
+| Vulnerability   | Framework Protection                                                   |
+| --------------- | ---------------------------------------------------------------------- |
+| SQL injection   | Parameterized queries in `db-query`/`db-exec` and Drizzle ORM          |
+| XSS             | React auto-escapes JSX; TipTap sanitizes rich text                     |
+| Data leaks      | SQL-level scoping via temporary views (`owner_email`, `org_id`)        |
+| Auth bypass     | Auth guard auto-protects all `defineAction` endpoints                  |
+| Input injection | Zod schema validation in `defineAction`                                |
+| CSRF            | `SameSite=lax` + `httpOnly` cookies                                    |
+| Secret exposure | `.env` gitignored; credentials & vault encrypted at rest (AES-256-GCM) |
+| SSRF            | `ssrfSafeFetch` blocks internal/metadata targets + redirect rebinding  |
 
 ## Input Validation {#input-validation}
 
@@ -67,9 +68,31 @@ React auto-escapes all JSX expressions. Additional guidelines:
 - For rich text editing, use TipTap (framework dependency) — it sanitizes through its schema
 - For rendering markdown, use `react-markdown` — it converts to React elements safely
 
+## Server-Side Fetch (SSRF) {#ssrf}
+
+Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard, or it can be pointed at cloud metadata (`169.254.169.254`), `localhost`, or internal services:
+
+```typescript
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+`ssrfSafeFetch` blocks private/internal targets, re-checks the resolved IP at connect time (DNS rebinding), and re-validates every redirect hop so a public URL can't redirect into the private network. The extension iframe proxy, `upload-image`, and the design-token importer all route through it. For a pre-flight-only check, use `isBlockedExtensionUrlWithDns(url)` with `redirect: "manual"`.
+
 ## Data Scoping {#data-scoping}
 
-In production, the framework automatically restricts agent SQL queries to the current user's data. This is enforced at the SQL level — agents cannot bypass it.
+In production, the framework automatically restricts agent SQL queries to the current user's data. This is enforced at the SQL level — agents cannot bypass it. This section is the canonical reference for the scoping pipeline; the [Authentication](/docs/authentication) and [Multi-Tenancy](/docs/multi-tenancy) docs link here for the mechanics.
+
+### The scoping pipeline {#scoping-pipeline}
+
+Scoping flows from the authenticated session down to the SQL the agent runs:
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+The signed-in session carries `email` and (when an org is active) `orgId`. The framework establishes request context from that session, exposes the active org to agent SQL as `AGENT_ORG_ID`, and rewrites every query so it can only see rows the current identity owns. The same path applies whether the query comes from the UI, an action, or the agent — the agent cannot read data for an org the user isn't a member of.
 
 ### Per-User Scoping (`owner_email`)
 
@@ -96,9 +119,33 @@ CREATE TEMPORARY VIEW "notes" AS
 
 INSERT statements get `owner_email` auto-injected when the column isn't already present.
 
+The `db-query` / `db-exec` tools reject schema-qualified table references (`public.<table>`, `main.<table>`) — a qualified name resolves to the base table and would bypass the temporary view above. Agents use bare table names; scoping is applied automatically.
+
 ### Per-Org Scoping (`org_id`)
 
 For multi-user apps where teams share data, add an `org_id` column. When both columns are present, queries are scoped by both: `WHERE owner_email = ? AND org_id = ?`.
+
+The `ownableColumns()` schema helper adds both `owner_email` and `org_id` in one call, so new tenant-aware tables get the full scoping contract by default:
+
+```typescript
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id
+});
+```
+
+### Access guards in actions {#access-guards}
+
+Raw agent SQL is scoped by the temporary views above. Action code that queries with Drizzle directly should go through the framework's access helpers so reads and writes stay scoped to the current identity:
+
+- **`accessFilter`** — returns the `WHERE` predicate that limits a query to rows the current user/org may see. Use it in list/read queries.
+- **`resolveAccess`** — resolves the effective access scope (owner, org, shared) for the current request.
+- **`assertAccess`** — guards a write or single-record read, throwing if the current identity may not act on the target row.
+
+Tables built with `ownableColumns()` require these scoped reads and writes; custom Nitro routes must establish request context before querying ownable data. The `guard-no-unscoped-queries` check (run via `pnpm guards`) enforces this at CI time. See the `sharing` skill for the full helper API.
 
 ### Validation
 
@@ -109,13 +156,17 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 
 ## Secrets Management {#secrets}
 
-| Secret type                     | Where to store                               |
-| ------------------------------- | -------------------------------------------- |
-| API keys (OpenAI, Stripe, etc.) | `.env` file (gitignored, server-side only)   |
-| OAuth tokens (Google, GitHub)   | `oauth_tokens` store via `saveOAuthTokens()` |
-| Session tokens                  | Automatic (Better Auth handles this)         |
+| Secret type                        | Where to store                                             |
+| ---------------------------------- | ---------------------------------------------------------- |
+| Deploy-level keys (one per app)    | `.env` file (gitignored, server-side only)                 |
+| Per-user / per-org API keys        | `saveCredential` / `resolveCredential` (encrypted at rest) |
+| Registered secrets (sidebar vault) | `app_secrets` vault (encrypted at rest)                    |
+| OAuth tokens (Google, GitHub)      | `oauth_tokens` store via `saveOAuthTokens()`               |
+| Session tokens                     | Automatic (Better Auth handles this)                       |
 
-Never store secrets in `settings`, `application_state`, source code, or action responses.
+Per-user/per-org credentials and the vault are encrypted at rest with AES-256-GCM, keyed by `SECRETS_ENCRYPTION_KEY` (falling back to `BETTER_AUTH_SECRET`); production refuses to start without one. To encrypt any pre-existing plaintext credential rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive).
+
+Never store secrets in `settings`, `application_state`, source code, or action responses. Use the credential / vault APIs above — they handle both encryption and per-user scoping.
 
 ## Authentication {#auth}
 
@@ -188,7 +239,6 @@ Workspace-scope secret writes still require org owner/admin role regardless of t
 - [ ] `EMAIL_INBOUND_WEBHOOK_SECRET` if Resend / SendGrid inbound is enabled
 - [ ] `SLACK_SIGNING_SECRET` if Slack is enabled
 - [ ] `TELEGRAM_WEBHOOK_SECRET` / `WHATSAPP_APP_SECRET` for those integrations
-- [ ] `RECALL_WEBHOOK_SECRET`, `DEEPGRAM_WEBHOOK_SECRET`, `ZOOM_WEBHOOK_SECRET` for calls
 - [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
 
 ### Schema

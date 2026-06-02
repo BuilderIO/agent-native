@@ -58,7 +58,7 @@ export default function DocsPrevNext() {
     <nav className="docs-prev-next">
       {prev ? (
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to={prev.to}
           className="docs-prev-next-link docs-prev-link"
         >
@@ -73,7 +73,7 @@ export default function DocsPrevNext() {
       )}
       {next ? (
         <Link
-          prefetch="render"
+          data-an-prefetch="render"
           to={next.to}
           className="docs-prev-next-link docs-next-link"
         >

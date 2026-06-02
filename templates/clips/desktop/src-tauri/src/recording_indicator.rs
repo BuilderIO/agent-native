@@ -343,6 +343,7 @@ pub async fn recording_pill_show(
                 "mode": mode_str,
             }),
         );
+        configure_overlay_behavior(&existing);
         show_without_activation(&existing);
         return Ok(());
     }

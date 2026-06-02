@@ -14,6 +14,8 @@ on:
     paths:
       - "packages/**"
       - ".changeset/**"
+      - ".github/workflows/changeset-check.yml"
+      - "scripts/check-changeset.mjs"
 
 permissions:
   contents: read

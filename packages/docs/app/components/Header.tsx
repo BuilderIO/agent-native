@@ -113,7 +113,7 @@ export default function Header() {
       >
         <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-6 px-6">
           <Link
-            prefetch="render"
+            data-an-prefetch="render"
             to="/"
             aria-label="Agent-Native"
             className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
@@ -133,7 +133,7 @@ export default function Header() {
           {/* Desktop nav links */}
           <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/docs"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -142,7 +142,7 @@ export default function Header() {
               Docs
             </NavLink>
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/templates"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -151,7 +151,7 @@ export default function Header() {
               Templates
             </NavLink>
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/download"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -219,7 +219,7 @@ export default function Header() {
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/docs"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -229,7 +229,7 @@ export default function Header() {
               Docs
             </NavLink>
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/templates"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -239,7 +239,7 @@ export default function Header() {
               Templates
             </NavLink>
             <NavLink
-              prefetch="render"
+              data-an-prefetch="render"
               to="/download"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"

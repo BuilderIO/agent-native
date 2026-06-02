@@ -88,6 +88,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  DevDatabaseLink,
   FeedbackButton,
   appApiPath,
   appPath,
@@ -307,8 +308,7 @@ function SortableRow({
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
   /** When provided, the menu shows Archive as the primary destructive action
-   *  and Delete becomes a confirm-gated "Delete permanently". When omitted,
-   *  Delete fires immediately with no confirm (analyses behavior). */
+   *  and Delete becomes a confirm-gated "Delete permanently". */
   onArchive?: () => Promise<void> | void;
   onPrefetch?: () => void;
   visibility?: Visibility;
@@ -582,7 +582,8 @@ function SortableRow({
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    void runDelete();
+                    setMenuOpen(false);
+                    setConfirmDeleteOpen(true);
                   }}
                   className="text-destructive focus:text-destructive"
                 >
@@ -595,31 +596,29 @@ function SortableRow({
         </div>
       </div>
       {children}
-      {onArchive && (
-        <AlertDialog
-          open={confirmDeleteOpen}
-          onOpenChange={setConfirmDeleteOpen}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This permanently deletes &ldquo;{name}&rdquo; and cannot be
-                undone. To keep it recoverable, choose Archive instead.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => void runDelete()}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete permanently
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes &ldquo;{name}&rdquo; and cannot be
+              undone.
+              {onArchive
+                ? " To keep it recoverable, choose Archive instead."
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void runDelete()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -2098,6 +2097,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <OrgSwitcher />
             <TooltipProvider delayDuration={200}>
               <div className="flex items-center gap-1">
+                <DevDatabaseLink />
                 <FeedbackButton className="min-w-0 flex-1" />
                 <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>

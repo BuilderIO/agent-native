@@ -13,7 +13,8 @@ use tauri::{
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceWakePopover,
+    DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceTargetBundle,
+    VoiceWakePopover,
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
@@ -68,8 +69,7 @@ enum TextInsertionStrategy {
 /// matter what CSS `overflow` says.
 ///
 /// 80 physical px ≈ 40 logical px on retina — enough for the ~28px pill plus
-/// an 8px gap from the circle, with a small cushion so the pill's drop-shadow
-/// doesn't clip at the window bottom.
+/// an 8px gap from the circle, with a small cushion at the window bottom.
 const BUBBLE_CONTROLS_BUDGET_PX: u32 = 80;
 
 fn overlay_scale_factor(app: &AppHandle) -> f64 {
@@ -416,7 +416,8 @@ pub async fn show_region_guide_editor(app: AppHandle) -> Result<(), String> {
 }
 
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// matching Loom's left-rail placement. Draggable, always on top.
+/// with hover-revealed restart/cancel controls matching Loom's left-rail
+/// placement. Draggable, always on top.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
@@ -424,18 +425,20 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
     let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
     let gutter = overlay_shadow_gutter_physical(&app);
-    // Tighter pill: buttons are 30px, padding is 10px, gap is 10px. The
-    // visible pill keeps its original footprint, while the native window is
-    // expanded by a transparent gutter so the CSS shadow is not chopped at
-    // the rectangular WebView edge.
-    let content_w: u32 = 110;
-    let content_h: u32 = 260;
+    // CSS is authored in logical px, while this command sizes the native
+    // window in physical px. Keep the visible toolbar large enough for the
+    // fixed 30px circular controls on high-DPI displays.
+    let content_w: u32 = (72.0 * scale).round() as u32;
+    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
     let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    // Flush-left with a small margin; vertically centered on the screen.
+    let h: u32 = collapsed_content_h + gutter * 2;
+    // Flush-left with a small margin; vertically center the collapsed pill.
+    // The React toolbar temporarily resizes this window while hover/focus
+    // reveals extra controls so transparent pixels don't block clicks.
     let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - content_h as i32) / 2 - gutter as i32;
+    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
@@ -455,8 +458,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         // IMPORTANT: native window shadow MUST stay off — macOS draws it
         // based on the rectangular window bounds, not the rounded React
         // content, so it shows up as a hard-edged black rectangle around
-        // the rounded pill. CSS box-shadow on `.toolbar-v` provides the
-        // soft drop shadow instead, shaped to the visible content.
+        // the rounded pill.
         .shadow(false)
         .visible(false)
         .focused(false);
@@ -877,17 +879,18 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
     // Wider + taller than the pill alone so the live transcript chip
     // can stack above it. Height accommodates: bottom-anchored 32px pill
-    // + 6px gap + ~28px transcript chip + drop-shadow margin.
-    let content_w: u32 = 420;
-    let content_h: u32 = 120;
+    // + 6px gap + ~28px transcript chip + transparent window margin.
+    let content_w: u32 = (420.0 * scale).round() as u32;
+    let content_h: u32 = (120.0 * scale).round() as u32;
+    let bottom_margin: i32 = (14.0 * scale).round() as i32;
     let gutter = overlay_shadow_gutter_physical(&app);
     let w: u32 = content_w + gutter * 2;
     let h: u32 = content_h + gutter * 2;
     let x: i32 = (mx + (mw as i32 - content_w as i32) / 2 - gutter as i32).max(mx);
-    // Bottom margin: ~14 logical px ≈ 28 physical px.
-    let y: i32 = (my + mh as i32 - content_h as i32 - 28 - gutter as i32).max(my);
+    let y: i32 = (my + mh as i32 - h as i32 - bottom_margin).max(my);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
         // Reposition (in case the user changed display geometry between
@@ -972,6 +975,8 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     #[cfg(target_os = "macos")]
     let frontmost_bundle_id = frontmost_bundle_identifier();
     #[cfg(target_os = "macos")]
+    let voice_target_bundle_id = remembered_voice_target_bundle(&app);
+    #[cfg(target_os = "macos")]
     let strategy = text_insertion_strategy(frontmost_bundle_id.as_deref());
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -999,8 +1004,8 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     write_clipboard(&trimmed)?;
     #[cfg(target_os = "macos")]
     match strategy {
-        TextInsertionStrategy::ClipboardPaste => paste_clipboard(),
-        TextInsertionStrategy::UnicodeType => type_text_unicode(&trimmed),
+        TextInsertionStrategy::ClipboardPaste => paste_clipboard(voice_target_bundle_id),
+        TextInsertionStrategy::UnicodeType => type_text_unicode(&trimmed, voice_target_bundle_id),
     }
     #[cfg(not(target_os = "macos"))]
     type_text_unicode(&trimmed);
@@ -1030,6 +1035,28 @@ fn is_terminal_bundle(bundle_id: &str) -> bool {
             | "net.kovidgoyal.kitty"
             | "co.zeit.hyper"
     )
+}
+
+pub fn remember_voice_target(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let target = frontmost_bundle_identifier();
+        if let Some(state) = app.try_state::<VoiceTargetBundle>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = target;
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
+    app.try_state::<VoiceTargetBundle>()
+        .and_then(|state| state.0.lock().ok().and_then(|g| g.clone()))
 }
 
 #[cfg(test)]
@@ -1123,12 +1150,13 @@ unsafe fn ns_string_to_owned(ptr: *mut objc2::runtime::AnyObject) -> Option<Stri
 }
 
 #[cfg(target_os = "macos")]
-fn paste_clipboard() {
+fn paste_clipboard(target_bundle_id: Option<String>) {
     use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(40));
+        reactivate_voice_target(target_bundle_id.as_deref());
+        thread::sleep(Duration::from_millis(90));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
             eprintln!("[clips-tray] paste failed: no CGEventSource");
             return;
@@ -1152,15 +1180,30 @@ fn paste_clipboard() {
 }
 
 #[cfg(target_os = "macos")]
-fn type_text_unicode(text: &str) {
+fn reactivate_voice_target(target_bundle_id: Option<&str>) {
+    let Some(bundle_id) = target_bundle_id else {
+        return;
+    };
+    if bundle_id.trim().is_empty() || bundle_id == "com.clips.tray" {
+        return;
+    }
+    if frontmost_bundle_identifier().as_deref() == Some(bundle_id) {
+        return;
+    }
+    if let Err(err) = Command::new("open").arg("-b").arg(bundle_id).status() {
+        eprintln!("[clips-tray] could not reactivate voice target {bundle_id}: {err}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn type_text_unicode(text: &str, target_bundle_id: Option<String>) {
     use core_graphics::event::{CGEvent, CGEventTapLocation};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
     let owned = text.to_string();
     thread::spawn(move || {
-        // Brief delay so the focused-app context is ready (mirrors the
-        // delay the previous Cmd+V path used).
-        thread::sleep(Duration::from_millis(40));
+        reactivate_voice_target(target_bundle_id.as_deref());
+        thread::sleep(Duration::from_millis(90));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
             eprintln!("[clips-tray] type failed: no CGEventSource");
             return;

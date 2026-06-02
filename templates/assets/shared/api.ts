@@ -160,6 +160,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
+  intent?: "subject" | string;
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;
@@ -167,7 +168,16 @@ export interface ImageAssetMetadata {
   description?: string;
   downloadUrl?: string;
   downloadUrlExpiresAt?: string;
+  subjectAssetId?: string;
   [key: string]: unknown;
+}
+
+export interface AssetLineageSummary {
+  kind: "original" | "variation";
+  serial: number;
+  label: string;
+  sourceAssetId?: string | null;
+  sourceLabel?: string | null;
 }
 
 export interface SkippedAssetUploadDuplicate {
@@ -184,6 +194,7 @@ export interface FailedAssetUpload {
 
 export interface AssetVariantState {
   runId: string;
+  batchId?: string | null;
   libraryId: string;
   collectionId?: string | null;
   presetId?: string | null;
@@ -196,6 +207,8 @@ export interface AssetVariantState {
     previewUrl?: string;
     thumbnailUrl?: string;
     error?: string;
+    createdAt?: string;
+    updatedAt?: string;
   }>;
   updatedAt: string;
 }
@@ -236,4 +249,19 @@ export interface GenerationSessionSummary {
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  items?: GenerationSessionItemSummary[];
+  itemCount?: number;
+  assetCount?: number;
+  variationCount?: number;
+}
+
+export interface GenerationSessionItemSummary {
+  id: string;
+  assetId?: string | null;
+  generationRunId?: string | null;
+  role: string;
+  sortOrder: number;
+  createdAt?: string;
+  label: string;
+  lineage?: AssetLineageSummary | null;
 }

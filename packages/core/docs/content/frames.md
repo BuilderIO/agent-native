@@ -1,47 +1,133 @@
 ---
 title: "Frames"
-description: "Embedded agent panel and cloud frame options for running AI agents alongside your app."
+description: "The local dev frame, the embedded agent panel, and the cloud frame — the ways an AI agent runs alongside your app."
 ---
 
 # Frames
 
-Agent-native apps run with an AI agent alongside the app UI. Locally, the agent panel is embedded directly in your app. In the cloud, Builder.io provides a managed frame with collaboration and visual editing.
+Every agent-native app runs with an AI agent next to the app UI. A **frame** is
+the wrapper that hosts both: it shows your app and gives the agent a place to
+chat, run, and (in dev) edit code. There are three frames, sharing one runtime:
 
-## Embedded Agent Panel {#embedded-agent}
+- **Embedded agent panel** — ships inside every app from `@agent-native/core`.
+  This is the sidebar your app renders itself, in development and in production.
+- **Local dev frame** — a thin wrapper that loads your running app in an iframe
+  and adds the same agent panel plus an integrated CLI terminal beside it. Used
+  for local development of templates in this repo.
+- **Builder.io cloud frame** — a managed, hosted frame with collaboration,
+  visual editing, and parallel agent runs.
 
-- Ships with `@agent-native/core` — no separate package needed
-- Agent panel embedded directly in your app with chat and optional CLI terminal
-- Supports multiple AI coding CLIs — switch between them from the settings panel
-- Toggle between production mode (app tools only) and development mode (shared `bash`/`read`/`edit`/`write` coding tools plus database access)
-- Great for local development, self-hosted production, and OSS
+Your app code is identical regardless of which frame hosts it. The agent talks
+to your app through the same actions and application state in every case.
 
-## Supported CLIs {#supported-clis}
+## Embedded agent panel {#embedded-agent}
 
-| CLI         | Command    | Key Flags                                           |
-| ----------- | ---------- | --------------------------------------------------- |
-| Claude Code | `claude`   | --dangerously-skip-permissions, --resume, --verbose |
-| Codex       | `codex`    | --full-auto, --quiet                                |
-| Gemini CLI  | `gemini`   | --sandbox                                           |
-| OpenCode    | `opencode` | —                                                   |
-| Builder.io  | `builder`  | —                                                   |
+The embedded panel is the agent sidebar your app renders. It ships with
+`@agent-native/core` — there is no separate package to install — and is the same
+component in dev and prod.
 
-Switch between CLIs at any time from the agent panel settings. The terminal restarts with the selected CLI.
+- Exported as `AgentPanel` from `@agent-native/core/client`, with a
+  production-only variant `ProductionAgentPanel`.
+- Provides the full Chat / CLI / Workspace surface, so the agent input stays on
+  the shared composer stack used everywhere else in the framework.
+- Reads `application_state.navigation` every turn, so it already knows which
+  view you're in and what's selected — you don't have to re-explain "this".
 
-## [Builder.io Cloud](https://www.builder.io) {#cloud-frame}
+### App vs Code tool modes {#tool-modes}
 
-- Runs in the cloud
-- Real-time collaboration — multiple users can watch/interact simultaneously
-- Visual editing, roles and permissions
-- Parallel agent execution for faster iteration
-- Great for team use
+The panel runs in one of two tool modes:
 
-## How It Works {#how-it-works}
+- **App mode** — the agent only has your app's own tools: the actions you
+  defined with `defineAction`, plus navigation and context. No filesystem or
+  shell access. This is what end users get.
+- **Code mode** — adds the shared coding tools (`bash`, `read`, `edit`,
+  `write`) and database access on top of the app tools, so the agent can change
+  the app's own source. Code requests are gated: when a message requires code
+  (`type: "code"`) and no code-capable frame is connected, the panel shows a
+  dialog explaining that code changes need Agent Native Desktop or Builder;
+  when a frame is connected, the request is routed to it and a code-agent
+  indicator shows while it works (`useSendToAgentChat`).
 
-The framework provides type-safe APIs so you never deal with raw messaging:
+"Code mode" is the agent-capability toggle — distinct from environment dev mode
+(`NODE_ENV` / Vite). For back-compat the underlying `AGENT_MODE` env var, the
+`/_agent-native/agent-chat/mode` endpoint (whose payload still uses `devMode`),
+and the `agent-chat.mode` settings key are unchanged. The client hook is
+`useCodeMode()` (the older `useDevMode()` remains as a deprecated alias).
 
-1. **Agent chat** — use `sendToAgentChat()` to send messages to the agent
-2. **Generation state** — use `useAgentChatGenerating()` to track when the agent is running
-3. **Polling sync** — database-backed sync keeps UI caches fresh when the agent changes state
-4. **Action system** — `pnpm action <name>` dispatches to callable actions
+In the local dev frame, the settings cog toggles between these modes. Switching
+off Code mode hides the frame's own sidebar and shows the app's in-app agent
+sidebar inside the iframe instead, so you can preview exactly what end users see.
 
-Your app code is identical regardless of how the agent is provided.
+## Integrated terminal and CLI switching {#cli-terminal}
+
+In development the panel includes an embedded terminal (`AgentTerminal`, also
+from `@agent-native/core/client`) backed by a PTY server. You can run a real
+coding CLI right beside the app and switch between them; the terminal restarts
+with the selected CLI.
+
+The supported CLIs come from the core CLI registry
+(`packages/core/src/terminal/cli-registry.ts`). Only these commands are allowed
+to spawn — the PTY server validates the requested command against the registry
+allow-list to prevent injection:
+
+| CLI         | Command    | Install package             |
+| ----------- | ---------- | --------------------------- |
+| Claude Code | `claude`   | `@anthropic-ai/claude-code` |
+| Builder.io  | `builder`  | (built in)                  |
+| Codex       | `codex`    | `@openai/codex`             |
+| Gemini CLI  | `gemini`   | `@google/gemini-cli`        |
+| OpenCode    | `opencode` | `opencode-ai`               |
+
+If the selected CLI isn't found on `PATH`, the terminal falls back to running it
+through `npx --yes <install-package>` (where an install package exists). The
+default command is `claude`. Switch CLIs from the agent panel settings at any
+time.
+
+## Builder.io cloud frame {#cloud-frame}
+
+[Builder.io](https://www.builder.io) provides a managed frame that hosts the
+same app and the same agent panel, in the cloud:
+
+- Real-time collaboration — multiple users can watch and interact at once.
+- Visual editing, roles, and permissions.
+- Parallel agent execution for faster iteration.
+- Good for team use, where everyone shares one hosted environment.
+
+Code requests from the embedded panel route to the Builder frame the same way
+they route to the local dev frame, so the dev-vs-prod behavior above is
+consistent across both.
+
+## Runtime APIs {#runtime-apis}
+
+These ship with `@agent-native/core` and are what your app uses to talk to the
+agent, regardless of which frame is hosting it:
+
+1. **Send a message** — `sendToAgentChat()` sends a message to the agent. The
+   `useSendToAgentChat()` hook wraps it with the code-request gating described
+   above and returns a `codeRequiredDialog` element to render.
+2. **Generation state** — `useAgentChatGenerating()` tracks when the agent is
+   running, so the UI can show progress without polling the agent directly.
+3. **Polling sync** — database-backed sync keeps UI caches fresh when the agent
+   changes data or application state.
+4. **Action system** — `pnpm action <name>` dispatches to the same callable
+   actions the agent invokes as tools, so anything the agent can do, you can
+   script.
+
+## Running it {#running}
+
+The embedded agent panel is part of every app — scaffold a template and it's
+already there:
+
+```bash
+pnpm dlx @agent-native/core create my-app --template mail --standalone
+cd my-app
+pnpm dev
+```
+
+The local dev frame is an internal tooling package (it is not published to npm),
+used when developing templates inside this repository. It loads the active
+app's dev server in an iframe and mounts the embedded panel beside it, selecting
+the app via the `app` query param. The integrated CLI terminal requires Agent
+Native Desktop, which provides the local code and PTY access the terminal needs;
+without it, the panel shows the chat surface and prompts you to open Desktop to
+use the CLI.

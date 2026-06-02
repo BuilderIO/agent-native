@@ -4,6 +4,8 @@ description: >-
   How to store application data in agent-native apps. All data lives in SQL.
   Use when adding data models, deciding where to store data, or reading/writing
   application data.
+metadata:
+  internal: true
 ---
 
 # Storing Data — SQL is the Source of Truth
@@ -23,7 +25,7 @@ For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape ha
 | Store               | Purpose                                              | Access                                     |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------ |
 | `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
-| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `setSetting()`            |
+| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `putSetting()`            |
 | `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
 | `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
 

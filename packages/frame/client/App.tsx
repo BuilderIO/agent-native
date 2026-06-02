@@ -17,20 +17,7 @@ import {
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
 
-// Lazy-load heavy components
-const MultiTabAssistantChat = lazy(() =>
-  import("@agent-native/core/client").then((m) => ({
-    default: m.MultiTabAssistantChat,
-  })),
-);
-
-const AgentTerminal = lazy(() =>
-  import("@agent-native/core/client").then((m) => ({
-    default: m.AgentTerminal,
-  })),
-);
-
-// Import the AgentPanel directly — it provides the full Chat/CLI/Workspace UI
+// Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
     default: m.AgentPanel,
@@ -51,6 +38,7 @@ const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
   const appId = params.get("app") || "mail";
+  const customDevUrl = normalizeCustomDevUrl(params.get("devUrl"));
   // Set the routing cookie synchronously so the frame proxy routes
   // `/_agent-native/**` to the correct app backend on the very first
   // request — including fetches kicked off by child effects (which run
@@ -59,11 +47,34 @@ function getAppId(): string {
   // from a different app.
   if (typeof document !== "undefined") {
     document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax; Max-Age=31536000`;
+    if (customDevUrl) {
+      document.cookie = `frame_active_dev_url=${encodeURIComponent(customDevUrl)}; path=/; SameSite=Lax; Max-Age=31536000`;
+    } else {
+      document.cookie = "frame_active_dev_url=; path=/; Max-Age=0";
+    }
   }
   return appId;
 }
 
+function normalizeCustomDevUrl(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 function getAppDevUrl(appId: string): string {
+  const params = new URLSearchParams(window.location.search);
+  const customDevUrl = normalizeCustomDevUrl(params.get("devUrl"));
+  if (customDevUrl) return customDevUrl;
+
   const gatewayUrl = getTemplateGatewayAppUrl(appId);
   if (gatewayUrl) return gatewayUrl;
   const app = getTemplate(appId);
@@ -149,6 +160,15 @@ export function App() {
   });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const appUrl = getAppDevUrl(appId);
+  const customAppOrigin = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const customDevUrl = normalizeCustomDevUrl(params.get("devUrl"));
+      return customDevUrl ? new URL(customDevUrl).origin : null;
+    } catch {
+      return null;
+    }
+  })();
   const app = getTemplate(appId);
   const suggestions = isDesktop
     ? [
@@ -317,7 +337,7 @@ export function App() {
         );
         return;
       }
-      // Relay submitChat from the iframe — MultiTabAssistantChat rejects
+      // Relay chat bridge events from the iframe; the agent chat rejects
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.
@@ -325,7 +345,10 @@ export function App() {
         setIsPresentationMode(event.data.data?.active === true);
         return;
       }
-      if (event.data.type === "agentNative.submitChat") {
+      if (
+        event.data.type === "agentNative.submitChat" ||
+        event.data.type === "agentNative.setChatContext"
+      ) {
         const host = window.location.hostname || "localhost";
         const gatewayOrigin = (() => {
           const gatewayUrl = getTemplateGatewayUrl();
@@ -342,6 +365,7 @@ export function App() {
             `http://${host}:${a.devPort || 8080}`,
           ]),
           ...(gatewayOrigin ? [gatewayOrigin] : []),
+          ...(customAppOrigin ? [customAppOrigin] : []),
         ]);
         if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);

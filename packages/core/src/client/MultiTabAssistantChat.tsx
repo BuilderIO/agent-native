@@ -45,6 +45,11 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  appendAgentChatContextToMessage,
+  normalizeAgentChatContextItem,
+  type AgentChatContextItem,
+} from "./agent-chat.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -62,6 +67,7 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  submit: boolean;
 }
 
 const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -678,6 +684,80 @@ interface ChatTab {
   subAgentName?: string;
 }
 
+type AgentTeamRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "needs-approval"
+  | "completed"
+  | "errored"
+  | "unknown";
+
+interface AgentTeamRunSummary {
+  title?: string;
+  status?: AgentTeamRunStatus;
+  sourceRecord?: {
+    type?: string;
+    threadId?: unknown;
+    parentThreadId?: unknown;
+    name?: unknown;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+interface AgentTeamTabInfo {
+  threadId: string;
+  parentThreadId: string;
+  name: string;
+  status: AgentTeamRunStatus;
+}
+
+function readString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isActiveAgentTeamStatus(status?: AgentTeamRunStatus): boolean {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "paused" ||
+    status === "needs-approval"
+  );
+}
+
+function chatTabStatusFromAgentTeamStatus(
+  status?: AgentTeamRunStatus,
+): ChatTab["status"] | undefined {
+  if (!status) return undefined;
+  return isActiveAgentTeamStatus(status) ? "running" : "completed";
+}
+
+function runToAgentTeamTabInfo(
+  run: AgentTeamRunSummary,
+): AgentTeamTabInfo | null {
+  if (run.sourceRecord?.type && run.sourceRecord.type !== "agent-team-task") {
+    return null;
+  }
+  const metadata = run.metadata ?? {};
+  const threadId =
+    readString(run.sourceRecord?.threadId) || readString(metadata.threadId);
+  const parentThreadId =
+    readString(run.sourceRecord?.parentThreadId) ||
+    readString(metadata.parentThreadId);
+  if (!threadId || !parentThreadId || threadId === parentThreadId) return null;
+  const name =
+    readString(run.sourceRecord?.name) ||
+    readString(metadata.name) ||
+    readString(run.title) ||
+    "Sub-agent";
+  return {
+    threadId,
+    parentThreadId,
+    name,
+    status: run.status ?? "unknown",
+  };
+}
+
 export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
@@ -743,7 +823,6 @@ export function MultiTabAssistantChat({
     isLoading,
     createThread,
     switchThread,
-    deleteThread,
     detachThread,
     forkThread,
     saveThreadData,
@@ -765,6 +844,9 @@ export function MultiTabAssistantChat({
   if (activeThreadId) mountedTabsRef.current.add(activeThreadId);
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, PendingSend>>(new Map());
+  const pendingContextItems = useRef<Map<string, AgentChatContextItem[]>>(
+    new Map(),
+  );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
@@ -790,6 +872,26 @@ export function MultiTabAssistantChat({
     setModelSelectionVersion((version) => version + 1);
   }, []);
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
+
+  const setContextInTab = useCallback(
+    (threadId: string, item: AgentChatContextItem) => {
+      const ref = chatRefs.current.get(threadId);
+      if (ref) {
+        ref.setComposerContextItem(item);
+        return;
+      }
+      const existing = pendingContextItems.current.get(threadId) ?? [];
+      const index = existing.findIndex((current) => current.key === item.key);
+      const next =
+        index === -1
+          ? [...existing, item]
+          : existing.map((current, currentIndex) =>
+              currentIndex === index ? item : current,
+            );
+      pendingContextItems.current.set(threadId, next);
+    },
+    [],
+  );
 
   const resolveThreadModelSelection = useCallback(
     (threadId: string) =>
@@ -997,6 +1099,9 @@ export function MultiTabAssistantChat({
     } catch {}
     return {};
   });
+  const parentMapRef = useRef(parentMap);
+  parentMapRef.current = parentMap;
+  const dismissedSubAgentTabsRef = useRef<Set<string>>(new Set());
 
   // Persist parent map to localStorage
   useEffect(() => {
@@ -1017,6 +1122,11 @@ export function MultiTabAssistantChat({
       return {};
     },
   );
+  const subAgentNamesRef = useRef(subAgentNames);
+  subAgentNamesRef.current = subAgentNames;
+  const [subAgentStatuses, setSubAgentStatuses] = useState<
+    Record<string, AgentTeamRunStatus>
+  >({});
 
   useEffect(() => {
     try {
@@ -1048,6 +1158,8 @@ export function MultiTabAssistantChat({
     } catch {}
     return [];
   });
+  const openTabIdsRef = useRef(openTabIds);
+  openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
 
   // Rehydrate open tabs when the scope flips. Mirrors `persistedKeyRef` in
@@ -1224,6 +1336,113 @@ export function MultiTabAssistantChat({
     }
   }, [isLoading, openTabIds, activeThreadId, createThread]);
 
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
+
+    async function hydrateAgentTeamTabs() {
+      try {
+        const res = await fetch(runsUrl);
+        if (res.ok) {
+          const data = (await res.json()) as { runs?: AgentTeamRunSummary[] };
+          const infos = Array.isArray(data.runs)
+            ? data.runs
+                .map(runToAgentTeamTabInfo)
+                .filter((info): info is AgentTeamTabInfo => Boolean(info))
+            : [];
+
+          setSubAgentStatuses((prev) => {
+            let changed = false;
+            const next: Record<string, AgentTeamRunStatus> = {};
+            for (const info of infos) {
+              next[info.threadId] = info.status;
+              if (prev[info.threadId] !== info.status) changed = true;
+            }
+            if (Object.keys(prev).length !== Object.keys(next).length) {
+              changed = true;
+            }
+            return changed ? next : prev;
+          });
+
+          const openSet = new Set(openTabIdsRef.current);
+          const candidates = infos.filter(
+            (info) =>
+              !dismissedSubAgentTabsRef.current.has(info.threadId) &&
+              (openSet.has(info.parentThreadId) || openSet.has(info.threadId)),
+          );
+
+          if (candidates.length > 0) {
+            const shouldRefreshThreads = candidates.some(
+              (info) =>
+                !openSet.has(info.threadId) && openSet.has(info.parentThreadId),
+            );
+            const candidateParents = new Map(
+              candidates.map((info) => [info.threadId, info.parentThreadId]),
+            );
+            setParentMap((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (next[info.threadId] === info.parentThreadId) continue;
+                next =
+                  next === prev
+                    ? { ...prev, [info.threadId]: info.parentThreadId }
+                    : { ...next, [info.threadId]: info.parentThreadId };
+              }
+              return next;
+            });
+            setSubAgentNames((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (!info.name || next[info.threadId] === info.name) continue;
+                next =
+                  next === prev
+                    ? { ...prev, [info.threadId]: info.name }
+                    : { ...next, [info.threadId]: info.name };
+              }
+              return next;
+            });
+
+            setOpenTabIds((prev) => {
+              let next = prev;
+              for (const info of candidates) {
+                if (next.includes(info.threadId)) continue;
+                const parentIdx = next.indexOf(info.parentThreadId);
+                if (parentIdx === -1) continue;
+                if (next === prev) next = [...prev];
+                let insertIdx = parentIdx + 1;
+                while (insertIdx < next.length) {
+                  const siblingParent =
+                    parentMapRef.current[next[insertIdx]] ||
+                    candidateParents.get(next[insertIdx]);
+                  if (siblingParent !== info.parentThreadId) break;
+                  insertIdx++;
+                }
+                next.splice(insertIdx, 0, info.threadId);
+              }
+              return next;
+            });
+            if (shouldRefreshThreads) {
+              void refreshThreads();
+            }
+          }
+        }
+      } catch {
+        // Best effort: task cards and manual history still work if this poll fails.
+      } finally {
+        if (!stopped) {
+          timer = setTimeout(hydrateAgentTeamTabs, 3000);
+        }
+      }
+    }
+
+    hydrateAgentTeamTabs();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [apiUrl, refreshThreads]);
+
   // Focus the composer when switching tabs
   useEffect(() => {
     if (!activeThreadId) return;
@@ -1278,6 +1497,19 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
+      if (event.data?.type === "agentNative.setChatContext") {
+        const item = normalizeAgentChatContextItem(event.data.data);
+        if (!item) return;
+        const openSidebar = event.data.data?.openSidebar as boolean | undefined;
+        if (openSidebar !== false) {
+          window.dispatchEvent(new CustomEvent("agent-panel:open"));
+        }
+        if (postMessageSubmissionsDisabled) return;
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        setContextInTab(currentTabId, item);
+        return;
+      }
       if (event.data?.type !== "agentNative.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
@@ -1289,6 +1521,7 @@ export function MultiTabAssistantChat({
       const tabId = event.data.data?.tabId;
       const requestedTabId = typeof tabId === "string" ? tabId : undefined;
       const background = event.data.data?.background as boolean | undefined;
+      const submit = event.data.data?.submit !== false;
       const rawImages = event.data.data?.images;
       const images = Array.isArray(rawImages)
         ? rawImages.filter(
@@ -1307,7 +1540,7 @@ export function MultiTabAssistantChat({
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
       const fullMessage = context
-        ? `${message}\n\n<context>\n${context}\n</context>`
+        ? appendAgentChatContextToMessage(message, context)
         : message;
 
       const sendToTab = (threadId: string) => {
@@ -1335,9 +1568,17 @@ export function MultiTabAssistantChat({
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
-          ref.sendMessage(fullMessage, images);
+          if (submit) {
+            ref.sendMessage(fullMessage, images);
+          } else {
+            ref.prefillMessage(fullMessage);
+          }
         } else {
-          pendingSends.current.set(threadId, { message: fullMessage, images });
+          pendingSends.current.set(threadId, {
+            message: fullMessage,
+            images,
+            submit,
+          });
         }
       };
 
@@ -1365,16 +1606,37 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     createThread,
     postMessageSubmissionsDisabled,
+    setContextInTab,
     switchThread,
   ]);
 
   // Process pending sends when refs mount
   useEffect(() => {
-    for (const [tabId, pending] of pendingSends.current) {
+    const pendingTabIds = new Set([
+      ...pendingSends.current.keys(),
+      ...pendingContextItems.current.keys(),
+    ]);
+    for (const tabId of pendingTabIds) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        setTimeout(() => ref.sendMessage(pending.message, pending.images), 50);
-        pendingSends.current.delete(tabId);
+        const pendingContext = pendingContextItems.current.get(tabId);
+        if (pendingContext) {
+          for (const item of pendingContext) {
+            ref.setComposerContextItem(item);
+          }
+          pendingContextItems.current.delete(tabId);
+        }
+        const pending = pendingSends.current.get(tabId);
+        if (pending) {
+          setTimeout(() => {
+            if (pending.submit) {
+              ref.sendMessage(pending.message, pending.images);
+            } else {
+              ref.prefillMessage(pending.message);
+            }
+          }, 50);
+          pendingSends.current.delete(tabId);
+        }
       }
     }
   }, [openTabIds]);
@@ -1410,6 +1672,9 @@ export function MultiTabAssistantChat({
 
   const closeTab = useCallback(
     (tabId: string) => {
+      if (parentMapRef.current[tabId]) {
+        dismissedSubAgentTabsRef.current.add(tabId);
+      }
       setOpenTabIds((prev) => {
         if (prev.length <= 1) {
           // Last tab — create a new one and replace the old tab atomically
@@ -1430,6 +1695,7 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      pendingContextItems.current.delete(tabId);
       newThreadIds.current.delete(tabId);
       threadModelRef.current.delete(tabId);
       // Clean up parent map and sub-agent names
@@ -1443,12 +1709,22 @@ export function MultiTabAssistantChat({
         const { [tabId]: _, ...rest } = prev;
         return rest;
       });
+      setSubAgentStatuses((prev) => {
+        if (!(tabId in prev)) return prev;
+        const { [tabId]: _, ...rest } = prev;
+        return rest;
+      });
     },
     [switchThread, createThread],
   );
 
   const closeOtherTabs = useCallback(
     (tabId: string) => {
+      for (const id of openTabIdsRef.current) {
+        if (id !== tabId && parentMapRef.current[id]) {
+          dismissedSubAgentTabsRef.current.add(id);
+        }
+      }
       setOpenTabIds([tabId]);
       if (activeThreadIdRef.current !== tabId) {
         switchThread(tabId);
@@ -1456,6 +1732,9 @@ export function MultiTabAssistantChat({
       // Clean up refs for closed tabs
       for (const key of chatRefs.current.keys()) {
         if (key !== tabId) {
+          if (parentMapRef.current[key]) {
+            dismissedSubAgentTabsRef.current.add(key);
+          }
           chatRefs.current.delete(key);
           pendingSends.current.delete(key);
           newThreadIds.current.delete(key);
@@ -1471,6 +1750,10 @@ export function MultiTabAssistantChat({
         if (tabId in prev) return { [tabId]: prev[tabId] };
         return {};
       });
+      setSubAgentStatuses((prev) => {
+        if (tabId in prev) return { [tabId]: prev[tabId] };
+        return {};
+      });
     },
     [switchThread],
   );
@@ -1481,12 +1764,14 @@ export function MultiTabAssistantChat({
       newThreadIds.current.add(id);
       setOpenTabIds([id]);
       switchThread(id);
+      dismissedSubAgentTabsRef.current.clear();
       // Clean up all old refs
       chatRefs.current.clear();
       pendingSends.current.clear();
       threadModelRef.current.clear();
       setParentMap({});
       setSubAgentNames({});
+      setSubAgentStatuses({});
     }
   }, [createThread, switchThread]);
 
@@ -1572,8 +1857,14 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
-      // The current active thread is the parent that spawned this sub-agent
-      const parentId = activeThreadIdRef.current;
+      dismissedSubAgentTabsRef.current.delete(threadId);
+      // Prefer an explicit parent (RunsTray/background hydration knows it);
+      // inline task cards fall back to the active orchestrator thread.
+      const explicitParentId =
+        typeof detail?.parentThreadId === "string"
+          ? detail.parentThreadId.trim()
+          : "";
+      const parentId = explicitParentId || activeThreadIdRef.current;
       if (parentId && parentId !== threadId) {
         setParentMap((prev) =>
           prev[threadId] === parentId
@@ -1754,14 +2045,19 @@ export function MultiTabAssistantChat({
     .filter((id) => threadMap.has(id) || id === activeThreadId)
     .map((id) => {
       const t = threadMap.get(id);
+      const agentTeamStatus = chatTabStatusFromAgentTeamStatus(
+        subAgentStatuses[id],
+      );
       return {
         id,
         label: t?.title || t?.preview?.slice(0, 30) || "New chat",
-        status: runningThreads.has(id)
-          ? ("running" as const)
-          : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
-            ? ("completed" as const)
-            : ("idle" as const),
+        status:
+          agentTeamStatus ??
+          (runningThreads.has(id)
+            ? ("running" as const)
+            : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
+              ? ("completed" as const)
+              : ("idle" as const)),
         parentThreadId: parentMap[id],
         subAgentName: subAgentNames[id],
       };
@@ -1774,7 +2070,9 @@ export function MultiTabAssistantChat({
         id,
         label:
           subAgentNames[id] || (parentMap[id] ? "Sub-agent..." : "New chat"),
-        status: "running" as const,
+        status:
+          chatTabStatusFromAgentTeamStatus(subAgentStatuses[id]) ??
+          ("running" as const),
         parentThreadId: parentMap[id],
         subAgentName: subAgentNames[id],
       });
@@ -1798,11 +2096,11 @@ export function MultiTabAssistantChat({
     tabCount: openTabIds.length,
   };
 
-  // No full-shell skeleton: the hook seeds an optimistic activeThreadId
-  // synchronously so the chat shell + composer can paint on first render.
-  // Per-thread restore (existing chats with history) shows its own message-area
-  // skeleton inside AssistantChat — header and composer stay visible.
-  if (isLoading && !activeThreadId) {
+  // Wait for the first thread-list pass before mounting restored tabs. Saved
+  // localStorage ids may be empty client-only tabs or old ids from another
+  // deployment; rendering AssistantChat before validation causes harmless but
+  // noisy /threads/:id 404s during app startup.
+  if (isLoading) {
     return (
       <ChatSkeleton
         header={renderHeader?.(headerProps)}

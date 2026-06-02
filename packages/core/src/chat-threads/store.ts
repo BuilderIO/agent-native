@@ -86,7 +86,11 @@ async function ensureTable(): Promise<void> {
           // Column already exists.
         }
       }
-    })();
+    })().catch((err) => {
+      // Retry init on the next call after a failed startup.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
@@ -447,7 +451,7 @@ export async function searchThreads(
   const filters: string[] = [
     `owner_email = ?`,
     `(message_count > 0 OR thread_data LIKE '%"messages"%')`,
-    `(title LIKE ? OR preview LIKE ? OR thread_data LIKE ?)`,
+    `(title LIKE ? ESCAPE '\\' OR preview LIKE ? ESCAPE '\\' OR thread_data LIKE ? ESCAPE '\\')`,
   ];
   const args: (string | number)[] = [ownerEmail, pattern, pattern, pattern];
   if (options.scope) {

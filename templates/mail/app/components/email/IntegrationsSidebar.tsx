@@ -30,7 +30,6 @@ import {
   isAuthError,
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
-import type { ApolloPersonResult } from "@shared/types";
 import {
   Tooltip,
   TooltipContent,

@@ -5,11 +5,11 @@ description: "Connect a portable SQL database to your agent-native app and write
 
 # Database
 
-Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. By default, apps use SQLite with a local file — set `DATABASE_URL` to connect a persistent production database.
+Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. For anything beyond local development, connect a persistent SQL database — Postgres, libSQL/Turso, or another Drizzle-compatible backend — by setting `DATABASE_URL`. When that variable is unset, the app falls back to a zero-config local SQLite file so you can start developing immediately.
 
-## Default: SQLite {#default-sqlite}
+## Local default: SQLite file {#default-sqlite}
 
-When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. This is great for local development — no setup required.
+When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. This is the zero-config default for local development — no setup required. It is meant for development only; for production, set `DATABASE_URL` to a persistent SQL database.
 
 Do not rely on that local file for deployed apps. Containers, serverless functions, and preview environments may reset their filesystem, which means a local SQLite file can disappear between restarts. Set `DATABASE_URL` to a persistent hosted database before production use.
 

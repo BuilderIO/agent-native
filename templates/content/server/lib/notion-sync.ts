@@ -1,8 +1,10 @@
 // @ts-nocheck — Drizzle ORM types from core vs local resolve to different instances
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
-import { and, eq } from "drizzle-orm";
+import crypto from "node:crypto";
+import { and, eq, inArray } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
+import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import {
   createNotionPageWithMarkdown,
@@ -13,13 +15,36 @@ import {
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
+import { getCurrentOwnerEmail } from "./documents.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type LinkRow = InferSelectModel<typeof schema.documentSyncLinks>;
 
+const MAX_CHILD_PAGE_SYNC_DEPTH = 5;
+
 function nowIso() {
   return new Date().toISOString();
+}
+
+function nanoid(size = 12): string {
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.randomBytes(size);
+  return Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+}
+
+/**
+ * Hash of the canonical content. Two documents with the same hash are
+ * byte-identical once canonicalized, so this is the authoritative "did the
+ * content actually change" signal — immune to timestamp jitter and to the
+ * normalization differences that previously made no-op syncs look like edits.
+ */
+function hashContent(content: string | null | undefined): string {
+  return crypto
+    .createHash("sha256")
+    .update(canonicalizeNfm(content ?? ""))
+    .digest("hex");
 }
 
 function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
@@ -34,12 +59,83 @@ function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
   }
 }
 
+function normalizeNotionPageIdSafe(input: string | null | undefined) {
+  if (!input) return null;
+  try {
+    return normalizeNotionPageId(input);
+  } catch {
+    return null;
+  }
+}
+
+function parseAttrsJson(value: unknown): Record<string, string> {
+  if (typeof value !== "string" || !value) return {};
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => {
+        return typeof entry[0] === "string" && typeof entry[1] === "string";
+      }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+type ChildPageReference = {
+  pageId: string;
+  title: string;
+};
+
+type RemotePageDocumentLookup = Map<string, string>;
+
+type LinkedChildRow = {
+  id: string;
+  position: number;
+  remotePageId: string | null;
+};
+
+function extractChildPageReferences(content: string): ChildPageReference[] {
+  const doc = nfmToDoc(content);
+  const refs: ChildPageReference[] = [];
+  const seen = new Set<string>();
+
+  function visit(node: PMNode) {
+    if (node.type === "notionBlockAtom" && node.attrs?.tagName === "page") {
+      const attrs = parseAttrsJson(node.attrs.attrsJson);
+      const pageId =
+        normalizeNotionPageIdSafe(attrs.url) ??
+        normalizeNotionPageIdSafe(attrs.href) ??
+        normalizeNotionPageIdSafe(attrs.id) ??
+        normalizeNotionPageIdSafe(attrs.pageId) ??
+        normalizeNotionPageIdSafe(attrs.page_id);
+
+      if (pageId && !seen.has(pageId)) {
+        seen.add(pageId);
+        refs.push({
+          pageId,
+          title:
+            typeof node.attrs.label === "string" && node.attrs.label.trim()
+              ? node.attrs.label.trim()
+              : "Untitled",
+        });
+      }
+    }
+
+    for (const child of node.content ?? []) visit(child);
+  }
+
+  for (const child of doc.content) visit(child);
+  return refs;
+}
+
 function buildStatus(args: {
   connected: boolean;
   documentId: string;
   link: LinkRow | null;
   remoteUpdatedAt?: string | null;
   documentUpdatedAt?: string | null;
+  documentContent?: string | null;
 }): DocumentSyncStatus {
   const link = args.link;
   const lastPushed = link?.lastPushedLocalUpdatedAt || null;
@@ -51,9 +147,15 @@ function buildStatus(args: {
     link?.lastPulledRemoteUpdatedAt &&
     remoteKnown > link.lastPulledRemoteUpdatedAt,
   );
-  const localChanged = Boolean(
-    localUpdatedAt && lastPushed && localUpdatedAt > lastPushed,
-  );
+  // Prefer content-hash change detection: the local doc differs from the
+  // last-synced state only if its canonical content hash differs. This is the
+  // key fix for the drift — a no-op editor save (identical canonical content)
+  // no longer registers as a local change. Fall back to timestamps for links
+  // synced before the hash column existed.
+  const localChanged =
+    args.documentContent != null && link?.lastSyncedContentHash
+      ? hashContent(args.documentContent) !== link.lastSyncedContentHash
+      : Boolean(localUpdatedAt && lastPushed && localUpdatedAt > lastPushed);
 
   return {
     provider: "notion",
@@ -114,6 +216,7 @@ async function upsertSyncLink(args: {
   lastPulledRemoteUpdatedAt?: string | null;
   lastPushedLocalUpdatedAt?: string | null;
   lastKnownRemoteUpdatedAt?: string | null;
+  lastSyncedContentHash?: string | null;
   lastError?: string | null;
   warnings?: string[];
   hasConflict?: boolean;
@@ -129,6 +232,7 @@ async function upsertSyncLink(args: {
     lastPulledRemoteUpdatedAt: args.lastPulledRemoteUpdatedAt ?? null,
     lastPushedLocalUpdatedAt: args.lastPushedLocalUpdatedAt ?? null,
     lastKnownRemoteUpdatedAt: args.lastKnownRemoteUpdatedAt ?? null,
+    lastSyncedContentHash: args.lastSyncedContentHash ?? null,
     lastError: args.lastError ?? null,
     warningsJson: JSON.stringify(args.warnings || []),
     hasConflict: args.hasConflict ? 1 : 0,
@@ -141,6 +245,298 @@ async function upsertSyncLink(args: {
       target: schema.documentSyncLinks.documentId,
       set: values,
     });
+}
+
+async function loadRemotePageDocumentLookup(
+  owner: string,
+): Promise<RemotePageDocumentLookup> {
+  const db = getDb();
+  const links = await db
+    .select({
+      documentId: schema.documentSyncLinks.documentId,
+      remotePageId: schema.documentSyncLinks.remotePageId,
+    })
+    .from(schema.documentSyncLinks)
+    .where(eq(schema.documentSyncLinks.ownerEmail, owner));
+
+  const lookup: RemotePageDocumentLookup = new Map();
+  for (const link of links) {
+    const remotePageId = normalizeNotionPageIdSafe(link.remotePageId);
+    if (remotePageId) lookup.set(remotePageId, link.documentId);
+  }
+  return lookup;
+}
+
+async function listLinkedChildrenForParent(
+  owner: string,
+  parentId: string,
+): Promise<LinkedChildRow[]> {
+  const db = getDb();
+  const children = await db
+    .select({
+      id: schema.documents.id,
+      position: schema.documents.position,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, owner),
+        eq(schema.documents.parentId, parentId),
+      ),
+    );
+
+  if (children.length === 0) return [];
+
+  const links = await db
+    .select({
+      documentId: schema.documentSyncLinks.documentId,
+      remotePageId: schema.documentSyncLinks.remotePageId,
+    })
+    .from(schema.documentSyncLinks)
+    .where(
+      and(
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+        inArray(
+          schema.documentSyncLinks.documentId,
+          children.map((child) => child.id),
+        ),
+      ),
+    );
+
+  const remotePageIdByDocumentId = new Map(
+    links.map((link) => [link.documentId, link.remotePageId]),
+  );
+
+  return children.map((child) => ({
+    id: child.id,
+    position: child.position,
+    remotePageId: remotePageIdByDocumentId.get(child.id) ?? null,
+  }));
+}
+
+async function inheritShares(parentId: string, childId: string, now: string) {
+  const db = getDb();
+  const shares = await db
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+      createdBy: schema.documentShares.createdBy,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, parentId));
+
+  if (shares.length === 0) return;
+
+  await db.insert(schema.documentShares).values(
+    shares.map((share) => ({
+      id: nanoid(),
+      resourceId: childId,
+      principalType: share.principalType,
+      principalId: share.principalId,
+      role: share.role,
+      createdBy: share.createdBy,
+      createdAt: now,
+    })),
+  );
+}
+
+async function createLinkedChildDocument(args: {
+  owner: string;
+  parent: DocumentRow;
+  remotePageId: string;
+  title: string;
+  position: number;
+}) {
+  const db = getDb();
+  const now = nowIso();
+  const id = nanoid();
+
+  let inserted = false;
+  try {
+    await db.insert(schema.documents).values({
+      id,
+      ownerEmail: args.parent.ownerEmail,
+      orgId: args.parent.orgId,
+      parentId: args.parent.id,
+      title: args.title || "Untitled",
+      content: "",
+      icon: null,
+      position: args.position,
+      isFavorite: 0,
+      hideFromSearch: args.parent.hideFromSearch,
+      visibility: args.parent.visibility,
+      createdAt: now,
+      updatedAt: now,
+    });
+    inserted = true;
+    await inheritShares(args.parent.id, id, now);
+    await upsertSyncLink({
+      owner: args.owner,
+      documentId: id,
+      remotePageId: args.remotePageId,
+      state: "linked",
+      warnings: [],
+      hasConflict: false,
+    });
+  } catch (error) {
+    if (inserted) {
+      await deleteImportedPlaceholder(args.owner, id).catch(() => undefined);
+    }
+    throw error;
+  }
+
+  return id;
+}
+
+async function deleteImportedPlaceholder(owner: string, documentId: string) {
+  const db = getDb();
+  await db
+    .delete(schema.documentSyncLinks)
+    .where(
+      and(
+        eq(schema.documentSyncLinks.documentId, documentId),
+        eq(schema.documentSyncLinks.ownerEmail, owner),
+      ),
+    );
+  await db
+    .delete(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, documentId));
+  await db
+    .delete(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        eq(schema.documents.ownerEmail, owner),
+      ),
+    );
+}
+
+async function syncChildPagesFromPulledContent(args: {
+  owner: string;
+  parent: DocumentRow;
+  content: string;
+  force: boolean;
+  depth: number;
+  seenRemotePageIds: Set<string>;
+  remotePageDocumentIdByPageId: RemotePageDocumentLookup;
+}) {
+  if (args.depth >= MAX_CHILD_PAGE_SYNC_DEPTH) return;
+
+  const refs = extractChildPageReferences(args.content);
+  const currentRemotePageIds = new Set(refs.map((ref) => ref.pageId));
+  const db = getDb();
+  const existingChildren = await listLinkedChildrenForParent(
+    args.owner,
+    args.parent.id,
+  );
+
+  for (const child of existingChildren) {
+    const remotePageId = normalizeNotionPageIdSafe(child.remotePageId);
+    if (!remotePageId || currentRemotePageIds.has(remotePageId)) continue;
+    await db
+      .update(schema.documents)
+      .set({ parentId: null, updatedAt: nowIso() })
+      .where(
+        and(
+          eq(schema.documents.id, child.id),
+          eq(schema.documents.ownerEmail, args.owner),
+        ),
+      );
+  }
+
+  if (refs.length === 0) return;
+
+  const manualSiblingMaxPosition = existingChildren.reduce((max, child) => {
+    const remotePageId = normalizeNotionPageIdSafe(child.remotePageId);
+    return remotePageId ? max : Math.max(max, child.position);
+  }, -1);
+  const basePosition = manualSiblingMaxPosition + 1;
+
+  for (const [index, ref] of refs.entries()) {
+    if (args.seenRemotePageIds.has(ref.pageId)) continue;
+    args.seenRemotePageIds.add(ref.pageId);
+
+    let childId = args.remotePageDocumentIdByPageId.get(ref.pageId) ?? null;
+    let createdPlaceholder = false;
+    const position = basePosition + index;
+
+    if (!childId) {
+      childId = await createLinkedChildDocument({
+        owner: args.owner,
+        parent: args.parent,
+        remotePageId: ref.pageId,
+        title: ref.title,
+        position,
+      });
+      args.remotePageDocumentIdByPageId.set(ref.pageId, childId);
+      createdPlaceholder = true;
+    } else {
+      const [child] = await db
+        .select()
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.id, childId),
+            eq(schema.documents.ownerEmail, args.owner),
+          ),
+        );
+
+      if (!child) continue;
+
+      const updates: Partial<DocumentRow> = {};
+      if (child.parentId !== args.parent.id) {
+        updates.parentId = args.parent.id;
+      }
+      if (child.position !== position) {
+        updates.position = position;
+      }
+      if (Object.keys(updates).length > 0) {
+        await db
+          .update(schema.documents)
+          .set(updates)
+          .where(
+            and(
+              eq(schema.documents.id, childId),
+              eq(schema.documents.ownerEmail, args.owner),
+            ),
+          );
+      }
+    }
+
+    try {
+      await pullDocumentFromNotion(args.owner, childId, args.force, {
+        depth: args.depth + 1,
+        seenRemotePageIds: args.seenRemotePageIds,
+      });
+    } catch (error) {
+      if (createdPlaceholder) {
+        await deleteImportedPlaceholder(args.owner, childId);
+        args.remotePageDocumentIdByPageId.delete(ref.pageId);
+      } else {
+        const link = await getSyncLink(childId, args.owner);
+        if (link) {
+          await upsertSyncLink({
+            owner: args.owner,
+            documentId: childId,
+            remotePageId: link.remotePageId,
+            state: "error",
+            lastSyncedAt: link.lastSyncedAt,
+            lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+            lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+            lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+            lastSyncedContentHash: link.lastSyncedContentHash,
+            lastError:
+              error instanceof Error
+                ? error.message
+                : "Failed to sync Notion child page",
+            warnings: parseWarnings(link),
+            hasConflict: Boolean(link.hasConflict),
+          });
+        }
+      }
+    }
+  }
 }
 
 export async function unlinkDocumentFromNotion(
@@ -171,6 +567,7 @@ export async function getDocumentSyncStatus(
       documentId,
       link,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -186,6 +583,7 @@ export async function getDocumentSyncStatus(
       link,
       remoteUpdatedAt,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   } catch (error: any) {
     await upsertSyncLink({
@@ -197,6 +595,7 @@ export async function getDocumentSyncStatus(
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
       lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: error.message || "Failed to load Notion page",
       warnings: parseWarnings(link),
       hasConflict: Boolean(link.hasConflict),
@@ -207,6 +606,7 @@ export async function getDocumentSyncStatus(
       documentId,
       link: next,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 }
@@ -237,6 +637,11 @@ export async function pullDocumentFromNotion(
   owner: string,
   documentId: string,
   force = false,
+  childSync: {
+    depth?: number;
+    seenRemotePageIds?: Set<string>;
+    remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
+  } = {},
 ): Promise<DocumentSyncStatus> {
   const db = getDb();
   const document = await getDocument(documentId, owner);
@@ -250,15 +655,23 @@ export async function pullDocumentFromNotion(
     link.remotePageId,
   );
 
-  const localChanged = Boolean(
-    link.lastPushedLocalUpdatedAt &&
-    document.updatedAt > link.lastPushedLocalUpdatedAt,
-  );
-  const remoteChanged = Boolean(
-    link.lastPulledRemoteUpdatedAt &&
-    pageContent.lastEditedTime &&
-    pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
-  );
+  // Content-hash change detection: a side "changed" only if its canonical
+  // content actually differs from the last-synced baseline. This is immune to
+  // the normalization mismatches and timestamp jitter that previously made
+  // every no-op pull look like a fresh edit and drove the drift.
+  const localChanged = link.lastSyncedContentHash
+    ? hashContent(document.content) !== link.lastSyncedContentHash
+    : Boolean(
+        link.lastPushedLocalUpdatedAt &&
+        document.updatedAt > link.lastPushedLocalUpdatedAt,
+      );
+  const remoteChanged = link.lastSyncedContentHash
+    ? hashContent(pageContent.content) !== link.lastSyncedContentHash
+    : Boolean(
+        link.lastPulledRemoteUpdatedAt &&
+        pageContent.lastEditedTime &&
+        pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
+      );
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
@@ -270,6 +683,7 @@ export async function pullDocumentFromNotion(
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
       lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: null,
       warnings: pageContent.warnings,
       hasConflict: true,
@@ -281,6 +695,7 @@ export async function pullDocumentFromNotion(
       link: updatedLink,
       remoteUpdatedAt: pageContent.lastEditedTime,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -333,18 +748,42 @@ export async function pullDocumentFromNotion(
     lastPulledRemoteUpdatedAt: pageContent.lastEditedTime,
     lastPushedLocalUpdatedAt: updatedAt,
     lastKnownRemoteUpdatedAt: pageContent.lastEditedTime,
+    lastSyncedContentHash: hashContent(newContent),
     lastError: null,
     warnings: pageContent.warnings,
     hasConflict: false,
   });
 
   const updatedLink = await getSyncLink(documentId, owner);
+  const seenRemotePageIds = childSync.seenRemotePageIds ?? new Set<string>();
+  const remotePageDocumentIdByPageId =
+    childSync.remotePageDocumentIdByPageId ??
+    (await loadRemotePageDocumentLookup(owner));
+  const currentRemotePageId = normalizeNotionPageIdSafe(link.remotePageId);
+  if (currentRemotePageId) seenRemotePageIds.add(currentRemotePageId);
+  await syncChildPagesFromPulledContent({
+    owner,
+    parent: {
+      ...document,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt,
+    },
+    content: newContent,
+    force,
+    depth: childSync.depth ?? 0,
+    seenRemotePageIds,
+    remotePageDocumentIdByPageId,
+  });
+
   return buildStatus({
     connected: true,
     documentId,
     link: updatedLink,
     remoteUpdatedAt: pageContent.lastEditedTime,
     documentUpdatedAt: updatedAt,
+    documentContent: newContent,
   });
 }
 
@@ -360,15 +799,21 @@ export async function pushDocumentToNotion(
   if (!connection) throw new Error("Connect Notion before pushing.");
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
+  const remoteUpdatedAt = page.last_edited_time || null;
+  // Did Notion's content actually change since we last synced? The cheap signal
+  // is last_edited_time; with a content baseline we treat any time bump as a
+  // candidate remote change (the pulled content below confirms it).
   const remoteChanged = Boolean(
-    link.lastPulledRemoteUpdatedAt &&
-    page.last_edited_time &&
-    page.last_edited_time > link.lastPulledRemoteUpdatedAt,
+    link.lastKnownRemoteUpdatedAt &&
+    remoteUpdatedAt &&
+    remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
   );
-  const localChanged = Boolean(
-    !link.lastPushedLocalUpdatedAt ||
-    document.updatedAt > link.lastPushedLocalUpdatedAt,
-  );
+  const localChanged = link.lastSyncedContentHash
+    ? hashContent(document.content) !== link.lastSyncedContentHash
+    : Boolean(
+        !link.lastPushedLocalUpdatedAt ||
+        document.updatedAt > link.lastPushedLocalUpdatedAt,
+      );
 
   if (!force && localChanged && remoteChanged) {
     await upsertSyncLink({
@@ -379,7 +824,8 @@ export async function pushDocumentToNotion(
       lastSyncedAt: link.lastSyncedAt,
       lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
       lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
-      lastKnownRemoteUpdatedAt: page.last_edited_time || null,
+      lastKnownRemoteUpdatedAt: remoteUpdatedAt,
+      lastSyncedContentHash: link.lastSyncedContentHash,
       lastError: null,
       warnings: parseWarnings(link),
       hasConflict: true,
@@ -389,8 +835,9 @@ export async function pushDocumentToNotion(
       connected: true,
       documentId,
       link: updatedLink,
-      remoteUpdatedAt: page.last_edited_time || null,
+      remoteUpdatedAt,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
 
@@ -402,16 +849,53 @@ export async function pushDocumentToNotion(
     icon: document.icon,
   });
 
-  const pushedAt = nowIso();
+  // Adopt Notion's post-push normalization locally so both sides are
+  // byte-identical and the next sync sees no change. For canonical content this
+  // is a no-op (the converter matches Notion's emission); it only does work in
+  // the rare case Notion normalizes a construct differently, immediately
+  // converging instead of ping-ponging.
+  const db = getDb();
+  const newContent = remote.content ?? document.content;
+  const newTitle = remote.title || document.title;
+  const newIcon = remote.icon;
+  const contentChanged =
+    newTitle !== document.title ||
+    newContent !== document.content ||
+    newIcon !== document.icon;
+  const pushedAt = contentChanged ? nowIso() : document.updatedAt;
+  if (contentChanged) {
+    await db
+      .update(schema.documents)
+      .set({
+        title: newTitle,
+        content: newContent,
+        icon: newIcon,
+        updatedAt: pushedAt,
+      })
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, owner),
+        ),
+      );
+    try {
+      await deleteCollabState(documentId);
+      releaseDoc(documentId);
+    } catch {
+      // Non-fatal — the client reconciles via setContent.
+    }
+  }
+
   await upsertSyncLink({
     owner,
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
-    lastSyncedAt: pushedAt,
+    lastSyncedAt: nowIso(),
     lastPulledRemoteUpdatedAt: remote.lastEditedTime,
-    lastPushedLocalUpdatedAt: document.updatedAt,
+    lastPushedLocalUpdatedAt: pushedAt,
     lastKnownRemoteUpdatedAt: remote.lastEditedTime,
+    lastSyncedContentHash: hashContent(newContent),
     lastError: null,
     warnings: remote.warnings,
     hasConflict: false,
@@ -423,7 +907,8 @@ export async function pushDocumentToNotion(
     documentId,
     link: updatedLink,
     remoteUpdatedAt: remote.lastEditedTime,
-    documentUpdatedAt: document.updatedAt,
+    documentUpdatedAt: pushedAt,
+    documentContent: newContent,
   });
 }
 
@@ -456,6 +941,7 @@ export async function refreshDocumentSyncStatus(
       documentId,
       link,
       documentUpdatedAt: document.updatedAt,
+      documentContent: document.content,
     });
   }
   lastRefreshAt.set(documentId, now);
@@ -485,6 +971,7 @@ export async function refreshDocumentSyncStatus(
           lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
           lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
           lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
           lastError: null,
           warnings: parseWarnings(link),
           hasConflict: true,
@@ -497,6 +984,7 @@ export async function refreshDocumentSyncStatus(
           link: updatedLink,
           remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
           documentUpdatedAt: document.updatedAt,
+          documentContent: document.content,
         });
       }
     }
@@ -535,14 +1023,6 @@ export async function createAndLinkNotionPage(
       );
     }
   } else {
-    if (connection.accountId === "__api_key__") {
-      throw new Error(
-        "Choose a Notion parent page you can access before creating a new page.",
-      );
-    }
-
-    // OAuth connections are user-specific, so picking the most recently
-    // edited accessible page preserves the one-click create flow.
     const searchResult = await notionFetch<{
       results: Array<{ id: string; object: string }>;
     }>("/search", connection.accessToken, {
@@ -576,12 +1056,16 @@ export async function createAndLinkNotionPage(
     documentId,
     remotePageId: newPage.id,
     state: "linked",
-    lastKnownRemoteUpdatedAt: null,
+    lastPushedLocalUpdatedAt: document.updatedAt,
+    lastSyncedContentHash: hashContent(document.content),
     warnings: [],
     hasConflict: false,
   });
 
-  return refreshDocumentSyncStatus(owner, documentId);
+  // Establish the same pulled baseline as linking an existing page. Without a
+  // `lastPulledRemoteUpdatedAt`, later Notion edits are never considered remote
+  // changes, so create-and-link can look like inbound sync is broken.
+  return pullDocumentFromNotion(owner, documentId, true);
 }
 
 export async function listNotionLinks(owner: string) {

@@ -118,6 +118,42 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("does not reclassify a saved thread as new when the initial thread list fails", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:thread-list-failure",
+      "thread-1",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "thread-list-failure");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe("thread-1");
+    expect(hook!.threads).toEqual([]);
+    expect(hook!.isNewThread("thread-1")).toBe(false);
+  });
+
   it("can ignore a saved active thread and start fresh immediately", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:brain",
@@ -830,6 +866,149 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("thread-2");
+  });
+
+  it("does not switch away from the current thread when a deleted thread request finishes late", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:delete-navigation-test",
+      "thread-1",
+    );
+    const threads: ChatThreadSummary[] = [
+      {
+        id: "thread-1",
+        title: "Delete candidate",
+        preview: "old preview",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        scope: null,
+      },
+      {
+        id: "thread-2",
+        title: "Keep this open",
+        preview: "new preview",
+        messageCount: 1,
+        createdAt: 3,
+        updatedAt: 4,
+        scope: null,
+      },
+    ];
+    let resolveDelete:
+      | ((response: Response | PromiseLike<Response>) => void)
+      | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "DELETE") {
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "delete-navigation-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let deletePromise: Promise<void>;
+    await act(async () => {
+      deletePromise = hook!.deleteThread("thread-1");
+      hook!.switchThread("thread-2");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveDelete!(jsonResponse({ ok: true }));
+      await deletePromise!;
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("thread-2");
+  });
+
+  it("keeps a newer user rename when an earlier rename fails and refreshes stale data", async () => {
+    const serverThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Old title",
+      preview: "old preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    let resolveFirstRename:
+      | ((response: Response | PromiseLike<Response>) => void)
+      | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [serverThread] });
+      }
+      if (url === "/chat/threads/thread-1/rename" && init?.method === "POST") {
+        const title = JSON.parse(init.body as string).title;
+        if (title === "First title") {
+          return new Promise<Response>((resolve) => {
+            resolveFirstRename = resolve;
+          });
+        }
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "rename-race-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let firstRename: Promise<boolean>;
+    await act(async () => {
+      firstRename = hook!.renameThread("thread-1", "First title");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await hook!.renameThread("thread-1", "Second title");
+    });
+    await act(async () => {
+      resolveFirstRename!(
+        new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await firstRename!;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.title,
+    ).toBe("Second title");
   });
 
   it("preserves a user rename over generated titles and later saves", async () => {

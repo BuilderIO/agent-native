@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { IconClock } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
@@ -10,8 +10,14 @@ interface SnoozeModalProps {
   open: boolean;
   emailId: string | null;
   accountEmail?: string;
+  targets?: SnoozeTarget[];
   onClose: () => void;
-  onSnoozed?: (emailId: string) => void;
+  onSnoozed?: (emailIds: string[]) => void;
+}
+
+interface SnoozeTarget {
+  emailId: string;
+  accountEmail?: string;
 }
 
 interface Option {
@@ -93,13 +99,13 @@ export function SnoozeModal({
   open,
   emailId,
   accountEmail,
+  targets,
   onClose,
   onSnoozed,
 }: SnoozeModalProps) {
   const [nlInput, setNlInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [parsedDate, setParsedDate] = useState<Date | null>(null);
-  const [parsedLabel, setParsedLabel] = useState<string | null>(null);
   const [parsedFormatted, setParsedFormatted] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,6 +113,15 @@ export function SnoozeModal({
 
   const snoozeEmail = useSnoozeEmail();
   const parseDate = useParseDate();
+  const snoozeTargets = useMemo(
+    () =>
+      targets && targets.length > 0
+        ? targets
+        : emailId
+          ? [{ emailId, accountEmail }]
+          : [],
+    [accountEmail, emailId, targets],
+  );
 
   // Reset & focus on open
   useEffect(() => {
@@ -114,7 +129,6 @@ export function SnoozeModal({
       setNlInput("");
       setSelectedIndex(0);
       setParsedDate(null);
-      setParsedLabel(null);
       setParsedFormatted(null);
       setTimeout(() => inputRef.current?.focus(), 30);
     }
@@ -125,7 +139,6 @@ export function SnoozeModal({
     setSelectedIndex(0);
     if (!nlInput.trim()) {
       setParsedDate(null);
-      setParsedLabel(null);
       setParsedFormatted(null);
       return;
     }
@@ -137,12 +150,10 @@ export function SnoozeModal({
         .catch(() => null);
       if (result?.timestamp && result.formatted) {
         setParsedDate(new Date(result.timestamp));
-        setParsedLabel(result.formatted);
         setParsedFormatted(result.formatted);
         setSelectedIndex(0);
       } else {
         setParsedDate(null);
-        setParsedLabel(null);
         setParsedFormatted(null);
       }
     }, 180);
@@ -179,39 +190,48 @@ export function SnoozeModal({
 
   const handleConfirm = useCallback(
     (opt: Option) => {
-      if (!emailId) return;
+      if (snoozeTargets.length === 0) return;
+      const emailIds = snoozeTargets.map((target) => target.emailId);
 
       // Optimistic: close immediately, show toast, advance selection
       onClose();
-      toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
-      window.dispatchEvent(
-        new CustomEvent("email:snoozed", { detail: { emailId } }),
+      toast(
+        snoozeTargets.length > 1
+          ? `Snoozed ${snoozeTargets.length} conversations until ${formatRight(opt.date, opt.sublabel)}`
+          : `Snoozed until ${formatRight(opt.date, opt.sublabel)}`,
       );
-      onSnoozed?.(emailId);
+      window.dispatchEvent(
+        new CustomEvent("email:snoozed", {
+          detail: { emailId: emailIds[0], emailIds },
+        }),
+      );
+      onSnoozed?.(emailIds);
 
       // Fire API in background — surface errors after the fact
-      snoozeEmail
-        .mutateAsync({
-          emailId,
-          runAt: opt.date.getTime(),
-          accountEmail,
-        })
-        .catch((err: any) => {
-          const msg = err?.message ?? "";
-          if (
-            msg.includes("no such table") ||
-            msg.includes("scheduled_jobs") ||
-            msg.includes("SQLITE")
-          ) {
-            toast.error(
-              "Snooze DB not ready. Run: pnpm db:push in the mail template.",
-            );
-          } else {
-            toast.error(msg || "Couldn't snooze — check the server logs.");
-          }
-        });
+      for (const target of snoozeTargets) {
+        snoozeEmail
+          .mutateAsync({
+            emailId: target.emailId,
+            runAt: opt.date.getTime(),
+            accountEmail: target.accountEmail,
+          })
+          .catch((err: any) => {
+            const msg = err?.message ?? "";
+            if (
+              msg.includes("no such table") ||
+              msg.includes("scheduled_jobs") ||
+              msg.includes("SQLITE")
+            ) {
+              toast.error(
+                "Snooze DB not ready. Run: pnpm db:push in the mail template.",
+              );
+            } else {
+              toast.error(msg || "Couldn't snooze — check the server logs.");
+            }
+          });
+      }
     },
-    [accountEmail, emailId, snoozeEmail, onSnoozed, onClose],
+    [snoozeTargets, snoozeEmail, onSnoozed, onClose],
   );
 
   const handleKeyDown = useCallback(

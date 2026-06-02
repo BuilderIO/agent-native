@@ -2,10 +2,16 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openMcpAppHostLink } from "../mcp-app-host.js";
 import {
+  useBuilderStatus,
   useBuilderConnectFlow,
   withBuilderConnectTrackingParams,
 } from "./useBuilderStatus.js";
+
+vi.mock("../mcp-app-host.js", () => ({
+  openMcpAppHostLink: vi.fn(() => false),
+}));
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -16,6 +22,13 @@ function jsonResponse(data: unknown): Response {
 function setUserAgent(userAgent: string) {
   Object.defineProperty(window.navigator, "userAgent", {
     value: userAgent,
+    configurable: true,
+  });
+}
+
+function setEmbeddedWindow(embedded: boolean) {
+  Object.defineProperty(window, "top", {
+    value: embedded ? {} : window,
     configurable: true,
   });
 }
@@ -42,6 +55,20 @@ function BuilderConnectProbe({
   );
 }
 
+function BuilderStatusProbe() {
+  const { status, loading, stale, error } = useBuilderStatus();
+  return (
+    <div>
+      <output data-testid="builder-status">
+        {loading ? "loading" : "loaded"}{" "}
+        {status?.configured ? "configured" : "not-configured"}{" "}
+        {stale ? "stale" : "fresh"}
+      </output>
+      <output>{error ?? ""}</output>
+    </div>
+  );
+}
+
 function createPopupStub() {
   const doc = document.implementation.createHTMLDocument("popup");
   return {
@@ -64,12 +91,73 @@ const refreshedCliAuthUrl = signedCliAuthUrl.replace(
   "_an_state%3Drefreshed",
 );
 
+const connectedBuilderStatus = {
+  configured: true,
+  envManaged: false,
+  builderEnabled: true,
+  orgName: "Builder space",
+  cliAuthUrl: signedCliAuthUrl,
+  connectUrl:
+    "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+  appHost: "https://builder.io",
+  apiHost: "https://api.builder.io",
+  publicKeyConfigured: true,
+  privateKeyConfigured: true,
+};
+
 function expectedConnectUrl(url: string): string {
   return withBuilderConnectTrackingParams(url, {
     source: "builder_connect_flow",
     flow: "connect_llm",
   });
 }
+
+describe("useBuilderStatus", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setEmbeddedWindow(false);
+    window.history.replaceState({}, "", "http://localhost:3000/settings");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the last good Builder status when a refresh fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus))
+        .mockResolvedValueOnce(new Response("Not found", { status: 404 })),
+    );
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("loaded configured fresh");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("loaded configured stale");
+    expect(container.textContent).toContain("Builder status unavailable (404)");
+  });
+});
 
 describe("useBuilderConnectFlow", () => {
   let container: HTMLDivElement;
@@ -78,6 +166,7 @@ describe("useBuilderConnectFlow", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    setEmbeddedWindow(false);
     window.history.replaceState({}, "", "http://localhost:3000/settings");
     vi.stubGlobal(
       "fetch",
@@ -99,6 +188,8 @@ describe("useBuilderConnectFlow", () => {
     );
     openSpy = vi.fn(() => null);
     vi.stubGlobal("open", openSpy);
+    vi.mocked(openMcpAppHostLink).mockReset();
+    vi.mocked(openMcpAppHostLink).mockReturnValue(false);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -244,6 +335,44 @@ describe("useBuilderConnectFlow", () => {
       "width=600,height=700",
     );
     expect(popup.location.href).toBe(expectedConnectUrl(refreshedCliAuthUrl));
+
+    resolveInitialFetch(jsonResponse({ configured: false }));
+  });
+
+  it("falls back to a signed prop URL when status has not loaded and click refresh fails", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const signedConnectUrl =
+      "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed-from-prop";
+
+    let resolveInitialFetch!: (response: Response) => void;
+    const initialFetch = new Promise<Response>((resolve) => {
+      resolveInitialFetch = resolve;
+    });
+    vi.mocked(fetch)
+      .mockReturnValueOnce(initialFetch)
+      .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe popupUrl={signedConnectUrl} />);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
 
     resolveInitialFetch(jsonResponse({ configured: false }));
   });
@@ -415,6 +544,67 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(window.location.href).toBe("http://localhost:3000/settings");
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("asks the MCP host to open Builder when an embedded chat sandbox blocks popups", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    vi.mocked(openMcpAppHostLink).mockResolvedValueOnce(true);
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          cliAuthUrl: signedCliAuthUrl,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          cliAuthUrl: refreshedCliAuthUrl,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=refreshed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "about:blank",
+      "_blank",
+      "width=600,height=700",
+    );
+    expect(openMcpAppHostLink).toHaveBeenCalledWith(
+      expectedConnectUrl(refreshedCliAuthUrl),
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("Allow popups");
   });
 
   it("does not abort a reconnect popup because the old credential was rejected", async () => {

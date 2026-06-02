@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { IconMessageCircle, IconUser } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 import { useRsvpEvent } from "@/hooks/use-events";
 import { cn } from "@/lib/utils";
@@ -20,6 +24,7 @@ import {
 type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
+type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
@@ -73,55 +78,89 @@ function RsvpControls({
   eventId,
   accountEmail,
   value,
+  note,
   onChange,
   isRecurring,
 }: {
   eventId: string;
   accountEmail?: string;
   value: RsvpStatus;
-  onChange: (status: RsvpStatus) => void;
+  note?: string;
+  onChange: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
 }) {
   const mutation = useRsvpEvent();
-  const [pendingStatus, setPendingStatus] = useState<Exclude<
-    RsvpStatus,
-    "needsAction"
-  > | null>(null);
+  const noteId = useId();
+  const scopeId = useId();
+  const [pendingStatus, setPendingStatus] = useState<EditableRsvpStatus | null>(
+    null,
+  );
+  const [pendingScope, setPendingScope] = useState<RecurringScope>("single");
+  const [noteDraft, setNoteDraft] = useState("");
+  const currentNote = note?.trim() ?? "";
 
   const options: Array<{
-    value: Exclude<RsvpStatus, "needsAction">;
+    value: EditableRsvpStatus;
     label: string;
   }> = [
     { value: "accepted", label: "Yes" },
     { value: "declined", label: "No" },
     { value: "tentative", label: "Maybe" },
   ];
+  const scopeOptions: Array<{
+    value: RecurringScope;
+    label: string;
+  }> = [
+    { value: "single", label: "This event" },
+    { value: "thisAndFollowing", label: "This and following events" },
+    { value: "all", label: "All events" },
+  ];
+
+  const supportsNote =
+    pendingStatus === "declined" || pendingStatus === "tentative";
+  const canEditNote = value === "declined" || value === "tentative";
+
+  const closePopover = () => {
+    setPendingStatus(null);
+    setPendingScope("single");
+    setNoteDraft("");
+  };
+
+  const openPopover = (status: EditableRsvpStatus) => {
+    setPendingScope("single");
+    setNoteDraft(status === "accepted" ? "" : currentNote);
+    setPendingStatus(status);
+  };
 
   const doRsvp = (
-    status: Exclude<RsvpStatus, "needsAction">,
+    status: EditableRsvpStatus,
     scope?: RecurringScope,
+    noteValue = noteDraft,
   ) => {
     const previous = value;
-    onChange(status);
+    const previousNote = currentNote;
+    const nextNote = status === "accepted" ? "" : noteValue.trim();
+    onChange(status, nextNote);
     mutation.mutate(
-      { id: eventId, status, accountEmail, scope },
-      { onError: () => onChange(previous) },
+      { id: eventId, status, accountEmail, scope, note: nextNote },
+      { onError: () => onChange(previous, previousNote) },
     );
   };
 
-  const handleRsvp = (status: Exclude<RsvpStatus, "needsAction">) => {
-    if (mutation.isPending || value === status) return;
-    if (isRecurring) {
-      setPendingStatus(status);
-    } else {
-      doRsvp(status);
+  const handleRsvp = (status: EditableRsvpStatus) => {
+    if (mutation.isPending) return;
+    if (isRecurring || status === "declined" || status === "tentative") {
+      openPopover(status);
+      return;
     }
+    if (value === status && !currentNote) return;
+    doRsvp(status, undefined, "");
   };
 
   return (
     <Popover
       open={!!pendingStatus}
-      onOpenChange={(open) => !open && setPendingStatus(null)}
+      onOpenChange={(open) => !open && closePopover()}
     >
       <div className="mt-2 flex items-center gap-1 rounded-2xl bg-muted/60 p-1">
         {options.map((option) => {
@@ -146,7 +185,7 @@ function RsvpControls({
               {option.label}
             </button>
           );
-          if (isRecurring && pendingStatus === option.value) {
+          if (pendingStatus === option.value) {
             return (
               <PopoverTrigger key={option.value} asChild>
                 {btn}
@@ -157,60 +196,118 @@ function RsvpControls({
         })}
       </div>
 
+      {canEditNote && (
+        <button
+          type="button"
+          disabled={mutation.isPending}
+          onClick={(e) => {
+            e.stopPropagation();
+            openPopover(value as EditableRsvpStatus);
+          }}
+          className="mt-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+        >
+          <IconMessageCircle className="h-3 w-3" />
+          {currentNote ? "Edit note" : "Add note"}
+        </button>
+      )}
+
       <PopoverContent
         side="left"
         align="center"
         sideOffset={8}
-        className="w-64"
+        className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
+        onPointerDownCapture={(e) => e.stopPropagation()}
       >
-        <div className="space-y-2">
+        {pendingStatus && (
           <div>
-            <p className="text-sm font-medium">This is a recurring event</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Would you like to change your response for just this event, this
-              and all following events, or all events in the series?
-            </p>
+            <div className="p-5">
+              <p className="text-base font-semibold leading-tight">
+                {isRecurring
+                  ? "Save response status for recurring event"
+                  : "Save response status"}
+              </p>
+
+              {isRecurring && (
+                <RadioGroup
+                  value={pendingScope}
+                  onValueChange={(value) =>
+                    setPendingScope(value as RecurringScope)
+                  }
+                  aria-label="Recurring response scope"
+                  className="mt-5 gap-4"
+                >
+                  {scopeOptions.map((option) => {
+                    const id = `${scopeId}-${option.value}`;
+                    return (
+                      <div
+                        key={option.value}
+                        className="flex items-center gap-3"
+                      >
+                        <RadioGroupItem
+                          id={id}
+                          value={option.value}
+                          disabled={mutation.isPending}
+                        />
+                        <Label
+                          htmlFor={id}
+                          className="cursor-pointer text-sm font-medium leading-none"
+                        >
+                          {option.label}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
+              )}
+            </div>
+
+            {supportsNote && (
+              <>
+                <Separator />
+                <div className="space-y-2 p-5">
+                  <Label htmlFor={noteId} className="text-sm font-medium">
+                    Optional note
+                  </Label>
+                  <Textarea
+                    id={noteId}
+                    value={noteDraft}
+                    onChange={(e) => setNoteDraft(e.target.value)}
+                    maxLength={1000}
+                    placeholder="Add a short note..."
+                    className="min-h-[96px] resize-none text-sm"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end gap-2 px-5 pb-5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closePopover();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="h-9"
+                disabled={mutation.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
+                  closePopover();
+                }}
+              >
+                Save response
+              </Button>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                doRsvp(pendingStatus!, "single");
-                setPendingStatus(null);
-              }}
-            >
-              This event
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                doRsvp(pendingStatus!, "thisAndFollowing");
-                setPendingStatus(null);
-              }}
-            >
-              This and following events
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                doRsvp(pendingStatus!, "all");
-                setPendingStatus(null);
-              }}
-            >
-              All events
-            </Button>
-          </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -222,7 +319,8 @@ function AttendeeRow({
   photoUrl,
   inlineRsvp,
   currentStatus,
-  onStatusChange,
+  currentNote,
+  onResponseChange,
   isRecurring,
 }: {
   attendee: Attendee;
@@ -230,16 +328,17 @@ function AttendeeRow({
   photoUrl?: string;
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
-  onStatusChange?: (status: Exclude<RsvpStatus, "needsAction">) => void;
+  currentNote?: string;
+  onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
 }) {
   const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
   const statusLabel = getRsvpStatusLabel(displayStatus) ?? "Awaiting";
-  const comment = attendee.comment?.trim();
+  const comment = (inlineRsvp ? currentNote : attendee.comment)?.trim();
 
   return (
-    <AttendeeApolloPopover attendee={attendee}>
-      <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+    <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+      <AttendeeApolloPopover attendee={attendee}>
         <div className="flex items-center gap-2.5">
           <div className="relative shrink-0">
             <AttendeeAvatar attendee={attendee} resolvedPhotoUrl={photoUrl} />
@@ -274,17 +373,18 @@ function AttendeeRow({
             <span className="min-w-0 break-words">{comment}</span>
           </div>
         )}
-        {inlineRsvp && currentStatus && onStatusChange && (
-          <RsvpControls
-            eventId={event.id}
-            accountEmail={event.accountEmail}
-            value={currentStatus}
-            onChange={onStatusChange}
-            isRecurring={isRecurring}
-          />
-        )}
-      </div>
-    </AttendeeApolloPopover>
+      </AttendeeApolloPopover>
+      {inlineRsvp && currentStatus && onResponseChange && (
+        <RsvpControls
+          eventId={event.id}
+          accountEmail={event.accountEmail}
+          value={currentStatus}
+          note={currentNote}
+          onChange={onResponseChange}
+          isRecurring={isRecurring}
+        />
+      )}
+    </div>
   );
 }
 
@@ -316,16 +416,26 @@ export function EventAttendeesSection({
   const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
     event.responseStatus || "needsAction",
   );
+  const [selfNote, setSelfNote] = useState(
+    attendees.find((attendee) => attendee.self)?.comment?.trim() ?? "",
+  );
   const emails = attendees.map((attendee) => attendee.email);
   const { data: photos } = useAttendeePhotos(emails);
-
-  useEffect(() => {
-    setSelfStatus(event.responseStatus || "needsAction");
-  }, [event.id, event.responseStatus]);
 
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const selfAttendee = sorted.find((attendee) => attendee.self);
   const others = sorted.filter((attendee) => !attendee.self);
+
+  useEffect(() => {
+    setSelfStatus(event.responseStatus || "needsAction");
+    setSelfNote(selfAttendee?.comment?.trim() ?? "");
+  }, [event.id, event.responseStatus, selfAttendee?.comment]);
+
+  const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
+    setSelfStatus(status);
+    setSelfNote(note);
+  };
+
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
   const visibleOthers =
     shouldTruncate && !expanded
@@ -397,7 +507,8 @@ export function EventAttendeesSection({
                   photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
                   inlineRsvp={event.source === "google"}
                   currentStatus={selfStatus}
-                  onStatusChange={setSelfStatus}
+                  currentNote={selfNote}
+                  onResponseChange={handleSelfResponseChange}
                   isRecurring={!!event.recurringEventId}
                 />
               </>

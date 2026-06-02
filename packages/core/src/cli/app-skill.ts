@@ -802,7 +802,7 @@ function writeVercelSkillsAdapter(
     [
       `# ${manifest.displayName} Skills`,
       "",
-      "Install with the open skills CLI:",
+      "Install instructions only with the Vercel Labs/open skills CLI:",
       "",
       "```bash",
       `npx skills add . --skill ${skills.map(skillExportName).join(" --skill ")} -a codex`,
@@ -814,7 +814,7 @@ function writeVercelSkillsAdapter(
       `npx @agent-native/core@latest app-skill ensure --manifest agent-native.app-skill.json --yes`,
       "```",
       "",
-      "The skill files contain instructions only. OAuth or device setup happens in the MCP host; secrets are not stored in skills.",
+      "The open skills CLI installs instruction files only; it does not run postinstall scripts or register MCP connectors. OAuth or device setup happens in the MCP host; secrets are not stored in skills.",
       "",
     ].join("\n"),
     "utf-8",

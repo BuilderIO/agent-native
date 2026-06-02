@@ -19,6 +19,7 @@ import {
   engineMessagesToAnthropic,
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
+  createAnthropicChunkStreamState,
 } from "./translate-anthropic.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
@@ -27,6 +28,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -106,7 +108,10 @@ class AnthropicEngine implements AgentEngine {
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: opts.maxOutputTokens ?? 32768,
+      max_tokens: resolveMaxOutputTokensForEngine(
+        this.name,
+        opts.maxOutputTokens,
+      ),
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages,
@@ -123,17 +128,16 @@ class AnthropicEngine implements AgentEngine {
       signal: opts.abortSignal,
     });
 
-    let thinkingText = "";
-    let thinkingSignature = "";
+    // Per-stream state lets the translator carry each tool-call's id/name from
+    // its `content_block_start` onto the streamed `input_json_delta` chunks, so
+    // long tool-input generation emits countable `tool-input-start` /
+    // `tool-input-delta` progress events (mirroring the Builder engine).
+    const chunkState = createAnthropicChunkStreamState();
 
     try {
       for await (const chunk of apiStream) {
-        const events = anthropicChunkToEngineEvents(chunk);
+        const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
-          if (event.type === "thinking-delta") {
-            thinkingText += event.text;
-            if (event.signature) thinkingSignature = event.signature;
-          }
           yield event;
         }
       }

@@ -38,6 +38,21 @@ function slackIncoming(
   };
 }
 
+function emailIncoming(
+  overrides: Partial<IncomingMessage> = {},
+): IncomingMessage {
+  return {
+    platform: "email",
+    externalThreadId: "victim@member.test::<root@member.test>",
+    text: "transfer everything",
+    senderId: "victim@member.test",
+    senderName: "Victim",
+    platformContext: { from: "victim@member.test" },
+    timestamp: 1,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
@@ -112,5 +127,59 @@ describe("resolveDispatchOwner", () => {
     await expect(resolveDispatchOwner(slackIncoming())).resolves.toBe(
       "default@example.test",
     );
+  });
+
+  it("does NOT impersonate an org member from an unverified (spoofed) email From", async () => {
+    // Attacker spoofs From: victim@member.test, which IS a real org member —
+    // but the message is unverified (no DKIM/SPF pass). Must fall through to
+    // the synthetic, credential-less owner, NOT the victim's identity.
+    mocks.resolveOrgIdForEmail.mockResolvedValue("org_123");
+
+    const owner = await resolveDispatchOwner(
+      emailIncoming({ senderVerified: false }),
+    );
+
+    expect(owner).not.toBe("victim@member.test");
+    expect(owner).toMatch(/@integration\.local$/);
+  });
+
+  it("does NOT impersonate when sender is verified but not an org member", async () => {
+    mocks.resolveOrgIdForEmail.mockResolvedValue(null);
+
+    const owner = await resolveDispatchOwner(
+      emailIncoming({
+        senderId: "stranger@outside.test",
+        platformContext: { from: "stranger@outside.test" },
+        senderVerified: true,
+      }),
+    );
+
+    expect(owner).not.toBe("stranger@outside.test");
+    expect(owner).toMatch(/@integration\.local$/);
+  });
+
+  it("uses the email sender as owner when verified AND an org member", async () => {
+    mocks.resolveOrgIdForEmail.mockResolvedValue("org_123");
+
+    await expect(
+      resolveDispatchOwner(emailIncoming({ senderVerified: true })),
+    ).resolves.toBe("victim@member.test");
+  });
+
+  it("honors a linked identity for email regardless of verification", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("linked@member.test");
+
+    await expect(
+      resolveDispatchOwner(emailIncoming({ senderVerified: false })),
+    ).resolves.toBe("linked@member.test");
+    expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("restores legacy trust-From behavior under the escape hatch", async () => {
+    vi.stubEnv("DISPATCH_TRUST_UNVERIFIED_EMAIL_SENDER", "1");
+
+    await expect(
+      resolveDispatchOwner(emailIncoming({ senderVerified: false })),
+    ).resolves.toBe("victim@member.test");
   });
 });

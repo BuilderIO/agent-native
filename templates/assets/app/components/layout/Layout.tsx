@@ -4,13 +4,22 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, isEmbedAuthActive } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+function isEmbeddedWindow() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
 }
 
 export function Layout({ children }: LayoutProps) {
@@ -22,12 +31,14 @@ export function Layout({ children }: LayoutProps) {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
 
+  const isPicker = location.pathname === "/library";
   const hideHeader =
-    location.pathname === "/picker" ||
+    location.pathname === "/library" ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =
-    location.pathname === "/picker" || location.pathname.endsWith("/embed");
+    (isPicker && (isEmbeddedWindow() || isEmbedAuthActive())) ||
+    location.pathname.endsWith("/embed");
 
   if (chromeless) {
     return (
@@ -81,7 +92,7 @@ export function Layout({ children }: LayoutProps) {
             </div>
             {!hideHeader && <Header />}
             <InvitationBanner />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
           </div>
         </div>
       </AgentSidebar>

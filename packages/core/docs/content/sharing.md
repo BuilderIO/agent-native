@@ -46,8 +46,6 @@ Every template that stores user-authored work uses this model. Concretely:
 - **Design** — designs and assets
 - **Video** — compositions
 - **Clips** — screen recordings (Loom-style)
-- **Calls** — meeting recordings and transcripts (Granola-style)
-- **Meeting Notes** — transcripts and summaries
 - **Forms** — form definitions
 - **Calendar** — events and booking links
 - **Analytics** — dashboards (rolling out — see the analytics template's `AGENTS.md`)
@@ -60,7 +58,7 @@ Every one of these uses the same `ownableColumns()` schema helper, the same `sha
 A few areas are intentionally outside the sharing system:
 
 - **Personal-data apps** (Mail, Macros) — user-scoped by design. There's no "share my inbox" concept.
-- **External source-of-truth apps** (Issues → Jira, Recruiting → Greenhouse) — access control lives in the upstream system, not the agent-native app.
+- **External source-of-truth apps** — access control lives in the upstream system, not the agent-native app.
 - **Anonymous public URLs** — form publish slugs and booking-link slugs that expose a URL to logged-out users are a separate axis. They live alongside the sharing system, not on top of it.
 
 ## The share UI {#share-ui}

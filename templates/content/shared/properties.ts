@@ -1,0 +1,900 @@
+export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "files_media",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+  "relation",
+] as const;
+
+export const COMPUTED_DOCUMENT_PROPERTY_TYPES = [
+  "formula",
+  "rollup",
+  "id",
+  "created_time",
+  "created_by",
+  "last_edited_time",
+  "last_edited_by",
+] as const;
+
+export const DOCUMENT_PROPERTY_TYPES = [
+  ...EDITABLE_DOCUMENT_PROPERTY_TYPES,
+  ...COMPUTED_DOCUMENT_PROPERTY_TYPES,
+] as const;
+
+export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
+  "text",
+  "number",
+  "select",
+  "multi_select",
+  "status",
+  "date",
+  "person",
+  "place",
+  "files_media",
+  "checkbox",
+  "url",
+  "email",
+  "phone",
+  "id",
+  "created_time",
+  "created_by",
+  "last_edited_time",
+  "last_edited_by",
+] as const satisfies readonly DocumentPropertyType[];
+
+export type EditableDocumentPropertyType =
+  (typeof EDITABLE_DOCUMENT_PROPERTY_TYPES)[number];
+
+export type ComputedDocumentPropertyType =
+  (typeof COMPUTED_DOCUMENT_PROPERTY_TYPES)[number];
+
+export type DocumentPropertyType = (typeof DOCUMENT_PROPERTY_TYPES)[number];
+
+export const DOCUMENT_PROPERTY_VISIBILITIES = [
+  "always_show",
+  "hide_when_empty",
+  "always_hide",
+] as const;
+
+export type DocumentPropertyVisibility =
+  (typeof DOCUMENT_PROPERTY_VISIBILITIES)[number];
+
+export type DocumentPropertyOptionColor =
+  | "gray"
+  | "brown"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red";
+
+export interface DocumentPropertyOption {
+  id: string;
+  name: string;
+  color: DocumentPropertyOptionColor;
+}
+
+export interface DocumentPropertyOptions {
+  options?: DocumentPropertyOption[];
+  formula?: string;
+  relation?: {
+    databaseId?: string | null;
+  };
+  rollup?: {
+    relationPropertyId?: string | null;
+    targetPropertyId?: string | null;
+    aggregation?:
+      | "count"
+      | "count_values"
+      | "count_unique"
+      | "sum"
+      | "average"
+      | "min"
+      | "max";
+  };
+}
+
+export interface DocumentPropertyDateValue {
+  start: string;
+  end?: string | null;
+  includeTime?: boolean;
+}
+
+export type DocumentPropertyValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | DocumentPropertyDateValue
+  | null;
+
+export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
+  DocumentPropertyType,
+  string
+> = {
+  text: "Text",
+  number: "Number",
+  select: "Select",
+  multi_select: "Multi-select",
+  status: "Status",
+  date: "Date",
+  person: "Person",
+  place: "Place",
+  files_media: "Files & media",
+  checkbox: "Checkbox",
+  url: "URL",
+  email: "Email",
+  phone: "Phone",
+  relation: "Relation",
+  formula: "Formula",
+  rollup: "Rollup",
+  id: "ID",
+  created_time: "Created time",
+  created_by: "Created by",
+  last_edited_time: "Last edited time",
+  last_edited_by: "Last edited by",
+};
+
+export const DOCUMENT_PROPERTY_VISIBILITY_LABELS: Record<
+  DocumentPropertyVisibility,
+  string
+> = {
+  always_show: "Always show",
+  hide_when_empty: "Hide when empty",
+  always_hide: "Always hide",
+};
+
+export function isComputedPropertyType(
+  type: DocumentPropertyType,
+): type is ComputedDocumentPropertyType {
+  return (COMPUTED_DOCUMENT_PROPERTY_TYPES as readonly string[]).includes(type);
+}
+
+export function defaultPropertyOptions(
+  type: DocumentPropertyType,
+): DocumentPropertyOptions {
+  if (type === "status") {
+    return {
+      options: [
+        { id: "not-started", name: "Not started", color: "gray" },
+        { id: "in-progress", name: "In progress", color: "blue" },
+        { id: "done", name: "Done", color: "green" },
+      ],
+    };
+  }
+
+  if (type === "select" || type === "multi_select") {
+    return {
+      options: [{ id: "option", name: "Option", color: "gray" }],
+    };
+  }
+
+  if (type === "formula") {
+    return { formula: "" };
+  }
+
+  if (type === "relation") {
+    return { relation: { databaseId: null } };
+  }
+
+  if (type === "rollup") {
+    return {
+      rollup: {
+        relationPropertyId: null,
+        targetPropertyId: null,
+        aggregation: "count",
+      },
+    };
+  }
+
+  return {};
+}
+
+export function parsePropertyOptions(
+  value: string | null | undefined,
+): DocumentPropertyOptions {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as DocumentPropertyOptions;
+    if (!parsed || typeof parsed !== "object") return {};
+    return {
+      ...parsed,
+      options: Array.isArray(parsed.options) ? parsed.options : undefined,
+      formula: typeof parsed.formula === "string" ? parsed.formula : undefined,
+      relation:
+        parsed.relation && typeof parsed.relation === "object"
+          ? {
+              databaseId:
+                typeof parsed.relation.databaseId === "string"
+                  ? parsed.relation.databaseId
+                  : null,
+            }
+          : undefined,
+      rollup:
+        parsed.rollup && typeof parsed.rollup === "object"
+          ? {
+              relationPropertyId:
+                typeof parsed.rollup.relationPropertyId === "string"
+                  ? parsed.rollup.relationPropertyId
+                  : null,
+              targetPropertyId:
+                typeof parsed.rollup.targetPropertyId === "string"
+                  ? parsed.rollup.targetPropertyId
+                  : null,
+              aggregation: normalizeRollupAggregation(
+                parsed.rollup.aggregation,
+              ),
+            }
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function normalizeRollupAggregation(
+  value: unknown,
+): NonNullable<DocumentPropertyOptions["rollup"]>["aggregation"] {
+  return value === "count_values" ||
+    value === "count_unique" ||
+    value === "sum" ||
+    value === "average" ||
+    value === "min" ||
+    value === "max"
+    ? value
+    : "count";
+}
+
+export function serializePropertyOptions(
+  value: DocumentPropertyOptions | null | undefined,
+): string {
+  return JSON.stringify(value ?? {});
+}
+
+export function parsePropertyValue(
+  value: string | null | undefined,
+): DocumentPropertyValue {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as DocumentPropertyValue;
+  } catch {
+    return null;
+  }
+}
+
+export function serializePropertyValue(value: DocumentPropertyValue): string {
+  return JSON.stringify(value);
+}
+
+export function normalizePropertyVisibility(
+  value: unknown,
+): DocumentPropertyVisibility {
+  return DOCUMENT_PROPERTY_VISIBILITIES.includes(
+    value as DocumentPropertyVisibility,
+  )
+    ? (value as DocumentPropertyVisibility)
+    : "always_show";
+}
+
+export function isEmptyPropertyValue(value: DocumentPropertyValue): boolean {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (isDocumentPropertyDateValue(value)) return !value.start.trim();
+  return false;
+}
+
+export function isDocumentPropertyDateValue(
+  value: unknown,
+): value is DocumentPropertyDateValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "start" in value &&
+    typeof (value as { start?: unknown }).start === "string"
+  );
+}
+
+export function documentPropertyDatePart(
+  value: unknown,
+  part: "start" | "end",
+) {
+  if (isDocumentPropertyDateValue(value)) {
+    const rawValue = part === "start" ? value.start : value.end;
+    return typeof rawValue === "string" ? rawValue.trim() : "";
+  }
+  if (part === "end") return "";
+  if (typeof value === "string") return value.trim();
+  return "";
+}
+
+export function documentPropertyDateIncludesTime(value: unknown) {
+  if (isDocumentPropertyDateValue(value)) return value.includeTime === true;
+  if (typeof value !== "string") return false;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value.trim());
+}
+
+export function documentPropertyDateKey(
+  value: unknown,
+  part: "start" | "end" = "start",
+) {
+  const rawValue = documentPropertyDatePart(value, part);
+  if (!rawValue) return null;
+  const dateOnly = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}`;
+  const date = new Date(rawValue);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function normalizeDatePropertyValue(
+  value: unknown,
+): DocumentPropertyDateValue | null {
+  if (value === undefined || value === null || value === "") return null;
+
+  const includeTime = documentPropertyDateIncludesTime(value);
+  const start = documentPropertyDatePart(value, "start");
+  const end = documentPropertyDatePart(value, "end");
+  const normalizedStart = normalizeDatePropertyPart(start, includeTime);
+  if (!normalizedStart) return null;
+
+  const normalizedEnd = normalizeDatePropertyPart(end, includeTime);
+  const next: DocumentPropertyDateValue = {
+    start: normalizedStart,
+    includeTime,
+  };
+  const startKey = documentPropertyDateKey(normalizedStart);
+  const endKey = normalizedEnd ? documentPropertyDateKey(normalizedEnd) : null;
+  if (normalizedEnd && startKey && endKey && endKey >= startKey) {
+    next.end = normalizedEnd;
+  }
+  return next;
+}
+
+function normalizeDatePropertyPart(value: string, includeTime: boolean) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (match) {
+    const dateOnly = `${match[1]}-${match[2]}-${match[3]}`;
+    if (!includeTime) return dateOnly;
+    return `${dateOnly}T${match[4] ?? "00"}:${match[5] ?? "00"}`;
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  if (!includeTime) return `${year}-${month}-${day}`;
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+export function normalizePropertyValue(
+  type: DocumentPropertyType,
+  value: unknown,
+): DocumentPropertyValue {
+  if (isComputedPropertyType(type)) return null;
+  if (value === undefined || value === null || value === "") return null;
+
+  switch (type) {
+    case "number": {
+      const numberValue =
+        typeof value === "number" ? value : Number(String(value).trim());
+      return Number.isFinite(numberValue) ? numberValue : null;
+    }
+    case "checkbox": {
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["false", "0", "off", "no", "unchecked"].includes(normalized)) {
+          return false;
+        }
+      }
+      return Boolean(value);
+    }
+    case "multi_select":
+    case "files_media":
+    case "person":
+    case "relation":
+      return Array.isArray(value)
+        ? value
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : String(value)
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean);
+    case "text":
+    case "select":
+    case "status":
+    case "place":
+    case "url":
+    case "email":
+    case "phone":
+      return String(value);
+    case "date":
+      return normalizeDatePropertyValue(value);
+  }
+}
+
+export function formulaValueText(value: DocumentPropertyValue): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  if (isDocumentPropertyDateValue(value)) {
+    const start = value.start.trim();
+    const end = value.end?.trim();
+    return end ? `${start} - ${end}` : start;
+  }
+  return String(value);
+}
+
+export function evaluatePropertyFormula(
+  formula: string | null | undefined,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): DocumentPropertyValue {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed) return null;
+
+  const formulaValue = evaluateFormulaExpression(trimmed, valuesByName);
+  if (formulaValue !== null) return formulaValue;
+
+  const expression = trimmed.replace(/\{([^{}]+)\}/g, (_match, name) => {
+    const value = valuesByName[String(name).trim()];
+    const numericValue = Number(formulaValueText(value));
+    return Number.isFinite(numericValue) ? String(numericValue) : "NaN";
+  });
+  const numericValue = evaluateNumericExpression(expression);
+  if (numericValue !== null) return numericValue;
+
+  return trimmed.replace(/\{([^{}]+)\}/g, (_match, name) =>
+    formulaValueText(valuesByName[String(name).trim()]),
+  );
+}
+
+type FormulaPrimitive = string | number | boolean | null;
+
+type FormulaToken =
+  | { type: "number"; value: number }
+  | { type: "string"; value: string }
+  | { type: "property"; value: string }
+  | { type: "identifier"; value: string }
+  | { type: "operator"; value: string }
+  | { type: "punctuation"; value: "(" | ")" | "," };
+
+function evaluateFormulaExpression(
+  expression: string,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): FormulaPrimitive {
+  const tokens = tokenizeFormulaExpression(expression);
+  if (!tokens) return null;
+  let index = 0;
+
+  function peek() {
+    return tokens[index];
+  }
+
+  function consume() {
+    const token = tokens[index];
+    index += 1;
+    return token;
+  }
+
+  function consumeValue(value: string) {
+    const token = peek();
+    if (!token || !("value" in token) || token.value !== value) return false;
+    index += 1;
+    return true;
+  }
+
+  function parseExpression(): FormulaPrimitive {
+    return parseComparison();
+  }
+
+  function parseComparison(): FormulaPrimitive {
+    let left = parseAdditive();
+    while (true) {
+      const token = peek();
+      if (
+        token?.type !== "operator" ||
+        ![">", ">=", "<", "<=", "==", "!="].includes(token.value)
+      ) {
+        return left;
+      }
+      consume();
+      const right = parseAdditive();
+      left = compareFormulaValues(left, right, token.value);
+    }
+  }
+
+  function parseAdditive(): FormulaPrimitive {
+    let left = parseMultiplicative();
+    while (true) {
+      const token = peek();
+      if (token?.type !== "operator" || !["+", "-"].includes(token.value)) {
+        return left;
+      }
+      consume();
+      const right = parseMultiplicative();
+      if (token.value === "+") {
+        const leftNumber = formulaNumberValue(left);
+        const rightNumber = formulaNumberValue(right);
+        left =
+          leftNumber !== null && rightNumber !== null
+            ? leftNumber + rightNumber
+            : typeof left === "string" || typeof right === "string"
+              ? formulaTextValue(left) + formulaTextValue(right)
+              : null;
+      } else {
+        left = numericFormulaOperation(left, right, (a, b) => a - b);
+      }
+    }
+  }
+
+  function parseMultiplicative(): FormulaPrimitive {
+    let left = parseUnary();
+    while (true) {
+      const token = peek();
+      if (token?.type !== "operator" || !["*", "/"].includes(token.value)) {
+        return left;
+      }
+      consume();
+      const right = parseUnary();
+      left = numericFormulaOperation(left, right, (a, b) =>
+        token.value === "*" ? a * b : a / b,
+      );
+    }
+  }
+
+  function parseUnary(): FormulaPrimitive {
+    const token = peek();
+    if (
+      token?.type === "operator" &&
+      (token.value === "+" || token.value === "-")
+    ) {
+      consume();
+      const value = formulaNumberValue(parseUnary());
+      if (value === null) return null;
+      return token.value === "-" ? -value : value;
+    }
+    return parsePrimary();
+  }
+
+  function parsePrimary(): FormulaPrimitive {
+    const token = consume();
+    if (!token) return null;
+    if (token.type === "number" || token.type === "string") return token.value;
+    if (token.type === "property") {
+      return formulaPrimitiveValue(valuesByName[token.value.trim()]);
+    }
+    if (token.type === "punctuation" && token.value === "(") {
+      const value = parseExpression();
+      return consumeValue(")") ? value : null;
+    }
+    if (token.type !== "identifier") return null;
+
+    const name = token.value.toLowerCase();
+    if (name === "true") return true;
+    if (name === "false") return false;
+    if (!consumeValue("(")) return null;
+
+    const args: FormulaPrimitive[] = [];
+    if (!consumeValue(")")) {
+      do {
+        args.push(parseExpression());
+      } while (consumeValue(","));
+      if (!consumeValue(")")) return null;
+    }
+    return evaluateFormulaFunction(name, args);
+  }
+
+  const value = parseExpression();
+  return index === tokens.length ? value : null;
+}
+
+function tokenizeFormulaExpression(expression: string): FormulaToken[] | null {
+  const tokens: FormulaToken[] = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "{") {
+      const end = expression.indexOf("}", index + 1);
+      if (end === -1) return null;
+      tokens.push({
+        type: "property",
+        value: expression.slice(index + 1, end),
+      });
+      index = end + 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      const parsed = readFormulaString(expression, index, char);
+      if (!parsed) return null;
+      tokens.push({ type: "string", value: parsed.value });
+      index = parsed.nextIndex;
+      continue;
+    }
+    if ("(),".includes(char)) {
+      tokens.push({
+        type: "punctuation",
+        value: char as "(" | ")" | ",",
+      });
+      index += 1;
+      continue;
+    }
+    const operator = expression.slice(index).match(/^(>=|<=|==|!=|[+\-*/<>])/);
+    if (operator) {
+      tokens.push({ type: "operator", value: operator[0] });
+      index += operator[0].length;
+      continue;
+    }
+    const numberMatch = expression.slice(index).match(/^\d+(?:\.\d+)?/);
+    if (numberMatch) {
+      tokens.push({ type: "number", value: Number(numberMatch[0]) });
+      index += numberMatch[0].length;
+      continue;
+    }
+    const identifier = expression.slice(index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+    if (identifier) {
+      tokens.push({ type: "identifier", value: identifier[0] });
+      index += identifier[0].length;
+      continue;
+    }
+    return null;
+  }
+
+  return tokens.length > 0 ? tokens : null;
+}
+
+function readFormulaString(
+  expression: string,
+  startIndex: number,
+  quote: string,
+) {
+  let value = "";
+  let index = startIndex + 1;
+  while (index < expression.length) {
+    const char = expression[index];
+    if (char === "\\") {
+      const next = expression[index + 1];
+      if (!next) return null;
+      value += next;
+      index += 2;
+      continue;
+    }
+    if (char === quote) {
+      return { value, nextIndex: index + 1 };
+    }
+    value += char;
+    index += 1;
+  }
+  return null;
+}
+
+function formulaPrimitiveValue(value: DocumentPropertyValue): FormulaPrimitive {
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value === null || value === undefined) return null;
+  return formulaValueText(value);
+}
+
+function formulaNumberValue(value: FormulaPrimitive): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "string" && value.trim()) {
+    const numberValue = Number(value.trim());
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+  return null;
+}
+
+function formulaTextValue(value: FormulaPrimitive) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function formulaTruthy(value: FormulaPrimitive) {
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "number") return value !== 0;
+  return Boolean(value);
+}
+
+function numericFormulaOperation(
+  left: FormulaPrimitive,
+  right: FormulaPrimitive,
+  operation: (left: number, right: number) => number,
+): FormulaPrimitive {
+  const leftNumber = formulaNumberValue(left);
+  const rightNumber = formulaNumberValue(right);
+  if (leftNumber === null || rightNumber === null) return null;
+  const result = operation(leftNumber, rightNumber);
+  return Number.isFinite(result) ? result : null;
+}
+
+function compareFormulaValues(
+  left: FormulaPrimitive,
+  right: FormulaPrimitive,
+  operator: string,
+): boolean {
+  if (operator === "==" || operator === "!=") {
+    const equal = formulaTextValue(left) === formulaTextValue(right);
+    return operator === "==" ? equal : !equal;
+  }
+
+  const leftNumber = formulaNumberValue(left);
+  const rightNumber = formulaNumberValue(right);
+  if (leftNumber !== null && rightNumber !== null) {
+    if (operator === ">") return leftNumber > rightNumber;
+    if (operator === ">=") return leftNumber >= rightNumber;
+    if (operator === "<") return leftNumber < rightNumber;
+    return leftNumber <= rightNumber;
+  }
+
+  const leftText = formulaTextValue(left);
+  const rightText = formulaTextValue(right);
+  if (operator === ">") return leftText > rightText;
+  if (operator === ">=") return leftText >= rightText;
+  if (operator === "<") return leftText < rightText;
+  return leftText <= rightText;
+}
+
+function evaluateFormulaFunction(
+  name: string,
+  args: FormulaPrimitive[],
+): FormulaPrimitive {
+  switch (name) {
+    case "if":
+      return formulaTruthy(args[0]) ? (args[1] ?? null) : (args[2] ?? null);
+    case "concat":
+      return args.map(formulaTextValue).join("");
+    case "contains":
+      return formulaTextValue(args[0]).includes(formulaTextValue(args[1]));
+    case "empty":
+      return !formulaTruthy(args[0]);
+    case "not":
+      return !formulaTruthy(args[0]);
+    case "and":
+      return args.every(formulaTruthy);
+    case "or":
+      return args.some(formulaTruthy);
+    case "round":
+    case "ceil":
+    case "floor":
+    case "abs": {
+      const value = formulaNumberValue(args[0]);
+      if (value === null) return null;
+      if (name === "round") return Math.round(value);
+      if (name === "ceil") return Math.ceil(value);
+      if (name === "floor") return Math.floor(value);
+      return Math.abs(value);
+    }
+    case "min":
+    case "max": {
+      const numbers = args
+        .map(formulaNumberValue)
+        .filter((value): value is number => value !== null);
+      if (numbers.length !== args.length || numbers.length === 0) return null;
+      return name === "min" ? Math.min(...numbers) : Math.max(...numbers);
+    }
+    case "length":
+      return formulaTextValue(args[0]).length;
+    default:
+      return null;
+  }
+}
+
+export function evaluateNumericExpression(expression: string): number | null {
+  const tokens = tokenizeNumericExpression(expression);
+  if (!tokens) return null;
+  let index = 0;
+
+  function peek() {
+    return tokens[index];
+  }
+
+  function consume(expected?: string) {
+    const token = tokens[index];
+    if (expected && token !== expected) return null;
+    index += 1;
+    return token;
+  }
+
+  function parseFactor(): number | null {
+    const token = peek();
+    if (token === "+" || token === "-") {
+      consume();
+      const value = parseFactor();
+      if (value === null) return null;
+      return token === "-" ? -value : value;
+    }
+    if (token === "(") {
+      consume("(");
+      const value = parseExpression();
+      if (value === null || consume(")") === null) return null;
+      return value;
+    }
+    if (!token || Number.isNaN(Number(token))) return null;
+    consume();
+    return Number(token);
+  }
+
+  function parseTerm(): number | null {
+    let value = parseFactor();
+    if (value === null) return null;
+
+    while (peek() === "*" || peek() === "/") {
+      const operator = consume();
+      const right = parseFactor();
+      if (right === null) return null;
+      value = operator === "*" ? value * right : value / right;
+    }
+
+    return value;
+  }
+
+  function parseExpression(): number | null {
+    let value = parseTerm();
+    if (value === null) return null;
+
+    while (peek() === "+" || peek() === "-") {
+      const operator = consume();
+      const right = parseTerm();
+      if (right === null) return null;
+      value = operator === "+" ? value + right : value - right;
+    }
+
+    return value;
+  }
+
+  const result = parseExpression();
+  if (result === null || index !== tokens.length || !Number.isFinite(result)) {
+    return null;
+  }
+  return result;
+}
+
+function tokenizeNumericExpression(expression: string): string[] | null {
+  const tokens: string[] = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if ("+-*/()".includes(char)) {
+      tokens.push(char);
+      index += 1;
+      continue;
+    }
+    const numberMatch = expression.slice(index).match(/^\d+(?:\.\d+)?/);
+    if (numberMatch) {
+      tokens.push(numberMatch[0]);
+      index += numberMatch[0].length;
+      continue;
+    }
+    return null;
+  }
+
+  return tokens.length > 0 ? tokens : null;
+}

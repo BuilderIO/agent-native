@@ -15,7 +15,6 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import React from "react";
 import { AbsoluteFill } from "remotion";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
@@ -101,7 +100,6 @@ export const FolderItem = createInteractiveComposition<FolderItemProps>({
     registerForCursor(folder);
 
     const fontSize = 13;
-    const iconSize = 14;
     const gap = 6;
 
     return (

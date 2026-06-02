@@ -4,6 +4,8 @@ description: >-
   Secure coding practices for agent-native apps: input validation, SQL
   injection, XSS, secrets, data scoping, and auth. Use when writing any action,
   route, or component that touches user data or external input.
+metadata:
+  internal: true
 ---
 
 # Security
@@ -51,10 +53,24 @@ await client.execute(`SELECT * FROM users WHERE id = '${id}'`);
 - For rich text editing, use TipTap (framework dependency).
 - For rendering markdown, use `react-markdown`.
 
+## SSRF
+
+Any server-side `fetch` of a user- or agent-controlled URL must go through the framework SSRF guard — a bare `fetch()` can be steered at cloud metadata (`169.254.169.254`), `localhost`, or internal services.
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+// Blocks private/internal targets, re-checks the resolved IP at connect time
+// (DNS rebinding), and re-validates every redirect hop.
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+For a pre-flight-only check (e.g. before a streaming or one-shot fetch), use `isBlockedExtensionUrlWithDns(url)` plus `createSsrfSafeDispatcher()` from the same module, and set `redirect: "manual"`. Never let the default `fetch` follow redirects for an untrusted URL — a public URL can 30x into the private network.
+
 ## Secrets
 
 - OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`.
-- Never store secrets in `settings`, `application_state`, source code, or action responses sent to the client.
+- Per-user / per-org API keys go through `saveCredential` / `resolveCredential` (`@agent-native/core/credentials`) or the `app_secrets` vault. Both encrypt values at rest with AES-256-GCM (keyed by `SECRETS_ENCRYPTION_KEY`, falling back to `BETTER_AUTH_SECRET`; production refuses to start without one).
+- Never hand-roll secrets into `settings`, `application_state`, source code, or action responses sent to the client. The credential / vault APIs above are the only sanctioned stores.
 
 ## User Credentials Are Per-User Data — Never `process.env`
 
@@ -64,6 +80,8 @@ User credentials (API keys, third-party tokens) are per-user (or per-org) data. 
 import { resolveCredential } from "@agent-native/core/credentials";
 const apiKey = await resolveCredential("OPENAI_API_KEY", { userEmail, orgId });
 ```
+
+Values are encrypted at rest (AES-256-GCM, shared `secrets/crypto.ts`): `saveCredential` encrypts on write and `resolveCredential` decrypts on read, with a transparent fallback for legacy plaintext rows. The agent's raw `db-query` / `db-exec` tools also cannot read credential rows — they are excluded from the scoped `settings` view. To encrypt pre-existing rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive; needs the same `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` as the app).
 
 On 2026-04-29 the previous one-arg `resolveCredential(key)` form fell back to `process.env[key]` and an unscoped global `settings` row, so every signed-in user inherited the deployment's credentials. Two guards now block this in CI (`pnpm prep`):
 
@@ -82,6 +100,9 @@ Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant
 ## Auth
 
 - All actions are protected by the auth guard automatically.
+- Prefer actions for normal app data. Do not hand-write `/api/*` routes for
+  CRUD, data queries, or action re-exports just to add auth; action endpoints
+  already get auth and request context.
 - If you must create custom `/api/` routes, always call `getSession(event)` and reject requests without a session:
 
 ```ts
@@ -138,6 +159,8 @@ export default defineEventHandler(async (event) => {
 
 In production, the framework automatically restricts all agent SQL queries to the current user's data using temporary views. This is enforced at the SQL level — the agent cannot bypass it.
 
+The `db-query` / `db-exec` tools (and the extension SQL bridge, which shares the same path) reject schema-qualified table references like `public.<table>` or `main.<table>` — a qualified name resolves to the base table and would skip the temp view. Use bare table names; scoping is applied automatically.
+
 ### Per-User Scoping (`owner_email`)
 
 Every template table with user data **must** have an `owner_email` text column:
@@ -180,6 +203,8 @@ Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org 
 - [ ] New action uses `defineAction` with a Zod `schema:`
 - [ ] No SQL string concatenation with user input
 - [ ] No `dangerouslySetInnerHTML` with user content
+- [ ] Server-side fetches of user/agent URLs use `ssrfSafeFetch`, not bare `fetch`
+- [ ] Secrets stored via `saveCredential` / the vault (encrypted), never raw in `settings` or responses
 - [ ] New env vars in `.env` only, not committed
 - [ ] New user-data tables have `owner_email` column
 - [ ] Custom routes call `getSession` and reject unauthenticated requests

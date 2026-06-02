@@ -56,10 +56,64 @@ export const documentSyncLinks = table("document_sync_links", {
   lastPulledRemoteUpdatedAt: text("last_pulled_remote_updated_at"),
   lastPushedLocalUpdatedAt: text("last_pushed_local_updated_at"),
   lastKnownRemoteUpdatedAt: text("last_known_remote_updated_at"),
+  // Hash of the canonical content that is currently identical on both sides.
+  // Content-based change detection is immune to timestamp jitter and the
+  // normalization mismatches that previously caused no-op syncs to look like
+  // real edits (the root of the bidirectional drift).
+  lastSyncedContentHash: text("last_synced_content_hash"),
   lastError: text("last_error"),
   warningsJson: text("warnings_json"),
   hasConflict: integer("has_conflict").notNull().default(0),
   syncComments: integer("sync_comments").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const documentPropertyDefinitions = table(
+  "document_property_definitions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    databaseId: text("database_id"),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    visibility: text("visibility").notNull().default("always_show"),
+    optionsJson: text("options_json").notNull().default("{}"),
+    position: integer("position").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabases = table("content_databases", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  documentId: text("document_id").notNull(),
+  title: text("title").notNull().default("Untitled database"),
+  viewConfigJson: text("view_config_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const contentDatabaseItems = table("content_database_items", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  databaseId: text("database_id").notNull(),
+  documentId: text("document_id").notNull(),
+  position: integer("position").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const documentPropertyValues = table("document_property_values", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  documentId: text("document_id").notNull(),
+  propertyId: text("property_id").notNull(),
+  valueJson: text("value_json").notNull().default("null"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

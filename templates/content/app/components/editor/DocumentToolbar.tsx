@@ -170,7 +170,12 @@ export function DocumentToolbar({
     false,
   );
   const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(documentId, { autoSync });
+  const { data: syncStatus } = useDocumentSyncStatus(
+    canEdit ? documentId : null,
+    {
+      autoSync,
+    },
+  );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -190,9 +195,6 @@ export function DocumentToolbar({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [resolvingDirection, setResolvingDirection] = useState<
-    "pull" | "push" | null
-  >(null);
   const [linkingPageId, setLinkingPageId] = useState<string | null>(null);
   const [creatingParentPageId, setCreatingParentPageId] = useState<
     string | null
@@ -203,8 +205,6 @@ export function DocumentToolbar({
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
   const hasConflict = syncStatus?.hasConflict ?? false;
-  const requiresExplicitCreateParent = connection?.mode === "api_key";
-
   const isWorking =
     linkDocument.isPending ||
     unlinkDocument.isPending ||
@@ -350,37 +350,6 @@ export function DocumentToolbar({
       toast.error(error instanceof Error ? error.message : "Unlink failed.");
     }
   }, [unlinkDocument]);
-
-  const handleResolve = useCallback(
-    (direction: "pull" | "push") => {
-      setResolvingDirection(direction);
-      resolveConflict.mutate(
-        { direction },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["action"] });
-            queryClient.invalidateQueries({
-              queryKey: ["document-sync", documentId],
-            });
-            toast.success(
-              direction === "pull"
-                ? "Resolved — pulled from Notion."
-                : "Resolved — pushed local version.",
-            );
-            setResolvingDirection(null);
-            setOpen(false);
-          },
-          onError: (error) => {
-            setResolvingDirection(null);
-            toast.error(
-              error instanceof Error ? error.message : "Resolve failed.",
-            );
-          },
-        },
-      );
-    },
-    [resolveConflict, queryClient, documentId],
-  );
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
@@ -769,35 +738,28 @@ export function DocumentToolbar({
                   <div className="max-h-64 overflow-y-auto border-t border-border">
                     {/* Create new page option */}
                     <div className="p-1.5 border-b border-border">
-                      {requiresExplicitCreateParent ? (
-                        <p className="px-2.5 py-2 text-xs text-muted-foreground">
-                          Notion API-key connections need a parent page shared
-                          with the integration. Pick where to create this page.
-                        </p>
-                      ) : (
-                        <button
-                          onClick={() => handleCreateAndLink()}
-                          disabled={isWorking}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
-                        >
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                            {createAndLink.isPending ? (
-                              <IconLoader2
-                                size={14}
-                                className="animate-spin text-muted-foreground"
-                              />
-                            ) : (
-                              <IconPlus
-                                size={14}
-                                className="text-muted-foreground"
-                              />
-                            )}
-                          </span>
-                          <span className="text-xs font-medium">
-                            Create new page in Notion
-                          </span>
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleCreateAndLink()}
+                        disabled={isWorking}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                      >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                          {createAndLink.isPending ? (
+                            <IconLoader2
+                              size={14}
+                              className="animate-spin text-muted-foreground"
+                            />
+                          ) : (
+                            <IconPlus
+                              size={14}
+                              className="text-muted-foreground"
+                            />
+                          )}
+                        </span>
+                        <span className="text-xs font-medium">
+                          Create new page in Notion
+                        </span>
+                      </button>
                     </div>
 
                     {searchLoading ? (
@@ -852,30 +814,28 @@ export function DocumentToolbar({
                                 ) : null}
                               </div>
                             </button>
-                            {requiresExplicitCreateParent && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    onClick={() => handleCreateAndLink(page.id)}
-                                    disabled={isWorking}
-                                    className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
-                                    aria-label={`Create new page inside ${page.title}`}
-                                  >
-                                    {creatingParentPageId === page.id ? (
-                                      <IconLoader2
-                                        size={13}
-                                        className="animate-spin"
-                                      />
-                                    ) : (
-                                      <IconPlus size={13} />
-                                    )}
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  Create new page inside this page
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleCreateAndLink(page.id)}
+                                  disabled={isWorking}
+                                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                                  aria-label={`Create new page inside ${page.title}`}
+                                >
+                                  {creatingParentPageId === page.id ? (
+                                    <IconLoader2
+                                      size={13}
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <IconPlus size={13} />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Create new page inside this page
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         ))}
                       </div>

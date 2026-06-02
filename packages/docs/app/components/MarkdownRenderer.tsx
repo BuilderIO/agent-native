@@ -15,6 +15,11 @@ interface Props {
   markdown: string;
 }
 
+interface HighlightedMarkdownHtml {
+  sourceHtml: string;
+  html: string;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -36,6 +41,111 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&tab;?/gi, "\t")
     .replace(/&newline;?/gi, "\n")
     .replace(/&amp;?/gi, "&");
+}
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  bq: "sql",
+  docker: "dockerfile",
+  js: "javascript",
+  jsx: "jsx",
+  md: "markdown",
+  mjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  shell: "bash",
+  sh: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  txt: "text",
+  yml: "yaml",
+  zsh: "bash",
+};
+
+const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
+
+function normalizeLanguage(lang: string | undefined): string {
+  const raw = lang?.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+  const withoutPrefix = raw.replace(/^language-/, "");
+  return LANGUAGE_ALIASES[withoutPrefix] ?? withoutPrefix;
+}
+
+function looksLikeJson(code: string): boolean {
+  const trimmed = code.trim();
+  if (!trimmed || !/^[{[]/.test(trimmed)) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeMarkdown(code: string): boolean {
+  const lines = code.split(/\r?\n/);
+  let score = 0;
+
+  if (/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/.test(code)) score += 2;
+  if (/```/.test(code)) score += 2;
+  if (/<!--\s*[^>]+\.md\s*-->/.test(code)) score += 4;
+  if (/^\s{0,3}#{1,6}\s+\S/m.test(code)) score += 3;
+  if (/^\s{0,3}>\s+\S/m.test(code)) score += 1;
+  if (/\[[^\]\n]+]\([^)]+\)/.test(code)) score += 2;
+
+  const listLines = lines.filter((line) =>
+    /^\s{0,3}(?:[-*+]|\d+\.)\s+\S/.test(line),
+  ).length;
+  if (listLines >= 2) score += 2;
+
+  return score >= 3;
+}
+
+function inferCodeBlockLanguage(code: string): string {
+  const trimmed = code.trim();
+
+  if (looksLikeMarkdown(trimmed)) return "markdown";
+  if (looksLikeJson(trimmed)) return "json";
+  if (/^\s*[{[][\s\S]*,\s*\/\/.+/m.test(trimmed)) return "jsonc";
+  if (/^\s*<([a-z][\w:-]*)(?:\s|>|\/>)/i.test(trimmed)) return "html";
+  if (
+    /^\s*(?:SELECT|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/im.test(trimmed)
+  ) {
+    return "sql";
+  }
+  if (/^\s*(?:FROM|RUN|COPY|ENTRYPOINT|CMD|ENV|ARG|WORKDIR)\b/m.test(trimmed)) {
+    return "dockerfile";
+  }
+  if (
+    /^\s*(?:npm|pnpm|yarn|npx|bun|git|cd|curl|export|agent-native|wrangler)\b/m.test(
+      trimmed,
+    ) ||
+    /^\s*[A-Z_][A-Z0-9_]*=.*$/m.test(trimmed)
+  ) {
+    return "bash";
+  }
+  if (/^\s*(?:import|export)\s/m.test(trimmed)) {
+    return /\bfrom\s+["'][^"']+\.(?:tsx|jsx)["']/.test(trimmed) ||
+      /<[A-Z][\w.]*(?:\s|>)/.test(trimmed)
+      ? "tsx"
+      : "typescript";
+  }
+  if (/^\s*(?:const|let|var|type|interface|function|class)\s/m.test(trimmed)) {
+    return /<[A-Z][\w.]*(?:\s|>)/.test(trimmed) ? "tsx" : "typescript";
+  }
+  if (/^\s*[\w.-]+\s*:\s+\S/m.test(trimmed)) return "yaml";
+  if (/^\s*[.#]?[\w:-]+(?:\s+[.#]?[\w:-]+)*\s*\{/m.test(trimmed)) {
+    return "css";
+  }
+
+  return "text";
+}
+
+export function resolveCodeBlockLanguage(
+  lang: string | undefined,
+  code: string,
+): string {
+  const normalized = normalizeLanguage(lang);
+  if (!GENERIC_LANGUAGES.has(normalized)) return normalized;
+  return inferCodeBlockLanguage(code);
 }
 
 function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
@@ -97,9 +207,8 @@ function createRenderer() {
   // Wrap code blocks in `.code-block` from the start so that the post-hydration
   // shiki swap only replaces the inner <pre> — no margin / structure change.
   renderer.code = function ({ text, lang }: Tokens.Code) {
-    const langClass = lang
-      ? ` class="language-${escapeHtml(lang)}"`
-      : ` class="language-text"`;
+    const resolvedLang = resolveCodeBlockLanguage(lang, text);
+    const langClass = ` class="language-${escapeHtml(resolvedLang)}"`;
     return `<div class="code-block group relative"><pre><code${langClass}>${escapeHtml(text)}</code></pre></div>\n`;
   };
 
@@ -137,9 +246,19 @@ export function renderMarkdownToHtml(markdown: string): string {
   return marked(markdown, { renderer, async: false }) as string;
 }
 
+export function resolveRenderedMarkdownHtml(
+  baseHtml: string,
+  highlightedHtml: HighlightedMarkdownHtml | null,
+) {
+  return highlightedHtml?.sourceHtml === baseHtml
+    ? highlightedHtml.html
+    : baseHtml;
+}
+
 export default function MarkdownRenderer({ markdown }: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
-  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+  const [highlightedHtml, setHighlightedHtml] =
+    useState<HighlightedMarkdownHtml | null>(null);
 
   // Convert markdown to HTML
   const baseHtml = useMemo(() => {
@@ -174,7 +293,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
       }
 
       if (matches.length === 0) {
-        if (!cancelled) setHighlightedHtml(html);
+        if (!cancelled) setHighlightedHtml({ sourceHtml: html, html });
         return;
       }
 
@@ -214,7 +333,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
           result.slice(h.index + h.full.length);
       }
 
-      if (!cancelled) setHighlightedHtml(result);
+      if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
     highlightCodeBlocks(baseHtml);
@@ -249,7 +368,9 @@ export default function MarkdownRenderer({ markdown }: Props) {
     <div
       ref={articleRef}
       className="docs-content"
-      dangerouslySetInnerHTML={{ __html: highlightedHtml || baseHtml }}
+      dangerouslySetInnerHTML={{
+        __html: resolveRenderedMarkdownHtml(baseHtml, highlightedHtml),
+      }}
     />
   );
 }

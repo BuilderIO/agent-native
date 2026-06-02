@@ -5,7 +5,6 @@ import {
   IconSettings,
   IconChevronLeft,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   useIntegration,
@@ -15,7 +14,6 @@ import {
   usePylonContact,
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
-import type { ApolloPersonResult } from "@shared/api";
 import {
   Popover,
   PopoverTrigger,

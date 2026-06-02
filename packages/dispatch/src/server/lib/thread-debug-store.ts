@@ -75,6 +75,10 @@ function envEmails(name: string): string[] {
     .filter(Boolean);
 }
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 function isEnvAdmin(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   return [
@@ -561,9 +565,9 @@ export async function searchAgentThreads(input: {
   const where = [scope.sql];
   const args: unknown[] = [...scope.args];
   if (q) {
-    const pattern = `%${q.toLowerCase()}%`;
+    const pattern = `%${escapeLike(q.toLowerCase())}%`;
     where.push(
-      `(LOWER(title) LIKE ? OR LOWER(preview) LIKE ? OR LOWER(thread_data) LIKE ?)`,
+      `(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\')`,
     );
     args.push(pattern, pattern, pattern);
   }

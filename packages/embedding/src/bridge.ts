@@ -54,7 +54,7 @@ export interface EmbeddedAppBridge {
 }
 
 type PendingRequest = {
-  resolve: (value: any) => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -168,9 +168,13 @@ export function createEmbeddedAppBridge(
         ),
       );
     },
-    request(name, payload, requestOptions) {
+    request<TResult = unknown, TPayload = unknown>(
+      name: string,
+      payload?: TPayload,
+      requestOptions?: { timeoutMs?: number },
+    ) {
       const requestId = createEmbeddedAppRequestId();
-      return new Promise((resolve, reject) => {
+      return new Promise<TResult>((resolve, reject) => {
         const timeoutMs = requestOptions?.timeoutMs ?? 30_000;
         const timer =
           timeoutMs > 0
@@ -179,7 +183,11 @@ export function createEmbeddedAppBridge(
                 reject(new Error(`Embedded app request timed out: ${name}`));
               }, timeoutMs)
             : undefined;
-        pending.set(requestId, { resolve, reject, timer });
+        pending.set(requestId, {
+          resolve: (value) => resolve(value as TResult),
+          reject,
+          timer,
+        });
         const posted = postEnvelope(
           createAgentNativeEmbedEnvelope(
             AGENT_NATIVE_EMBED_MESSAGE_TYPES.REQUEST,

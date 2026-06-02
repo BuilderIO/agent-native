@@ -80,7 +80,8 @@ export default defineNitroPlugin(async (nitroApp) => {
 | `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
 | `readResource`, `writeResource`              | Read/write resources (from `@agent-native/core/resources`)                 |
 | `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
+| `sendToAgentChat`                            | Send or prefill messages in the agent chat from UI (client-side)           |
+| `setContextToAgentChat`                      | Stage keyed context chips for the next agent chat prompt from UI           |
 | `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 ## Adding a Script
@@ -98,6 +99,19 @@ sendToAgentChat({
   message: "Generate something",
   context: "...",
   submit: true,
+});
+```
+
+To add hidden context without submitting or filling the prompt text, stage
+keyed context nuggets. Multiple nuggets stack; using the same `key` replaces the
+previous nugget.
+
+```ts
+import { setContextToAgentChat } from "@agent-native/core";
+setContextToAgentChat({
+  key: "selected-record",
+  title: "Selected Record",
+  context: JSON.stringify(record, null, 2),
 });
 ```
 

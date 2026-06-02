@@ -15,7 +15,7 @@ Without Dispatch, every app in a multi-app workspace ends up re-implementing the
 
 Reach for Dispatch when any of these are true:
 
-- You're running a [multi-app workspace](/docs/multi-app-workspace) — mail, calendar, analytics, content, recruiting — and you don't want one Slack bot per app.
+- You're running a [multi-app workspace](/docs/multi-app-workspace) — mail, calendar, analytics, content — and you don't want one Slack bot per app.
 - You want **one inbox for "the agent"** so users DM a single bot and the right specialist app picks up the work behind the scenes.
 - You have **workspace-wide secrets** (Stripe key, OpenAI key, third-party API tokens) that several apps need and you want one vault instead of copying values into every `.env`.
 - You want a **runtime approval flow** in front of sensitive changes (saved destinations, policy edits) so non-admins can request and admins can sign off without a code deploy.
@@ -137,7 +137,7 @@ The whole pipeline is built to survive on every serverless host (Netlify, Vercel
 - **A2A continuation polling.** When Dispatch delegates to another app, it polls the downstream task with a bounded timeout. If the downstream agent takes too long or crashes, Dispatch records the continuation and the retry job picks it up — the user's Slack reply still arrives.
 - **Auto-signed cross-app A2A.** Hosted multi-app workspaces auto-generate per-app A2A credentials at deploy time, so apps in the same workspace can call each other without you ever pasting a JWT secret. Dispatch's agent-discovery layer reads those creds from the workspace database so newly added apps appear as callable peers automatically.
 
-This is the recently-hardened story — see PRs #439, #441, and #443 for the underlying changes. Conceptually: every step that crosses a network or a process boundary is recoverable.
+This is the hardened reliability story. Conceptually: every step that crosses a network or a process boundary is recoverable.
 
 ## Setup {#setup}
 

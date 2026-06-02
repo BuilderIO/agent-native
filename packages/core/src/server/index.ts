@@ -175,6 +175,17 @@ export {
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
 export {
+  AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
+  AGENT_NATIVE_OG_IMAGE_HEIGHT,
+  AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL,
+  AGENT_NATIVE_OG_IMAGE_WIDTH,
+  agentNativeOgImageResponseHeaders,
+  createAgentNativeOgImageHandler,
+  renderAgentNativeOgImagePng,
+  renderAgentNativeOgImageSvg,
+  type AgentNativeOgImageInput,
+} from "./social-og-image.js";
+export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
 } from "../browser-sessions/actions.js";
@@ -232,6 +243,7 @@ export { wrapWithAnalytics } from "./analytics.js";
 export {
   getH3App,
   awaitBootstrap,
+  markDefaultPluginProvided,
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {
@@ -323,6 +335,7 @@ export {
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
   resolveHasBuilderPrivateKey,
+  resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredential,
   writeBuilderCredentials,

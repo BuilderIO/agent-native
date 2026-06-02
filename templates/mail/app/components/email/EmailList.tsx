@@ -1,11 +1,10 @@
 import {
   IconAlertCircle,
   IconArchive,
-  IconChevronDown,
+  IconDots,
   IconFolder,
   IconMail,
   IconMailOpened,
-  IconSquare,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -41,17 +40,39 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
+type SnoozeTarget = {
+  emailId: string;
+  accountEmail?: string;
+};
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 
 interface EmailListProps {
   emails?: EmailMessage[];
+  isLoading?: boolean;
+  isFetching?: boolean;
+  emailsError?: Error | null;
+  refetchEmails?: () => unknown;
+  hasNextPage?: boolean;
+  fetchNextPage?: () => Promise<unknown>;
+  isFetchingNextPage?: boolean;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedIds: Set<string>;
@@ -326,6 +347,13 @@ function EmailErrorState({
 
 export function EmailList({
   emails: emailsProp,
+  isLoading: isLoadingProp,
+  isFetching: isFetchingProp,
+  emailsError: emailsErrorProp,
+  refetchEmails,
+  hasNextPage: hasNextPageProp,
+  fetchNextPage: fetchNextPageProp,
+  isFetchingNextPage: isFetchingNextPageProp,
   focusedId,
   setFocusedId,
   selectedIds,
@@ -349,16 +377,26 @@ export function EmailList({
 
   const {
     data: fetchedEmails = [],
-    isLoading,
-    isFetching,
-    error: emailsError,
-    refetch,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-  } = useEmails(view, searchQuery, labelParam ?? undefined);
+    isLoading: fetchedEmailsLoading,
+    isFetching: fetchedEmailsFetching,
+    error: fetchedEmailsError,
+    refetch: refetchFetchedEmails,
+    hasNextPage: fetchedEmailsHasNextPage,
+    fetchNextPage: fetchFetchedNextPage,
+    isFetchingNextPage: fetchedEmailsFetchingNextPage,
+  } = useEmails(view, searchQuery, labelParam ?? undefined, {
+    enabled: emailsProp === undefined,
+  });
 
   const emails = emailsProp ?? fetchedEmails;
+  const isLoading = isLoadingProp ?? fetchedEmailsLoading;
+  const isFetching = isFetchingProp ?? fetchedEmailsFetching;
+  const emailsError = emailsErrorProp ?? fetchedEmailsError;
+  const refetch = refetchEmails ?? refetchFetchedEmails;
+  const hasNextPage = hasNextPageProp ?? fetchedEmailsHasNextPage;
+  const fetchNextPage = fetchNextPageProp ?? fetchFetchedNextPage;
+  const isFetchingNextPage =
+    isFetchingNextPageProp ?? fetchedEmailsFetchingNextPage;
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
@@ -508,8 +546,9 @@ export function EmailList({
     if (selectedIdsRef.current.size > 0)
       return Array.from(selectedIdsRef.current);
     const fid = focusedIdRef.current;
-    if (!fid) return [];
-    const thread = threads.find((t) => t.latestMessage.id === fid);
+    const thread = fid
+      ? threads.find((t) => t.latestMessage.id === fid)
+      : threads[0];
     if (!thread) return [];
     return [thread.latestMessage.threadId || thread.latestMessage.id];
   }, [threads]);
@@ -738,6 +777,30 @@ export function EmailList({
     [threads],
   );
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (threadId) return;
+
+      const targets: SnoozeTarget[] = resolveTargets(getActionThreadKeys()).map(
+        (thread) => ({
+          emailId: thread.latestMessage.id,
+          accountEmail: thread.latestMessage.accountEmail,
+        }),
+      );
+      if (targets.length === 0) return;
+
+      event.preventDefault();
+      window.dispatchEvent(
+        new CustomEvent("email:request-snooze", {
+          detail: { targets },
+        }),
+      );
+    };
+
+    window.addEventListener("email:shortcut-snooze", handler);
+    return () => window.removeEventListener("email:shortcut-snooze", handler);
+  }, [getActionThreadKeys, resolveTargets, threadId]);
+
   const toggleFocusedRead = useCallback(() => {
     const keys = getActionThreadKeys();
     if (keys.length === 0) return;
@@ -953,19 +1016,35 @@ export function EmailList({
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
     const handler = (e: Event) => {
-      const emailId = (e as CustomEvent<{ emailId: string }>).detail.emailId;
-      const idx = threads.findIndex((t) => t.latestMessage.id === emailId);
+      const detail = (
+        e as CustomEvent<{ emailId?: string; emailIds?: string[] }>
+      ).detail;
+      const emailIds =
+        detail.emailIds && detail.emailIds.length > 0
+          ? detail.emailIds
+          : detail.emailId
+            ? [detail.emailId]
+            : [];
+      if (emailIds.length === 0) return;
+
+      const snoozedIds = new Set(emailIds);
+      const idx = threads.findIndex((t) => snoozedIds.has(t.latestMessage.id));
       if (idx === -1) return;
-      if (threads.length > 1) {
-        const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
-        setFocusedId(threads[nextIdx].latestMessage.id);
+
+      const remaining = threads.filter(
+        (thread) => !snoozedIds.has(thread.latestMessage.id),
+      );
+      if (remaining.length > 0) {
+        const nextIdx = Math.min(idx, remaining.length - 1);
+        setFocusedId(remaining[nextIdx].latestMessage.id);
       } else {
         setFocusedId(null);
       }
+      setSelectedIds(new Set());
     };
     window.addEventListener("email:snoozed", handler);
     return () => window.removeEventListener("email:snoozed", handler);
-  }, [threads, setFocusedId]);
+  }, [threads, setFocusedId, setSelectedIds]);
 
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
@@ -1165,6 +1244,122 @@ export function EmailList({
     [setSelectedIds],
   );
 
+  const bulkHeaderActions =
+    selectedIds.size > 0 ? (
+      <div className="flex h-7 max-w-[calc(100vw-11rem)] shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-1.5 text-muted-foreground shadow-sm">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Clear selection"
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Clear selection</TooltipContent>
+        </Tooltip>
+        <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
+          {selectedIds.size} selected
+        </span>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label="Selection actions"
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Selection actions</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem
+              onClick={archiveFocused}
+              className="gap-2 text-xs"
+            >
+              <IconArchive className="h-3.5 w-3.5" />
+              Archive
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={markFocusedRead}
+              className="gap-2 text-xs"
+            >
+              <IconMailOpened className="h-3.5 w-3.5" />
+              Mark read
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={markFocusedUnread}
+              className="gap-2 text-xs"
+            >
+              <IconMail className="h-3.5 w-3.5" />
+              Mark unread
+            </DropdownMenuItem>
+            {movableLabels.length > 0 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="gap-2 text-xs">
+                  <IconFolder className="h-3.5 w-3.5" />
+                  Move to
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
+                  {movableLabels.map((label) => (
+                    <DropdownMenuItem
+                      key={label.id}
+                      onClick={() => moveFocusedToLabel(label.id, label.name)}
+                      className="text-xs"
+                    >
+                      {label.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {view !== "trash" && (
+              <DropdownMenuItem
+                onClick={trashFocused}
+                className="gap-2 text-xs text-destructive focus:text-destructive"
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+                Move to Trash
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Select</DropdownMenuLabel>
+            <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
+              All
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={clearSelection} className="text-xs">
+              None
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
+              Read
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={selectUnreadThreads} className="text-xs">
+              Unread
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={selectStarredThreads}
+              className="text-xs"
+            >
+              Starred
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={selectUnstarredThreads}
+              className="text-xs"
+            >
+              Unstarred
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    ) : null;
+  useSetHeaderActions(bulkHeaderActions);
+
   // Error state
   if (emailsError) {
     const needsCredentials =
@@ -1251,120 +1446,8 @@ export function EmailList({
     );
   }
 
-  const selectionPresetMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <IconSquare className="h-3.5 w-3.5" />
-          Select
-          <IconChevronDown className="h-3 w-3" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        <DropdownMenuItem onClick={selectAllThreads} className="text-xs">
-          All
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={clearSelection} className="text-xs">
-          None
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={selectReadThreads} className="text-xs">
-          Read
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={selectUnreadThreads} className="text-xs">
-          Unread
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={selectStarredThreads} className="text-xs">
-          Starred
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={selectUnstarredThreads} className="text-xs">
-          Unstarred
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
-      {selectedIds.size > 0 && (
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 bg-muted/40 px-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedIds(new Set())}
-              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <IconX className="h-4 w-4" />
-            </button>
-            <span className="text-xs font-medium text-muted-foreground">
-              {selectedIds.size} selected
-            </span>
-            {selectionPresetMenu}
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={archiveFocused}
-              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
-            >
-              <IconArchive className="h-3.5 w-3.5" />
-              Archive
-            </button>
-            <button
-              type="button"
-              onClick={markFocusedRead}
-              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <IconMailOpened className="h-3.5 w-3.5" />
-              Mark read
-            </button>
-            <button
-              type="button"
-              onClick={markFocusedUnread}
-              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <IconMail className="h-3.5 w-3.5" />
-              Mark unread
-            </button>
-            {movableLabels.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  >
-                    <IconFolder className="h-3.5 w-3.5" />
-                    Move to
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 w-56">
-                  {movableLabels.map((label) => (
-                    <DropdownMenuItem
-                      key={label.id}
-                      onClick={() => moveFocusedToLabel(label.id, label.name)}
-                      className="text-xs"
-                    >
-                      {label.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {view !== "trash" && (
-              <button
-                type="button"
-                onClick={trashFocused}
-                className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-                Move to Trash
-              </button>
-            )}
-          </div>
-        </div>
-      )}
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => (
           <EmailListItem

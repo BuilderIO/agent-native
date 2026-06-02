@@ -1,11 +1,6 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
-import {
-  hasCollabState,
-  agentEnterDocument,
-  agentLeaveDocument,
-} from "@agent-native/core/collab";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
   buildDeepLink,
@@ -157,7 +152,13 @@ async function loadMediaBlob({
 }): Promise<{ blob: Blob; sourceMimeType: string }> {
   await assertSafeRemoteMediaUrl(mediaUrl);
   const resolvedUrl = resolveMediaUrl(mediaUrl);
-  const response = await fetch(resolvedUrl);
+  const response = isRelativeMediaUrl(mediaUrl)
+    ? await fetch(resolvedUrl, { signal: AbortSignal.timeout(30_000) })
+    : await ssrfSafeFetch(
+        resolvedUrl,
+        { signal: AbortSignal.timeout(30_000) },
+        { maxRedirects: 3 },
+      );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch ${mediaType} media: HTTP ${response.status} ${response.statusText}`,
@@ -264,65 +265,6 @@ function insertTranscriptAfterMedia({
   if (!block) return null;
   const insertAt = block.index + block.text.length;
   return `${content.slice(0, insertAt)}\n\n${transcriptToggleMarkdown(transcript)}${content.slice(insertAt)}`;
-}
-
-async function findCollabOrigin(): Promise<string | null> {
-  const tryOrigins = [
-    process.env.ORIGIN,
-    process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
-    "http://localhost:8080",
-    "http://localhost:8081",
-    "http://localhost:8082",
-    "http://localhost:8083",
-  ].filter(Boolean) as string[];
-  for (const origin of tryOrigins) {
-    try {
-      const res = await fetch(`${origin}/_agent-native/ping`, {
-        signal: AbortSignal.timeout(500),
-      });
-      if (res.ok) return origin;
-    } catch {
-      // Try next origin.
-    }
-  }
-  return null;
-}
-
-async function replaceInCollab({
-  documentId,
-  find,
-  replace,
-}: {
-  documentId: string;
-  find: string;
-  replace: string;
-}): Promise<boolean> {
-  if (!(await hasCollabState(documentId))) return false;
-  const origin = await findCollabOrigin();
-  if (!origin) return false;
-
-  agentEnterDocument(documentId);
-  try {
-    const response = await fetch(
-      `${origin}/_agent-native/collab/${documentId}/search-replace`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          find,
-          replace,
-          requestSource: "agent",
-        }),
-      },
-    ).catch(() => null);
-    if (!response?.ok) return false;
-    const body = (await response.json().catch(() => null)) as {
-      found?: boolean;
-    } | null;
-    return body?.found === true;
-  } finally {
-    agentLeaveDocument(documentId);
-  }
 }
 
 async function resolveKey(key: string): Promise<string | undefined> {
@@ -436,9 +378,14 @@ async function applyTranscriptToDocument({
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;
 
+  // Replace the placeholder if present; otherwise insert after the media block.
+  // The transcript reaches the live editor through the normal change-sync:
+  // update-document bumps updatedAt and the open editor reconciles the newer
+  // content into the Y.Doc (see the `real-time-collab` skill). No localhost
+  // collab push — that silently no-oped on serverless.
   if (placeholderText && content.includes(placeholderText)) {
     nextContent = content.replace(placeholderText, transcript);
-  } else if (!placeholderText) {
+  } else {
     nextContent = insertTranscriptAfterMedia({
       content,
       mediaUrl,
@@ -447,29 +394,16 @@ async function applyTranscriptToDocument({
     });
   }
 
-  const collabUpdated = placeholderText
-    ? await replaceInCollab({
-        documentId,
-        find: placeholderText,
-        replace: transcript,
-      })
-    : false;
-
   if (nextContent && nextContent !== content) {
     await updateDocument.run({ id: documentId, content: nextContent });
-    return { sqlUpdated: true, collabUpdated };
+    return { sqlUpdated: true, collabUpdated: false };
   }
 
-  if (!collabUpdated) {
-    throw new Error(
-      placeholderText
-        ? "Could not find the transcript placeholder in the document."
-        : "Could not find the media block in the document.",
-    );
-  }
-
-  await writeAppState("refresh-signal", { ts: Date.now() });
-  return { sqlUpdated: false, collabUpdated };
+  throw new Error(
+    placeholderText
+      ? "Could not find the transcript placeholder in the document."
+      : "Could not find the media block in the document.",
+  );
 }
 
 export default defineAction({

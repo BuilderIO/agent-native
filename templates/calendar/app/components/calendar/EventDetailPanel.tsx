@@ -19,7 +19,6 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { getEventDisplayColor } from "@/lib/event-colors";
 import type { CalendarEvent } from "@shared/api";
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
@@ -87,9 +86,8 @@ export function EventDetailPanel({
   onTitleSave,
 }: EventDetailPanelProps) {
   const { setEventDetailSidebar } = useCalendarContext();
-  const { prefs } = useViewPreferences();
+  useViewPreferences();
   const isOpen = event !== null;
-  const color = event ? getEventDisplayColor(event, prefs) : null;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
   const [isEditingDescription, setIsEditingDescription] = useState(false);

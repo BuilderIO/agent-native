@@ -18,10 +18,12 @@ import {
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { BUILDER_ENV_KEYS } from "./builder-browser.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -45,30 +47,6 @@ export interface CreateServerOptions {
   disablePing?: boolean;
   /** Env key configuration for the settings UI. Enables /_agent-native/env-status and /_agent-native/env-vars routes. */
   envKeys?: EnvKeyConfig[];
-}
-
-/**
- * Parse a .env file into key-value pairs, preserving comments and empty lines for roundtrip.
- */
-function parseEnvFile(content: string): Map<string, string> {
-  const vars = new Map<string, string>();
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex === -1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    // Strip surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    vars.set(key, value);
-  }
-  return vars;
 }
 
 /**
@@ -184,7 +162,9 @@ export function createServer(
         const embedCorsRequest =
           isMcpEmbedCorsOrigin(requestOrigin) &&
           (requestedHeaders.includes(EMBED_TARGET_HEADER.toLowerCase()) ||
+            requestedHeaders.includes(EMBED_TRANSPLANT_HEADER) ||
             Boolean(getRequestHeader(event, EMBED_TARGET_HEADER)) ||
+            Boolean(getRequestHeader(event, EMBED_TRANSPLANT_HEADER)) ||
             Boolean(getRequestHeader(event, "authorization")));
 
         /**
@@ -315,7 +295,13 @@ export function createServer(
 
         // Only allow keys that are in the env config
         const allowedKeys = new Set(envKeys.map((k) => k.key));
-        const filtered = vars.filter((v) => allowedKeys.has(v.key));
+        const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
+        const filtered = vars.filter(
+          (v) =>
+            typeof v.key === "string" &&
+            allowedKeys.has(v.key) &&
+            !blockedEnvVarWriteKeys.has(v.key),
+        );
         if (filtered.length === 0) {
           setResponseStatus(event, 400);
           return { error: "No recognized env keys in request" };

@@ -42,6 +42,7 @@ import {
 } from "@agent-native/core/application-state";
 import { getSetting } from "@agent-native/core/settings";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
 import {
   getRequestUserEmail,
@@ -185,7 +186,9 @@ async function loadRecordingMediaBlob({
   }
 
   let resolvedVideoUrl = videoUrl;
-  if (resolvedVideoUrl.startsWith("/")) {
+  const isAppRelativeUrl =
+    resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
+  if (isAppRelativeUrl) {
     const port = process.env.NITRO_PORT || process.env.PORT || "3000";
     const origin =
       process.env.PUBLIC_URL ??
@@ -193,7 +196,13 @@ async function loadRecordingMediaBlob({
       `http://localhost:${port}`;
     resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
   }
-  const vidRes = await fetch(resolvedVideoUrl);
+  const vidRes = isAppRelativeUrl
+    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+    : await ssrfSafeFetch(
+        resolvedVideoUrl,
+        { signal: AbortSignal.timeout(30_000) },
+        { maxRedirects: 3 },
+      );
   if (!vidRes.ok) {
     throw new Error(
       `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
@@ -328,6 +337,24 @@ async function transcriptCleanupEnabled(): Promise<boolean> {
   return settings?.transcriptCleanupEnabled !== false;
 }
 
+/**
+ * Read the language already detected/stored on this recording's transcript row.
+ * Cleanup and renormalization must preserve a detected non-English language
+ * rather than clobbering it back to "en". Falls back to "en" only when no row
+ * (or no language) exists yet.
+ */
+async function resolveStoredLanguage(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+): Promise<string> {
+  const [row] = await db
+    .select({ language: schema.recordingTranscripts.language })
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, recordingId))
+    .limit(1);
+  return row?.language?.trim() || "en";
+}
+
 async function cleanupNativeTranscript({
   db,
   recordingId,
@@ -377,12 +404,13 @@ async function cleanupNativeTranscript({
     }
 
     const now = new Date().toISOString();
+    const language = await resolveStoredLanguage(db, recordingId);
     await upsertTranscriptRow(db, {
       recordingId,
       ownerEmail,
       status: "ready",
       failureReason: null,
-      language: "en",
+      language,
       segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
       fullText: cleanedText,
       now,
@@ -460,12 +488,13 @@ async function completeReadyTranscript({
   if (normalizedSegments.length) {
     const normalizedSegmentsJson = JSON.stringify(normalizedSegments);
     if (normalizedSegmentsJson !== (segmentsJson ?? "[]")) {
+      const language = await resolveStoredLanguage(db, recordingId);
       await upsertTranscriptRow(db, {
         recordingId,
         ownerEmail,
         status: "ready",
         failureReason: null,
-        language: "en",
+        language,
         segmentsJson: normalizedSegmentsJson,
         fullText,
         now: new Date().toISOString(),

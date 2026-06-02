@@ -51,6 +51,7 @@ import {
   PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
 import {
   Tooltip,
   TooltipContent,
@@ -224,7 +225,6 @@ export default function EditorToolbar({
   onOpenAssetLibrary,
   imageGenButtonRef,
   assetsButtonRef,
-  historyOpen,
   onShowHistory,
   historyButtonRef,
   onUndo,
@@ -1000,6 +1000,7 @@ graph TD
       </DropdownMenu>
 
       <NotificationsBell />
+      <RunsTray pollMs={1500} />
       <AgentToggleButton />
     </div>
   );
