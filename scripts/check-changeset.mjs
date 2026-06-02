@@ -47,11 +47,14 @@ function listChangedFiles(baseSha) {
     .filter(Boolean);
 }
 
-function listPublishablePackages(ignoredPackages) {
+function listChangesetManagedPackages(ignoredPackages) {
   const packagesDir = path.join(repoRoot, "packages");
-  if (!fs.existsSync(packagesDir)) return new Map();
+  if (!fs.existsSync(packagesDir)) {
+    return { byDir: new Map(), names: new Set() };
+  }
 
   const map = new Map(); // packageDirName → packageName
+  const names = new Set();
   for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const pkgPath = path.join(packagesDir, entry.name, "package.json");
@@ -64,10 +67,12 @@ function listPublishablePackages(ignoredPackages) {
     }
     if (pkg.private === true) continue;
     if (!pkg.name) continue;
+    if (!pkg.version) continue;
     if (ignoredPackages.has(pkg.name)) continue;
     map.set(entry.name, pkg.name);
+    names.add(pkg.name);
   }
-  return map;
+  return { byDir: map, names };
 }
 
 function listIgnoredPackages() {
@@ -136,28 +141,26 @@ function packagesCoveredBy(changesetPath) {
     .filter(Boolean);
 }
 
-function failOnIgnoredChangesets(ignoredPackages) {
-  if (ignoredPackages.size === 0) return;
-
+function failOnSkippedChangesets(managedPackageNames) {
   for (const cs of listPendingChangesets()) {
     const packages = packagesCoveredBy(cs);
-    const ignored = packages.filter((pkg) => ignoredPackages.has(pkg));
-    const notIgnored = packages.filter((pkg) => !ignoredPackages.has(pkg));
-    if (ignored.length === 0) continue;
+    const skipped = packages.filter((pkg) => !managedPackageNames.has(pkg));
+    const managed = packages.filter((pkg) => managedPackageNames.has(pkg));
+    if (skipped.length === 0) continue;
 
-    console.error("✗ Changeset includes ignored packages.");
+    console.error("✗ Changeset includes packages that are not versioned.");
     console.error("");
     console.error(`Changeset: .changeset/${path.basename(cs)}`);
-    console.error(`Ignored packages: ${ignored.join(", ")}`);
-    if (notIgnored.length > 0) {
-      console.error(`Publishable packages: ${notIgnored.join(", ")}`);
+    console.error(`Skipped packages: ${skipped.join(", ")}`);
+    if (managed.length > 0) {
+      console.error(`Versioned packages: ${managed.join(", ")}`);
     }
     console.error("");
     console.error(
-      "Ignored packages are not versioned by changesets. Leaving a changeset that only targets ignored packages can block the publish workflow with an empty Version Packages PR.",
+      "These packages are not versioned by changesets in this repo. Leaving skipped packages in changesets can block the publish workflow with an empty Version Packages PR.",
     );
     console.error(
-      "Remove ignored packages from the changeset. If the changeset only targets ignored packages, delete the changeset file.",
+      "Remove skipped packages from the changeset. If the changeset only targets skipped packages, delete the changeset file.",
     );
     process.exit(1);
   }
@@ -166,14 +169,14 @@ function failOnIgnoredChangesets(ignoredPackages) {
 function main() {
   const baseSha = getBaseSha();
   const ignoredPackages = listIgnoredPackages();
-  const publishables = listPublishablePackages(ignoredPackages);
-  failOnIgnoredChangesets(ignoredPackages);
+  const managedPackages = listChangesetManagedPackages(ignoredPackages);
+  failOnSkippedChangesets(managedPackages.names);
 
   const changedFiles = listChangedFiles(baseSha);
 
   const touchedPackages = new Set();
   for (const file of changedFiles) {
-    const pkg = packageFromPath(file, publishables);
+    const pkg = packageFromPath(file, managedPackages.byDir);
     if (!pkg) continue;
     if (isVersionPackagesBumpOnly(file, baseSha)) continue;
     touchedPackages.add(pkg);
