@@ -39,6 +39,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -1024,12 +1030,22 @@ function AssetComposerToolbar({
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
         <Select value={selectValue} onValueChange={onLibraryChange}>
-          <SelectTrigger
-            aria-label="Library"
-            className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
-          >
-            <span className="truncate">{selectedLibraryLabel}</span>
-          </SelectTrigger>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SelectTrigger
+                  aria-label="Library"
+                  className={`${COMPOSER_SELECT_TRIGGER_CLASS} max-w-[6rem] sm:max-w-[12rem]`}
+                >
+                  <span className="truncate">{selectedLibraryLabel}</span>
+                </SelectTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[16rem]">
+                Choose a library to match its style and reference images. "No
+                library - generic" generates without any saved style.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <SelectContent>
             <SelectGroup>
               {libraries.map((library) => (
