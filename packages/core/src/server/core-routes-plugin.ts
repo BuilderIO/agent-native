@@ -2339,13 +2339,19 @@ export function createCoreRoutesPlugin(
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
+          // Include orgId so org-scoped Builder credentials resolve here too,
+          // keeping the Settings status in sync with the upload route.
+          const orgCtx = userEmail
+            ? await getOrgContext(event).catch(() => null)
+            : null;
+          const orgId = orgCtx?.orgId ?? session?.orgId ?? undefined;
           let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
           try {
             const { resolveBuilderPrivateKey } =
               await import("./credential-provider.js");
             const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
             builderConfigured = userEmail
-              ? await runWithRequestContext({ userEmail }, resolve)
+              ? await runWithRequestContext({ userEmail, orgId }, resolve)
               : await resolve();
           } catch {
             // fall back to env check above
@@ -2400,7 +2406,14 @@ export function createCoreRoutesPlugin(
             return { error: "Unauthorized" };
           }
           const userEmail = session.email;
-          const result = await runWithRequestContext({ userEmail }, () =>
+          // Resolve the active org so org-scoped Builder credentials (written
+          // when an owner/admin connects Builder.io) are found during upload.
+          // Without orgId in the request context, resolveBuilderPrivateKey()
+          // skips the org-scope lookup and uploads fail with a misleading
+          // "needs file storage" 503 even though Builder is connected.
+          const orgCtx = await getOrgContext(event).catch(() => null);
+          const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+          const result = await runWithRequestContext({ userEmail, orgId }, () =>
             uploadFile({
               data: filePart.data,
               filename: filePart.filename,
