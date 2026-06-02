@@ -121,9 +121,9 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  // Track which nodes have been explicitly collapsed by the user.
-  // All nodes default to expanded; only collapsed IDs are tracked.
-  const collapsedIds = useRef(new Set<string>());
+  // Track which nodes have been explicitly expanded by the user.
+  // Child trees default to collapsed, but active child ancestors open below.
+  const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const sensors = useSensors(
@@ -173,10 +173,7 @@ export function DocumentSidebar({
     [documents],
   );
 
-  // Build expanded set: all document IDs except those explicitly collapsed
-  const expandedIds = new Set(
-    documents.map((d) => d.id).filter((id) => !collapsedIds.current.has(id)),
-  );
+  const expandedIds = new Set(expandedIdsRef.current);
 
   useEffect(() => {
     if (!activeDocumentId) return;
@@ -184,7 +181,10 @@ export function DocumentSidebar({
     let changed = false;
     let parentId = parentByDocumentId.get(activeDocumentId) ?? null;
     while (parentId) {
-      if (collapsedIds.current.delete(parentId)) changed = true;
+      if (!expandedIdsRef.current.has(parentId)) {
+        expandedIdsRef.current.add(parentId);
+        changed = true;
+      }
       parentId = parentByDocumentId.get(parentId) ?? null;
     }
 
@@ -192,10 +192,10 @@ export function DocumentSidebar({
   }, [activeDocumentId, parentByDocumentId]);
 
   const handleToggleExpanded = useCallback((id: string) => {
-    if (collapsedIds.current.has(id)) {
-      collapsedIds.current.delete(id);
+    if (expandedIdsRef.current.has(id)) {
+      expandedIdsRef.current.delete(id);
     } else {
-      collapsedIds.current.add(id);
+      expandedIdsRef.current.add(id);
     }
     forceUpdate((n) => n + 1);
   }, []);
