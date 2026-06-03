@@ -2349,6 +2349,7 @@ async function mountBetterAuthRoutes(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
           );
+          console.log(`shomix data- {redirectUri} - {returnUrl}`);
           callbackFlowId = flowId;
           callbackDesktop = desktop;
           logGoogleOAuthDebug(event, "callback-start", {
