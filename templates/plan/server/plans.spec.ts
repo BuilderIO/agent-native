@@ -171,7 +171,7 @@ describe("Plans helpers", () => {
     expect(html).toContain('id="sec_filled"');
   });
 
-  it("renders file references as previewable implementation rows", () => {
+  it("renders file references as previewable implementation tabs", () => {
     const implementation = section(
       "sec_impl",
       "implementation",
@@ -269,6 +269,6 @@ describe("Plans helpers", () => {
     expect(html).toContain("README.md");
     expect(html).not.toContain("<code>README</code>");
     expect(html).not.toContain("<code>Install</code>");
-    expect(html).not.toContain("symbol-list");
+    expect(html).not.toContain('<div class="symbol-list">');
   });
 });
