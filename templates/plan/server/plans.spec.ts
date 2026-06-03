@@ -213,6 +213,7 @@ describe("Plans helpers", () => {
     expect(html).toContain("data-plan-tabs");
     expect(html).toContain("data-tab-target");
     expect(html).toContain("data-tab-panel");
+    expect(html).toContain('data-agent-native-hover-preview="true"');
     expect(html).toContain("PlansPage.tsx");
     expect(html).toContain("templates/plan/app/pages/PlansPage.tsx");
     expect(html).not.toContain("PlansPage.tsx:210");

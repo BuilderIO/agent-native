@@ -1603,21 +1603,29 @@ function injectAnnotationRuntime(
           oldContainer.replaceChildren(list, panels);
           files.forEach((file, index) => {
             const path = displayFilePath(file.getAttribute("data-file-path") || file.querySelector(".file-path")?.textContent || ("File " + (index + 1)));
-            const target = "runtime-file-" + index + "-" + path.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
-            const tab = document.createElement("button");
-            tab.type = "button";
-            tab.className = "implementation-file-tab" + (index === 0 ? " is-active" : "");
-            tab.dataset.tabTarget = target;
-            tab.innerHTML = '<span class="file-tab-name"></span><span class="file-tab-path"></span>';
-            tab.querySelector(".file-tab-name").textContent = basenameForPath(path);
-            tab.querySelector(".file-tab-path").textContent = path;
-            list.appendChild(tab);
-
             const existingActions = file.querySelector(":scope > .file-actions") || file.querySelector(".file-actions");
             const existingTemplates = Array.from(file.querySelectorAll(":scope > template"));
             const existingInfo = Array.from(file.children).find((child) => child !== existingActions && child.tagName !== "TEMPLATE");
             const summary = existingInfo?.querySelector?.(".file-summary") || file.querySelector(".file-summary");
             const symbols = existingInfo?.querySelector?.(".symbol-list") || file.querySelector(".symbol-list");
+            const previewId = existingTemplates[0]?.id || "";
+            const legacyButtons = Array.from(existingActions?.querySelectorAll("[data-agent-native-open-editor]") || []);
+            const vscodeHref = legacyButtons.map((button) => button.getAttribute("data-agent-native-open-editor") || "").find((href) => href.startsWith("vscode://file/")) || "";
+            const cursorHref = legacyButtons.map((button) => button.getAttribute("data-agent-native-open-editor") || "").find((href) => href.startsWith("cursor://file/")) || "";
+            const openFile = openFileFromHref(vscodeHref || cursorHref);
+            const target = "runtime-file-" + index + "-" + path.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+            const tab = document.createElement("button");
+            tab.type = "button";
+            tab.className = "implementation-file-tab" + (index === 0 ? " is-active" : "");
+            tab.dataset.tabTarget = target;
+            tab.dataset.filePath = path;
+            tab.dataset.agentNativeHoverPreview = "true";
+            if (previewId) tab.dataset.agentNativeCodePreview = previewId;
+            if (openFile) tab.dataset.agentNativeOpenFile = openFile;
+            tab.innerHTML = '<span class="file-tab-name"></span><span class="file-tab-path"></span>';
+            tab.querySelector(".file-tab-name").textContent = basenameForPath(path);
+            tab.querySelector(".file-tab-path").textContent = path;
+            list.appendChild(tab);
 
             file.className = "implementation-file implementation-file-panel tab-panel" + (index === 0 ? " is-active" : "");
             file.dataset.tabPanel = target;
@@ -1951,20 +1959,47 @@ function injectAnnotationRuntime(
         const toolbar = document.querySelector(".an-plan-selection-toolbar");
         if (toolbar) toolbar.style.display = "none";
       }
+      let codePreviewHoverTimer = 0;
+      let codePreviewCloseTimer = 0;
+      let codePreviewPinned = false;
+      function clearCodePreviewTimers() {
+        window.clearTimeout(codePreviewHoverTimer);
+        window.clearTimeout(codePreviewCloseTimer);
+        codePreviewHoverTimer = 0;
+        codePreviewCloseTimer = 0;
+      }
       function hideCodePopover() {
+        clearCodePreviewTimers();
+        codePreviewPinned = false;
         document.querySelector(".an-plan-code-popover")?.remove();
       }
-      function showCodePopover(button, templateId) {
+      function scheduleCodePopover(button, templateId) {
+        if (!templateId || state.annotateMode) return;
+        window.clearTimeout(codePreviewCloseTimer);
+        window.clearTimeout(codePreviewHoverTimer);
+        codePreviewHoverTimer = window.setTimeout(() => showCodePopover(button, templateId, { pinned: false }), 180);
+      }
+      function scheduleHideCodePopover() {
+        if (codePreviewPinned) return;
+        window.clearTimeout(codePreviewHoverTimer);
+        window.clearTimeout(codePreviewCloseTimer);
+        codePreviewCloseTimer = window.setTimeout(hideCodePopover, 180);
+      }
+      function showCodePopover(button, templateId, options = {}) {
         const template = document.getElementById(templateId);
         if (!(template instanceof HTMLTemplateElement)) return;
+        clearCodePreviewTimers();
+        codePreviewPinned = Boolean(options.pinned);
         hideCodePopover();
+        codePreviewPinned = Boolean(options.pinned);
         const popover = document.createElement("div");
         popover.className = "an-plan-code-popover";
+        popover.dataset.pinned = codePreviewPinned ? "true" : "false";
         popover.innerHTML = '<div class="an-plan-code-popover-header"><span class="an-plan-code-popover-title"></span><div class="an-plan-code-popover-actions"></div><button type="button" class="an-plan-code-popover-close" aria-label="Close code preview">×</button></div><div class="an-plan-code-popover-body"></div>';
         const content = template.content.cloneNode(true);
         const codePreview = content.querySelector?.(".code-preview");
         const oldTitle = content.querySelector?.(".code-preview-title");
-        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Snippet";
+        const fileTitle = codePreview?.getAttribute?.("data-file-path") || oldTitle?.querySelector?.("strong")?.textContent?.trim() || button.getAttribute("data-file-path") || button.closest(".implementation-file")?.getAttribute("data-file-path") || "Snippet";
         const hrefs = {};
         const fileActions = button.closest(".implementation-file")?.querySelector(".file-actions");
         for (const openButton of Array.from(fileActions?.querySelectorAll("[data-agent-native-open-editor], [data-agent-native-open-selected-editor], [data-agent-native-open-file]") || [])) {
@@ -1986,13 +2021,21 @@ function injectAnnotationRuntime(
         }
         popover.querySelector(".an-plan-code-popover-body")?.append(content);
         popover.querySelector(".an-plan-code-popover-close")?.addEventListener("click", hideCodePopover);
+        popover.addEventListener("pointerenter", clearCodePreviewTimers);
+        popover.addEventListener("pointerleave", scheduleHideCodePopover);
         document.body.appendChild(popover);
         const rect = button.getBoundingClientRect();
         const width = popover.offsetWidth || 640;
-        const left = clamp(rect.left + window.scrollX, window.scrollX + 12, window.scrollX + document.documentElement.clientWidth - width - 12);
-        const top = rect.bottom + window.scrollY + 8;
-        popover.style.left = left + "px";
-        popover.style.top = Math.min(top, window.scrollY + document.documentElement.clientHeight - (popover.offsetHeight || 420) - 12) + "px";
+        const height = popover.offsetHeight || 420;
+        const preferSide = button.classList.contains("implementation-file-tab") || button.getAttribute("data-agent-native-hover-preview") === "true";
+        const minLeft = window.scrollX + 12;
+        const maxLeft = window.scrollX + document.documentElement.clientWidth - width - 12;
+        const sideLeft = rect.right + window.scrollX + 12;
+        const sideFallbackLeft = rect.left + window.scrollX - width - 12;
+        const rawLeft = preferSide && sideLeft <= maxLeft ? sideLeft : preferSide && sideFallbackLeft >= minLeft ? sideFallbackLeft : rect.left + window.scrollX;
+        const rawTop = preferSide ? rect.top + window.scrollY : rect.bottom + window.scrollY + 8;
+        popover.style.left = clamp(rawLeft, minLeft, maxLeft) + "px";
+        popover.style.top = clamp(rawTop, window.scrollY + 12, window.scrollY + document.documentElement.clientHeight - height - 12) + "px";
       }
       function updateSelectionToolbar() {
         if (state.annotateMode) {
@@ -2047,6 +2090,18 @@ function injectAnnotationRuntime(
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") closeEditorMenus();
       });
+      document.addEventListener("pointerover", (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
+        if (!target || target.closest(".an-plan-code-popover") || target.closest("[data-agent-native-editor-picker]")) return;
+        scheduleCodePopover(target, target.getAttribute("data-agent-native-code-preview") || "");
+      });
+      document.addEventListener("pointerout", (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-agent-native-code-preview]") : null;
+        if (!target) return;
+        const related = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+        if (related && (target.contains(related) || related.closest(".an-plan-code-popover"))) return;
+        scheduleHideCodePopover();
+      });
       document.addEventListener("change", (event) => {
         const editorSelect = event.target instanceof Element ? event.target.closest("[data-agent-native-editor-select]") : null;
         if (!editorSelect) return;
@@ -2081,7 +2136,7 @@ function injectAnnotationRuntime(
         if (previewButton) {
           event.preventDefault();
           event.stopPropagation();
-          showCodePopover(previewButton, previewButton.getAttribute("data-agent-native-code-preview") || "");
+          showCodePopover(previewButton, previewButton.getAttribute("data-agent-native-code-preview") || "", { pinned: true });
           return;
         }
         const editorButton = event.target instanceof Element ? event.target.closest("[data-agent-native-open-file], [data-agent-native-open-selected-editor]") : null;

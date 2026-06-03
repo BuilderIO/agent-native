@@ -650,7 +650,11 @@ function renderImplementationFileTabHtml(
   targetId: string,
   index: number,
 ) {
-  return `<button type="button" class="implementation-file-tab${index === 0 ? " is-active" : ""}" data-tab-target="${escapeHtml(targetId)}">
+  const editorPath = editorFilePath(file.absolutePath);
+  const editorLine = file.line
+    ? ` data-agent-native-open-line="${escapeHtml(String(file.line))}"`
+    : "";
+  return `<button type="button" class="implementation-file-tab${index === 0 ? " is-active" : ""}" data-tab-target="${escapeHtml(targetId)}" data-agent-native-code-preview="${escapeHtml(`${targetId}-preview`)}" data-agent-native-hover-preview="true" data-file-path="${escapeHtml(file.path)}"${editorPath ? ` data-agent-native-open-file="${escapeHtml(editorPath)}"` : ""}${editorLine}>
     <span class="file-tab-name">${escapeHtml(fileBasename(file.path))}</span>
     <span class="file-tab-path">${escapeHtml(file.path)}</span>
   </button>`;
