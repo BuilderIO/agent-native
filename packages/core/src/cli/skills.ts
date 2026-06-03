@@ -236,6 +236,16 @@ turn an existing Codex, Claude Code, Markdown, or pasted plan into a visual
 companion. The hosted MCP app opens inline where supported and falls back to a
 browser link everywhere else.
 
+## Slash Commands
+
+- \`/visual-plan\`: create a fresh rich HTML plan before implementation. Include
+  a docs-level plan, visual architecture/flow diagrams, detailed wireframes or
+  mockups when UI is involved, tradeoffs, open questions, and clear feedback
+  prompts.
+- \`/visualize-plan\`: import an existing Codex, Claude Code, Markdown, or pasted
+  text plan and turn it into a visual companion. Preserve the plan's intent,
+  then add diagrams, wireframes, option cards, and annotation prompts.
+
 ## When To Use
 
 Create or update a visual plan when:
@@ -271,11 +281,15 @@ wants a visual companion instead of a fresh plan.
 
 ## Visual Defaults
 
-- UI work gets wireframes or prototype options before coding.
+- UI work gets detailed wireframes, mockups, or prototype options before coding.
+- Wireframes should be concrete enough to critique: layout regions, controls,
+  states, empty/loading/error paths, review affordances, and copy placeholders.
 - Backend/refactor work gets architecture and data-flow diagrams.
 - Complex tradeoffs get two or three option cards with consequences.
 - Open questions are surfaced as visual callouts, not buried in paragraphs.
 - Long prose is collapsed behind the visual plan.
+- Include README-like detail when helpful: command names, tool behavior,
+  install flow, MCP/link fallback, data shape, and what is in or out of scope.
 - Comments, corrections, replacements, and annotations should feel
   plannotator-style: fast to mark up, structured enough for the agent to
   consume, and easy to share when the user chooses.
@@ -362,7 +376,8 @@ to create a fresh plan instead.
 3. Surface the returned Plans link or inline MCP App.
 4. Enrich the imported plan with \`update-visual-plan\` when helpful:
    - diagrams for architecture, data flow, state machines, or dependencies;
-   - wireframes/mockups for user-visible UI changes;
+   - detailed wireframes/mockups for user-visible UI changes, including layout,
+     controls, states, empty/loading/error paths, and copy placeholders;
    - two or three option cards when there are real tradeoffs;
    - small prototype sketches for interactions, states, or animation choices;
    - reviewable assumptions and open questions;
@@ -376,6 +391,8 @@ to create a fresh plan instead.
 - Keep the first screen simple: title, brief, and one primary visual.
 - Prefer one strong diagram or wireframe over a wall of sections.
 - Hide long prose behind disclosure controls or source references.
+- Add README-like detail when the source is too terse: slash commands, tool
+  behavior, install flow, MCP/link fallback, data shape, and scope.
 - Label inferred items as possible, not confirmed.
 - Ask for feedback with targeted prompts: "Which option?", "Is this flow
   right?", "What assumption is wrong?", "What should change?"
