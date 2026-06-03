@@ -673,7 +673,6 @@ function renderImplementationFileHtml(
   const editorLine = file.line
     ? ` data-agent-native-open-line="${escapeHtml(String(file.line))}"`
     : "";
-  const symbols = displaySymbols(file);
   return `<article class="implementation-file implementation-file-panel tab-panel${index === 0 ? " is-active" : ""}" data-tab-panel="${escapeHtml(targetId)}" data-file-path="${escapeHtml(file.path)}">
     <div class="file-detail-header">
       <div class="file-title-stack">
@@ -687,13 +686,6 @@ function renderImplementationFileHtml(
     </div>
     <div class="file-detail-body">
       ${file.summary ? `<p class="file-summary">${escapeHtml(file.summary)}</p>` : ""}
-      ${
-        symbols.length
-          ? `<div class="symbol-list">${symbols
-              .map((symbol) => `<code>${escapeHtml(symbol)}</code>`)
-              .join("")}</div>`
-          : ""
-      }
     </div>
     <template id="${escapeHtml(templateId)}">
       <div class="code-preview" data-file-path="${escapeHtml(file.path)}" data-agent-native-open-file="${escapeHtml(editorPath)}"${editorLine}>
@@ -705,28 +697,6 @@ function renderImplementationFileHtml(
 
 function fileBasename(path: string) {
   return path.split("/").filter(Boolean).pop() || path;
-}
-
-function displaySymbols(file: ImplementationFile) {
-  if (/^(md|mdx|text)$/i.test(file.language)) return [];
-  const basename = fileBasename(file.path)
-    .replace(/\.[^.]+$/, "")
-    .toLowerCase();
-  const extension = file.path.split(".").pop()?.toLowerCase();
-  return file.symbols
-    .filter((symbol) => {
-      const value = symbol.trim();
-      if (!value || value.length > 42) return false;
-      if (
-        value.toLowerCase() === basename ||
-        value.toLowerCase() === extension
-      ) {
-        return false;
-      }
-      if (/^[a-z][a-z0-9_-]*$/.test(value)) return false;
-      return /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(value);
-    })
-    .slice(0, 3);
 }
 
 function highlightCodeHtml(code: string, language: string) {
@@ -940,8 +910,6 @@ h1 { margin: 0; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; letter-spa
 .file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .file-detail-body { padding-top: 16px; }
 .file-summary { max-width: 760px; margin: 0; color: var(--soft); font-size: 15px; }
-.symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
-.symbol-list code { border: 1px solid var(--line); border-radius: 7px; background: transparent; padding: 2px 6px; color: var(--muted); font-size: 12px; }
 .file-actions { display: flex; align-items: flex-start; gap: 8px; }
 .file-actions button { min-height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--soft); padding: 0 10px; font: 650 12px/30px inherit; cursor: pointer; }
 .file-actions button:hover { border-color: rgba(0,181,255,.44); color: var(--text); background: rgba(0,181,255,.08); }

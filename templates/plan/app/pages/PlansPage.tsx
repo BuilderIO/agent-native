@@ -1505,8 +1505,6 @@ function injectAnnotationRuntime(
     .file-path { margin: 0; overflow-wrap: anywhere; color: var(--muted, #a4a4aa); font: 500 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
     .file-detail-body { padding-top: 16px; }
     .file-summary { max-width: 760px; margin: 0; color: var(--soft, #d4d4d8); font-size: 15px; }
-    .symbol-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
-    .symbol-list code { border: 1px solid var(--line, rgba(255,255,255,.14)); border-radius: 7px; background: transparent !important; padding: 2px 6px; color: var(--muted, #a4a4aa) !important; font-size: 12px; }
     .file-actions { display: flex; align-items: flex-start; gap: 8px; }
     @media (max-width: 760px) { .implementation-file-tabs { grid-template-columns: 1fr; } .implementation-file-list { border-right: 0; } .implementation-file-panels { border-top: 1px solid var(--line, rgba(255,255,255,.14)); } .implementation-map-header, .file-detail-header, .file-actions { flex-wrap: wrap; } }
   </style><script>
@@ -1561,22 +1559,8 @@ function injectAnnotationRuntime(
       function basenameForPath(path) {
         return path.split("/").filter(Boolean).pop() || path || "File";
       }
-      function usefulImplementationSymbol(symbol, path) {
-        const value = String(symbol || "").trim();
-        if (!value || value.length > 42) return false;
-        if (/\\.(md|mdx)$/i.test(path)) return false;
-        const base = basenameForPath(path).replace(/\\.[^.]+$/, "").toLowerCase();
-        const extension = path.split(".").pop()?.toLowerCase();
-        if (value.toLowerCase() === base || value.toLowerCase() === extension) return false;
-        if (/^[a-z][a-z0-9_-]*$/.test(value)) return false;
-        return /^[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*$/.test(value);
-      }
-      function normalizeImplementationSymbols(file, path) {
-        const list = file.querySelector(".symbol-list");
-        if (!list) return;
-        const symbols = Array.from(list.querySelectorAll("code")).filter((code) => usefulImplementationSymbol(code.textContent, path)).slice(0, 3);
-        list.replaceChildren(...symbols);
-        if (symbols.length === 0) list.remove();
+      function removeImplementationSymbolList(file) {
+        file.querySelector(".symbol-list")?.remove();
       }
       function upgradeImplementationFileMaps() {
         const maps = Array.from(document.querySelectorAll(".implementation-map"));
@@ -1584,8 +1568,7 @@ function injectAnnotationRuntime(
           const oldContainer = map.querySelector(":scope > .implementation-files");
           if (!oldContainer) {
             for (const file of Array.from(map.querySelectorAll(".implementation-file"))) {
-              const path = displayFilePath(file.getAttribute("data-file-path") || file.querySelector(".file-path")?.textContent || "");
-              normalizeImplementationSymbols(file, path);
+              removeImplementationSymbolList(file);
               file.querySelector(".file-path span")?.remove();
             }
             continue;
@@ -1607,7 +1590,6 @@ function injectAnnotationRuntime(
             const existingTemplates = Array.from(file.querySelectorAll(":scope > template"));
             const existingInfo = Array.from(file.children).find((child) => child !== existingActions && child.tagName !== "TEMPLATE");
             const summary = existingInfo?.querySelector?.(".file-summary") || file.querySelector(".file-summary");
-            const symbols = existingInfo?.querySelector?.(".symbol-list") || file.querySelector(".symbol-list");
             const previewId = existingTemplates[0]?.id || "";
             const legacyButtons = Array.from(existingActions?.querySelectorAll("[data-agent-native-open-editor]") || []);
             const vscodeHref = legacyButtons.map((button) => button.getAttribute("data-agent-native-open-editor") || "").find((href) => href.startsWith("vscode://file/")) || "";
@@ -1644,10 +1626,9 @@ function injectAnnotationRuntime(
             const body = document.createElement("div");
             body.className = "file-detail-body";
             if (summary) body.appendChild(summary);
-            if (symbols) body.appendChild(symbols);
 
             file.replaceChildren(header, body, ...existingTemplates);
-            normalizeImplementationSymbols(file, path);
+            removeImplementationSymbolList(file);
             panels.appendChild(file);
           });
         }
