@@ -35,6 +35,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "notion-page",
   "onboarding-events",
   "posthog-events",
+  "provider-api-request",
   "pylon-issues",
   "query-agent-native-analytics",
   "query-inbound-forms",

@@ -80,6 +80,10 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
   `pipeline`, `closedStatus`, `closedDateFrom`, `closedDateTo`) for the cohort
   definition. Do not use `query` when the user names a specific HubSpot field
   such as `products`.
+- When any first-class provider action is too narrow, use
+  `provider-api-catalog` / `provider-api-docs` and then `provider-api-request`
+  against the provider's real HTTP API. Do not weaken the analysis just because
+  the convenience action is missing an argument.
 - When stitching identities across sources, follow `cross-source-analysis`: match on BOTH a stable id AND email (ids can be reassigned), de-duplicate, and record match quality. Email/company-name/domain matches alone are low-confidence — flag them as caveats, not headline numbers.
 - If a data source is not configured, mention what's missing and work with what's available — never invent rows to fill a gap.
 
