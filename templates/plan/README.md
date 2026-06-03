@@ -30,13 +30,24 @@ Type `/visual-plan` when you want a fresh plan before the agent builds.
 Type `/visualize-plan` when you already have a Codex, Claude Code, Markdown, or
 pasted plan and want a richer visual companion.
 
+Command behavior:
+
+- `/visual-plan` creates a new rich HTML plan with docs-level detail, diagrams,
+  detailed wireframes/mockups when UI is involved, tradeoffs, open questions,
+  and feedback prompts.
+- `/visualize-plan` imports an existing text plan, preserves its intent, and
+  adds visual structure so the user can annotate and react before implementation.
+
 Plans should be visual by default:
 
 - diagrams for architecture, data flow, dependencies, and state machines
-- wireframes and quick mockups for UI work
+- detailed wireframes and quick mockups for UI work, including layout regions,
+  controls, states, empty/loading/error paths, and copy placeholders
 - prototype options when interaction or design direction is uncertain
 - plannotator-style comments, corrections, and annotations
 - review prompts for options, open questions, risky assumptions, and choices
+- README-like details when helpful: commands, MCP/link fallback, tool behavior,
+  data shape, scope, and what is deferred
 
 ## Review Loop
 
