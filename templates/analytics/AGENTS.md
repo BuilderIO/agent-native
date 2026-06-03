@@ -35,8 +35,9 @@ details live in `.agents/skills/`.
   express the endpoint, filters, request body, pagination, or API version the
   user needs, call `provider-api-catalog` / `provider-api-docs`, then
   `provider-api-request` against the provider's real HTTP API. The generic
-  request action injects configured credentials, blocks private/internal URLs,
-  and redacts secrets.
+  request action uses the shared `@agent-native/core/provider-api` runtime,
+  injects configured credentials, blocks private/internal URLs, and redacts
+  secrets.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
@@ -82,8 +83,8 @@ Read the relevant skill before deeper work:
   context.
 - `gong` for call metadata, transcript excerpts, objections, risks, and next
   steps.
-- `provider-api` for arbitrary authenticated provider HTTP calls and API docs
-  lookup when a first-class action is too narrow.
+- `actions` for the shared provider API pattern when a first-class action is too
+  narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers.
 - `bigquery` and `prometheus` for provider-specific behavior.

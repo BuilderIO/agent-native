@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import {
+  isProviderApiId,
+  listProviderApiCatalog,
+} from "@agent-native/core/provider-api";
+import {
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
   type WorkspaceConnectionTemplateUse,
@@ -156,16 +160,42 @@ export default defineAction({
       };
     });
 
-    const providersWithReadiness = providers.map((provider) => ({
-      ...provider,
-      readiness: summarizeWorkspaceConnectionProviderReadiness({
-        provider,
-        connections,
-        grants: explicitGrants,
-        appId: args.appId,
-        includeConnections: "all",
-      }),
-    }));
+    const providersWithReadiness = providers.map((provider) => {
+      const providerApi = isProviderApiId(provider.id)
+        ? listProviderApiCatalog(provider.id)[0]
+        : null;
+      return {
+        ...provider,
+        readiness: summarizeWorkspaceConnectionProviderReadiness({
+          provider,
+          connections,
+          grants: explicitGrants,
+          appId: args.appId,
+          includeConnections: "all",
+        }),
+        rawProviderApi: providerApi
+          ? {
+              available: true,
+              actionNames: [
+                "provider-api-catalog",
+                "provider-api-docs",
+                "provider-api-request",
+              ],
+              docsUrls: providerApi.docsUrls,
+              specUrls: providerApi.specUrls,
+              auth: providerApi.auth,
+              examples: providerApi.examples,
+            }
+          : {
+              available: false,
+              actionNames: [],
+              docsUrls: [],
+              specUrls: [],
+              auth: null,
+              examples: [],
+            },
+      };
+    });
 
     return {
       providers: providersWithReadiness,

@@ -50,6 +50,11 @@ step is still pending. Use `🔴` only when blocked on user input.
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
   actions.
+- For provider integrations used in ad hoc analysis, querying, reporting, or
+  cross-source research, prefer the shared `provider-api-catalog`,
+  `provider-api-docs`, and `provider-api-request` action pattern from
+  `@agent-native/core/provider-api` instead of hardcoding one action per
+  provider endpoint/filter.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
