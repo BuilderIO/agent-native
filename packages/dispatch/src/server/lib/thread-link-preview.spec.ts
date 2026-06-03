@@ -9,10 +9,8 @@ vi.mock("@agent-native/core/server", () => ({
   getThread: getThreadMock,
 }));
 
-import {
-  extractThreadPreviewImageUrl,
-  loadThreadLinkPreview,
-} from "./thread-link-preview";
+import { loadThreadLinkPreview } from "./thread-link-preview";
+import { extractThreadPreviewImageUrl } from "../../lib/thread-link-preview";
 
 function threadDataWithResult(toolName: string, result: unknown) {
   return JSON.stringify({
