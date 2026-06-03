@@ -145,6 +145,7 @@ function isRuntimeSourceFile(filename: string): boolean {
 export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "agent-chat": "defaultAgentChatPlugin",
   auth: "defaultAuthPlugin",
+  "context-xray": "defaultContextXrayPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
   integrations: "defaultIntegrationsPlugin",
   onboarding: "defaultOnboardingPlugin",

@@ -108,7 +108,7 @@ describe("agent-native skills", () => {
     );
   });
 
-  it("accepts contracts aliases for the built-in Contracts skill", async () => {
+  it("accepts legacy contracts aliases for the built-in Visual Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
@@ -135,19 +135,23 @@ describe("agent-native skills", () => {
         },
       );
 
-      expect(result.id).toBe("contracts");
-      expect(result.skillNames).toEqual(["contracts"]);
+      expect(result.id).toBe("visual-plans");
+      expect(result.skillNames).toEqual(["visual-plans"]);
       expect(commands[0].args).toEqual(
-        expect.arrayContaining(["--skill", "contracts", "-a", "codex", "-y"]),
+        expect.arrayContaining([
+          "--skill",
+          "visual-plans",
+          "-a",
+          "codex",
+          "-y",
+        ]),
       );
       expect(result.mcpUrl).toBe(
-        "https://contracts.agent-native.com/_agent-native/mcp",
+        "https://plans.agent-native.com/_agent-native/mcp",
       );
       expect(
         fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
-      ).toContain(
-        'url = "https://contracts.agent-native.com/_agent-native/mcp"',
-      );
+      ).toContain('url = "https://plans.agent-native.com/_agent-native/mcp"');
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;

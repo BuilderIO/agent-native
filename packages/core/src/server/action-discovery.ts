@@ -516,6 +516,26 @@ export async function mergeCoreSharingActions(
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
     [
+      "context-manifest-get",
+      () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-pin",
+      () => import("../agent/context-xray/actions/context-pin.js"),
+    ],
+    [
+      "context-evict",
+      () => import("../agent/context-xray/actions/context-evict.js"),
+    ],
+    [
+      "context-restore",
+      () => import("../agent/context-xray/actions/context-restore.js"),
+    ],
+    [
+      "context-report",
+      () => import("../agent/context-xray/actions/context-report.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],

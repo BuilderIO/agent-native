@@ -1,6 +1,6 @@
 {
-  "name": "Contracts",
-  "short_name": "Contracts",
+  "name": "Visual Plans",
+  "short_name": "Visual Plans",
   "description": "Review coding-agent assumptions and proof before work is called done.",
   "start_url": ".",
   "display": "standalone",

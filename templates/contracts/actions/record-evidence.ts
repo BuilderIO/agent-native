@@ -44,9 +44,9 @@ const verificationInputSchema = z.object({
 
 export default defineAction({
   description:
-    "Attach evidence artifacts to a contract. Agents may attach evidence, but verified status requires human, CI, deterministic, or independent verifier provenance.",
+    "Attach proof artifacts to a Visual Plan. Agents may attach evidence, but verified status requires human, CI, deterministic, or independent verifier provenance.",
   schema: z.object({
-    contractId: z.string(),
+    contractId: z.string().describe("Visual Plan ID"),
     evidence: z.array(evidenceInputSchema).default([]),
     verifications: z.array(verificationInputSchema).optional().default([]),
   }),
@@ -55,9 +55,9 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Record Contracts evidence",
+    title: "Record Visual Plan proof",
     description:
-      "Attach evidence artifacts and trusted verification status for acceptance criteria.",
+      "Attach proof artifacts and trusted verification status for plan proof gates.",
   },
   run: async (args) => {
     await assertContractEditor(args.contractId);

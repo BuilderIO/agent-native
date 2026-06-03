@@ -4,9 +4,9 @@ import { loadContractBundle } from "./_contracts.js";
 
 export default defineAction({
   description:
-    "Get the focused Contracts review queue: assumptions, decisions, deviations, and criteria that need attention.",
+    "Get Visual Plan items that need attention: comments, assumptions, decisions, deviations, and proof gates.",
   schema: z.object({
-    contractId: z.string(),
+    contractId: z.string().describe("Visual Plan ID"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -14,12 +14,13 @@ export default defineAction({
     expose: true,
     readOnly: true,
     requiresAuth: true,
-    title: "Get Contracts review queue",
-    description: "Read the queue of items that need human or agent attention.",
+    title: "Get Visual Plan review queue",
+    description: "Read plan items that need human or agent attention.",
   },
   run: async (args) => {
     const bundle = await loadContractBundle(args.contractId);
     return {
+      plan: bundle.contract,
       contract: bundle.contract,
       reviewQueue: bundle.reviewQueue,
       summary: bundle.summary,

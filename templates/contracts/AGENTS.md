@@ -1,8 +1,8 @@
-# Contracts — Agent Guide
+# Visual Plans — Agent Guide
 
-Contracts is a local-first review and proof layer for coding agents. Its job is
-to show material assumptions, collect structured human feedback, and require
-evidence before an agent can call work done.
+Visual Plans is a local-first HTML plan mode for coding agents. Its job is to
+turn agent plans into diagrams, wireframes, options, annotations, progress, and
+proof gates that a person can review before code changes happen.
 
 ## Core Rules
 
@@ -14,20 +14,23 @@ evidence before an agent can call work done.
   unclear.
 - For new features, update UI, actions, skills/instructions, and application
   state when applicable.
-- Do not treat agent claims as proof. Evidence and verification are separate.
-- Surface material assumptions only. Avoid filling the ledger with trivial
-  implementation inferences.
-- Before risky edits, read pending feedback with `get-feedback`.
+- Default to visual artifacts over long Markdown. Text is a fallback layer.
+- Keep proof gates separate from agent claims. Evidence and verification are
+  separate.
+- Surface material assumptions only when they change behavior, data, security,
+  tests, deployment, or definition of done.
+- Before edits, read pending feedback with `get-plan-feedback`.
 
 ## Application State
 
-- `navigation.view` is `contracts`, `contract`, `extensions`, or `team`.
-- `navigation.contractId` identifies the active contract when present.
-- `navigate` moves the UI to the review inbox or a specific contract.
+- `navigation.view` is `plans`, `plan`, `extensions`, or `team`.
+- `navigation.contractId` identifies the active visual plan when present. The
+  field name is legacy storage vocabulary; treat it as the plan ID.
+- `navigate` moves the UI to the plan list or a specific visual plan.
 
 ## Skills
 
-Use `.agents/skills/contracts/SKILL.md` for contract review behavior.
+Use `.agents/skills/visual-plans/SKILL.md` for Visual Plans behavior.
 Read the relevant root skill before implementation: `adding-a-feature`,
 `actions`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
 `frontend-design`, `shadcn-ui`, and `self-modifying-code`.

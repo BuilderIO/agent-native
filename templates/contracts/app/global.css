@@ -89,3 +89,31 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
 }
+
+.contracts-dashboard {
+  container: contracts-dashboard / inline-size;
+}
+
+.contracts-list-pane {
+  max-height: 16rem;
+}
+
+@container contracts-dashboard (min-width: 760px) {
+  .contracts-grid {
+    height: 100%;
+  }
+
+  .contracts-grid[data-rail="expanded"] {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .contracts-grid[data-rail="collapsed"] {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .contracts-list-pane {
+    max-height: none;
+    border-right-width: 1px;
+    border-bottom-width: 0;
+  }
+}

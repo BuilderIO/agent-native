@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "contracts",
-  "displayName": "Contracts",
-  "description": "Review coding-agent assumptions and proof before work is called done.",
+  "id": "visual-plans",
+  "displayName": "Visual Plans",
+  "description": "Review coding-agent plans as interactive HTML with diagrams, wireframes, annotations, and proof gates.",
   "hosted": {
-    "url": "https://contracts.agent-native.com",
-    "mcpUrl": "https://contracts.agent-native.com/_agent-native/mcp"
+    "url": "https://plans.agent-native.com",
+    "mcpUrl": "https://plans.agent-native.com/_agent-native/mcp"
   },
   "mcp": {
-    "serverName": "agent-native-contracts"
+    "serverName": "agent-native-visual-plans"
   },
   "local": {
     "template": "contracts",
@@ -22,21 +22,21 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Authenticate with the Contracts MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector."
+    "setup": "Authenticate with the Visual Plans MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector."
   },
   "surfaces": [
     {
-      "id": "review-inbox",
-      "action": "create-contract",
-      "path": "/contracts",
-      "description": "Create or open a Contracts review queue for a coding-agent task."
+      "id": "visual-plan",
+      "action": "create-visual-plan",
+      "path": "/plans",
+      "description": "Create or open a Visual Plan for a coding-agent task."
     }
   ],
   "skills": [
     {
-      "path": ".agents/skills/contracts",
+      "path": ".agents/skills/visual-plans",
       "visibility": "both",
-      "exportAs": "contracts"
+      "exportAs": "visual-plans"
     }
   ],
   "hostAdapters": [

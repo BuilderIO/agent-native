@@ -79,6 +79,12 @@ export type VerificationInput = {
 function useContractInvalidation() {
   const qc = useQueryClient();
   return () => {
+    void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
+    void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
+    void qc.invalidateQueries({
+      queryKey: ["action", "get-plan-review-queue"],
+    });
+    void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
     void qc.invalidateQueries({ queryKey: ["action", "list-contracts"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-contract"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-review-queue"] });
@@ -97,12 +103,12 @@ function showActionError(message: string) {
 }
 
 export function useContracts() {
-  return useActionQuery<ContractSummary[]>("list-contracts", {});
+  return useActionQuery<ContractSummary[]>("list-visual-plans", {});
 }
 
 export function useContract(id?: string) {
   return useActionQuery<ContractBundle>(
-    "get-contract",
+    "get-visual-plan",
     { id: id ?? "" },
     {
       enabled: !!id,
@@ -116,9 +122,9 @@ export function useCreateContract() {
   return useActionMutation<
     ContractBundle & { path?: string; url?: string },
     CreateContractInput
-  >("create-contract", {
+  >("create-visual-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to create contract"),
+    onError: showActionError("Failed to create visual plan"),
   });
 }
 
@@ -127,9 +133,9 @@ export function useAnalyzePlan() {
   return useActionMutation<
     ContractBundle,
     { contractId: string; planText: string }
-  >("analyze-plan", {
+  >("analyze-visual-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to analyze plan"),
+    onError: showActionError("Failed to analyze visual plan"),
   });
 }
 
@@ -142,9 +148,9 @@ export function useUpdateContractItems() {
       items?: ContractItemInput[];
       feedback?: ContractFeedbackInput[];
     }
-  >("upsert-contract-items", {
+  >("update-visual-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to update contract"),
+    onError: showActionError("Failed to update visual plan"),
   });
 }
 
@@ -160,7 +166,7 @@ export function useRecordProgress() {
       consumedFeedbackIds?: string[];
       note?: string;
     }
-  >("record-progress", {
+  >("record-plan-progress", {
     onSuccess: invalidate,
     onError: showActionError("Failed to record progress"),
   });
@@ -175,15 +181,19 @@ export function useRecordEvidence() {
       evidence?: EvidenceInput[];
       verifications?: VerificationInput[];
     }
-  >("record-evidence", {
+  >("record-plan-evidence", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to record evidence"),
+    onError: showActionError("Failed to record proof"),
   });
 }
 
 export function useExportContract(contractId?: string) {
-  return useActionQuery<{ markdown: string; json: ContractBundle }>(
-    "export-contract",
+  return useActionQuery<{
+    markdown: string;
+    html?: string;
+    json: ContractBundle;
+  }>(
+    "export-visual-plan",
     { contractId: contractId ?? "" },
     { enabled: false },
   );

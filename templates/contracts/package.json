@@ -1,7 +1,7 @@
 {
-  "name": "contracts",
-  "displayName": "Agent-Native Contracts",
-  "description": "Review assumptions, feedback, and proof for coding-agent work.",
+  "name": "visual-plans",
+  "displayName": "Agent-Native Visual Plans",
+  "description": "Review visual coding-agent plans with diagrams, wireframes, annotations, and proof gates.",
   "private": true,
   "type": "module",
   "engines": {

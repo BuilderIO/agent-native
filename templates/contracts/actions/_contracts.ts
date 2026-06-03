@@ -75,14 +75,22 @@ export function nowIso(): string {
 }
 
 export function contractPath(id: string): string {
-  return `/contracts/${encodeURIComponent(id)}`;
+  return planPath(id);
+}
+
+export function planPath(id: string): string {
+  return `/plans/${encodeURIComponent(id)}`;
 }
 
 export function contractDeepLink(id: string): string {
+  return planDeepLink(id);
+}
+
+export function planDeepLink(id: string): string {
   return buildDeepLink({
     app: "contracts",
-    view: "contract",
-    to: contractPath(id),
+    view: "plan",
+    to: planPath(id),
     params: { contractId: id },
   });
 }
@@ -230,7 +238,7 @@ export async function loadContractBundle(
   contractId: string,
 ): Promise<ContractBundle> {
   const access = await resolveAccess("contract", contractId);
-  if (!access) throw new Error(`Contract ${contractId} not found`);
+  if (!access) throw new Error(`Visual plan ${contractId} not found`);
   const contract = access.resource as typeof schema.contracts.$inferSelect;
   const db = getDb();
   const [itemRows, evidenceRows, verificationRows, feedbackRows, eventRows] =
