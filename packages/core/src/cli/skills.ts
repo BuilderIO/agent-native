@@ -22,19 +22,24 @@ import {
   resolveClients,
   writeConnectClientPreferences,
 } from "./connect.js";
+import {
+  CONTEXT_XRAY_SKILL_MD,
+  installLocalContextXray,
+} from "./context-xray-local.js";
 import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
 
 const HELP = `agent-native skills
 
 Usage:
   agent-native skills list
-  agent-native skills add assets|design-exploration|visual-plans [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
+  agent-native skills add assets|design-exploration|visual-plans|context-xray [--client codex|claude-code|claude-code-cli|cowork|all] [--scope user|project] [--mcp-url <url>] [--yes] [--dry-run] [--json]
   agent-native skills add <manifest-or-app-dir> [--client ...] [--yes]
 
 Examples:
   agent-native skills add assets
   agent-native skills add design-exploration
   agent-native skills add visual-plans
+  agent-native skills add context-xray --client all
   agent-native skills add assets --client claude-code
   agent-native skills add assets --mcp-url https://my-app.ngrok-free.dev
   agent-native skills add ./dist/assets-skill --client codex
@@ -431,9 +436,46 @@ const BUILT_IN_APP_SKILLS = {
     }),
     skillMarkdown: VISUAL_PLANS_SKILL_MD,
   },
+  "context-xray": {
+    skillName: "context-xray",
+    localOnly: true,
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "context-xray",
+      displayName: "Context X-Ray",
+      description:
+        "Visualize local Codex and Claude Code context usage with warnings and optimization tips.",
+      hosted: {
+        url: "https://context-xray.agent-native.com",
+        mcpUrl: "https://context-xray.agent-native.com/_agent-native/mcp",
+      },
+      mcp: { serverName: "agent-native-context-xray" },
+      auth: { mode: "none" },
+      surfaces: [
+        {
+          id: "context-xray-report",
+          path: "/",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/context-xray",
+          visibility: "exported",
+          exportAs: "context-xray",
+        },
+      ],
+      hostAdapters: ["plain-skill", "claude-skill"],
+    }),
+    skillMarkdown: CONTEXT_XRAY_SKILL_MD,
+  },
 } satisfies Record<
   string,
-  { manifest: AppSkillManifest; skillMarkdown: string; skillName: string }
+  {
+    manifest: AppSkillManifest;
+    skillMarkdown: string;
+    skillName: string;
+    localOnly?: boolean;
+  }
 >;
 
 type BuiltInAppSkillId = keyof typeof BUILT_IN_APP_SKILLS;
@@ -469,6 +511,12 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "assumption-review": "visual-plans",
   "agent-native-contracts": "visual-plans",
   "agent-native-visual-plans": "visual-plans",
+  "context-xray": "context-xray",
+  "local-context-xray": "context-xray",
+  xray: "context-xray",
+  "context-window": "context-xray",
+  "context-usage": "context-xray",
+  "agent-native-context-xray": "context-xray",
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
@@ -485,6 +533,7 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
     "contracts",
     "proof-check",
   ],
+  "context-xray": ["xray", "context-window", "context-usage"],
 } satisfies Record<BuiltInAppSkillId, string[]>;
 
 const CLIENT_LABELS: Record<ClientId, string> = {
@@ -533,6 +582,9 @@ export interface SkillsAddResult {
   mcpClients: ClientId[];
   dryRun: boolean;
   commands: string[];
+  local?: boolean;
+  scriptPath?: string;
+  written?: string[];
 }
 
 interface SkillInstallTarget {
@@ -585,6 +637,12 @@ function normalizeKnownSkillTarget(
 
 function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
+}
+
+function isLocalOnlyBuiltInSkill(
+  entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
+): boolean {
+  return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
 function normalizeClientIds(values: unknown): ClientId[] {
@@ -992,6 +1050,53 @@ export async function addAgentNativeSkill(
       `Unknown skill or manifest path: ${target}. Run "agent-native skills list".`,
     );
   }
+  const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  if (isLocalOnlyBuiltInSkill(knownBuiltIn)) {
+    if (parsed.mcpUrl) {
+      throw new Error(
+        "Context X-Ray is installed locally and does not use --mcp-url yet.",
+      );
+    }
+    if (!parsed.instructions && parsed.mcp) {
+      throw new Error(
+        "Context X-Ray does not need MCP config yet. Run without --mcp-only.",
+      );
+    }
+    const clients = parsed.clients ?? resolveClients(parsed.client);
+    const skillsAgents = skillsAgentsForClients(clients);
+    if (parsed.dryRun) {
+      return {
+        id: knownBuiltIn.manifest.id,
+        displayName: knownBuiltIn.manifest.displayName,
+        skillNames: [knownBuiltIn.skillName],
+        skillsAgents,
+        mcpUrl: "",
+        mcpClients: [],
+        dryRun: true,
+        local: true,
+        commands: [dryRunInstallCommand(parsed, target)],
+      };
+    }
+    const localInstall = installLocalContextXray({
+      baseDir: options.baseDir ?? process.cwd(),
+      clients,
+      scope: parsed.scope,
+    });
+    return {
+      id: knownBuiltIn.manifest.id,
+      displayName: knownBuiltIn.manifest.displayName,
+      instructionSource: localInstall.scriptPath,
+      skillNames: [knownBuiltIn.skillName],
+      skillsAgents,
+      mcpUrl: "",
+      mcpClients: [],
+      dryRun: false,
+      local: true,
+      scriptPath: localInstall.scriptPath,
+      written: localInstall.written,
+      commands: localInstall.commands,
+    };
+  }
   let installTarget = loadSkillTarget(target);
   if (parsed.mcpUrl) {
     installTarget = withMcpUrlOverride(installTarget, parsed.mcpUrl);
@@ -1093,7 +1198,8 @@ function listSkills() {
       ] ?? [],
     name: entry.manifest.displayName,
     description: entry.manifest.description,
-    mcpUrl: entry.manifest.hosted.mcpUrl,
+    mcpUrl: isLocalOnlyBuiltInSkill(entry) ? "" : entry.manifest.hosted.mcpUrl,
+    local: isLocalOnlyBuiltInSkill(entry),
   }));
 }
 
@@ -1122,8 +1228,9 @@ export async function runSkills(
       const aliases = skill.aliases.length
         ? ` Aliases: ${skill.aliases.join(", ")}.`
         : "";
+      const target = skill.local ? "local command" : skill.mcpUrl;
       process.stdout.write(
-        `${skill.id.padEnd(12)} ${description}${aliases} (${skill.mcpUrl})\n`,
+        `${skill.id.padEnd(12)} ${description}${aliases} (${target})\n`,
       );
     }
     return;
@@ -1173,16 +1280,30 @@ export async function runSkills(
   const mcpClients = [
     ...new Set(results.flatMap((result) => result.mcpClients)),
   ];
-  const mcpUrls = [...new Set(results.map((result) => result.mcpUrl))];
+  const mcpUrls = [
+    ...new Set(results.map((result) => result.mcpUrl).filter(Boolean)),
+  ];
+  const localCommands = [
+    ...new Set(
+      results
+        .filter((result) => result.local)
+        .flatMap((result) => result.commands),
+    ),
+  ];
   process.stdout.write(
     [
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}.`,
       skillsAgents.length
         ? `Skill instructions: ${skillsAgents.join(", ")}.`
         : "Skill instructions: skipped.",
-      `MCP config: ${mcpClients.join(", ")}.`,
-      `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`,
-      "Restart or reload selected agent clients if the tools are not visible yet.",
+      mcpClients.length
+        ? `MCP config: ${mcpClients.join(", ")}.`
+        : "MCP config: not required.",
+      mcpUrls.length
+        ? `MCP URL${mcpUrls.length === 1 ? "" : "s"}: ${mcpUrls.join(", ")}.`
+        : "",
+      localCommands.length ? `Local command: ${localCommands.join(", ")}.` : "",
+      "Restart or reload selected agent clients if the skill is not visible yet.",
       parsed.clientExplicit
         ? ""
         : `To add another client later, rerun with --client <client> (for example: --client claude-code).`,

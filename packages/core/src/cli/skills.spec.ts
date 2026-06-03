@@ -158,6 +158,89 @@ describe("agent-native skills", () => {
     }
   });
 
+  it("installs local Context X-Ray without MCP config", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "context-xray",
+          "--client",
+          "all",
+          "--scope",
+          "project",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      expect(result).toMatchObject({
+        id: "context-xray",
+        local: true,
+        mcpUrl: "",
+        mcpClients: [],
+        skillNames: ["context-xray"],
+      });
+      expect(
+        fs.existsSync(
+          path.join(home, ".agent-native", "context-xray", "context-xray"),
+        ),
+      ).toBe(true);
+      expect(
+        fs.readFileSync(
+          path.join(codexHome, "skills", "context-xray", "SKILL.md"),
+          "utf-8",
+        ),
+      ).toContain("name: context-xray");
+      expect(
+        fs.readFileSync(
+          path.join(home, ".claude", "commands", "context-xray.md"),
+          "utf-8",
+        ),
+      ).toContain("~/.agent-native/context-xray/context-xray --open");
+      expect(
+        fs.readFileSync(
+          path.join(root, ".agents", "commands", "context-xray.md"),
+          "utf-8",
+        ),
+      ).toContain("Context X-Ray");
+      expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("dry-runs the Context X-Ray one-command install", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs(["add", "xray", "--client", "codex", "--dry-run"]),
+      { baseDir: root },
+    );
+
+    expect(result).toMatchObject({
+      id: "context-xray",
+      local: true,
+      commands: [
+        "agent-native skills add xray --client codex --scope user --yes",
+      ],
+    });
+    expect(fs.existsSync(path.join(root, ".agents"))).toBe(false);
+  });
+
   it("installs built-in Assets instructions and MCP config", async () => {
     const root = tmpDir();
     const commands: { cmd: string; args: string[] }[] = [];
