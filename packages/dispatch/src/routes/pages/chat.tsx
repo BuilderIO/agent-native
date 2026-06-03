@@ -1,15 +1,7 @@
 import { useEffect, useRef } from "react";
-import {
-  useLocation,
-  useNavigate,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { AgentChatSurface } from "@agent-native/core/client";
 import { submitOverviewPrompt } from "@/lib/overview-chat";
-import {
-  buildThreadLinkPreviewMeta,
-  loadThreadLinkPreview,
-} from "@/server/lib/thread-link-preview";
 
 interface DispatchChatLocationState {
   dispatchPrompt?: {
@@ -23,17 +15,8 @@ interface DispatchChatLocationState {
   };
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const threadId = new URL(request.url).searchParams.get("thread");
-  return {
-    threadPreview: await loadThreadLinkPreview(threadId),
-  };
-}
-
-export function meta({ data }: { data?: Awaited<ReturnType<typeof loader>> }) {
-  return data?.threadPreview
-    ? buildThreadLinkPreviewMeta(data.threadPreview)
-    : [{ title: "Chat — Dispatch" }];
+export function meta() {
+  return [{ title: "Chat — Dispatch" }];
 }
 
 export default function ChatRoute() {
