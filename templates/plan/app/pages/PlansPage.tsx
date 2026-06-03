@@ -2462,24 +2462,28 @@ function injectAnnotationRuntime(
         const section = closestSection(target);
         const visual = closestVisualContext(target);
         const visualRect = visual?.getBoundingClientRect?.();
+        const tabContext = tabContextForElement(visual || target || section);
+        const textAnchor = visual ? null : anchorFromPoint(event.clientX, event.clientY, target);
         const textQuote = visual ? "" : closestTextContext(target);
         const visualX = visualRect ? pct(event.clientX - visualRect.left, visualRect.width) : undefined;
         const visualY = visualRect ? pct(event.clientY - visualRect.top, visualRect.height) : undefined;
+        const fallbackAnchor = {
+          x: pct(event.pageX, doc.scrollWidth),
+          y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
+          sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
+          sectionTitle: sectionTitle(section) || undefined,
+          ...tabContext,
+          snippet: textQuote || (target ? textSnippet(target) : ""),
+          textQuote: textQuote || undefined,
+          anchorKind: visual ? "visual" : textQuote ? "text" : "point",
+          visualLabel: visual ? visualLabel(visual, section) : undefined,
+          visualX,
+          visualY,
+          tagName: target ? target.tagName.toLowerCase() : undefined
+        };
         window.parent.postMessage({
           type: "agent-native-plan-annotate",
-          anchor: {
-            x: pct(event.pageX, doc.scrollWidth),
-            y: pct(event.pageY, Math.max(doc.scrollHeight, document.body.scrollHeight)),
-            sectionId: section?.getAttribute("data-plan-section-id") || section?.id || undefined,
-            sectionTitle: sectionTitle(section) || undefined,
-            snippet: textQuote || (target ? textSnippet(target) : ""),
-            textQuote: textQuote || undefined,
-            anchorKind: visual ? "visual" : textQuote ? "text" : "point",
-            visualLabel: visual ? visualLabel(visual, section) : undefined,
-            visualX,
-            visualY,
-            tagName: target ? target.tagName.toLowerCase() : undefined
-          }
+          anchor: textAnchor ? { ...textAnchor, ...tabContext } : fallbackAnchor
         }, "*");
       }, true);
     })();
